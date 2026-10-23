@@ -33,6 +33,7 @@ service's perimeter. First consumer: `orders-api`; nothing in the package may be
 - Q: Where do service notices (failures, budget exhausted, baseline recorded) go — the digest channel or a separate one? → A: An optional separate notice destination; when not set, notices go to the digest destination.
 - Q: How are new or growing groups below the read level (e.g. a burst of info lines) detected? → A: Level anomaly on backend totals: if a level's total grows ≥ growth factor vs the previous window, that level's lines are read in a second pass up to a separate smaller cap and grouped like any other lines.
 - Q: What do watch rules match? → A: Explicit form only: `template` (regex on the normalised template), `error_type` (regex), or `field` + `equals`/`matches` on a field value evaluated locally; only the rule name ever leaves the service.
+- Q: Free-text names cannot be recognised by patterns — how does message text leave the service safely? → A: Message text leaves only as a template whose variable tokens are masked by cross-event variation within a cluster, and only for clusters with at least `min_group_events_for_text` events (default 3); smaller clusters send level, error type, top frames and counters but no message text.
 - Q: Which findings collapse into the "minor" line? → A: `noise` findings, and `warn`/`info` findings with confidence below the confidence threshold; `error`/`critical` findings are never collapsed.
 - Q: How does a service's analysis account for the microservices it depends on? → A: Declared dependencies in configuration plus auto-detection from hosts in log templates; when a candidate references a dependency or the dependency errs in the same window, the dependency's totals and top error groups for that window are read and given to the model as context. Undeclared hosts seen in templates are listed in the digest.
 - Q: Does the package know the deployed version and the code? → A: It knows the deployed release and commit (from its own environment) and links stack frames to the repository at that commit. Reading code is allowed by the owner but is a separate feature (spec 002), not part of this one.
@@ -218,6 +219,8 @@ finding has a log link and code links at the deployed commit.
   all raw events at once.
 - Log lines in different formats within one service (plain text lines and JSON): the format is
   detected per line.
+- A one-off error whose message contains a person's name: fewer than `min_group_events_for_text`
+  events → message withheld, the finding still shows error type, frames and counts (FR-044).
 - A burst of lines below the read level (e.g. info): caught by the level anomaly pass (FR-038).
 - A dependency seen for the first time (no previous snapshot): no growth trigger, context without
   new/grown marks, snapshot stored (FR-039).
@@ -280,6 +283,13 @@ finding has a log link and code links at the deployed commit.
 
 - **FR-009**: Only allowlisted fields (FR-005 attributes and counters) MAY leave the service; raw
   context, request bodies and raw sample lines MUST never be sent.
+- **FR-044**: Message text MUST leave the service only as a template mined from a cluster of events:
+  tokens whose value varies between events of the same cluster MUST be masked (`<*>`), and the
+  template MUST be sent only if the cluster has at least `min_group_events_for_text` events
+  (default 3). For smaller clusters the message text MUST be withheld and only level, error type,
+  top frames and counters are sent ("message withheld: low volume"). Bare host names (not only URLs)
+  follow the same rule as URL hosts (FR-039). Names of people in free text are not pattern-detectable;
+  this rule, not pattern matching, is what protects them.
 - **FR-010**: A second redaction layer MUST scan outgoing templates for personal-data patterns
   (emails, phone numbers, tokens, card-like numbers, IP addresses) and replace them with typed
   placeholders; the Integrator MUST be able to add patterns and allowlist entries.
@@ -303,7 +313,7 @@ finding has a log link and code links at the deployed commit.
 - **FR-014**: All settings (source and credentials, tags, schedule/window, minimum level, growth
   factor, top-N, top-M, confidence threshold, escalation cap, state storage, retention, digest and
   notice destinations, model per step, token limits per step, daily spend cap, redaction allowlist
-  and patterns, mute list, per-group sample size, per-run event cap, anomaly cap, dependencies, dependency domains,
+  and patterns, mute list, per-group sample size, per-run event cap, anomaly cap, minimum events for message text, dependencies, dependency domains,
   service context, release/commit, log-link base URLs, repository URL and path mapping) MUST be
   settable per service and per environment without code changes.
 - **FR-015**: Invalid or incomplete configuration MUST be rejected before any external call, with a

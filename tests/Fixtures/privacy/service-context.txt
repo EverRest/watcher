@@ -1,0 +1,1 @@
+Our support desk replies to customers from support-lead@helpdesk.example.org, so mail errors mentioning that address are expected.

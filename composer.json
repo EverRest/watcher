@@ -1,0 +1,38 @@
+{
+    "name": "everrest/watcher",
+    "description": "Scheduled, model-routed log analysis that reports problems to Slack.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.1",
+        "anthropic-ai/sdk": "^1.1",
+        "guzzlehttp/guzzle": "^7.0",
+        "psr/clock": "^1.0",
+        "psr/log": "^1.1 || ^2.0 || ^3.0"
+    },
+    "require-dev": {
+        "illuminate/console": "^10.0 || ^11.0",
+        "illuminate/support": "^10.0 || ^11.0",
+        "laravel/pint": "^1.13",
+        "phpstan/phpstan": "^1.11",
+        "phpunit/phpunit": "^10.5 || ^11.0"
+    },
+    "suggest": {
+        "ext-redis": "Redis state store",
+        "ext-pdo": "PDO state store",
+        "illuminate/support": "Lumen/Laravel adapter"
+    },
+    "autoload": { "psr-4": { "Watcher\\": "src/" } },
+    "autoload-dev": { "psr-4": { "Watcher\\Tests\\": "tests/" } },
+    "bin": ["bin/watcher"],
+    "config": {
+        "platform": { "php": "8.1.99" },
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse --memory-limit=512M",
+        "style": "pint --test"
+    },
+    "minimum-stability": "stable"
+}

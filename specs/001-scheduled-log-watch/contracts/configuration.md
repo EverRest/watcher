@@ -97,6 +97,7 @@ return [
     ],
 
     'redaction' => [
+        'min_group_events_for_text' => 3,          // FR-044: smaller clusters send no message text
         'extra_patterns' => [ /* name => regex, replaced by <NAME> */ ],
     ],
 

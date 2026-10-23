@@ -1,0 +1,4 @@
+#!/usr/bin/env php
+<?php
+// replaced in T079
+exit(0);

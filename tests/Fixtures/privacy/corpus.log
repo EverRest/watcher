@@ -1,0 +1,50 @@
+[2026-10-07T21:10:01+00:00] production.ERROR: [APP]: Failed to send welcome mail to anna.kowalski@example.org (Anna Kowalski), phone +380 67 123 45 67 from 203.0.113.42 {"user_id":1001,"exception":"Swift_TransportException: Connection refused while mailing anna.kowalski@example.org"} []
+[2026-10-07T21:10:09+00:00] production.ERROR: [APP]: Payment declined for Anna Kowalski {"user_id":1001,"email":"anna.kowalski@example.org","ip":"203.0.113.42"} []
+[2026-10-07T21:11:01+00:00] production.ERROR: [APP]: Failed to send welcome mail to dmitri.petrov@mail.example.net (Dmitri Petrov), phone +49 30 1234 5678 from 198.51.100.77 {"user_id":1018,"exception":"Swift_TransportException: Connection refused while mailing dmitri.petrov@mail.example.net"} []
+[2026-10-07T21:11:09+00:00] production.ERROR: [APP]: Payment declined for Dmitri Petrov {"user_id":1018,"email":"dmitri.petrov@mail.example.net","ip":"198.51.100.77"} []
+[2026-10-07T21:12:01+00:00] production.ERROR: [APP]: Failed to send welcome mail to olena.shevchenko@gmail.example.com (Олена Шевченко), phone +380501234567 from 2001:db8:85a3::8a2e:370:7334 {"user_id":1035,"exception":"Swift_TransportException: Connection refused while mailing olena.shevchenko@gmail.example.com"} []
+[2026-10-07T21:12:09+00:00] production.ERROR: [APP]: Payment declined for Олена Шевченко {"user_id":1035,"email":"olena.shevchenko@gmail.example.com","ip":"2001:db8:85a3::8a2e:370:7334"} []
+[2026-10-07T21:13:01+00:00] production.ERROR: [APP]: Failed to send welcome mail to john.q.public@corp.example.co.uk (John Quincy Public), phone +1 (415) 555-0132 from 192.0.2.213 {"user_id":1052,"exception":"Swift_TransportException: Connection refused while mailing john.q.public@corp.example.co.uk"} []
+[2026-10-07T21:13:09+00:00] production.ERROR: [APP]: Payment declined for John Quincy Public {"user_id":1052,"email":"john.q.public@corp.example.co.uk","ip":"192.0.2.213"} []
+[2026-10-07T21:14:01+00:00] production.ERROR: [APP]: Failed to send welcome mail to maria_garcia+news@example.es (Maria Garcia), phone +44 20 7946 0958 from 203.0.113.42 {"user_id":1069,"exception":"Swift_TransportException: Connection refused while mailing maria_garcia+news@example.es"} []
+[2026-10-07T21:14:09+00:00] production.ERROR: [APP]: Payment declined for Maria Garcia {"user_id":1069,"email":"maria_garcia+news@example.es","ip":"203.0.113.42"} []
+[2026-10-07T22:00:11+00:00] production.ERROR: [DB]: SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction (order_id=4411) {"order_id":4411} []
+[2026-10-07T22:01:11+00:00] production.ERROR: [DB]: SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction (order_id=5120) {"order_id":5120} []
+[2026-10-07T22:02:11+00:00] production.ERROR: [DB]: SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction (order_id=7733) {"order_id":7733} []
+[2026-10-07T22:03:11+00:00] production.ERROR: [DB]: SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction (order_id=9004) {"order_id":9004} []
+[2026-10-07T22:04:11+00:00] production.ERROR: [DB]: SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction (order_id=12011) {"order_id":12011} []
+[2026-10-07T22:05:11+00:00] production.ERROR: [DB]: SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction (order_id=31337) {"order_id":31337} []
+[2026-10-07T22:10:30+00:00] production.WARNING: [QUEUE]: Job App\Jobs\SyncCatalog attempt 21 exceeded 30s timeout [] []
+[2026-10-07T22:11:30+00:00] production.WARNING: [QUEUE]: Job App\Jobs\SyncCatalog attempt 22 exceeded 30s timeout [] []
+[2026-10-07T22:12:30+00:00] production.WARNING: [QUEUE]: Job App\Jobs\SyncCatalog attempt 23 exceeded 30s timeout [] []
+[2026-10-07T22:13:30+00:00] production.WARNING: [QUEUE]: Job App\Jobs\SyncCatalog attempt 24 exceeded 30s timeout [] []
+[2026-10-07T22:20:00+00:00] production.CRITICAL: [APP]: InvalidArgumentException: Cannot find account for olena.shevchenko@gmail.example.com in /var/www/app/Services/AccountService.php:88 {"trace":"#0 /var/www/app/Http/AccountController.php(41): App\\Services\\AccountService->find('olena.shevchenko@gmail.example.com', 'Олена Шевченко')\\n#1 {main}"} []
+[2026-10-07T22:21:00+00:00] production.CRITICAL: [APP]: RuntimeException: Name mismatch, expected "Іван Петренко-Коваленко" got "Максим Бондаренко" [] []
+[2026-10-07T22:22:00+00:00] production.ERROR: [APP]: Customer note rejected: "Please call Mykola Hrytsenko tomorrow" (note_id=77) {"note_id":77} []
+[2026-10-07T22:30:00+00:00] production.ERROR: [AUTH]: Token rejected: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyIiwibmFtZSI6IkFubmEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c {"request_id":"req-1"} []
+[2026-10-07T22:31:00+00:00] production.ERROR: [AUTH]: Upstream 401, header Authorization: Bearer 9f8e7d6c5b4a39281706f5e4d3c2b1a0 [] []
+[2026-10-07T22:32:00+00:00] production.ERROR: [HTTP]: POST https://api.example.com/v1/charge failed {"headers":{"X-Api-Key":"sk_demo_51HxQ2eKzP9vWb3nTq7LmZ4Yc"},"jwt":"eyJhbGciOiJSUzI1NiJ9.eyJlbWFpbCI6ImRtaXRyaUBleGFtcGxlLm5ldCJ9.c2lnbmF0dXJlLXNlZWRlZC12YWx1ZQ"} []
+[2026-10-07T22:33:00+00:00] production.ERROR: [GIT]: clone failed with ghp_16C7e42F292c6912E7710c838347Ae178B4a [] []
+[2026-10-07T22:34:00+00:00] production.ERROR: [HTTP]: GET https://api.example.com/reset?email=reset.me@example.org&token=tk_7f3a9c1e5b2d4086 returned 500 [] []
+[2026-10-07T22:35:00+00:00] production.ERROR: [HTTP]: cURL error 6: Could not resolve host: john-smith.example.com [] []
+[2026-10-07T22:36:00+00:00] production.ERROR: [HTTP]: cURL error 7: Failed to connect to olena-shevchenko.example.org port 443 [] []
+[2026-10-07T22:37:00+00:00] production.ERROR: [DB]: SQLSTATE[HY000] [2002] Connection refused (mysql://user:S3cretPass@db.internal.example.com:3306/app) [] []
+[2026-10-07T22:38:00+00:00] production.ERROR: [CACHE]: redis connect failed: tcp://admin:hunter2pw@10.20.30.40:6379 [] []
+[2026-10-07T22:40:00+00:00] production.ERROR: [PAY]: Refund failed for IBAN GB82WEST12345698765432 amount 120.00 [] []
+[2026-10-07T22:41:00+00:00] production.ERROR: [PAY]: Refund failed for IBAN UA213223130000026007233566001 {"alt_iban":"DE89370400440532013000"} []
+[2026-10-07T22:42:00+00:00] production.ERROR: [PAY]: Card 4111 1111 1111 1111 declined (code 05) {"card":"5500-0000-0000-0004","amex":"378282246310005"} []
+[2026-10-07T22:43:00+00:00] production.ERROR: [SMS]: Delivery failed to 415-555-0187 and +1 (415) 555-0132 [] []
+[2026-10-07T22:44:00+00:00] production.WARNING: [NET]: Rate limit exceeded for client 2001:db8:1f70::999:de8:7648:6e8 [] []
+[2026-10-07T22:45:00+00:00] production.ERROR: [APP]: Profile sync failed {"ref":"user_ref_only_in_context_88213","name":"Sofia Müller"} []
+{"timestamp":"2026-10-07T23:00:00+00:00","level":"error","message":"Failed to deliver invoice to dmitri.petrov@mail.example.net","context":{"customer":"Dmitri Petrov","phone":"+49 30 1234 5678","ip":"198.51.100.77"}}
+{"timestamp":"2026-10-07T23:01:00+00:00","level":"error","message":"Failed to deliver invoice to maria_garcia+news@example.es","context":{"customer":"Maria Garcia","phone":"+44 20 7946 0958","ip":"203.0.113.42"}}
+{"timestamp":"2026-10-07T23:02:00+00:00","level":"critical","message":"Webhook signature invalid","context":{"jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyIiwibmFtZSI6IkFubmEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c","url":"https://hooks.example.com/in?token=tk_7f3a9c1e5b2d4086&email=reset.me@example.org"}}
+{"timestamp":"2026-10-07T23:03:00+00:00","level":"error","message":"Lock wait timeout exceeded","context":{"order_id":40001}}
+{"timestamp":"2026-10-07T23:04:00+00:00","level":"error","message":"Lock wait timeout exceeded","context":{"order_id":40002}}
+{"timestamp":"2026-10-07T23:05:00+00:00","level":"error","message":"KYC lookup failed for Anna Kowalski (Олена Шевченко referred)","context":{"mobile":"+380501234567"}}
+--- dependency service (billing-gateway) error stream ---
+2026-10-07 23:10:01 [billing-gateway] ERROR customer=Mykola Hrytsenko email=anna.kowalski@example.org charge failed: card 4111 1111 1111 1111
+2026-10-07 23:10:05 [billing-gateway] ERROR upstream https://admin:hunter2pw@10.20.30.40/pay?email=reset.me@example.org timed out for 203.0.113.42
+{"ts":"2026-10-07T23:10:09Z","svc":"billing-gateway","level":"error","msg":"webhook retry exhausted","payload":{"name":"Sofia Müller","contact":"dmitri.petrov@mail.example.net","auth":"Bearer 9f8e7d6c5b4a39281706f5e4d3c2b1a0"}}
+--- end dependency stream ---
+[2026-10-07T23:30:00+00:00] production.INFO: [APP]: Nightly report generated in 4.2s [] []

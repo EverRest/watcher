@@ -207,6 +207,16 @@ confirmed and are handled defensively.
 
   Whitespace is collapsed. The fingerprint is `sha256(level|errorType|template|frame0)`, truncated
   to 12 hex characters.
+- **Template mining (FR-044, owner decision 2026-10-23, option A)**: events are clustered by
+  (level, errorType, token count, first frame); within a cluster, a token position whose values
+  differ between events becomes `<*>`. A cluster with fewer than `min_group_events_for_text` events
+  (default 3) sends no message text — only level, error type, top frames and counters. Names in free
+  text cannot be found by patterns (verified on the corpus: 9 of 44 seeded values, all names, passed
+  the pattern table), so protection comes from variation plus a minimum cluster size, not guessing.
+  Bare FQDN host names (≥ 2 labels, alphabetic last label, not a known file extension) are treated
+  like URL hosts.
+- **Text-line formats**: both `[dt] channel.LEVEL [APP]: msg {ctx} {extra}` (orders-api `StdFormatter`)
+  and Laravel's default `[dt] channel.LEVEL: msg {ctx} {extra}` are accepted.
 - **Text-line format** (orders-api `StdFormatter`): parsed with
   `^\[(?<dt>[^\]]+)\] (?<ch>[\w.-]+)\.(?<lvl>[A-Z]+) \[(?<app>[^\]]*)\]: (?<msg>.*?)(?<ctx> \{.*\})?(?<extra> \[.*\]|\{.*\})?$`.
   Context JSON is decoded into `fields` (never sent). An unparseable line becomes level `info`,
