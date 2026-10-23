@@ -45,8 +45,16 @@ final class Normalizer
 
     private const H = '[0-9a-f]{1,4}';
 
-    /** One path segment of plain words: camelCase / snake / kebab words and digit groups of at most 4. */
-    private const WORDS = '/^(?:[A-Z]?+[a-z]++|\d{1,4}+(?!\d))(?:[_+-]?+(?:[A-Z]?+[a-z]++|\d{1,4}+(?!\d)))*+$/';
+    /**
+     * One path segment of plain words, at least as strict as looksRandom's identifier test: words of 2+ letters
+     * (camelCase / snake / kebab), digit groups of at most 3 separated from the word before them, at most 3 digits
+     * in all, no run of 6 consonants.
+     */
+    private const WORDS = '/^(?!(?:\D*+\d){4})(?![^b-df-hj-np-tv-xz]*+[b-df-hj-np-tv-xz]{6})'
+        . '(?:[A-Z]?+[a-z]{2,}+|\d{1,3}+(?!\d))(?:[A-Z]?+[a-z]{2,}+|[_+-](?:[A-Z]?+[a-z]{2,}+|\d{1,3}+(?!\d)))*+$/';
+
+    /** Digit-bearing path parts that are not secrets: a trailing `-2026-10-23` date and CPU architecture names. */
+    private const KNOWN = '/[_-]\d{4}-\d{2}-\d{2}$|\b(?:x86_64|amd64|arm64|aarch64|i[3-6]86)\b/';
 
     /** @var list<string> */
     private array $dependencyHosts;
@@ -201,18 +209,19 @@ final class Normalizer
             return $cut($run);
         }
 
-        $segments = explode('/', $run);
-        $plain = array_filter($segments, static fn (string $p): bool => $p !== '' && preg_match(self::WORDS, $p) !== 1) === [];
         $rooted = preg_match('#^(?:\.{0,2}+/|~/)#', $run) === 1;
+        $segments = $rooted || substr_count($run, '/') >= 2 ? explode('/', $run) : [$run];
         $parts = array_map($cut, $segments);
+        $odd = array_filter($segments, static fn (string $p): bool => $p !== '' && preg_match(self::WORDS, preg_replace(self::KNOWN, 'ab', $p) ?? $p) !== 1);
 
-        if ($plain || ($rooted && $parts !== $segments)) {
+        // Segment by segment only when every kept segment is plain words: a secret split across short segments is no path.
+        if ($odd === [] || ($rooted && $parts !== $segments && array_diff_key($odd, array_diff_assoc($parts, $segments)) === [])) {
             return implode('/', $parts);
         }
-        // Not clearly a path, or a rooted one with an odd segment and no random one: judge the whole run.
-        $whole = rtrim($run, '=');
+        // Not clearly a path, or a rooted one with an odd kept segment: judge the whole run.
+        $whole = rtrim(ltrim($run, './~'), '=');
 
-        return self::looksRandom($whole) || self::looksRandom(str_replace('/', '', $whole)) || $parts !== $segments ? '<TOKEN>' : $run;
+        return self::looksRandom($whole) || $parts !== $segments ? '<TOKEN>' : $run;
     }
 
     /**

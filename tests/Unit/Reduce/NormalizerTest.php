@@ -345,6 +345,10 @@ final class NormalizerTest extends TestCase
             'aws-secret-shaped value with slashes' => ['key ' . self::awsShaped() . ' bad', 'key <TOKEN> bad'],
             'base64 blob with a slash every few chars' => ['key ' . implode('/', str_split('Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MEFiQ2RFZkdoSWpLbA', 5)) . ' bad', 'key <TOKEN> bad'],
             'rooted base64 with short segments' => ['key /' . self::awsShaped() . ' bad', 'key <TOKEN> bad'],
+            'rooted secret split into short mixed segments' => ['key /ab12/Xk3q/Z9fW/Lm2p/Rt6y/Uv8w/Qe5r bad', 'key <TOKEN> bad'],
+            'rooted partial secret next to a masked segment' => ['key /ab12/Xk3q/aB3dE5gH7jK9mN1pQ3sT5vX7/Lm2p bad', 'key <TOKEN> bad'],
+            'one slash is judged whole' => ['key ab12cd34ef56gh78/ij90 bad', 'key <TOKEN> bad'],
+            'one slash base64 halves' => ['key Zm9vYmFyYmF6/cXV4MTIzNDU2Nzg5MEFi bad', 'key <TOKEN> bad'],
             'path with one random segment' => ['in /var/www/aB3dE5gH7jK9mN1pQ3sT5vX7/cache now', 'in /var/www/<TOKEN>/cache now'],
             'digest' => ['Authorization: Digest username="bob", realm="x", nonce="n", response="r" tail', 'Authorization: Digest <TOKEN>'],
             'aws4 signature' => ['Authorization: AWS4-HMAC-SHA256 Credential=FAKEID/eu/s3, SignedHeaders=host, Signature=feedface00 tail', 'Authorization: AWS<N>-HMAC-SHA<N> <TOKEN>'],
@@ -446,6 +450,8 @@ final class NormalizerTest extends TestCase
             'basic long base64' => ['basic ' . str_repeat('Ab+/', 1000)],
             'mixed slashes' => [str_repeat('aB3/', 1000)],
             'rooted word path' => ['/' . str_repeat('ab/', 1300)],
+            'rooted short mixed segments' => ['/' . str_repeat('Ab1/xK9/', 500)],
+            'rooted short segments and a random one' => ['/' . str_repeat('aB3/', 900) . 'aB3dE5gH7jK9mN1pQ3sT5vX7/' . str_repeat('x9/', 300)],
             'long segments' => [str_repeat(str_repeat('aB3dE5gH7jK9mN1pQ3sT5vX7', 1) . '/', 160)],
         ];
     }
