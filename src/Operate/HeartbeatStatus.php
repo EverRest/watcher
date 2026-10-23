@@ -25,4 +25,58 @@ final class HeartbeatStatus
     {
         return $this->state === 'ok';
     }
+
+    /** 0 ok, 3 unknown (no record, expired or unreadable store), 1 stale or failed. */
+    public function exitCode(): int
+    {
+        return match ($this->state) {
+            'ok' => 0,
+            'unknown' => 3,
+            default => 1,
+        };
+    }
+
+    public function text(string $service): string
+    {
+        $rec = $this->record;
+        $at = static fn (?DateTimeImmutable $d): string => $d?->format(DATE_ATOM) ?? '-';
+        $last = $rec === null ? '-' : sprintf(
+            '%s  outcome=%s  duration=%ss  cost_usd=%s',
+            is_string($rec['finishedAt'] ?? null) ? $rec['finishedAt'] : '-',
+            is_string($rec['outcome'] ?? null) ? $rec['outcome'] : '-',
+            is_int($rec['durationSeconds'] ?? null) ? $rec['durationSeconds'] : '-',
+            is_numeric($rec['costUsd'] ?? null) ? number_format((float) $rec['costUsd'], 4, '.', '') : '-',
+        );
+
+        return "service:        $service\n"
+            . "state:          {$this->state}\n"
+            . "last run:       $last\n"
+            . 'last ok:        ' . $at($this->comparedWith) . '  age=' . ($this->ageSeconds === null ? '-' : self::span($this->ageSeconds)) . '  limit=' . self::span($this->limitSeconds) . "\n"
+            . 'last trigger:   ' . $at($this->lastTriggerAt) . "\n"
+            . 'compared:       now=' . $this->now->format(DATE_ATOM) . ' against last ok ' . $at($this->comparedWith) . "\n";
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(string $service): array
+    {
+        return [
+            'schema' => 1,
+            'service' => $service,
+            'state' => $this->state,
+            'last_run' => $this->record,
+            'age_seconds' => $this->ageSeconds,
+            'limit_seconds' => $this->limitSeconds,
+            'now' => $this->now->format(DATE_ATOM),
+            'last_ok_at' => $this->comparedWith?->format(DATE_ATOM),
+            'last_trigger_at' => $this->lastTriggerAt?->format(DATE_ATOM),
+        ];
+    }
+
+    private static function span(int $seconds): string
+    {
+        $h = intdiv($seconds, 3600);
+        $m = intdiv($seconds % 3600, 60);
+
+        return $h > 0 ? $h . 'h' . ($m > 0 ? $m . 'm' : '') : $m . 'm';
+    }
 }

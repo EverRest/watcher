@@ -10,9 +10,10 @@ use Illuminate\Console\Command;
 use Illuminate\Container\Container;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\BufferedOutput;
 use Watcher\Config\InvalidConfig;
 use Watcher\Laravel\RunCommand;
+use Watcher\Operate\RunOptions;
+use Watcher\Operate\RunSummaryData;
 use Watcher\Laravel\WatcherServiceProvider;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
@@ -20,6 +21,8 @@ use Watcher\Watcher;
 
 final class RunCommandTest extends TestCase
 {
+    private string $stderr = '';
+
     protected function setUp(): void
     {
         if (!class_exists(Command::class) || !class_exists(Container::class)) {
@@ -28,7 +31,7 @@ final class RunCommandTest extends TestCase
     }
 
     /**
-     * @param array<string, string> $input
+     * @param array<string, string|bool> $input
      * @return array{int, string}
      */
     private function exec(Closure $factory, array $input = []): array
@@ -40,8 +43,9 @@ final class RunCommandTest extends TestCase
                 return true;
             }
         });
-        $out = new BufferedOutput();
+        $out = new SplitOutput();
         $code = $cmd->run(new ArrayInput($input), $out);
+        $this->stderr = $out->stderr();
 
         return [$code, $out->fetch()];
     }
@@ -108,6 +112,68 @@ final class RunCommandTest extends TestCase
         });
         self::assertSame(2, $code);
         self::assertStringContainsString('invalid config: state.driver is required', $out);
+    }
+
+    public function testOptionsAndOutSinkReachTheFactory(): void
+    {
+        $seen = [];
+        $factory = static function (RunOptions $o, callable $out) use (&$seen): callable {
+            $seen[] = $o;
+            $out("== DRY RUN: x ==\n");
+
+            return static fn (): RunResult => new RunResult(RunOutcome::Quiet);
+        };
+        [, $out] = $this->exec($factory, ['--dry-run' => true, '--estimate' => true]);
+        self::assertEquals(RunOptions::dryRun(true), $seen[0]);
+        self::assertStringContainsString('== DRY RUN: x ==', $out);
+
+        $this->exec($factory);
+        self::assertEquals(RunOptions::default(), $seen[1]);
+    }
+
+    public function testEstimateWithoutDryRunIsExitTwoWithoutBuilding(): void
+    {
+        $built = false;
+        [$code, $out] = $this->exec(static function () use (&$built): callable {
+            $built = true;
+
+            return static fn (): RunResult => new RunResult(RunOutcome::Quiet);
+        }, ['--estimate' => true]);
+        self::assertSame(2, $code);
+        self::assertFalse($built);
+        self::assertStringContainsString('--estimate requires --dry-run', $out);
+    }
+
+    public function testJsonIsOneStdoutLineAndHumanTextGoesToStderr(): void
+    {
+        $factory = static fn (RunOptions $o, callable $out): callable => static function () use ($out): RunResult {
+            $out("== DRY RUN: x ==\n");
+
+            return new RunResult(RunOutcome::Failed, 'source failed', null, new RunSummaryData(RunOutcome::Failed, 'svc', 'source_failed'));
+        };
+        [$code, $out] = $this->exec($factory, ['--json' => true, '--dry-run' => true]);
+
+        self::assertSame(1, $code);
+        self::assertSame(1, substr_count($out, "\n"));
+        $j = json_decode($out, true);
+        self::assertIsArray($j);
+        self::assertSame('source_failed', $j['reason']);
+        self::assertStringContainsString('watcher: outcome=failed', $this->stderr);
+        self::assertStringContainsString('== DRY RUN: x ==', $this->stderr);
+    }
+
+    public function testJsonWithInvalidConfigPrintsTheLineAndExitsTwo(): void
+    {
+        [$code, $out] = $this->exec(static function (): callable {
+            throw new InvalidConfig('state.driver is required');
+        }, ['--json' => true]);
+
+        self::assertSame(2, $code);
+        self::assertSame(1, substr_count($out, "\n"));
+        $j = json_decode($out, true);
+        self::assertIsArray($j);
+        self::assertSame('invalid_config', $j['outcome']);
+        self::assertStringContainsString('invalid config: state.driver is required', $this->stderr);
     }
 
     public function testProviderMergesPublishedConfigUnderWatcherKey(): void

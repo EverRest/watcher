@@ -103,6 +103,12 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `notify.digest.webhook` | required | Slack incoming webhook for the digest. |
 | `notify.notice` | null | Separate destination (same shape) for failures, budget notices and baseline messages; null uses the digest destination. |
 
+### Command-line flags (not config keys)
+
+`bin/watcher run --config=<file> [--now=<ISO-8601>] [--dry-run [--estimate]] [--json]`, `bin/watcher check --config=<file>
+[--post-test] [--json]`, `bin/watcher status --config=<file> [--json]`. `--estimate` requires `--dry-run`. See
+[operations](operations.md) for what each prints and its exit codes.
+
 ### `heartbeat` (optional)
 
 | Key | Default | Notes |

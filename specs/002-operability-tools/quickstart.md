@@ -23,7 +23,7 @@ All scenarios run with fakes (no network). Gates: `composer test`, `composer sta
 | 16 | Dry run, window already reported | executes, prints the "already reported" label | `tests/EndToEnd/DryRunTest.php` |
 | 17 | Dry run with model calls | analyzer called, label says billed, `spend:` counters and `alert:` keys unchanged, no budget alert | `tests/EndToEnd/DryRunTest.php` |
 | 18 | `--dry-run --estimate` | zero analyzer calls; per-step counts and token estimates printed | `tests/EndToEnd/DryRunTest.php` |
-| 19 | `--estimate` without `--dry-run`; `--dry-run` outside the run_at hour | usage error exit 2; `skipped_not_due` with the `--now` hint | `tests/Unit/CliTest.php` |
+| 19 | `--estimate` without `--dry-run`; `--dry-run` outside the run_at hour | usage error exit 2; dry run outside the run_at hour still runs (never `skipped_not_due`) | `tests/Unit/CliTest.php` |
 | 20 | `--json` on reported, quiet, failed, invalid config | exactly one stdout line, same field names every time; human text only on stderr (SC-005) | `tests/Unit/CliTest.php`, `tests/Unit/Cli/JsonSummaryTest.php` |
 | 21 | JSON line scanned against the privacy corpus | counts and ids only (FR-017, SC-006) | `tests/EndToEnd/PrivacyTest.php` |
 | 22 | File store: expired entries, live entries, foreign files, stale lock sidecars | expired and old sidecars removed, live and foreign kept; at most once per day; bounded by 2 s / 5,000 files (SC-007) | `tests/Unit/State/FileStateStorePurgeTest.php` |

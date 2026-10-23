@@ -6,6 +6,10 @@ namespace Watcher\Laravel;
 
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
+use Watcher\Config\Factory;
+use Watcher\Operate\CheckReport;
+use Watcher\Operate\HeartbeatStatus;
+use Watcher\Operate\RunOptions;
 use Watcher\Watcher;
 
 final class WatcherServiceProvider extends ServiceProvider
@@ -25,15 +29,39 @@ final class WatcherServiceProvider extends ServiceProvider
 
             return Watcher::fromConfig((array) $app->make('config')->get('watcher'), $logger);
         });
+        // A real run reuses the singleton; a dry run builds its own Watcher with the dry-run collaborators.
         $this->app->bind(
             RunCommand::class,
-            static fn ($app): RunCommand => new RunCommand(static fn (): callable => $app->make(Watcher::class)->run(...)),
+            static fn ($app): RunCommand => new RunCommand(static function (RunOptions $options, callable $out) use ($app): callable {
+                if (!$options->dryRun) {
+                    return $app->make(Watcher::class)->run(...);
+                }
+                $logger = $app->bound(LoggerInterface::class) ? $app->make(LoggerInterface::class) : null;
+
+                return Watcher::fromConfig((array) $app->make('config')->get('watcher'), $logger, null, $options, $out)->run(...);
+            }),
+        );
+        $this->app->bind(
+            CheckCommand::class,
+            static fn ($app): CheckCommand => new CheckCommand(static fn (bool $postTest): CheckReport => Factory::doctor((array) $app->make('config')->get('watcher'))->run($postTest)),
+        );
+        $this->app->bind(
+            StatusCommand::class,
+            static function ($app): StatusCommand {
+                $config = (array) $app->make('config')->get('watcher');
+                $logger = $app->bound(LoggerInterface::class) ? $app->make(LoggerInterface::class) : null;
+
+                return new StatusCommand(
+                    static fn (): HeartbeatStatus => Factory::heartbeatStatus($config, null, $logger),
+                    is_string($config['service'] ?? null) ? $config['service'] : '',
+                );
+            },
         );
     }
 
     public function boot(): void
     {
-        $this->commands([RunCommand::class]);
+        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class]);
         if (method_exists($this->app, 'basePath')) {
             $this->publishes([self::CONFIG => $this->app->basePath('config/watcher.php')], 'watcher-config');
         }

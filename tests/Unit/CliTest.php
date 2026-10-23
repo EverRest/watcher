@@ -8,6 +8,11 @@ use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Watcher\Cli\Application;
 use Watcher\Config\InvalidConfig;
+use Watcher\Operate\CheckReport;
+use Watcher\Operate\CheckResult;
+use Watcher\Operate\HeartbeatStatus;
+use Watcher\Operate\RunOptions;
+use Watcher\Operate\RunSummaryData;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
 
@@ -16,6 +21,9 @@ final class CliTest extends TestCase
     private string $cfg;
 
     private string $stdout = '';
+
+    /** @var list<RunOptions> */
+    private array $options = [];
 
     protected function setUp(): void
     {
@@ -35,7 +43,9 @@ final class CliTest extends TestCase
     private function exec(array $args, RunResult|InvalidConfig $outcome): array
     {
         $calls = [];
-        $factory = static function (array $config) use ($outcome, &$calls): callable {
+        $this->options = [];
+        $factory = function (array $config, RunOptions $options) use ($outcome, &$calls): callable {
+            $this->options[] = $options;
             if ($outcome instanceof InvalidConfig) {
                 throw $outcome;
             }
@@ -125,5 +135,248 @@ final class CliTest extends TestCase
         $this->exec(['run', '--config=' . $this->cfg], new InvalidConfig('service is required'));
 
         self::assertSame('', $this->stdout);
+    }
+
+    public function testRunOptionsReachTheFactory(): void
+    {
+        $this->exec(['run', '--config=' . $this->cfg, '--dry-run', '--estimate', '--json'], new RunResult(RunOutcome::Quiet));
+        self::assertEquals(new RunOptions(true, true, true), $this->options[0]);
+
+        $this->exec(['run', '--config=' . $this->cfg], new RunResult(RunOutcome::Quiet));
+        self::assertEquals(RunOptions::default(), $this->options[0]);
+
+        $this->exec(['run', '--config=' . $this->cfg, '--dry-run'], new RunResult(RunOutcome::Quiet));
+        self::assertEquals(RunOptions::dryRun(), $this->options[0]);
+    }
+
+    public function testEstimateWithoutDryRunIsAUsageError(): void
+    {
+        [$code, $err, $calls] = $this->exec(['run', '--config=' . $this->cfg, '--estimate'], new RunResult(RunOutcome::Quiet));
+        self::assertSame(2, $code);
+        self::assertStringContainsString('--estimate requires --dry-run', $err);
+        self::assertSame([], $calls);
+        self::assertSame('', $this->stdout);
+    }
+
+    public function testJsonPrintsExactlyOneLineOnStdoutAndTheSummaryOnStderr(): void
+    {
+        $r = new RunResult(RunOutcome::Quiet, null, null, new RunSummaryData(RunOutcome::Quiet, 'svc'));
+        [$code, $err] = $this->exec(['run', '--config=' . $this->cfg, '--json'], $r);
+
+        self::assertSame(0, $code);
+        self::assertSame(1, substr_count($this->stdout, "\n"));
+        self::assertStringEndsWith("\n", $this->stdout);
+        $j = json_decode($this->stdout, true);
+        self::assertIsArray($j);
+        self::assertSame('quiet', $j['outcome']);
+        self::assertSame('svc', $j['service']);
+        self::assertSame("watcher: outcome=quiet\n", $err);
+    }
+
+    public function testJsonLineIsPrintedAlsoForFailureWithTheSameExitCode(): void
+    {
+        $r = new RunResult(RunOutcome::Failed, 'source failed', null, new RunSummaryData(RunOutcome::Failed, 'svc', 'source_failed'));
+        [$code] = $this->exec(['run', '--config=' . $this->cfg, '--json'], $r);
+
+        self::assertSame(1, $code);
+        $j = json_decode($this->stdout, true);
+        self::assertIsArray($j);
+        self::assertSame('failed', $j['outcome']);
+        self::assertSame('source_failed', $j['reason']);
+    }
+
+    public function testJsonWithInvalidConfigPrintsTheSummaryWithShortCodeAndExitsTwo(): void
+    {
+        [$code, $err] = $this->exec(['run', '--config=' . $this->cfg, '--json'], new InvalidConfig('analysis.api_key is required'));
+
+        self::assertSame(2, $code);
+        self::assertSame(1, substr_count($this->stdout, "\n"));
+        $j = json_decode($this->stdout, true);
+        self::assertIsArray($j);
+        self::assertSame('invalid_config', $j['outcome']);
+        self::assertSame('invalid_config', $j['reason']);
+        self::assertStringContainsString('analysis.api_key is required', $err);
+        self::assertStringNotContainsString('api_key', $this->stdout);
+    }
+
+    public function testJsonWithoutSummaryDataStillPrintsOneLine(): void
+    {
+        $this->exec(['run', '--config=' . $this->cfg, '--json'], new RunResult(RunOutcome::Reported));
+        $j = json_decode($this->stdout, true);
+        self::assertIsArray($j);
+        self::assertSame('reported', $j['outcome']);
+    }
+
+    /**
+     * @param list<string> $args
+     * @return array{int, string, string}
+     */
+    private function checkExec(array $args, CheckReport|InvalidConfig $report, ?bool &$post = null): array
+    {
+        $checkFactory = static function (array $config, bool $postTest) use ($report, &$post): CheckReport {
+            $post = $postTest;
+            if ($report instanceof InvalidConfig) {
+                throw $report;
+            }
+
+            return $report;
+        };
+        $err = fopen('php://memory', 'w+');
+        $out = fopen('php://memory', 'w+');
+        self::assertIsResource($err);
+        self::assertIsResource($out);
+        $code = (new Application(static fn (): callable => throw new \LogicException('no run'), $err, $out, $checkFactory))->run(['watcher', ...$args]);
+        rewind($err);
+        rewind($out);
+
+        return [$code, (string) stream_get_contents($out), (string) stream_get_contents($err)];
+    }
+
+    public function testCheckPrintsTheReportAndExitsWithItsCode(): void
+    {
+        $ok = new CheckReport([CheckResult::pass('config')]);
+        [$code, $out, $err] = $this->checkExec(['check', '--config=' . $this->cfg], $ok, $post);
+        self::assertSame(0, $code);
+        self::assertSame($ok->text(), $out);
+        self::assertSame('', $err);
+        self::assertFalse($post);
+
+        $bad = new CheckReport([CheckResult::pass('config'), CheckResult::fail('source', 'unauthorised')]);
+        [$code, $out] = $this->checkExec(['check', '--config=' . $this->cfg, '--post-test'], $bad, $post);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('unauthorised', $out);
+        self::assertTrue($post);
+    }
+
+    public function testCheckJsonIsOneStdoutLineAndTextGoesToStderr(): void
+    {
+        $bad = new CheckReport([CheckResult::pass('config'), CheckResult::fail('source', 'unauthorised')]);
+        [$code, $out, $err] = $this->checkExec(['check', '--config=' . $this->cfg, '--json'], $bad);
+
+        self::assertSame(1, $code);
+        self::assertSame(1, substr_count($out, "\n"));
+        self::assertSame($bad->toArray(), json_decode($out, true));
+        self::assertSame($bad->text(), $err);
+    }
+
+    public function testCheckWithInvalidConfigIsAConfigFailureReportWithExitOne(): void
+    {
+        [$code, $out] = $this->checkExec(['check', '--config=' . $this->cfg], new InvalidConfig('analysis.api_key is required'));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('config', $out);
+        self::assertStringContainsString('invalid: analysis.api_key is required', $out);
+        self::assertStringContainsString('skip', strtolower($out));
+    }
+
+    public function testCheckUsageErrors(): void
+    {
+        $r = new CheckReport([CheckResult::pass('config')]);
+        foreach ([['check'], ['check', '--config=' . $this->cfg, '--now=2026-10-23T06:00:00Z'], ['check', '--config=/nonexistent.php']] as $args) {
+            [$code, , $err] = $this->checkExec($args, $r);
+            self::assertSame(2, $code);
+            self::assertStringContainsString('usage:', $err);
+        }
+    }
+
+    /**
+     * @param list<string> $args
+     * @return array{int, string, string}
+     */
+    private function statusExec(array $args, HeartbeatStatus|InvalidConfig $status): array
+    {
+        $statusFactory = static function (array $config) use ($status): HeartbeatStatus {
+            if ($status instanceof InvalidConfig) {
+                throw $status;
+            }
+
+            return $status;
+        };
+        $err = fopen('php://memory', 'w+');
+        $out = fopen('php://memory', 'w+');
+        self::assertIsResource($err);
+        self::assertIsResource($out);
+        $code = (new Application(static fn (): callable => throw new \LogicException('no run'), $err, $out, null, $statusFactory))->run(['watcher', ...$args]);
+        rewind($err);
+        rewind($out);
+
+        return [$code, (string) stream_get_contents($out), (string) stream_get_contents($err)];
+    }
+
+    private static function hb(string $state): HeartbeatStatus
+    {
+        $now = new DateTimeImmutable('2026-10-24T09:12:55+00:00');
+        $ok = new DateTimeImmutable('2026-10-24T06:00:41+00:00');
+        $rec = $state === 'unknown' ? null : ['outcome' => $state === 'failed' ? 'failed' : 'quiet', 'finishedAt' => $ok->format(DATE_ATOM), 'durationSeconds' => 38, 'costUsd' => 0.0];
+
+        return new HeartbeatStatus($state, $rec, $state === 'unknown' ? null : 11534, 129600, $now, $state === 'unknown' ? null : $ok, null);
+    }
+
+    public function testStatusExitCodesPerState(): void
+    {
+        foreach (['ok' => 0, 'stale' => 1, 'failed' => 1, 'unknown' => 3] as $state => $expected) {
+            [$code, $out] = $this->statusExec(['status', '--config=' . $this->cfg], self::hb($state));
+            self::assertSame($expected, $code, $state);
+            self::assertStringContainsString("state:          $state", $out);
+            self::assertStringContainsString('service:        svc', $out);
+        }
+    }
+
+    public function testStatusPrintsBothComparedInstants(): void
+    {
+        [, $out] = $this->statusExec(['status', '--config=' . $this->cfg], self::hb('stale'));
+        self::assertStringContainsString('compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00', $out);
+        self::assertStringContainsString('age=3h12m', $out);
+        self::assertStringContainsString('limit=36h', $out);
+        self::assertStringContainsString('outcome=quiet', $out);
+    }
+
+    public function testStatusJsonIsOneLine(): void
+    {
+        [$code, $out, $err] = $this->statusExec(['status', '--config=' . $this->cfg, '--json'], self::hb('ok'));
+        self::assertSame(0, $code);
+        self::assertSame(1, substr_count($out, "\n"));
+        $j = json_decode($out, true);
+        self::assertIsArray($j);
+        self::assertSame(1, $j['schema']);
+        self::assertSame('svc', $j['service']);
+        self::assertSame('ok', $j['state']);
+        self::assertSame(11534, $j['age_seconds']);
+        self::assertSame(129600, $j['limit_seconds']);
+        self::assertSame('2026-10-24T06:00:41+00:00', $j['last_ok_at']);
+        self::assertSame('quiet', $j['last_run']['outcome']);
+        self::assertStringContainsString('state:', $err);
+
+        [, $out] = $this->statusExec(['status', '--config=' . $this->cfg, '--json'], self::hb('unknown'));
+        $j = json_decode($out, true);
+        self::assertNull($j['last_run']);
+        self::assertNull($j['age_seconds']);
+    }
+
+    public function testStatusInvalidConfigAndUsage(): void
+    {
+        [$code, $out, $err] = $this->statusExec(['status', '--config=' . $this->cfg], new InvalidConfig('state.driver is required'));
+        self::assertSame(2, $code);
+        self::assertSame('', $out);
+        self::assertSame("invalid config: state.driver is required\n", $err);
+
+        [$code, , $err] = $this->statusExec(['status', '--config=' . $this->cfg, '--dry-run'], self::hb('ok'));
+        self::assertSame(2, $code);
+        self::assertStringContainsString('usage:', $err);
+    }
+
+    public function testUsageNamesAllThreeCommands(): void
+    {
+        [, $err] = $this->exec([], new RunResult(RunOutcome::Quiet));
+        foreach (['watcher run', 'watcher check', 'watcher status', '--dry-run', '--estimate', '--json', '--post-test'] as $needle) {
+            self::assertStringContainsString($needle, $err);
+        }
+    }
+
+    public function testCheckOrStatusWithoutTheirFactoryIsUsage(): void
+    {
+        [$code, $err] = $this->exec(['check', '--config=' . $this->cfg], new RunResult(RunOutcome::Quiet));
+        self::assertSame(2, $code);
+        self::assertStringContainsString('usage:', $err);
     }
 }

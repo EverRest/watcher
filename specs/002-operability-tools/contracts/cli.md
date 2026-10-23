@@ -34,9 +34,9 @@ Dry-run output on stdout (before the summary line):
 
 ```text
 == DRY RUN: nothing posted, no state written. Model calls were real and billed; spend not recorded. ==
-== message to digest ==
+== DRY RUN message to digest ==
 <digest text>
-== message to notice ==
+== DRY RUN message to notice ==
 <notice text>
 == window already reported by a real run: executed anyway ==      (only when the run record existed)
 ```
@@ -52,8 +52,7 @@ escalate       -               -                 -              -   (up to 2 gro
 total                                                       0.0441
 ```
 
-Outside the `run_at` hour a dry run reports `outcome=skipped_not_due` and, on stderr,
-`hint: pass --now=<ISO-8601 inside the run_at hour> to preview a window`.
+A dry run ignores the due gate (it previews the window ending at the latest `run_at` instant <= now or `--now`), so it never ends as `skipped_not_due`.
 
 ## watcher check
 

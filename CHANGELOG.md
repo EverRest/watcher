@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- Spec 002, operability: `watcher check [--post-test] [--json]` (doctor over source, provider auth, models, prices, state, notifier), `watcher status [--json]` (heartbeat age and state; exit 0 ok, 1 stale/failed, 3 unknown), `watcher run --dry-run [--estimate]` (nothing posted or recorded; `--estimate` makes no model call) and `--json` (one summary line on stdout, human text on stderr). Laravel/Lumen: `watcher:check`, `watcher:status`, and `--dry-run --estimate --json` on `watcher:run`.
+- Breaking for embedders of `Cli\Application`: the run factory is now `Closure(array, RunOptions): callable(?DateTimeImmutable): RunResult`; `check` and `status` factories are optional constructor arguments.
 - US1, scheduled digest: `Watcher::fromConfig()` pipeline LogSource -> Reducer -> Redactor -> Selector -> Analyzer -> Slack; fingerprinting of log lines into groups with counts, first-run baseline, comparison with the previous window, dedupe of already-reported groups.
 - US2, privacy: allowlist-only payload, normalised templates, text withheld for clusters below `redaction.min_group_events_for_text`, pattern scan with `redaction.extra_patterns`, model output scrubbed before caching and display, privacy corpus tests.
 - US3, cost control: triage / analyze / escalate routing with per-tier model ids, token limits and prices, verdict cache, bounded escalation, input budget truncation, daily USD and token caps, alerts at 25/50/75/90 percent, cost footer in every digest.

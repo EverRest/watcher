@@ -68,4 +68,13 @@ final class WatcherServiceProviderTest extends TestCase
 
         self::assertNull((new ReflectionProperty(Watcher::class, 'hostLog'))->getValue($watcher));
     }
+
+    public function testCheckAndStatusCommandsAreBound(): void
+    {
+        $app = $this->app();
+
+        self::assertInstanceOf(\Watcher\Laravel\CheckCommand::class, $app->make(\Watcher\Laravel\CheckCommand::class));
+        self::assertInstanceOf(\Watcher\Laravel\StatusCommand::class, $app->make(\Watcher\Laravel\StatusCommand::class));
+        self::assertInstanceOf(\Watcher\Laravel\RunCommand::class, $app->make(\Watcher\Laravel\RunCommand::class));
+    }
 }

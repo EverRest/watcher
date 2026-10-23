@@ -11,7 +11,16 @@ foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php
 }
 
 exit((new Watcher\Cli\Application(
-    static fn (array $config): callable => Watcher\Watcher::fromConfig($config, new Watcher\Cli\StderrLogger(STDERR))->run(...),
+    // Under --json stdout is one JSON line, so the dry-run digest and estimate go to stderr.
+    static fn (array $config, Watcher\Operate\RunOptions $options): callable => Watcher\Watcher::fromConfig(
+        $config,
+        new Watcher\Cli\StderrLogger(STDERR),
+        null,
+        $options,
+        static fn (string $text): int|false => fwrite($options->json ? STDERR : STDOUT, $text),
+    )->run(...),
     STDERR,
     STDOUT,
+    static fn (array $config, bool $postTest): Watcher\Operate\CheckReport => Watcher\Config\Factory::doctor($config)->run($postTest),
+    static fn (array $config): Watcher\Operate\HeartbeatStatus => Watcher\Config\Factory::heartbeatStatus($config, null, new Watcher\Cli\StderrLogger(STDERR)),
 ))->run($argv));

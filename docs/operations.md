@@ -36,6 +36,8 @@ log text).
 | `failed` | 1 | Source, analysis, delivery or state failed | see the reason and the notice in Slack |
 | `invalid_config` | 2 | Config rejected before any call | fix the named key |
 
+`--estimate` without `--dry-run` is a usage error (exit 2).
+
 A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries.
 A failed **digest delivery** is only logged (the channel is the one that broke).
 
@@ -132,7 +134,50 @@ a directory of hashed file names, so wipe the whole directory.
   25/50/75/90% come as separate notices. At 100% the run does triage only until the next day. Cost is an estimate from
   `analysis.prices`: compare with the provider console from time to time and update prices when they change.
 - **Quiet days.** No message means nothing qualified; to see that the job ran, look at the Job logs (the `outcome=` line).
-  There is no heartbeat message.
+  A weekly summary line is optional (`heartbeat.weekly_summary`); there is no daily heartbeat message.
+
+## Heartbeat, staleness and alerting
+
+Every finished run (reported, quiet, baselined, failed) stores a liveness record; a due-but-skipped trigger
+(`skipped_done`, `skipped_locked`) stores a trigger time. Read it with `watcher status` (or `php artisan watcher:status`):
+
+```text
+service:        orders-api
+state:          ok
+last run:       2026-10-24T06:00:41+00:00  outcome=quiet  duration=38s  cost_usd=0.0000
+last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
+compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
+```
+
+`state` is `ok`, `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
+failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 stale or
+failed, 3 unknown, 2 bad config. A wrong host clock shows in the `compared:` line, which prints both instants.
+
+Alert from the monitor you already have, probing every 15 minutes:
+
+```bash
+# cron on any host that can read the state: mail on non-zero exit
+*/15 * * * * vendor/bin/watcher status --config=/app/watcher.php >/dev/null || echo "watcher not healthy" | mail -s "watcher" ops@example.com
+```
+
+```bash
+# Prometheus: node_exporter textfile collector, written by cron every 5 minutes
+vendor/bin/watcher status --config=/app/watcher.php --json 2>/dev/null \
+  | jq -r '"watcher_status_age_seconds " + ((.age_seconds // -1)|tostring), "watcher_status_ok " + (if .state=="ok" then "1" else "0" end)' \
+  > /var/lib/node_exporter/watcher.prom.$$ && mv /var/lib/node_exporter/watcher.prom.$$ /var/lib/node_exporter/watcher.prom
+# alert: watcher_status_ok == 0 for 30m
+```
+
+## Before the first run: check and dry run
+
+- `watcher check --config=...` runs every check and prints PASS/FAIL/SKIP per line (config, source, provider_auth,
+  models, prices, state, notifier). It makes read-only calls and posts nothing; `--post-test` posts one labelled test
+  message per destination. Exit 0 means no failure; `--json` prints one machine line.
+- `watcher run --dry-run --estimate` makes no model call and prints groups, estimated tokens and cost per step.
+- `watcher run --dry-run` runs the whole pipeline for the window ending at the latest `run_at` instant (ignoring the due
+  hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
+  billed**; spend is not recorded.
+- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr.
 
 ## Upgrading
 

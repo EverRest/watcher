@@ -37,11 +37,25 @@ The repository is not public yet. Until it is, add it as a VCS repository to you
 
 1. Copy `config/watcher.example.php` into your service and fill in the environment variables it reads.
    It returns a plain PHP array.
-2. Run it:
+2. Check the setup (read-only; posts nothing), preview a run, then run it:
 
    ```bash
+   vendor/bin/watcher check --config=path/to/watcher.php        # source, provider auth, models, prices, state, webhooks
+   vendor/bin/watcher run --config=path/to/watcher.php --dry-run --estimate   # no model call: groups, tokens, cost
+   vendor/bin/watcher run --config=path/to/watcher.php --dry-run              # real model calls, digest printed, nothing posted
    vendor/bin/watcher run --config=path/to/watcher.php          # add --now=2026-10-23T06:00:00Z to run "as of" an instant
+   vendor/bin/watcher status --config=path/to/watcher.php       # is the job alive? exit 0 only when ok
    ```
+
+   | Command | Options |
+   |---|---|
+   | `watcher run` | `--config=<file>` `[--now=<ISO-8601>]` `[--dry-run [--estimate]]` `[--json]` |
+   | `watcher check` | `--config=<file>` `[--post-test]` `[--json]` (`--post-test` posts one labelled message per destination) |
+   | `watcher status` | `--config=<file>` `[--json]` |
+
+   With `--json`, stdout is exactly one JSON line and every human line goes to stderr. A dry run never posts, writes
+   state or records spend. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
+   {--post-test} {--json}`, `watcher:status {--json}`.
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
    `watcher:run` command and merges `config/watcher.php`, which reads `WATCHER_*` environment variables.
@@ -143,7 +157,10 @@ Every digest ends with a cost line: tokens in/out/cached, model per step, approx
 |------|---------|
 | 0 | Success, including "not due", "already done", "locked", baseline and quiet runs |
 | 1 | Run failed (source unavailable, analysis failed, delivery failed, internal error) |
-| 2 | Invalid configuration, bad arguments or bad `--now` |
+| 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
+
+`watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
+exits 0 when `ok`, 1 when `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to

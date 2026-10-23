@@ -62,27 +62,26 @@ WATCHER_SERVICE_CONTEXT="One or two sentences: what the service does and what is
 
 Load it in each terminal you use: `set -a; . ~/watcher-smoke.env; set +a`.
 
-### Verify the credentials before running watcher (free, read-only calls)
+### Verify the credentials before running watcher
+
+After step 3 (config) run `watcher check` instead of hand-written curl calls:
 
 ```bash
-# Loki: should print {"status":"success", ...} and list your labels
-curl -s -H "Authorization: Bearer $WATCHER_LOKI_TOKEN" "$WATCHER_LOKI_URL/loki/api/v1/labels"
-# Values of the label you will use (adjust `app`)
-curl -s -H "Authorization: Bearer $WATCHER_LOKI_TOKEN" "$WATCHER_LOKI_URL/loki/api/v1/label/app/values"
-
-# Slack: posts one line to the test channel
-curl -s -X POST -H 'Content-type: application/json' --data '{"text":"watcher smoke: webhook ok"}' "$WATCHER_SLACK_WEBHOOK"
-
-# Anthropic: lists models (no tokens used). Run BOTH header styles.
-curl -s -o /dev/null -w "x-api-key: %{http_code}\n" https://api.anthropic.com/v1/models \
-  -H "x-api-key: $WATCHER_ANTHROPIC_KEY" -H "anthropic-version: 2023-06-01"
-curl -s -o /dev/null -w "bearer:    %{http_code}\n" https://api.anthropic.com/v1/models \
-  -H "Authorization: Bearer $WATCHER_ANTHROPIC_KEY" -H "anthropic-version: 2023-06-01"
+php bin/watcher check --config=docs/examples/smoke.config.php
 ```
 
-The last pair matters. The official PHP SDK that watcher uses sends the key as `Authorization: Bearer`, and that was
-**not verified against the live API**. If `x-api-key` gives 200 but `bearer` gives 401, every model call will fail with
-`analysis failed: authentication failed`: stop and report it, because the analyzer needs a code change.
+It checks the Loki query, the Anthropic models list (including the `Authorization: Bearer` scheme the PHP SDK sends),
+the three model ids and prices, the state store and the webhook syntax, and prints PASS/FAIL per line. Add
+`--post-test` to post one labelled message to Slack. If `provider_auth` fails with "package scheme (Authorization:
+Bearer) rejected (HTTP 401) but x-api-key works", stop and report it: the analyzer needs a code change.
+
+Fallback when `check` itself is the problem (free, read-only):
+
+```bash
+curl -s -H "Authorization: Bearer $WATCHER_LOKI_TOKEN" "$WATCHER_LOKI_URL/loki/api/v1/labels"
+curl -s -o /dev/null -w "bearer: %{http_code}\n" https://api.anthropic.com/v1/models \
+  -H "Authorization: Bearer $WATCHER_ANTHROPIC_KEY" -H "anthropic-version: 2023-06-01"
+```
 
 ## 3. Config
 
@@ -96,6 +95,15 @@ US$0.10 daily cap, one Slack channel. Copy it next to your env file and change o
 `--now` lets you choose the moment, so you can run on historical windows.
 
 ## 4. Check 1: the config loads and nothing is called
+
+`watcher check` (above) covers this. To also preview a run without posting anything:
+
+```bash
+php bin/watcher run --config=docs/examples/smoke.config.php --dry-run --estimate   # no model call
+php bin/watcher run --config=docs/examples/smoke.config.php --dry-run              # real calls, digest printed, nothing posted
+```
+
+The manual not-due run below still shows the exit-code behaviour:
 
 ```bash
 cd ~/code/watcher
