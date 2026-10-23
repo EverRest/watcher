@@ -324,9 +324,9 @@ final class NormalizerTest extends TestCase
             'slack' => ['key xoxb-abcdefgh-ijklmnop bad', 'key <TOKEN> bad'],
             'gitlab' => ['key glpat-abcDEF_xyz-uvw bad', 'key <TOKEN> bad'],
             'google' => ['key AIza' . str_repeat('x', 35) . ' bad', 'key <TOKEN> bad'],
-            'authorization bearer' => ['Authorization: Bearer abc.def-ghi bad', 'Authorization: Bearer <TOKEN> bad'],
-            'authorization basic' => ['Authorization: Basic dXNlcjpwYXNz bad', 'Authorization: Basic <TOKEN> bad'],
-            'authorization bare value' => ['authorization=secretvalue bad', 'authorization=<TOKEN> bad'],
+            'authorization bearer' => ['Authorization: Bearer abc.def-ghi bad', 'Authorization: Bearer <TOKEN>'],
+            'authorization basic' => ['Authorization: Basic dXNlcjpwYXNz bad', 'Authorization: Basic <TOKEN>'],
+            'authorization bare value' => ['authorization=secretvalue bad', 'authorization=<TOKEN>'],
             'authorization header in json' => ['{"Authorization":"Bearer abc.def-ghi"}', '{"Authorization":"Bearer <TOKEN>"}'],
             'standalone bearer' => ['sent Bearer abcdefghijkl ok', 'sent Bearer <TOKEN> ok'],
             'standalone token with digit' => ['sent Token q1w2e3r4t5 ok', 'sent Token <TOKEN> ok'],
@@ -342,8 +342,38 @@ final class NormalizerTest extends TestCase
             'md5 digits only' => ['sum 12345678901234567890123456789012 x', 'sum <ID> x'],
             'sha1 digits only' => ['sum 1234567890123456789012345678901234567890 x', 'sum <ID> x'],
             'sha256 digits only' => ['sum ' . str_repeat('1234567890', 6) . '1234 x', 'sum <ID> x'],
+            'aws-secret-shaped value with slashes' => ['key ' . self::awsShaped() . ' bad', 'key <TOKEN> bad'],
+            'base64 blob with a slash every few chars' => ['key ' . implode('/', str_split('Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MEFiQ2RFZkdoSWpLbA', 5)) . ' bad', 'key <TOKEN> bad'],
+            'rooted base64 with short segments' => ['key /' . self::awsShaped() . ' bad', 'key <TOKEN> bad'],
+            'path with one random segment' => ['in /var/www/aB3dE5gH7jK9mN1pQ3sT5vX7/cache now', 'in /var/www/<TOKEN>/cache now'],
+            'digest' => ['Authorization: Digest username="bob", realm="x", nonce="n", response="r" tail', 'Authorization: Digest <TOKEN>'],
+            'aws4 signature' => ['Authorization: AWS4-HMAC-SHA256 Credential=FAKEID/eu/s3, SignedHeaders=host, Signature=feedface00 tail', 'Authorization: AWS<N>-HMAC-SHA<N> <TOKEN>'],
+            'negotiate' => ['Authorization: Negotiate YIIFakeBody tail', 'Authorization: Negotiate <TOKEN>'],
+            'apikey scheme' => ['Authorization: ApiKey xyz tail', 'Authorization: ApiKey <TOKEN>'],
+            'hawk' => ['Authorization: Hawk id="a", ts="b", mac="c" tail', 'Authorization: Hawk <TOKEN>'],
+            'unknown scheme is masked whole' => ['Authorization: Weird abc def tail', 'Authorization: <TOKEN>'],
+            'separator bracket' => ['[Authorization] Digest user=bob tail', '[Authorization] Digest <TOKEN>'],
+            'separator fat arrow' => ["'authorization' => 'Digest user=bob' tail", "'authorization' => 'Digest <TOKEN>' tail"],
+            'json with escaped quotes' => ['{"authorization":"Digest username=\\"bob\\", realm=\\"x\\"","k":"v"}', '{"authorization":"Digest <TOKEN>","k":"v"}'],
+            'proxy-authorization' => ['Proxy-Authorization: Basic dXNlcjpwYXNz tail', 'Proxy-Authorization: Basic <TOKEN>'],
+            'x-api-key' => ['X-Api-Key: abc123 tail', 'X-Api-Key: <TOKEN>'],
+            'api-key' => ['api-key: hunter2 tail', 'api-key: <TOKEN>'],
+            'x-auth-token' => ['x-auth-token: s3cr3t tail', 'x-auth-token: <TOKEN>'],
+            'cookie' => ['Cookie: session=abc; theme=dark tail', 'Cookie: <TOKEN>'],
+            'set-cookie' => ['Set-Cookie: sid=abc; Path=/; HttpOnly', 'Set-Cookie: <TOKEN>'],
+            'cookie in json' => ['{"cookie":"a=b; c=d","o":"p"}', '{"cookie":"<TOKEN>","o":"p"}'],
+            'cookie stops at end of line' => ["Cookie: a=b\nnext line", 'Cookie: <TOKEN> next line'],
+            'token letters only mixed case' => ['sent Token AbCdEfGhIjKlMnOp ok', 'sent Token <TOKEN> ok'],
+            'basic base64 letters only' => ['sent Basic AbCdEfGh ok', 'sent Basic <TOKEN> ok'],
+            'basic base64 lowercase start' => ['sent basic dXNlcnBhc3M ok', 'sent basic <TOKEN> ok'],
             'existing placeholder is skipped' => ['id <URL:billing-gateway> x', 'id <URL:billing-gateway> x'],
         ];
+    }
+
+    /** The documented AWS example secret, assembled at runtime so no scanner sees a key. */
+    private static function awsShaped(): string
+    {
+        return 'wJalrXUtnFEMI/K7MDENG/' . 'bPxRfiCY' . 'EXAMPLEKEY';
     }
 
     #[DataProvider('secretCases')]
@@ -375,6 +405,14 @@ final class NormalizerTest extends TestCase
             ['Basic auth failed'],
             ['Bearer token missing'],
             ['Token expired'],
+            ['token refresh failed'],
+            ['basic usage information'],
+            ['basic information is missing'],
+            ['Basic Authentication failed'],
+            ['Token Authentication failed'],
+            ['/var/www/app/Http/Controllers/FooController.php'],
+            ['App/Http/Controllers/FooController'],
+            ['/usr/lib/x86_64-linux-gnu/libfoo'],
         ];
     }
 
@@ -399,6 +437,16 @@ final class NormalizerTest extends TestCase
             'authorization repeated' => [str_repeat('authorization: ', 280)],
             'padding' => [str_repeat('Ab3=', 1000)],
             'camel run' => [str_repeat('Ab', 2000)],
+            'cookie repeated' => [str_repeat('cookie: ', 500)],
+            'quoted authorization repeated' => [str_repeat('"authorization":"', 240)],
+            'escaped quotes' => ['authorization:"' . str_repeat('\\"', 1300)],
+            'api-key repeated' => [str_repeat('x-api-key: ', 350)],
+            'token mixed repeated' => [str_repeat('token AbCdEfGh ', 270)],
+            'basic repeated' => [str_repeat('basic ', 700)],
+            'basic long base64' => ['basic ' . str_repeat('Ab+/', 1000)],
+            'mixed slashes' => [str_repeat('aB3/', 1000)],
+            'rooted word path' => ['/' . str_repeat('ab/', 1300)],
+            'long segments' => [str_repeat(str_repeat('aB3dE5gH7jK9mN1pQ3sT5vX7', 1) . '/', 160)],
         ];
     }
 

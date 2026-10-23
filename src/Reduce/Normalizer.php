@@ -45,6 +45,9 @@ final class Normalizer
 
     private const H = '[0-9a-f]{1,4}';
 
+    /** One path segment of plain words: camelCase / snake / kebab words and digit groups of at most 4. */
+    private const WORDS = '/^(?:[A-Z]?+[a-z]++|\d{1,4}+(?!\d))(?:[_+-]?+(?:[A-Z]?+[a-z]++|\d{1,4}+(?!\d)))*+$/';
+
     /** @var list<string> */
     private array $dependencyHosts;
 
@@ -149,13 +152,20 @@ final class Normalizer
             // PEM private key: the whole block; an unterminated one is cut to the end of the (capped) input.
             ['(?s:-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----.*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|\z))', '<TOKEN>'],
             ['\b(?:ssh-(?:rsa|dss|ed25519)|ecdsa-sha2-nistp\d++)\s++AAAA[A-Za-z0-9+/=]++', '<TOKEN>'],
-            // Credentials after a scheme word: the word stays, the credential goes.
+            // Credential headers: a known scheme word stays; the REST of the value (commas, spaces, quotes inside
+            // a quoted JSON value included) goes, up to the end of the line or the closing quote.
             [
-                '(\bauthorization["\']?+\s*+[:=]\s*+["\']?+(?:(?:bearer|basic|token)\s++)?+)(?!<)[^\s"\',;' . $ang . ']{3,}+',
+                '(\b(?:authorization|api-key|x-auth-token|set-cookie|cookie)["\']?+\s*+(?:=?+\x{E001}|[:=\]])\s*+(?>(["\'])|)'
+                . '(?:(?:bearer|basic|token|digest|negotiate|ntlm|apikey|hawk|oauth|aws4-hmac-sha256)\s++)?+)'
+                . '(?(2)(?:\\\\.|(?!\2)[^\r\n])++|[^\r\n]++)',
                 fn (array $m): string => $m[1] . '<TOKEN>',
             ],
             ['(\bbearer\s++)(?!<)[\w.~+/=-]{8,}+', fn (array $m): string => $m[1] . '<TOKEN>'],
             ['(\b(?:basic|token)\s++)(?!<)(?=[\w.~+/=-]*[\d+/=])[\w.~+/=-]{8,}+', fn (array $m): string => $m[1] . '<TOKEN>'],
+            // Letters only: needs both cases with a capital past the first letter (so `Authentication` stays) and 12+ chars.
+            ['(\b(?:basic|token)\s++)(?-i:(?=[\w.~+/=-]*[a-z])(?=[\w.~+/=-]+[A-Z]))[\w.~+/=-]{12,}+', fn (array $m): string => $m[1] . '<TOKEN>'],
+            // `basic` is followed by base64 by definition: any 8+ base64 run that is not one plain word.
+            ['(\bbasic\s++)(?!(?-i:[a-z]++|[A-Z][a-z]++|[A-Z]++)(?![A-Za-z0-9+/=_-]))[A-Za-z0-9+/]{8,}+={0,2}+', fn (array $m): string => $m[1] . '<TOKEN>'],
             ['(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)+', '<EMAIL>'],
             ['\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '<ID>'],
             ['\b(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b', '<ID>'],
@@ -179,12 +189,30 @@ final class Normalizer
         ];
     }
 
-    /** A path (two or more slashes) is judged segment by segment; anything else as one run. */
+    /**
+     * A run with slashes is split into path segments only when it clearly is a path: rooted (`/`, `./`, `~/`, `../`)
+     * or made of plain words only. Anything else is judged whole, with and without its slashes, so a base64 value
+     * cannot hide behind short segments. Doubt means masked.
+     */
     private static function cutRun(string $run): string
     {
         $cut = static fn (string $part): string => strlen($part) >= 20 && self::looksRandom($part) ? '<TOKEN>' : $part;
+        if (!str_contains($run, '/')) {
+            return $cut($run);
+        }
 
-        return substr_count($run, '/') >= 2 ? implode('/', array_map($cut, explode('/', $run))) : $cut($run);
+        $segments = explode('/', $run);
+        $plain = array_filter($segments, static fn (string $p): bool => $p !== '' && preg_match(self::WORDS, $p) !== 1) === [];
+        $rooted = preg_match('#^(?:\.{0,2}+/|~/)#', $run) === 1;
+        $parts = array_map($cut, $segments);
+
+        if ($plain || ($rooted && $parts !== $segments)) {
+            return implode('/', $parts);
+        }
+        // Not clearly a path, or a rooted one with an odd segment and no random one: judge the whole run.
+        $whole = rtrim($run, '=');
+
+        return self::looksRandom($whole) || self::looksRandom(str_replace('/', '', $whole)) || $parts !== $segments ? '<TOKEN>' : $run;
     }
 
     /**
