@@ -25,18 +25,24 @@ final class ReadFilter
         }
     }
 
-    /** Client-side check of the watch patterns: a server filter is a coarse net and the caller decides what is wanted. */
-    public function matchesWatch(string $message): bool
+    /**
+     * Client-side check of the watch patterns: a server filter is a coarse net and the caller decides what is wanted.
+     * The backend searched the whole raw line, so a pushed `error_type` pattern must also be tried on the parsed
+     * exception class, which is not part of the message (W1).
+     */
+    public function matchesWatch(string $message, ?string $errorType = null): bool
     {
         foreach ($this->watchPatterns as $re) {
-            $result = @preg_match("\x01" . $re . "\x01u", $message);
-            if ($result === false) {
-                ++$this->patternErrors; // fail open: the line is only a candidate, a dropped one is lost for good
+            foreach ($errorType === null ? [$message] : [$message, $errorType] as $subject) {
+                $result = @preg_match("\x01" . $re . "\x01u", $subject);
+                if ($result === false) {
+                    ++$this->patternErrors; // fail open: the line is only a candidate, a dropped one is lost for good
 
-                return true;
-            }
-            if ($result === 1) {
-                return true;
+                    return true;
+                }
+                if ($result === 1) {
+                    return true;
+                }
             }
         }
 

@@ -337,6 +337,100 @@ final class LokiSourceTest extends LogSourceContractTest
         // see docs/review-2026-10-23.md. This pins the client side so a future query change cannot regress it.
     }
 
+    public function testLabelModeUsesAStreamMatcherAndNoLineFilter(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('empty.json'))], self::SECRET, null, null, null, 120, 'label');
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 10)));
+
+        $this->assertSame(
+            '{app="svc", env="stg", level=~"(?i)(?:warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal|panic)"}',
+            $this->query($this->history[0]['request'])['query'],
+        );
+    }
+
+    public function testLabelModeWithWatchPatternsCannotOrAStreamMatcherSoItReadsUnrestricted(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('empty.json'))], self::SECRET, null, null, null, 120, 'label');
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['timeout'], 10)));
+
+        $this->assertSame('{app="svc", env="stg"}', $this->query($this->history[0]['request'])['query']);
+    }
+
+    public function testAllModeHasNoServerSideLevelRestriction(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('empty.json'))], self::SECRET, null, null, null, 120, 'all');
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['timeout'], 10)));
+
+        $this->assertSame('{app="svc", env="stg"}', $this->query($this->history[0]['request'])['query']);
+    }
+
+    public function testTextModeIsTheDefaultAndTotalsAreUnaffectedByMode(): void
+    {
+        $source = $this->source([$this->json(['status' => 'success', 'data' => ['resultType' => 'vector', 'result' => []]])], self::SECRET, null, null, null, 120, 'label');
+
+        $source->totals($this->window(), $this->selector());
+
+        $this->assertStringStartsWith('sum by (level) (count_over_time({app="svc", env="stg"}[', $this->query($this->history[0]['request'])['query']);
+    }
+
+    public function testInvalidLevelModeIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->source([], self::SECRET, null, null, null, 120, 'bogus');
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nonTextModes(): array
+    {
+        return ['label' => ['label'], 'all' => ['all']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonTextModes')]
+    public function testUnwordedLineOfALabelledStreamIsReturned(string $mode): void
+    {
+        $body = $this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [
+            ['stream' => ['app' => 'svc', 'level' => 'error'], 'values' => [[$this->ns(self::BASE_NS), 'Connection refused']]],
+        ]]]);
+        $source = $this->source([$body], self::SECRET, null, null, null, 120, $mode);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertCount(1, $events);
+        $this->assertSame(Level::Error, $events[0]->level);
+        $this->assertStringNotContainsString('|~', $this->query($this->history[0]['request'])['query']);
+    }
+
+    public function testAllModeHonoursEventCapAndTruncation(): void
+    {
+        $values = [];
+        for ($i = 0; $i < 3; ++$i) {
+            $values[] = [$this->ns(self::BASE_NS + $i), $this->line('ERROR', "e{$i}")];
+        }
+        $source = $this->source([$this->streams($values)], self::SECRET, null, null, null, 120, 'all');
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 2)));
+
+        $this->assertCount(2, $events);
+        $this->assertTrue($source->lastReadTruncated());
+    }
+
+    public function testErrorTypeWatchRuleKeepsAnInfoLineWhoseExceptionClassMatches(): void
+    {
+        $line = (string) json_encode(['level' => 'info', 'message' => 'charge declined', 'exception.class' => 'App\\PaymentGatewayException']);
+        $source = $this->source([$this->streams([[$this->ns(self::BASE_NS), $line]])]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['PaymentGatewayException'], 10)));
+
+        $this->assertCount(1, $events);
+        $this->assertSame('charge declined', $events[0]->message);
+    }
+
     public function testVersionsRequestAndFixtureMapping(): void
     {
         $source = $this->source([new Response(200, [], $this->fixture('versions_matrix.json'))]);
@@ -482,7 +576,7 @@ final class LokiSourceTest extends LogSourceContractTest
     /**
      * @param list<Response|ConnectException> $responses
      */
-    private function source(array $responses, ?string $bearer = self::SECRET, ?string $user = null, ?string $password = null, ?string $tenant = null, int $retryBudget = 120): LokiSource
+    private function source(array $responses, ?string $bearer = self::SECRET, ?string $user = null, ?string $password = null, ?string $tenant = null, int $retryBudget = 120, string $levelMode = 'text'): LokiSource
     {
         $stack = HandlerStack::create(new MockHandler($responses));
         $stack->push(Middleware::history($this->history));
@@ -498,6 +592,7 @@ final class LokiSourceTest extends LogSourceContractTest
                 $this->slept[] = $s;
             },
             $retryBudget,
+            $levelMode,
         );
     }
 

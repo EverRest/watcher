@@ -109,13 +109,23 @@ final class WatchRulesTest extends TestCase
 
     public function testBackendPatternsEscapesLiteralPunctuationAndHonoursAnyDelimiter(): void
     {
-        self::assertSame(['payment failed\\-hard\\#1'], self::patterns(['p' => ['template' => '~payment failed-hard#1~']]));
+        self::assertSame(['payment failed\\-hard\\#x'], self::patterns(['p' => ['template' => '~payment failed-hard#x~']]));
     }
 
     public function testBackendPatternsSkipsATemplateRuleThatIsNotAPlainLiteral(): void
     {
         // the regex runs on the MASKED template; the backend sees raw lines, so only literals are safe
         self::assertSame([], self::patterns(['p' => ['template' => '/payment <\w+> failed/'], 'q' => ['template' => '/^Quota/'], 'r' => ['template' => '/a|b/']]));
+    }
+
+    public function testBackendPatternsSkipsTemplateLiteralsThatHoldPlaceholdersOrMaskedDigits(): void
+    {
+        // raw lines never contain `<N>`/`<ID>`, and digits are masked to `<N>` in the template: never pushed
+        self::assertSame([], self::patterns([
+            'a' => ['template' => '/retry <N> times/'],
+            'b' => ['template' => '/user <ID> gone/'],
+            'c' => ['template' => '/timeout 30s/'],
+        ]));
     }
 
     public function testBackendPatternsSkipsATemplateLiteralWithOtherFlags(): void

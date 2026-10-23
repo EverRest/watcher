@@ -48,6 +48,12 @@ final class Re2CompatTest extends TestCase
             'comment group' => ['a(?#x)b'],
             'branch reset' => ['(?|a|b)'],
             'G anchor' => ['\Gfoo'],
+            'horizontal space' => ['a\\hb'],
+            'not horizontal space' => ['a\\Hb'],
+            'not vertical space' => ['a\\Vb'],
+            'vertical space' => ['a\\vb'],
+            'control char' => ['a\\cAb'],
+            'escape char' => ['a\\eb'],
         ];
     }
 

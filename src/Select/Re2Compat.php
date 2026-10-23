@@ -6,7 +6,7 @@ namespace Watcher\Select;
 
 /**
  * Conservative check that a PCRE body is also valid RE2 (Loki's engine) with the same meaning. Anything PCRE-only
- * (lookaround, backreferences, atomic/possessive, \K, recursion, conditionals, verbs, comments) returns false; false
+ * (lookaround, backreferences, atomic/possessive, \K, recursion, conditionals, verbs, comments, \h \H \V \v \cX \e) returns false; false
  * only means "not pushed to the backend", the rule is still evaluated locally.
  */
 final class Re2Compat
@@ -20,7 +20,7 @@ final class Re2Compat
             $c = $body[$i];
             if ($c === '\\') {
                 $next = $body[$i + 1] ?? '';
-                if ($next === '' || preg_match('/[1-9gkKGRZXCN]/', $next) === 1) {
+                if ($next === '' || preg_match('/[1-9gkKGRZXCNhHVvce]/', $next) === 1) {
                     return false;
                 }
                 ++$i;

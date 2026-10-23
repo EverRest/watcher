@@ -158,7 +158,7 @@ final class DatadogSourceTest extends LogSourceContractTest
 
         $this->assertSame(['slow call'], array_map(static fn (LogEvent $e): string => $e->message, $events));
         $body = $this->body($this->history[0]['request']);
-        $this->assertSame('app:svc env:stg AND (status:(warn OR error OR critical OR alert OR emergency) OR "timeout")', $body['filter']['query']);
+        $this->assertSame('app:svc env:stg AND (status:(warn OR error OR critical OR alert OR emergency) OR *timeout*)', $body['filter']['query']);
         $this->assertSame('timestamp', $body['sort']);
         $this->assertSame(['limit' => 5000], $body['page']);
     }
@@ -174,13 +174,60 @@ final class DatadogSourceTest extends LogSourceContractTest
         $this->assertSame(['timeout 42'], array_map(static fn (LogEvent $e): string => $e->message, $events));
     }
 
-    public function testEscapedLiteralWatchPatternIsSentUnescapedAsAQuotedTerm(): void
+    public function testLiteralWithPunctuationCannotBeAWildcardSoItIsClientOnly(): void
     {
         $source = $this->source([new Response(200, [], $this->fixture('search_page2.json'))]);
 
         $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['(?i)a\\.b\\-c "q"'], 10)));
 
-        $this->assertSame('app:svc env:stg AND (status:(error OR critical OR alert OR emergency) OR "a.b-c \\"q\\"")', $this->body($this->history[0]['request'])['filter']['query']);
+        $this->assertSame('app:svc env:stg', $this->body($this->history[0]['request'])['filter']['query']);
+    }
+
+    public function testAllLevelModeSendsNoStatusRestriction(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('search_page2.json'))], 120, 300, null, 'all');
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['timeout'], 10)));
+
+        $this->assertSame('app:svc env:stg', $this->body($this->history[0]['request'])['filter']['query']);
+    }
+
+    public function testStdoutShippedInfoStatusLineWithAnErrorBodyIsKeptInAllMode(): void
+    {
+        $source = $this->source([$this->page([$this->line('ERROR', 'boom'), $this->line('INFO', 'fine')], null)], 120, 300, null, 'all');
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertSame(['boom'], array_map(static fn (LogEvent $e): string => $e->message, $events));
+    }
+
+    public function testInvalidLevelModeIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->source([], 120, 300, null, 'bogus');
+    }
+
+    public function testNewestFirstSortsDescendingAndKeepsTheNewestWhenCapped(): void
+    {
+        // the API returns newest first; the source still yields oldest to newest
+        $source = $this->source([$this->page([$this->line('ERROR', 'n3'), $this->line('ERROR', 'n2'), $this->line('ERROR', 'n1')], null)], 120, 300, null, 'status', true);
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 2)));
+
+        $this->assertSame(['-timestamp'], [$this->body($this->history[0]['request'])['sort']]);
+        $this->assertSame(['n2', 'n3'], array_map(static fn (LogEvent $e): string => $e->message, $events));
+        $this->assertTrue($source->lastReadTruncated());
+    }
+
+    public function testErrorTypeWatchRuleKeepsAnInfoEventWhoseExceptionClassMatches(): void
+    {
+        $line = (string) json_encode(['level' => 'info', 'message' => 'charge declined', 'exception.class' => 'App\\PaymentGatewayException']);
+        $source = $this->source([$this->page([$line], null)]);
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['PaymentGatewayException'], 10)));
+
+        $this->assertSame(['charge declined'], array_map(static fn (LogEvent $e): string => $e->message, $events));
     }
 
     public function testNoServerFilterWhenEverythingIsWanted(): void
@@ -406,7 +453,7 @@ final class DatadogSourceTest extends LogSourceContractTest
     // helpers
 
     /** @param list<Response|ConnectException> $responses */
-    private function source(array $responses, int $retryBudget = 120, int $pagingBudget = 300, ?ClockInterface $clock = null): DatadogSource
+    private function source(array $responses, int $retryBudget = 120, int $pagingBudget = 300, ?ClockInterface $clock = null, string $levelMode = 'status', bool $newestFirst = false): DatadogSource
     {
         $stack = HandlerStack::create(new MockHandler($responses));
         $stack->push(Middleware::history($this->history));
@@ -422,6 +469,8 @@ final class DatadogSourceTest extends LogSourceContractTest
             $retryBudget,
             $pagingBudget,
             $clock,
+            $levelMode,
+            $newestFirst,
         );
     }
 

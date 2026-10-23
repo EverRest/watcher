@@ -28,6 +28,8 @@ final class LokiSource implements LogSource
         'alert' => ['alert'],
         'emergency' => ['emerg', 'emergency', 'fatal'],
     ];
+    /** Extra spellings seen in a `level` stream label (not as words in the text). */
+    private const LABEL_WORDS = ['info' => ['information'], 'emergency' => ['panic']];
 
     private readonly string $baseUrl;
     /** @var array<string, string> */
@@ -36,6 +38,13 @@ final class LokiSource implements LogSource
     private bool $truncated = false;
     private LineParser $parser;
 
+    /**
+     * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words (misses
+     *                          lines whose level only lives in the stream `level` label, and trace lines); `label` =
+     *                          stream matcher on the `level` label, no line filter (streams without that label are
+     *                          not read; with watch patterns it falls back to `all`, a stream matcher cannot be OR-ed
+     *                          with a line filter); `all` = no server-side level restriction, the client decides
+     */
     public function __construct(
         private readonly ClientInterface $http,
         string $baseUrl,
@@ -45,7 +54,11 @@ final class LokiSource implements LogSource
         ?string $tenant = null,
         ?callable $sleeper = null,
         int $retryBudget = 120,
+        private readonly string $levelMode = 'text',
     ) {
+        if (!in_array($levelMode, ['text', 'label', 'all'], true)) {
+            throw new InvalidArgumentException("Invalid Loki level_mode '{$levelMode}' (text, label or all).");
+        }
         $this->retry = new Retry($sleeper, $retryBudget);
         $this->baseUrl = rtrim($baseUrl, '/');
         $headers = ['Accept' => 'application/json'];
@@ -83,7 +96,8 @@ final class LokiSource implements LogSource
     {
         $this->truncated = false;
         $this->parser = new LineParser();
-        $query = $this->selector($selector) . $this->lineFilter($filter);
+        $labelled = $this->levelMode === 'label' && $filter->watchPatterns === [];
+        $query = $this->selector($selector, $labelled ? $this->levelMatcher($filter) : '') . $this->lineFilter($filter);
         $start = $this->nsInt($window->start);
         $end = $this->ns($window->end);
         $seenAtStart = []; // entries already yielded or dropped at exactly $start (Loki's start is inclusive)
@@ -250,20 +264,37 @@ final class LokiSource implements LogSource
             return true;
         }
 
-        return $filter->matchesWatch($event->message);
+        return $filter->matchesWatch($event->message, $event->errorType);
+    }
+
+    /** @return list<string> */
+    private function words(Level $min, bool $labelSpellings): array
+    {
+        $words = [];
+        foreach (Level::cases() as $level) {
+            if ($level->atLeast($min)) {
+                $key = strtolower($level->name);
+                array_push($words, ...self::LEVEL_WORDS[$key], ...($labelSpellings ? self::LABEL_WORDS[$key] ?? [] : []));
+            }
+        }
+
+        return $words;
+    }
+
+    /** Stream matcher for the `level` label (all case variants), '' when every level is wanted. */
+    private function levelMatcher(ReadFilter $filter): string
+    {
+        return $filter->minLevel === Level::Debug ? '' : 'level=~' . $this->quote('(?i)(?:' . implode('|', $this->words($filter->minLevel, true)) . ')');
     }
 
     private function lineFilter(ReadFilter $filter): string
     {
+        if ($this->levelMode !== 'text') {
+            return '';
+        }
         $parts = [];
         if ($filter->minLevel !== Level::Debug) {
-            $words = [];
-            foreach (Level::cases() as $level) {
-                if ($level->atLeast($filter->minLevel)) {
-                    array_push($words, ...self::LEVEL_WORDS[strtolower($level->name)]);
-                }
-            }
-            $parts[] = '(?:\b(?:' . implode('|', $words) . ')\b)';
+            $parts[] = '(?:\b(?:' . implode('|', $this->words($filter->minLevel, false)) . ')\b)';
         }
         foreach ($filter->watchPatterns as $re) {
             $parts[] = '(?:' . $re . ')';
@@ -275,7 +306,7 @@ final class LokiSource implements LogSource
         return ' |~ ' . $this->quote('(?i)' . implode('|', $parts));
     }
 
-    private function selector(StreamSelector $selector): string
+    private function selector(StreamSelector $selector, string $extra = ''): string
     {
         $matchers = [];
         foreach ($selector->tags as $key => $value) {
@@ -283,6 +314,9 @@ final class LokiSource implements LogSource
         }
         if ($matchers === []) {
             throw new InvalidArgumentException('A Loki query needs at least one stream tag.');
+        }
+        if ($extra !== '') {
+            $matchers[] = $extra;
         }
 
         return '{' . implode(', ', $matchers) . '}';

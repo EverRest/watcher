@@ -15,7 +15,16 @@ use Watcher\Level;
 use Watcher\Schedule\SystemClock;
 use Watcher\Schedule\Window;
 
-/** Reads a window from Datadog Logs (read-only endpoints): aggregate totals, cursor-paged server-filtered lines, version facet. */
+/**
+ * Reads a window from Datadog Logs (read-only endpoints): aggregate totals, cursor-paged server-filtered lines, version facet.
+ *
+ * level_mode `status` (default) restricts server-side to the Datadog `status` attribute, so a line shipped from stdout
+ * with status info whose BODY carries an ERROR level is not read; `all` sends no level restriction (client decides).
+ * Paging is oldest first, so an event_cap truncation keeps the OLDEST events; `$newestFirst` sorts `-timestamp` so
+ * the cap keeps the NEWEST (events are still yielded oldest to newest). Literal watch patterns are sent as
+ * `*term*` wildcards (plain full-text terms match whole tokens, `timeout` would miss `ConnectTimeout`); a literal
+ * with punctuation or spaces cannot be a wildcard, so it is client-only: the server filter is dropped.
+ */
 final class DatadogSource implements LogSource
 {
     private const PAGE_LIMIT = 5000;
@@ -39,7 +48,12 @@ final class DatadogSource implements LogSource
         int $retryBudget = 120,
         private readonly int $pagingBudget = 300,
         ?ClockInterface $clock = null,
+        private readonly string $levelMode = 'status',
+        private readonly bool $newestFirst = false,
     ) {
+        if (!in_array($levelMode, ['status', 'all'], true)) {
+            throw new InvalidArgumentException("Invalid Datadog level_mode '{$levelMode}' (status or all).");
+        }
         if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i', $site) !== 1) {
             throw new InvalidArgumentException('Invalid Datadog site.');
         }
@@ -74,13 +88,14 @@ final class DatadogSource implements LogSource
         $query = $this->tagQuery($selector) . $this->readQuery($filter);
         $cursor = null;
         $kept = 0;
+        $buffer = [];
         $startedAt = $this->clock->now()->getTimestamp();
 
         do {
             $page = ['limit' => self::PAGE_LIMIT] + ($cursor === null ? [] : ['cursor' => $cursor]);
             $data = $this->post('/api/v2/logs/events/search', [
                 'filter' => $this->filter($window, $query),
-                'sort' => 'timestamp',
+                'sort' => $this->newestFirst ? '-timestamp' : 'timestamp',
                 'page' => $page,
             ]);
             foreach ($data['data'] ?? [] as $raw) {
@@ -93,20 +108,27 @@ final class DatadogSource implements LogSource
                 }
                 if ($kept >= $filter->eventCap) {
                     $this->truncated = true;
+                    yield from array_reverse($buffer);
 
                     return;
                 }
                 ++$kept;
-                yield $event;
+                if ($this->newestFirst) {
+                    $buffer[] = $event;
+                } else {
+                    yield $event;
+                }
             }
             $next = $data['meta']['page']['after'] ?? null;
             $cursor = is_string($next) && $next !== '' ? $next : null;
             if ($cursor !== null && $this->clock->now()->getTimestamp() - $startedAt > $this->pagingBudget) {
                 $this->truncated = true;
+                yield from array_reverse($buffer);
 
                 return;
             }
         } while ($cursor !== null);
+        yield from array_reverse($buffer);
     }
 
     public function lastReadTruncated(): bool
@@ -174,7 +196,7 @@ final class DatadogSource implements LogSource
             return true;
         }
 
-        return $filter->matchesWatch($event->message);
+        return $filter->matchesWatch($event->message, $event->errorType);
     }
 
     /**
@@ -183,7 +205,7 @@ final class DatadogSource implements LogSource
      */
     private function readQuery(ReadFilter $filter): string
     {
-        if ($filter->minLevel === Level::Debug) {
+        if ($filter->minLevel === Level::Debug || $this->levelMode === 'all') {
             return '';
         }
         $statuses = [];
@@ -198,20 +220,18 @@ final class DatadogSource implements LogSource
             if ($literal === null) {
                 return '';
             }
-            $parts[] = $this->quote($literal);
+            $parts[] = '*' . $literal . '*';
         }
 
         return ' AND (' . implode(' OR ', $parts) . ')';
     }
 
-    /** The literal text of `(?i)foo\\-bar` (escaped punctuation only) when the pattern has no regex syntax, else null. */
+    /** The text of a pattern that is a plain alphanumeric/underscore word (usable as a `*word*` wildcard), else null. */
     private function literal(string $re): ?string
     {
         $body = str_starts_with($re, '(?i)') ? substr($re, 4) : $re;
 
-        return $body !== '' && preg_match('/^(?:[^\\\\.^$|?*+()\[\]{}]|\\\\[^A-Za-z0-9])*$/', $body) === 1
-            ? preg_replace('/\\\\(.)/', '$1', $body)
-            : null;
+        return preg_match('/^\w+$/', $body) === 1 ? $body : null;
     }
 
     private function tagQuery(StreamSelector $selector): string
