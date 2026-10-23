@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher;
 
 use Watcher\Analyze\Usage;
+use Watcher\Operate\RunSummaryData;
 
 final class RunResult
 {
@@ -12,12 +13,14 @@ final class RunResult
         public readonly RunOutcome $outcome,
         public readonly ?string $failureReason = null,
         public readonly ?Usage $usage = null,
+        /** Counts and a short reason code for the JSON line; null for results built outside Watcher::run(). */
+        public readonly ?RunSummaryData $summaryData = null,
     ) {
     }
 
     public static function invalidConfig(string $reason): self
     {
-        return new self(RunOutcome::InvalidConfig, $reason);
+        return new self(RunOutcome::InvalidConfig, $reason, null, new RunSummaryData(RunOutcome::InvalidConfig, null, $reason));
     }
 
     /**

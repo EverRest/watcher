@@ -259,7 +259,8 @@ final class DigestTest extends TestCase
 
         self::assertNotSame([], $spy->puts);
         foreach ($spy->puts as $key => $ttl) {
-            self::assertSame(2592000, $ttl, $key); // default retention
+            // default retention; the liveness records (spec 002) live 3 x retention
+            self::assertSame(str_starts_with($key, 'hb:') || str_starts_with($key, 'trig:') ? 7776000 : 2592000, $ttl, $key);
         }
         foreach ($spy->locks as $ttl) {
             self::assertSame(900, $ttl); // lock_ttl

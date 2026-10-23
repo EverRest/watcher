@@ -41,6 +41,13 @@ use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\SlackText;
 use Watcher\Notify\Notifier;
+use Watcher\Operate\CapturingNotifier;
+use Watcher\Operate\DryRunStateStore;
+use Watcher\Operate\EstimatingAnalyzer;
+use Watcher\Operate\Heartbeat;
+use Watcher\Operate\RunOptions;
+use Watcher\Operate\RunStats;
+use Watcher\Operate\RunSummaryData;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\Fingerprinter;
@@ -62,6 +69,7 @@ use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
 use Watcher\State\BufferedStateStore;
 use Watcher\State\Keys;
+use Watcher\State\Purgeable;
 use Watcher\State\StateStore;
 
 /** Single entry point (FR-033). US1 pipeline: no run_at gate, triage, budgets, watch rules, dependencies or deploy info yet. */
@@ -74,23 +82,87 @@ final class Watcher
 
     private ?DeployInfo $deployInfo = null;
 
+    private readonly StateStore $state;
+
+    private readonly Analyzer $analyzer;
+
+    private readonly Notifier $notifier;
+
+    /** The unwrapped store: a dry run reads the real "already done" record through it. */
+    private readonly StateStore $realState;
+
+    private readonly RunOptions $options;
+
+    /** @var callable(string): void */
+    private $out;
+
+    private ?EstimatingAnalyzer $estimator = null;
+
+    private readonly ?Heartbeat $heartbeat;
+
+    // Per-run bookkeeping, reset by run().
+    private RunStats $stats;
+
+    private ?Window $window = null;
+
+    private ?string $code = null;
+
+    private ?float $todayUsd = null;
+
+    private bool $due = false;
+
+    private DateTimeImmutable $startedAt;
+
+    /**
+     * @param callable(string): void|null $out dry-run output (default: stdout); ignored for a real run
+     */
     public function __construct(
         private readonly WatchConfig $config,
         private readonly LogSource $source,
-        private readonly StateStore $state,
-        private readonly Analyzer $analyzer,
-        private readonly Notifier $notifier,
+        StateStore $state,
+        Analyzer $analyzer,
+        Notifier $notifier,
         ?ClockInterface $clock = null,
         private readonly ?LoggerInterface $hostLog = null,
+        ?RunOptions $options = null,
+        mixed $out = null,
     ) {
         $this->clock = $clock ?? new SystemClock();
+        $this->options = $options ?? RunOptions::default();
+        $this->realState = $state;
+        $this->stats = new RunStats();
+        $this->startedAt = $this->clock->now();
+        $this->out = is_callable($out) ? $out : static function (string $s): void {
+            fwrite(STDOUT, $s);
+        };
+        if ($this->options->dryRun) {
+            // Reads pass through; every write, lock and counter is swallowed; nothing is posted (spec 002, US3).
+            $state = new DryRunStateStore($state);
+            $notifier = $this->options->estimate ? self::discarding() : new CapturingNotifier($this->out);
+            if ($this->options->estimate) {
+                $analyzer = $this->estimator = new EstimatingAnalyzer();
+            }
+        }
+        $this->state = $state;
+        $this->analyzer = $analyzer;
+        $this->notifier = $notifier;
+        $this->heartbeat = $this->options->dryRun ? null : Factory::heartbeat($config, $state, $this->clock, $hostLog);
+    }
+
+    private static function discarding(): Notifier
+    {
+        return new class () implements Notifier {
+            public function send(Message $message, Destination $to): void
+            {
+            }
+        };
     }
 
     /**
      * @param array<string, mixed> $config
      * @throws Config\InvalidConfig before any external call; callers map it to RunResult::invalidConfig()
      */
-    public static function fromConfig(array $config, ?LoggerInterface $hostLog = null, ?ClockInterface $clock = null): self
+    public static function fromConfig(array $config, ?LoggerInterface $hostLog = null, ?ClockInterface $clock = null, ?RunOptions $options = null, mixed $out = null): self
     {
         $c = WatchConfig::fromArray($config);
         $clock ??= new SystemClock();
@@ -104,6 +176,8 @@ final class Watcher
             Factory::notifier($http),
             $clock,
             $hostLog,
+            $options,
+            $out,
         );
     }
 
@@ -115,34 +189,55 @@ final class Watcher
 
     public function run(?DateTimeImmutable $now = null): RunResult
     {
+        $this->stats = new RunStats();
+        $this->window = null;
+        $this->code = null;
+        $this->todayUsd = null;
+        $this->due = false;
+        $this->deployInfo = null;
+        $this->startedAt = $this->clock->now();
+
+        return $this->conclude($this->attempt($now));
+    }
+
+    private function attempt(?DateTimeImmutable $now): RunResult
+    {
         $c = $this->config;
         $now ??= $this->clock->now();
         // Before any external call and before the lock: a trigger outside the run_at hour costs nothing (FR-002).
-        $window = (new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']))->decide($now);
+        // A dry run previews the window the real run would analyse, whatever the hour.
+        $gate = new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']);
+        $window = $this->options->dryRun ? $gate->latest($now) : $gate->decide($now);
         if ($window === null) {
             return new RunResult(RunOutcome::SkippedNotDue);
         }
+        $this->window = $window;
+        $this->due = true;
+        $this->purge();
         $service = $c->service;
         $owner = bin2hex(random_bytes(8));
         $retention = $c->state['retention'];
         $lockKey = Keys::lock($service, self::windowKey($window->end));
 
         try {
+            if ($this->options->dryRun) {
+                $this->announceDryRun($service, $window);
+            }
             if (!$this->state->acquire($lockKey, $owner, Keys::ttl(Keys::LOCK, $retention, $c->schedule['lock_ttl']))) {
                 return new RunResult(RunOutcome::SkippedLocked);
             }
 
             return $this->locked($window);
         } catch (SourceUnavailable $e) {
-            return $this->failWithNotice('source', $e->getMessage());
+            return $this->failWithNotice('source', $e->getMessage(), 'source_unavailable');
         } catch (AnalyzerFailed $e) {
-            return $this->failWithNotice('analysis', $e->getMessage());
+            return $this->failWithNotice('analysis', $e->getMessage(), 'analysis_failed');
         } catch (DeliveryFailed $e) {
             // The channel that just failed cannot carry the news: host log and exit code only.
-            return $this->fail($e->getMessage());
+            return $this->fail($e->getMessage(), 'delivery_failed');
         } catch (Throwable $e) {
             // State and unexpected faults: class name only, never a message or chain that might carry a secret.
-            return $this->failWithNotice('run', 'internal error (' . $e::class . ')');
+            return $this->failWithNotice('run', 'internal error (' . $e::class . ')', 'internal_error');
         } finally {
             try {
                 $this->state->release($lockKey, $owner);
@@ -152,17 +247,125 @@ final class Watcher
         }
     }
 
-    private function fail(string $reason): RunResult
+    /** Only a store that opts in (the file store) is purged; once the trigger is due, before the lock. A fault never changes the run. */
+    private function purge(): void
     {
+        if ($this->options->dryRun || !$this->state instanceof Purgeable) {
+            return;
+        }
+        try {
+            $this->state->purge();
+        } catch (Throwable $e) {
+            $this->hostLog?->warning('state purge failed: ' . $e::class, ['service' => $this->config->service]);
+        }
+    }
+
+    private function announceDryRun(string $service, Window $window): void
+    {
+        $this->emit($this->options->estimate
+            ? "== DRY RUN --estimate: no model calls made ==\n"
+            : "== DRY RUN: nothing posted, no state written. Model calls were real and billed; spend not recorded. ==\n");
+        if ($this->realState->get(Keys::run($service, self::windowKey($window->end))) !== null) {
+            $this->emit("== window already reported by a real run: executed anyway ==\n");
+        }
+    }
+
+    private function emit(string $text): void
+    {
+        ($this->out)($text);
+    }
+
+    /**
+     * Last step of every run: the summary data (all outcomes), the liveness record and the weekly line.
+     * Nothing here can change the outcome (FR-005); a dry run records nothing.
+     */
+    private function conclude(RunResult $r): RunResult
+    {
+        $outcome = $r->outcome;
+        $skipped = in_array($outcome, [RunOutcome::SkippedNotDue, RunOutcome::SkippedDone, RunOutcome::SkippedLocked], true);
+        $stats = $skipped ? null : $this->stats;
+        $took = (float) $this->clock->now()->format('U.u') - (float) $this->startedAt->format('U.u');
+        $this->stats->durationMs = max(0, (int) round($took * 1000));
+        $this->record($outcome);
+        if ($this->estimator !== null) {
+            $this->printEstimate($this->estimator);
+        }
+        $summary = new RunSummaryData(
+            $outcome,
+            $this->config->service,
+            $this->code,
+            $this->window?->start,
+            $this->window?->end,
+            $stats,
+            $this->todayUsd,
+            $this->deployInfo?->release,
+            $this->options->dryRun,
+        );
+
+        return new RunResult($outcome, $r->failureReason, $r->usage, $summary);
+    }
+
+    private function record(RunOutcome $outcome): void
+    {
+        if ($this->heartbeat === null || !$this->due) {
+            return;
+        }
+        try {
+            if ($this->window !== null && in_array($outcome, [RunOutcome::Reported, RunOutcome::Quiet, RunOutcome::Baselined, RunOutcome::Failed], true)) {
+                $this->heartbeat->recordRun($outcome, $this->window->start, $this->window->end, $this->startedAt, $this->stats->costUsd, $this->code);
+            } else {
+                $this->heartbeat->recordSkip($outcome);
+            }
+            if ($this->config->heartbeat['weekly_summary']) {
+                $this->heartbeat->sendWeeklySummary($this->notifier, $this->noticeDestination(), $this->notices(), $this->environment());
+            }
+        } catch (Throwable $e) {
+            $this->hostLog?->warning('heartbeat failed: ' . $e::class, ['service' => $this->config->service]);
+        }
+    }
+
+    private function printEstimate(EstimatingAnalyzer $e): void
+    {
+        $a = $this->config->analysis;
+        $calculator = new CostCalculator($a['prices']);
+        /** @var array<string, array{groups: int, in: int, out: int, cost: float}> $rows */
+        $rows = [];
+        foreach ($e->steps() as $step) {
+            try {
+                $cost = $calculator->cost(new Usage($step['model'], $step['tokensIn'], $step['maxTokensOut']));
+            } catch (UnknownModelPrice) {
+                $cost = 0.0;
+            }
+            $r = $rows[$step['step']] ?? ['groups' => 0, 'in' => 0, 'out' => 0, 'cost' => 0.0];
+            $rows[$step['step']] = ['groups' => $r['groups'] + $step['groups'], 'in' => $r['in'] + $step['tokensIn'], 'out' => $r['out'] + $step['maxTokensOut'], 'cost' => $r['cost'] + $cost];
+        }
+        $line = static fn (string $a, string $b, string $c, string $d, string $e, string $note = ''): string => rtrim(sprintf('%-9s %7s %15s %16s %14s   %s', $a, $b, $c, $d, $e, $note)) . "\n";
+        $text = $line('step', 'groups', 'tokens_in(est)', 'tokens_out(max)', 'cost_usd(est)');
+        $total = 0.0;
+        foreach (['triage' => '', 'analyze' => '(upper bound: all top-M)'] as $name => $note) {
+            $r = $rows[$name] ?? null;
+            $total += $r['cost'] ?? 0.0;
+            $text .= $r === null
+                ? $line($name, '-', '-', '-', '-')
+                : $line($name, (string) $r['groups'], (string) $r['in'], (string) $r['out'], number_format($r['cost'], 4, '.', ''), $note);
+        }
+        $text .= $line('escalate', '-', '-', '-', '-', sprintf('(up to %d groups, not estimated)', $a['escalation_cap']));
+        $text .= $line('total', '', '', '', number_format($total, 4, '.', ''));
+        $this->emit($text);
+    }
+
+    private function fail(string $reason, string $code): RunResult
+    {
+        $this->code = $code;
         $this->hostLog?->error('watcher run failed: ' . $reason, ['service' => $this->config->service]);
 
         return new RunResult(RunOutcome::Failed, $reason);
     }
 
     /** A failed notice must never mask the original failure or crash the run (FR-031). */
-    private function failWithNotice(string $kind, string $reason): RunResult
+    private function failWithNotice(string $kind, string $reason, string $code): RunResult
     {
-        $result = $this->fail($reason);
+        $result = $this->fail($reason, $code);
         try {
             $this->notifier->send($this->notices()->failure($this->config->service, $this->environment(), $kind, $reason), $this->noticeDestination());
         } catch (Throwable) {
@@ -307,6 +510,8 @@ final class Watcher
             },
         );
         $groups = $reducer->reduce($events);
+        $this->stats->eventsRead = $eventsRead;
+        $this->stats->groups = count($groups);
         // Muted groups leave first, so they reach neither a model nor the selector; the snapshot keeps them for growth.
         $allGroups = $groups;
         $muteResult = $mute->filter($groups, $muteHits, $started);
@@ -350,6 +555,7 @@ final class Watcher
             }
         }
 
+        $this->stats->candidates = count($candidates);
         if ($candidates === []) {
             $this->readDependencies($window, $normalizer, $redactor, null);
             $this->writeSnapshot($window, $allGroups, $totals);
@@ -381,7 +587,7 @@ final class Watcher
         $buffer = new BufferedStateStore($this->state); // verdicts and reported markers: kept only once the digest is delivered
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
-        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog), new VerdictCache($buffer, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
+        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->stats, $c->analysis['models']), new VerdictCache($buffer, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
         try {
             $routed = $router->route($redacted, $triageOnly, $dependencies);
         } catch (AnalyzerFailed $e) {
@@ -406,6 +612,8 @@ final class Watcher
             $usage = $usage === null ? $priced : $usage->plus($priced);
         }
         $after = $spend->today();
+        $this->todayUsd = $after['usd'];
+        $this->stats->findings = count($routed->findings);
 
         if ($triageOnly && $routed->triaged > 0) {
             try {
@@ -536,13 +744,15 @@ final class Watcher
      * Each call is priced and added to Spend as it returns, so a later failure in the same run cannot lose what was already paid for.
      * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 with one warning.
      */
-    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log): Analyzer
+    /** @param array<string, string> $models */
+    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = []): Analyzer
     {
-        return new class ($inner, $spend, $calculator, $log) implements Analyzer {
+        return new class ($inner, $spend, $calculator, $log, $stats, $models) implements Analyzer {
             /** @var array<string, true> */
             private array $warned = [];
 
-            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log)
+            /** @param array<string, string> $models configured model per step, to tell an escalation from the main analysis */
+            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models)
             {
             }
 
@@ -551,9 +761,9 @@ final class Watcher
                 try {
                     $r = $this->inner->triage($req);
                 } catch (AnalyzerFailed $e) {
-                    throw $this->bookFailed($e);
+                    throw $this->bookFailed($e, 'triage');
                 }
-                $this->book($r->usage);
+                $this->book($r->usage, 'triage');
 
                 return $r;
             }
@@ -563,27 +773,38 @@ final class Watcher
                 try {
                     $r = $this->inner->analyze($req);
                 } catch (AnalyzerFailed $e) {
-                    throw $this->bookFailed($e);
+                    throw $this->bookFailed($e, $this->analyzeStep($req));
                 }
-                $this->book($r->usage);
+                $this->book($r->usage, $this->analyzeStep($req));
 
                 return $r;
             }
 
-            private function bookFailed(AnalyzerFailed $e): AnalyzerFailed
+            /** @return 'analyze'|'escalate' */
+            private function analyzeStep(AnalysisRequest $req): string
+            {
+                $escalate = $this->models['escalate'] ?? null;
+
+                return $escalate !== null && $req->model === $escalate && $escalate !== ($this->models['analyze'] ?? null) ? 'escalate' : 'analyze';
+            }
+
+            /** @param 'triage'|'analyze'|'escalate' $step */
+            private function bookFailed(AnalyzerFailed $e, string $step): AnalyzerFailed
             {
                 if ($e->usage !== null) {
-                    $this->book($e->usage);
+                    $this->book($e->usage, $step);
                 }
 
                 return $e;
             }
 
             /** A paid call whose model has no price is booked at cost 0 (warned once per model); its result is never discarded. */
-            private function book(Usage $u): void
+            /** @param 'triage'|'analyze'|'escalate' $step */
+            private function book(Usage $u, string $step): void
             {
+                $cost = 0.0;
                 try {
-                    $this->spend->add($u, $this->calculator->cost($u));
+                    $this->spend->add($u, $cost = $this->calculator->cost($u));
                 } catch (UnknownModelPrice) {
                     $this->spend->add($u, 0.0);
                     if (!isset($this->warned[$u->model])) {
@@ -591,6 +812,7 @@ final class Watcher
                         $this->log?->warning('paid analyzer call has no price configured; recorded at cost 0', ['model' => $u->model]);
                     }
                 }
+                $this->stats?->addUsage($step, new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost));
             }
         };
     }

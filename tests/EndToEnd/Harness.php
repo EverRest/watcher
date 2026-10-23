@@ -66,9 +66,9 @@ final class Harness
         ], $this->configPatch);
     }
 
-    public function watcher(\Watcher\Source\LogSource $source): Watcher
+    public function watcher(\Watcher\Source\LogSource $source, ?\Watcher\Operate\RunOptions $options = null, mixed $out = null): Watcher
     {
-        return new Watcher(WatchConfig::fromArray($this->config()), $source, $this->state, $this->analyzer, $this->notifier, $this->clock, $this->hostLog);
+        return new Watcher(WatchConfig::fromArray($this->config()), $source, $this->state, $this->analyzer, $this->notifier, $this->clock, $this->hostLog, $options, $out);
     }
 
     /** Advance one full window (the default PT24H). */

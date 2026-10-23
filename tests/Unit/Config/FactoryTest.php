@@ -97,4 +97,62 @@ final class FactoryTest extends TestCase
         self::assertStringContainsString('"sort":"-timestamp"', $body);
         self::assertStringNotContainsString('status:(', $body, 'level_mode all pushes no status filter');
     }
+
+    public function testModelCatalogExistsOnlyForAnthropic(): void
+    {
+        $c = WatchConfig::fromArray(self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]));
+
+        self::assertInstanceOf(\Watcher\Operate\AnthropicModelCatalog::class, Factory::modelCatalog($c, new Client()));
+    }
+
+    public function testDoctorIsBuiltFromConfigWithoutAnyCall(): void
+    {
+        $handler = new MockHandler([]);
+        $doctor = Factory::doctor(self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]), new Client(['handler' => HandlerStack::create($handler)]));
+
+        self::assertInstanceOf(\Watcher\Operate\Doctor::class, $doctor);
+        self::assertCount(0, $handler);
+    }
+
+    public function testDoctorOnAnInvalidConfigThrowsInvalidConfigNamingTheSetting(): void
+    {
+        $this->expectException(\Watcher\Config\InvalidConfig::class);
+
+        Factory::doctor(['service' => 'svc']);
+    }
+
+    public function testHeartbeatStatusReadsTheConfiguredStore(): void
+    {
+        $dir = sys_get_temp_dir() . '/watcher-hb-' . bin2hex(random_bytes(4));
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]);
+        $config['state'] = ['driver' => 'file', 'file' => ['path' => $dir]];
+        $clock = new FrozenClock(new \DateTimeImmutable('2026-10-08T06:00:00Z'));
+
+        self::assertSame('unknown', Factory::heartbeatStatus($config, $clock)->state);
+
+        $hb = new \Watcher\Operate\Heartbeat(Factory::state(WatchConfig::fromArray($config), $clock), $clock, 'svc', new \DateTimeZone('UTC'), 2592000);
+        $hb->recordRun(\Watcher\RunOutcome::Quiet, $clock->now()->modify('-1 day'), $clock->now(), $clock->now());
+        self::assertSame('ok', Factory::heartbeatStatus($config, $clock)->state);
+        $clock->advance('+37 hours');
+        self::assertSame('stale', Factory::heartbeatStatus($config, $clock)->state);
+    }
+
+    public function testTheFileStoreGetsScheduleLockTtlAsItsLockLifetime(): void
+    {
+        $dir = sys_get_temp_dir() . '/watcher-lt-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]);
+        $config['state'] = ['driver' => 'file', 'file' => ['path' => $dir]];
+        $config['schedule'] = ['run_at' => '06:00', 'lock_ttl' => 60];
+        $sidecar = $dir . '/' . str_repeat('a', 64) . '.json.lock';
+        touch($sidecar, time() - 120); // older than 60 s, younger than the 900 s default
+        $store = Factory::state(WatchConfig::fromArray($config), new FrozenClock(new \DateTimeImmutable()));
+
+        self::assertInstanceOf(\Watcher\State\Purgeable::class, $store);
+        $store->purge();
+
+        self::assertFileDoesNotExist($sidecar);
+        @unlink($dir . '/.purge');
+        @rmdir($dir);
+    }
 }

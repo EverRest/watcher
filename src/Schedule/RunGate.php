@@ -44,6 +44,18 @@ final class RunGate
         return null;
     }
 
+    /** The window ending at the most recent run_at instant <= now, ignoring the due hour (dry run). */
+    public function latest(DateTimeImmutable $now): Window
+    {
+        $local = $now->setTimezone($this->timezone);
+        $runAt = $this->runAtOn($local, 0);
+        if ($runAt > $now) {
+            $runAt = $this->runAtOn($local, -1);
+        }
+
+        return new Window($this->start($runAt), $runAt);
+    }
+
     /**
      * Whole-day windows start at the same local wall-clock time N days earlier, so consecutive windows share
      * boundaries across DST changes; sub-day windows are end minus duration.

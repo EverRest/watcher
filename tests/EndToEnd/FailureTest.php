@@ -137,8 +137,9 @@ final class FailureTest extends TestCase
 
         self::assertSame(RunOutcome::Failed, $result->outcome);
         self::assertSame(1, $result->exitCode());
-        self::assertCount(1, $log->records);
-        self::assertStringNotContainsString('hunter2', $log->records[0][1] . $result->failureReason);
+        self::assertCount(2, $log->records); // the failure, then the liveness record that could not be written either
+        self::assertSame('warning', $log->records[1][0]);
+        self::assertStringNotContainsString('hunter2', $log->records[0][1] . $log->records[1][1] . $result->failureReason);
         self::assertCount(1, $h->notifier->sent);
         self::assertStringContainsString('run failed: internal error (RuntimeException)', $h->sentTexts()[0]);
     }

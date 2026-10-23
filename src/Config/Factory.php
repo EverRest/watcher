@@ -9,11 +9,18 @@ use GuzzleHttp\Client;
 use PDO;
 use PDOException;
 use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
 use Redis;
 use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Notify\Notifier;
+use Watcher\Operate\AnthropicModelCatalog;
+use Watcher\Operate\Doctor;
+use Watcher\Operate\Heartbeat;
+use Watcher\Operate\HeartbeatStatus;
+use Watcher\Operate\ModelCatalog;
+use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
 use Watcher\Source\LogSource;
 use Watcher\Source\DatadogSource;
@@ -108,7 +115,7 @@ final class Factory
             // The table is never created here: run PdoStateStore::createTableSql($driver, $table) once, in a migration.
             // Lazy like Redis: a connect failure on a trigger that is not due must not fail it.
             'pdo' => self::lazy(static fn (): StateStore => new PdoStateStore(self::pdo($st['pdo']), $clock, (string) ($st['pdo']['table'] ?? 'watcher_state'))),
-            default => new FileStateStore((string) $st['file']['path'], $clock),
+            default => new FileStateStore((string) $st['file']['path'], $clock, $c->schedule['lock_ttl']),
         };
     }
 
@@ -204,6 +211,55 @@ final class Factory
     public static function notifier(Client $http): Notifier
     {
         return new SlackWebhookNotifier($http);
+    }
+
+    /** Models-list probe for `check`; null for a provider without one. Makes no call by itself. */
+    public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
+    {
+        return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null;
+    }
+
+    /** Liveness record reader/writer; every secret of the config is masked in a stored failure reason. */
+    public static function heartbeat(WatchConfig $c, StateStore $state, ClockInterface $clock, ?LoggerInterface $log = null): Heartbeat
+    {
+        return new Heartbeat(
+            $state,
+            $clock,
+            $c->service,
+            new \DateTimeZone($c->schedule['timezone']),
+            $c->state['retention'],
+            $log,
+            [(string) $c->analysis['api_key'], $c->notify['digest']['webhook'], $c->notify['notice']['webhook']],
+        );
+    }
+
+    /**
+     * Collaborators for `watcher check`, built without running the pipeline (no Analyzer: `check` never bills).
+     *
+     * @param array<string, mixed> $config
+     * @throws InvalidConfig the caller reports it with {@see Doctor::configFailure()}
+     */
+    public static function doctor(array $config, ?Client $http = null, ?ClockInterface $clock = null): Doctor
+    {
+        $c = WatchConfig::fromArray($config);
+        $clock ??= new SystemClock();
+        $http ??= self::http();
+
+        return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http), $clock);
+    }
+
+    /**
+     * For `watcher status`. Never throws for an unreadable store (that is `unknown`); InvalidConfig only for a bad config.
+     *
+     * @param array<string, mixed> $config
+     * @throws InvalidConfig
+     */
+    public static function heartbeatStatus(array $config, ?ClockInterface $clock = null, ?LoggerInterface $log = null): HeartbeatStatus
+    {
+        $c = WatchConfig::fromArray($config);
+        $clock ??= new SystemClock();
+
+        return self::heartbeat($c, self::state($c, $clock), $clock, $log)->status($c->heartbeat['stale_after']);
     }
 
     private static function unavailable(string $key, string $value): InvalidConfig
