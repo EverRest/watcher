@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace Watcher\Config;
 
 use GuzzleHttp\Client;
+use PDO;
 use Psr\Clock\ClockInterface;
+use Redis;
+use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Notify\Notifier;
 use Watcher\Notify\SlackWebhookNotifier;
 use Watcher\Source\LogSource;
+use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
+use Watcher\State\PdoStateStore;
+use Watcher\State\RedisStateStore;
 use Watcher\State\StateStore;
 
-/** Builds the real collaborators from a validated config. Drivers that do not exist yet fail by name, before any call. */
+/** Builds the real collaborators from a validated config. The pdo table is not created here (see PdoStateStore::createTableSql). */
 final class Factory
 {
     public static function http(): Client
@@ -25,8 +31,11 @@ final class Factory
 
     public static function source(WatchConfig $c, Client $http): LogSource
     {
-        if ($c->source['driver'] !== 'loki') {
-            throw self::unavailable('source.driver', (string) $c->source['driver']);
+        if ($c->source['driver'] === 'datadog') {
+            /** @var array<string, string> $dd */
+            $dd = $c->source['datadog'];
+
+            return new DatadogSource($http, $dd['site'] ?? 'datadoghq.com', $dd['api_key'], $dd['app_key']);
         }
         /** @var array<string, mixed> $loki */
         $loki = $c->source['loki'];
@@ -46,11 +55,39 @@ final class Factory
 
     public static function state(WatchConfig $c, ClockInterface $clock): StateStore
     {
-        if ($c->state['driver'] !== 'file') {
-            throw self::unavailable('state.driver', (string) $c->state['driver']);
+        /** @var array<string, mixed> $st */
+        $st = $c->state;
+
+        return match ($st['driver']) {
+            'redis' => new RedisStateStore(self::redis(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock),
+            // The table is never created here: run PdoStateStore::createTableSql($driver, $table) once, in a migration.
+            'pdo' => new PdoStateStore(
+                new PDO((string) $st['pdo']['dsn'], $st['pdo']['username'] ?? null, $st['pdo']['password'] ?? null),
+                $clock,
+                (string) ($st['pdo']['table'] ?? 'watcher_state'),
+            ),
+            default => new FileStateStore((string) $st['file']['path'], $clock),
+        };
+    }
+
+    /** @param array<string, mixed> $r */
+    private static function redis(array $r): Redis
+    {
+        if (($r['instance'] ?? null) instanceof Redis) {
+            return $r['instance'];
+        }
+        $redis = new Redis();
+        try {
+            $redis->connect((string) ($r['host'] ?? '127.0.0.1'), (int) ($r['port'] ?? 6379), 5.0);
+            if (isset($r['password'])) {
+                $redis->auth((string) $r['password']);
+            }
+            $redis->select((int) ($r['database'] ?? 0));
+        } catch (RedisException) {
+            throw new InvalidConfig('state.redis: cannot connect or authenticate'); // never echo the driver message (may carry the password)
         }
 
-        return new FileStateStore((string) $c->state['file']['path'], $clock);
+        return $redis;
     }
 
     public static function analyzer(WatchConfig $c, Client $http): Analyzer

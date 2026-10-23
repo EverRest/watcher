@@ -179,6 +179,9 @@ final class WatchConfig
             $dd = self::section($s, 'datadog');
             self::str($dd, 'api_key', 'source.datadog.api_key');
             self::str($dd, 'app_key', 'source.datadog.app_key');
+            if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i', self::optStr($dd, 'site', 'datadoghq.com', 'source.datadog.site')) !== 1) {
+                throw new InvalidConfig('source.datadog.site must be a Datadog site host such as datadoghq.eu');
+            }
         } else {
             throw new InvalidConfig('source.driver must be loki or datadog');
         }
@@ -293,13 +296,51 @@ final class WatchConfig
     {
         $driver = self::str($s, 'driver', 'state.driver');
         match ($driver) {
-            'redis' => null,
-            'pdo' => self::str(self::section($s, 'pdo'), 'dsn', 'state.pdo.dsn'),
+            'redis' => self::redis(self::section($s, 'redis')),
+            'pdo' => self::pdo(self::section($s, 'pdo')),
             'file' => self::str(self::section($s, 'file'), 'path', 'state.file.path'),
             default => throw new InvalidConfig('state.driver must be redis, pdo or file'),
         };
 
         return array_merge($s, ['retention' => self::posInt($s, 'retention', 2592000, 'state.retention')]);
+    }
+
+    /** @param array<string, mixed> $r an injected `instance` wins; otherwise host/port/password/database build one */
+    private static function redis(array $r): void
+    {
+        if (array_key_exists('instance', $r)) {
+            if (!$r['instance'] instanceof \Redis) {
+                throw new InvalidConfig('state.redis.instance must be a \\Redis instance');
+            }
+
+            return;
+        }
+        self::optStr($r, 'host', '127.0.0.1', 'state.redis.host');
+        $port = $r['port'] ?? 6379;
+        if (!is_int($port) || $port < 1 || $port > 65535) {
+            throw new InvalidConfig('state.redis.port must be an integer from 1 to 65535');
+        }
+        $db = $r['database'] ?? 0;
+        if (!is_int($db) || $db < 0) {
+            throw new InvalidConfig('state.redis.database must be a non-negative integer');
+        }
+        if (isset($r['password']) && !is_string($r['password'])) {
+            throw new InvalidConfig('state.redis.password must be a string');
+        }
+    }
+
+    /** @param array<string, mixed> $p */
+    private static function pdo(array $p): void
+    {
+        self::str($p, 'dsn', 'state.pdo.dsn');
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', self::optStr($p, 'table', 'watcher_state', 'state.pdo.table')) !== 1) {
+            throw new InvalidConfig('state.pdo.table must be a plain identifier');
+        }
+        foreach (['username', 'password'] as $k) {
+            if (isset($p[$k]) && !is_string($p[$k])) {
+                throw new InvalidConfig('state.pdo.' . $k . ' must be a string');
+            }
+        }
     }
 
     /**

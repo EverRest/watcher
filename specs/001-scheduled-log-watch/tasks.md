@@ -185,7 +185,7 @@ digests; quickstart scenarios 6–9.
 - [x] T079 [P] [US4] Test stream tags build the Loki selector `{app="orders-api",env="stg"}` and the Datadog query `app:orders-api env:stg`; watch rules in explicit form only — `template` regex, `error_type` regex, `field` + `equals`|`matches` evaluated locally — make a warning group a candidate with reason `watch_rule`, never filter others out, and only the rule name appears in `watchMatches`; config with a free-form rule or two matcher keys is rejected in `tests/Unit/Select/WatchRulesTest.php`
 - [x] T080 [P] [US4] Test `MuteList`: fingerprint entries and matcher entries (same explicit form as watch rules) exclude groups from candidates and from analyzer input; counted as "N muted"; entry with past `until` no longer applies in `tests/Unit/Select/MuteListTest.php`
 - [x] T081 [P] [US4] Test `RunCommand` (`watcher:run --now=`) returns `RunResult::exitCode()` and config is read from `config/watcher.php`; invalid config → exit 2 with the key name and no external call (FR-015) in `tests/Unit/Laravel/RunCommandTest.php`
-- [ ] T082 [US4] End-to-end scenarios 6 (watch rule), 7 (mute then expiry), 8 (not due → no external call), 9 (two concurrent runners → one `reported`, one `skipped_locked`) in `tests/EndToEnd/FlexibilityTest.php`
+- [x] T082 [US4] End-to-end scenarios 6 (watch rule), 7 (mute then expiry), 8 (not due → no external call), 9 (two concurrent runners → one `reported`, one `skipped_locked`) in `tests/EndToEnd/FlexibilityTest.php`
 
 ### Implementation
 
@@ -194,7 +194,7 @@ digests; quickstart scenarios 6–9.
 - [x] T085 [P] [US4] Implement `PdoStateStore` (table `watcher_state(key VARCHAR(191) PK, value TEXT, expires_at BIGINT)`, opportunistic purge, insert-as-lock) and `PdoStateStore::createTableSql()` in `src/State/PdoStateStore.php`
 - [x] T086 [P] [US4] Implement `RunGate` in `src/Schedule/RunGate.php`
 - [x] T087 [P] [US4] Implement `WatchRules`, `MuteList` and selector integration in `src/Select/`
-- [ ] T088 [US4] Implement driver factories (source, state, notifier) from `WatchConfig` in `src/Config/Factory.php`
+- [x] T088 [US4] Implement driver factories (source, state, notifier) from `WatchConfig` in `src/Config/Factory.php`
 - [x] T089 [P] [US4] Implement `WatcherServiceProvider`, `RunCommand`, publishable `config/watcher.php` in `src/Laravel/`
 - [x] T090 [P] [US4] Implement plain CLI `bin/watcher run --config=… [--now=…]` in `bin/watcher` (exit codes 0/1/2 as `RunResult::exitCode()`; invalid config → 2), with `tests/Unit/CliTest.php`
 

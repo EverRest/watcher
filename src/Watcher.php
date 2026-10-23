@@ -32,13 +32,18 @@ use Watcher\Notify\DigestRenderer;
 use Watcher\Notify\Message;
 use Watcher\Notify\Notifier;
 use Watcher\Privacy\Redactor;
+use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\GroupStatus;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Reduce\Reducer;
+use Watcher\Schedule\RunGate;
 use Watcher\Schedule\SystemClock;
 use Watcher\Schedule\Window;
 use Watcher\Select\LevelAnomaly;
+use Watcher\Select\MatcherParser;
+use Watcher\Select\MuteList;
+use Watcher\Select\WatchRules;
 use Watcher\Select\Selector;
 use Watcher\Source\LogSource;
 use Watcher\Source\ReadFilter;
@@ -94,7 +99,12 @@ final class Watcher
     public function run(?DateTimeImmutable $now = null): RunResult
     {
         $c = $this->config;
-        $window = Window::endingAt($now ?? $this->clock->now(), $c->schedule['window']);
+        $now ??= $this->clock->now();
+        // Before any external call and before the lock: a trigger outside the run_at hour costs nothing (FR-002).
+        $window = (new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']))->decide($now);
+        if ($window === null) {
+            return new RunResult(RunOutcome::SkippedNotDue);
+        }
         $service = $c->service;
         $owner = bin2hex(random_bytes(8));
         $retention = $c->state['retention'];
@@ -154,19 +164,58 @@ final class Watcher
         $anomalies = LevelAnomaly::levels($prev === null ? null : ($prev['totals'] ?? []), $totals, $c->selection['growth_factor'], $readMin);
 
         $truncated = false;
-        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated): iterable {
+        $rules = new WatchRules($c->watchRules);
+        $mute = new MuteList($c->mute);
+        $muteMatchers = [];
+        foreach ($c->mute as $i => $entry) {
+            if (!isset($entry['fingerprint'])) {
+                $m = MatcherParser::parse($entry);
+                if ($m->isFieldMatcher()) {
+                    $muteMatchers[$i] = $m;
+                }
+            }
+        }
+        $fingerprinter = new Fingerprinter($normalizer);
+        /** @var array<string, list<string>> $ruleHits rule names per fingerprint */
+        $ruleHits = [];
+        /** @var array<string, list<string>> $muteHits mute entry indexes per fingerprint */
+        $muteHits = [];
+        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits): iterable {
+            // Field VALUES are matched here and dropped: only rule names and mute indexes are kept per fingerprint.
+            $observe = static function (\Watcher\Source\LogEvent $e) use ($rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits): \Watcher\Source\LogEvent {
+                $names = $rules->namesMatchingEvent($e);
+                $hits = [];
+                foreach ($muteMatchers as $i => $m) {
+                    if ($m->matchesEvent($e)) {
+                        $hits[] = (string) $i;
+                    }
+                }
+                if ($names !== [] || $hits !== []) {
+                    $fp = $fingerprinter->of($e);
+                    $ruleHits[$fp] = array_values(array_unique([...($ruleHits[$fp] ?? []), ...$names]));
+                    $muteHits[$fp] = array_values(array_unique([...($muteHits[$fp] ?? []), ...$hits]));
+                }
+
+                return $e;
+            };
             foreach ($anomalies as $level) {
                 foreach ($this->source->lines($window, $selector, new ReadFilter($level, [], $this->config->source['anomaly_cap'])) as $e) {
                     if ($e->level === $level) {
-                        yield $e;
+                        yield $observe($e);
                     }
                 }
             }
-            yield from $this->source->lines($window, $selector, new ReadFilter($readMin, [], $this->config->source['event_cap']));
+            foreach ($this->source->lines($window, $selector, new ReadFilter($readMin, [], $this->config->source['event_cap'])) as $e) {
+                yield $observe($e);
+            }
             $truncated = $this->source->lastReadTruncated();
         })();
 
         $groups = (new Reducer($normalizer, $c->minGroupEventsForText))->reduce($events);
+        // Muted groups leave first, so they reach neither a model nor the selector; the snapshot keeps them for growth.
+        $allGroups = $groups;
+        $muteResult = $mute->filter($groups, $muteHits, $started);
+        $groups = $muteResult->kept;
         $factor = $c->selection['growth_factor'];
         $previousGroups = $prev['groups'] ?? [];
         $groups = array_map(
@@ -174,11 +223,12 @@ final class Watcher
             $groups,
         );
 
+        $groups = $rules->apply($groups, $ruleHits);
         $environment = is_string($c->source['stream_tags']['env'] ?? null) ? $c->source['stream_tags']['env'] : 'default';
         $renderer = new DigestRenderer();
 
         if ($prev === null) {
-            $this->writeSnapshot($window, $groups, $totals);
+            $this->writeSnapshot($window, $allGroups, $totals);
             $this->notifier->send(
                 $renderer->renderBaseline($service, $environment, count($groups), array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups))),
                 new Destination($c->notify['notice']['webhook']),
@@ -198,7 +248,7 @@ final class Watcher
         }
 
         if ($candidates === []) {
-            $this->writeSnapshot($window, $groups, $totals);
+            $this->writeSnapshot($window, $allGroups, $totals);
             $this->writeRun($runKey, RunOutcome::Quiet, null, $started);
 
             return new RunResult(RunOutcome::Quiet);
@@ -257,7 +307,7 @@ final class Watcher
         $dropped = $truncation->droppedCount + $routed->droppedByTopM;
 
         if ($findings === [] && $dropped === 0) {
-            $this->writeSnapshot($window, $groups, $totals);
+            $this->writeSnapshot($window, $allGroups, $totals);
             $this->writeRun($runKey, RunOutcome::Quiet, $usage, $started);
 
             return new RunResult(RunOutcome::Quiet, null, $usage);
@@ -284,7 +334,7 @@ final class Watcher
             $dropped,
             $selection->otherGroups,
             $selection->otherEvents,
-            0,
+            $muteResult->mutedCount,
             $after['usd'],
             $c->analysis['daily_budget_usd'],
             $after['tokens'],
@@ -298,7 +348,7 @@ final class Watcher
                 $this->state->put(Keys::reported($service, $fp), ['lastReportedAt' => $now, 'atCount' => $byFingerprint[$fp]->count ?? 0], $retention);
             }
         }
-        $this->writeSnapshot($window, $groups, $totals);
+        $this->writeSnapshot($window, $allGroups, $totals);
         $this->writeRun($runKey, RunOutcome::Reported, $usage, $started);
 
         return new RunResult(RunOutcome::Reported, null, $usage);

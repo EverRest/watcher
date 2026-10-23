@@ -23,7 +23,7 @@ return [
             'tenant'  => null,                     // X-Scope-OrgID when required
         ],
         'datadog' => [
-            'site'    => 'datadoghq.eu',
+            'site'    => 'datadoghq.eu',                // optional, default datadoghq.com
             'api_key' => env('WATCHER_DD_API_KEY'),
             'app_key' => env('WATCHER_DD_APP_KEY'),  // logs_read_data scope only
         ],
@@ -106,8 +106,10 @@ return [
     'state' => [
         'driver'    => 'redis',                    // redis | pdo | file
         'retention' => 2592000,                    // seconds, default 30 days (FR-027)
-        'redis'     => ['connection' => null],     // adapter resolves host connection; plain PHP passes \Redis
-        'pdo'       => ['dsn' => env('WATCHER_DB_DSN'), 'table' => 'watcher_state'],
+        'redis'     => [                          // an injected \Redis wins over the connection keys
+            'instance' => null, 'host' => '127.0.0.1', 'port' => 6379, 'password' => null, 'database' => 0,
+        ],
+        'pdo'       => ['dsn' => env('WATCHER_DB_DSN'), 'username' => null, 'password' => null, 'table' => 'watcher_state'], // table is NOT created automatically: see PdoStateStore::createTableSql()
         'file'      => ['path' => '/var/lib/watcher'],   // single runner only
     ],
 

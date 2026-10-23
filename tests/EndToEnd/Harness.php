@@ -45,9 +45,11 @@ final class Harness
     /** @return array<string, mixed> */
     public function config(): array
     {
+        // The gate runs only inside the run_at hour, so by default the schedule follows the clock (UTC);
+        // tests of the gate itself pass schedule.run_at explicitly.
         return array_replace_recursive([
             'service' => 'svc',
-            'schedule' => ['run_at' => '06:00'],
+            'schedule' => ['run_at' => $this->clock->now()->format('H:i')],
             'source' => [
                 'driver' => 'loki',
                 'loki' => ['url' => 'http://loki.invalid'],

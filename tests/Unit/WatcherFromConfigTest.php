@@ -29,26 +29,55 @@ final class WatcherFromConfigTest extends TestCase
         self::assertInstanceOf(Watcher::class, Watcher::fromConfig(self::valid()));
     }
 
+    public function testDatadogSourceBuildsWithoutNetwork(): void
+    {
+        $dd = ['driver' => 'datadog', 'datadog' => ['site' => 'datadoghq.eu', 'api_key' => 'a', 'app_key' => 'b']];
+
+        self::assertInstanceOf(Watcher::class, Watcher::fromConfig(array_replace(self::valid(), ['source' => $dd])));
+    }
+
+    public function testPdoStateBuildsOnSqliteAndCreatesNothing(): void
+    {
+        $state = ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:', 'table' => 'my_state']];
+
+        self::assertInstanceOf(Watcher::class, Watcher::fromConfig(array_replace(self::valid(), ['state' => $state])));
+    }
+
+    public function testRedisStateBuildsFromAnInjectedInstance(): void
+    {
+        if (!class_exists(\Redis::class)) {
+            self::markTestSkipped('ext-redis missing');
+        }
+        $state = ['driver' => 'redis', 'redis' => ['instance' => $this->createMock(\Redis::class)]];
+
+        self::assertInstanceOf(Watcher::class, Watcher::fromConfig(array_replace(self::valid(), ['state' => $state])));
+    }
+
     /** @return array<string, array{array<string, mixed>, string}> */
-    public static function unavailable(): array
+    public static function rejected(): array
     {
         return [
-            'datadog source' => [['source' => ['driver' => 'datadog', 'datadog' => ['api_key' => 'a', 'app_key' => 'b']]], "source.driver 'datadog'"],
-            'redis state' => [['state' => ['driver' => 'redis']], "state.driver 'redis'"],
-            'pdo state' => [['state' => ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:']]], "state.driver 'pdo'"],
+            'redis instance not a Redis' => [['state' => ['driver' => 'redis', 'redis' => ['instance' => new \stdClass()]]], 'state.redis.instance'],
+            'redis bad port' => [['state' => ['driver' => 'redis', 'redis' => ['port' => 70000]]], 'state.redis.port'],
+            'redis bad database' => [['state' => ['driver' => 'redis', 'redis' => ['host' => 'r', 'database' => -1]]], 'state.redis.database'],
+            'redis bad host' => [['state' => ['driver' => 'redis', 'redis' => ['host' => '']]], 'state.redis.host'],
+            'pdo bad table' => [['state' => ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:', 'table' => 'a;b']]], 'state.pdo.table'],
+            'pdo bad username' => [['state' => ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:', 'username' => 5]]], 'state.pdo.username'],
+            'datadog bad site' => [['source' => ['driver' => 'datadog', 'datadog' => ['site' => 'evil.com/x', 'api_key' => 'a', 'app_key' => 'b']]], 'source.datadog.site'],
+            'unknown state driver' => [['state' => ['driver' => 'memcached']], 'state.driver'],
+            'unknown source driver' => [['source' => ['driver' => 'elk']], 'source.driver'],
         ];
     }
 
     /** @param array<string, mixed> $patch */
-    #[DataProvider('unavailable')]
-    public function testDriversArrivingLaterAreRejectedByName(array $patch, string $expected): void
+    #[DataProvider('rejected')]
+    public function testBadDriverSettingsAreRejectedByKey(array $patch, string $expected): void
     {
         try {
             Watcher::fromConfig(array_replace(self::valid(), $patch));
             self::fail('expected InvalidConfig');
         } catch (InvalidConfig $e) {
             self::assertStringContainsString($expected, $e->getMessage());
-            self::assertStringContainsString('not available yet', $e->getMessage());
         }
     }
 
