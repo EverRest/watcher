@@ -271,6 +271,17 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertSame(['/var/www/a.php:9'], $events[40]->frames);
     }
 
+    public function testOrphanTraceLinesAtThePageStartNeverBecomeEvents(): void
+    {
+        $source = $this->makeSourceWithLines(['main.foo(0xc000123, 0x1)', "\t/app/main.go:42 +0x1d", 'goroutine 7 [running]:', 'ERROR real']);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 100)));
+
+        $this->assertCount(1, $events);
+        $this->assertSame('ERROR real', $events[0]->message);
+    }
+
     public function testLevelFromStreamLabelWinsForALineWithoutALevelWord(): void
     {
         $body = $this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [

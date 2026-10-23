@@ -28,6 +28,9 @@ final class EventAssembler
     {
         $open = null;
         foreach ($lines as $line) {
+            if ($open === null && $this->parser->isOrphanTrace($line)) {
+                continue;
+            }
             if ($open === null || !$this->parser->continues($line, $open)) {
                 if ($open !== null) {
                     yield $open;

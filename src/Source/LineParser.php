@@ -29,8 +29,14 @@ final class LineParser
     private const PLAIN_LEVEL = '/^(?:\d{4}[-\/]\d\d[-\/]\d\d[T ]\d\d:\d\d:\d\d\S*\s+)?(?:PHP\s+)?[\[<(]?(?<w>trace|debug|info|notice|warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal|panic)(?!\w)/i';
     private const LOGFMT_LEVEL = '/(?:^|\s)(?:level|lvl)="?(?<w>\w+)/i';
     private const SYSLOG_PRI = '/^<(?<n>\d{1,3})>/';
-    /** A line that can only be the tail of a record: indented, `#0 frame`, `at x`, `Caused by:`, `Stack trace:`, `Traceback`, `...`, a closer, or `Some\FooException: x`. */
-    private const CONTINUATION = '/^(?:$|\s|#\d|at\s|Caused by:|Stack trace:|PHP\s+(?:Stack trace:|\d+\.)|Traceback|\.\.\.|[})\]]|[\w.\\$]+(?:Error|Exception)\b(?::|$))/';
+    /**
+     * A line that can only be the tail of a record: indented (Node/Go/Rust frames), `#0 frame`, `at x`, `Caused by:`,
+     * `Stack trace:`, `Traceback`, `...`, a closer, `Foo\BarException: x`, `module.Class: x`, Go `goroutine N [state]:`,
+     * `pkg.func(0x..)`, `created by x`, `exit status N`, Rust `stack backtrace:`.
+     */
+    private const CONTINUATION = '/^(?:$|\s|#\d|at\s|Caused by:|Stack trace:|PHP\s+(?:Stack trace:|\d+\.)|Traceback|\.\.\.|[})\]]|[\w.\\$]*(?:Error|Exception)\b(?::|$)|[a-z_]\w*(?:\.\w+)*\.[A-Z]\w*: |goroutine \d+ \[|[\w.\/*()-]+\((?:0x[0-9a-f]+|\.\.\.)|created by |exit status \d|stack backtrace:)/';
+    /** A head that announces a crash: everything up to the next record is its trace, whatever shape the frames take. */
+    private const TRACE_HEAD = '/(?:^|\W)(?:Traceback|panic:|goroutine \d+|Fatal error|PHP Fatal error|Exception in thread|thread \'[^\']*\' panicked|Stack trace:|Caused by:|fatal error:)/';
 
     private const LEVEL_KEYS = ['level', 'severity', 'status'];
     private const MESSAGE_KEYS = ['message', 'msg'];
@@ -41,11 +47,25 @@ final class LineParser
     /** Incremented per event whose level token was present but unrecognised (it is then Info). */
     public int $unknownLevels = 0;
 
+    /** Trace-shaped lines dropped because no record was open to carry them (a page or stream that starts mid-trace). */
+    public int $orphanTraceLines = 0;
+
+    /** Is `$line`, arriving with no open record, the middle of a stack trace? Then it is dropped (and counted), never an event. */
+    public function isOrphanTrace(string $line): bool
+    {
+        if (trim($line) === '' || $this->structured($line) || $this->plainLevel($line) !== null || preg_match(self::CONTINUATION, $line) !== 1) {
+            return false;
+        }
+        ++$this->orphanTraceLines;
+
+        return true;
+    }
+
     /**
      * Does `$line` continue the record `$open` (which it would be appended to)?
      * A `[timestamp]` line or JSON object always starts a record; so does a line with a level prefix.
      * Under an open Laravel/JSON record everything else continues it (its context and trace may hold any text);
-     * under an open plain record only continuation-shaped lines do, anything else is its own record.
+     * under an open plain record continuation-shaped lines do, and so does anything once the record is in trace mode.
      */
     public function continues(string $line, string $open): bool
     {
@@ -57,7 +77,13 @@ final class LineParser
             return true;
         }
 
-        return preg_match(self::CONTINUATION, $line) === 1;
+        if (preg_match(self::CONTINUATION, $line) === 1) {
+            return true;
+        }
+
+        // Trace mode: a crash head, or a record that already holds a non-blank tail, takes every line up to the next record.
+        return preg_match(self::TRACE_HEAD, $nl === false ? $open : substr($open, 0, $nl)) === 1
+            || ($nl !== false && strspn($open, " \t\r\n", $nl) < strlen($open) - $nl);
     }
 
     /** Does this physical line begin a `[timestamp]` text record or a JSON object? */

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit\Source;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Watcher\Source\EventAssembler;
+use Watcher\Source\LineParser;
 
 final class EventAssemblerTest extends TestCase
 {
@@ -51,9 +53,54 @@ final class EventAssemblerTest extends TestCase
         self::assertSame('[2026-10-22 10:05:02] production.ERROR: Last failure', $records[2]);
     }
 
-    public function testLeadingOrphanLineBecomesItsOwnRecord(): void
+    public function testLeadingOrphanTraceLinesAreDroppedAndCounted(): void
     {
-        self::assertSame(["#0 orphan\n#1 {main}"], $this->assemble(['#0 orphan', '#1 {main}']));
+        $parser = new LineParser();
+        $records = iterator_to_array((new EventAssembler($parser))->assemble(['#0 orphan', '#1 {main}', 'goroutine 7 [running]:', 'main.foo(0xc0001)', 'ERROR real']), false);
+
+        self::assertSame(['ERROR real'], $records);
+        self::assertSame(4, $parser->orphanTraceLines);
+    }
+
+    /** @return iterable<string, array{string, list<string>, list<string>}> */
+    public static function traceFixtures(): iterable
+    {
+        yield 'go' => ['go_panic.log', ['INFO worker started', 'panic: runtime error: index out of range [5] with length 3', 'INFO after panic'], ['main.go', '0xc000', 'goroutine', 'exit status']];
+        yield 'rust' => ['rust_panic.log', ['INFO boot', "thread 'main' panicked at src/main.rs:5:9:", 'INFO done'], ['panicking.rs', 'rust_begin_unwind', 'backtrace', 'RUST_BACKTRACE']];
+        yield 'node' => ['node_trace.log', ['ERROR Unhandled rejection', 'WARN next'], ['user.js', 'at handler', 'email']];
+    }
+
+    /**
+     * @param list<non-empty-string> $heads
+     * @param list<string> $forbidden
+     */
+    #[DataProvider('traceFixtures')]
+    public function testForeignStackTracesStayInsideTheirRecord(string $fixture, array $heads, array $forbidden): void
+    {
+        $records = $this->assemble(self::fixtureLines($fixture));
+        $parser = new LineParser();
+
+        self::assertCount(count($heads), $records);
+        foreach ($records as $i => $r) {
+            self::assertStringStartsWith($heads[$i], $r);
+            $message = $parser->parse($r)->message;
+            foreach ($forbidden as $f) {
+                self::assertStringNotContainsString($f, $message);
+            }
+        }
+    }
+
+    public function testTraceModeSurvivesUnrecognisedFramesUntilANewRecord(): void
+    {
+        self::assertSame(
+            ["ERROR boom\n#0 /a.php(1): f()\nweird frame shape x\n\nanother weird one", 'ERROR next'],
+            $this->assemble(['ERROR boom', '#0 /a.php(1): f()', 'weird frame shape x', '', 'another weird one', 'ERROR next']),
+        );
+    }
+
+    public function testBlankLineAloneDoesNotEnterTraceMode(): void
+    {
+        self::assertSame(["ERROR a\n", 'plain text'], $this->assemble(['ERROR a', '', 'plain text']));
     }
 
     public function testBracketLineWithoutATimestampIsAContinuation(): void

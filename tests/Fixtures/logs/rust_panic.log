@@ -1,0 +1,9 @@
+INFO boot
+thread 'main' panicked at src/main.rs:5:9:
+called `Option::unwrap()` on a `None` value
+stack backtrace:
+   0: rust_begin_unwind
+             at /rustc/abc/library/std/src/panicking.rs:645:5
+   1: core::panicking::panic_fmt
+note: run with `RUST_BACKTRACE=1`
+INFO done

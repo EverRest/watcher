@@ -210,6 +210,9 @@ final class LokiSource implements LogSource
         $open = []; // stream key => index into $out
         foreach ($entries as [$ts, $line, $labels]) {
             $stream = json_encode($labels);
+            if (!isset($open[$stream]) && $parser->isOrphanTrace($line)) {
+                continue;
+            }
             if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1])) {
                 $out[$open[$stream]][1] .= "\n" . $line;
                 continue;

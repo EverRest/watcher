@@ -1,0 +1,5 @@
+ERROR Unhandled rejection
+TypeError: Cannot read properties of undefined (reading 'email')
+    at handler (/app/src/user.js:12:5)
+    at process (node:internal/x:1:1)
+WARN next
