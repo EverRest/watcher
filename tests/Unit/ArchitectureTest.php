@@ -164,4 +164,31 @@ final class ArchitectureTest extends TestCase
         preg_match_all("/'(\\w+)'\\s*=>/", $p['body'] ?? '', $pk);
         self::assertSame([], array_diff($pk[1], ['dsn', 'username', 'password', 'table']), 'state.pdo holds a key WatchConfig does not read');
     }
+
+    public function testSmokeConfigInTheGuideValidates(): void
+    {
+        $env = [
+            'WATCHER_LOKI_URL' => 'https://grafana.example.com/api/datasources/proxy/uid/loki', 'WATCHER_LOKI_TOKEN' => 't',
+            'WATCHER_ANTHROPIC_KEY' => 'k', 'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example.com/x',
+            'WATCHER_MODEL_TRIAGE' => 'model-a', 'WATCHER_MODEL_ANALYZE' => 'model-b', 'WATCHER_MODEL_ESCALATE' => 'model-c',
+            'WATCHER_PRICE_TRIAGE_IN' => '1', 'WATCHER_PRICE_TRIAGE_OUT' => '5',
+            'WATCHER_PRICE_ANALYZE_IN' => '3', 'WATCHER_PRICE_ANALYZE_OUT' => '15',
+            'WATCHER_PRICE_ESCALATE_IN' => '5', 'WATCHER_PRICE_ESCALATE_OUT' => '25',
+        ];
+        $before = [];
+        foreach ($env as $k => $v) {
+            $before[$k] = getenv($k);
+            putenv("$k=$v");
+        }
+        try {
+            $parsed = WatchConfig::fromArray(require self::ROOT . '/docs/examples/smoke.config.php');
+        } finally {
+            foreach ($before as $k => $v) {
+                putenv($v === false ? $k : "$k=$v");
+            }
+        }
+
+        self::assertSame('smoke-service', $parsed->service);
+        self::assertSame('file', $parsed->state['driver']);
+    }
 }

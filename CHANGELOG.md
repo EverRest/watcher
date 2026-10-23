@@ -19,3 +19,11 @@
 - Read-only by construction: sources issue only Loki `query` / `query_range` GETs and Datadog `aggregate` / `events/search` POSTs, enforced by an architecture test.
 - Secrets never appear in error messages, notices or model input; Slack text is escaped so log content cannot ping, link or format.
 - No model ids, no consumer-specific names in `src/` or `config/`, no framework imports in the core, all checked by tests.
+
+### Documentation
+
+- `docs/`: step-by-step first live smoke run, operations guide, configuration reference and a data-flow / privacy description; a minimal smoke config under `docs/examples/`.
+
+### Changed (CLI)
+
+- `bin/watcher` and `watcher:run` print a one-line result (`outcome`, `reason`, tokens, cost) and failure messages go to stderr; previously only the exit code was visible.

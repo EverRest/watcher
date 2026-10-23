@@ -156,6 +156,11 @@ One message per service per run: a header (service, environment, window), findin
 notices and a cost footer. A finding shows title, event count and trend (`new` or `up from N`), a 12-character
 fingerprint, evidence, a hypothesis (always labelled as such) and a suggested next step.
 
+## Documentation
+
+[docs/](docs/README.md): [first live smoke run](docs/smoke-test.md), [operating it](docs/operations.md),
+[configuration reference](docs/configuration.md) and [what leaves the service](docs/privacy.md).
+
 ## Known limits
 
 - The Grafana Explore URL shape and the Datadog response shapes are not verified against live systems; sources are
