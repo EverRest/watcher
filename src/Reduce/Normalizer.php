@@ -31,7 +31,7 @@ final class Normalizer
     /** Character-class members that end a URL token (angle brackets and their stand-ins). */
     private const ANG = '<>\x{E000}\x{E001}';
 
-    private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|md|sql|csv|env|lock|sh|py|rb|go|jar|zip|gz';
+    private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|sql|csv|env|lock|rb|jar|gz';
 
     private const H = '[0-9a-f]{1,4}';
 
@@ -45,10 +45,16 @@ final class Normalizer
      * @param list<string> $declaredDependencyHosts
      * @param list<string> $dependencyDomains
      */
-    public function __construct(array $declaredDependencyHosts = [], array $dependencyDomains = [])
+    public function __construct(array $declaredDependencyHosts = [], array $dependencyDomains = [], private readonly bool $maskNumbers = true)
     {
         $this->dependencyHosts = array_map(strtolower(...), $declaredDependencyHosts);
         $this->domains = array_map(static fn (string $d): string => ltrim(strtolower($d), '.'), $dependencyDomains);
+    }
+
+    /** Same table, but plain numbers stay readable (for text written by the model, which never saw personal data). */
+    public function keepingNumbers(): self
+    {
+        return new self($this->dependencyHosts, $this->domains, false);
     }
 
     public function normalize(string $text): string
@@ -129,7 +135,7 @@ final class Normalizer
                 fn (array $m): string => $this->hostPlaceholder(strtolower($m['host']), 'HOST'),
             ],
             ['\b(?:\d[ -]?){12,18}\d\b', '<PAN>'],
-            ['\d+', '<N>'],
+            ...($this->maskNumbers ? [['\d+', '<N>']] : []),
             ['"[^"]{33,}"', '<STR>'],
             ['(?<!\w)\'[^\']{33,}\'(?!\w)', '<STR>'],
         ];

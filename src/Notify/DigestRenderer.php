@@ -224,7 +224,7 @@ final class DigestRenderer
     }
 
     /** Extensions that look like a domain label but are file names: kept readable and copyable. */
-    private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|md|sql|csv|env|lock|sh|py|rb|go|jar|zip|gz';
+    private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|sql|csv|env|lock|rb|jar|gz';
 
     /**
      * One line, Slack control sequences neutralised: model text cannot ping, link or format, and — because log

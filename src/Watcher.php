@@ -19,7 +19,7 @@ use Watcher\Notify\Destination;
 use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
 use Watcher\Notify\Notifier;
-use Watcher\Privacy\RedactedGroup;
+use Watcher\Privacy\Redactor;
 use Watcher\Reduce\GroupStatus;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\ProblemGroup;
@@ -189,9 +189,11 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
-        $redacted = array_map(static fn ($cand): RedactedGroup => RedactedGroup::fromProblemGroup($cand->group), $candidates);
+        $redactor = new Redactor($normalizer, $c->redactionPatterns);
+        $redacted = array_map(static fn ($cand) => $redactor->redact($cand->group), $candidates);
         $model = $c->analysis['models']['analyze'];
         $result = $this->analyzer->analyze(new AnalysisRequest($redacted, $c->serviceContext, $model, $c->analysis['max_output_tokens']['analyze']));
+        $findings = array_map($redactor->redactFinding(...), $result->findings);
 
         $byFingerprint = [];
         foreach ($redacted as $g) {
@@ -203,7 +205,7 @@ final class Watcher
             $window->start,
             $window->end,
             $c->schedule['timezone'],
-            $result->findings,
+            $findings,
             $byFingerprint,
             null,
             $result->usage,
@@ -218,7 +220,7 @@ final class Watcher
         $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
 
         $now = $this->clock->now()->format(DATE_ATOM);
-        foreach ($result->findings as $finding) {
+        foreach ($findings as $finding) {
             foreach ($finding->fingerprints as $fp) {
                 $this->state->put(Keys::reported($service, $fp), ['lastReportedAt' => $now, 'atCount' => $byFingerprint[$fp]->count ?? 0], $retention);
             }

@@ -198,6 +198,16 @@ final class DigestRendererTest extends TestCase
         self::assertStringContainsString('app/Services/X.php', $t);
     }
 
+    public function testRealTldsThatLookLikeFileExtensionsAreDefanged(): void
+    {
+        $f = new Finding([$this->fp(1)], FindingKind::Bug, Severity::Error, 'get evil.zip', 'run evil.sh then evil.py and evil.md', 'x', 'y', 0.9);
+        $t = $this->text((new DigestRenderer())->render($this->data([$f]), 0.5), 'finding');
+
+        foreach (['evil.zip', 'evil.sh', 'evil.py', 'evil.md'] as $d) {
+            self::assertStringNotContainsString($d, $t);
+        }
+    }
+
     public function testOverflowKeepsOneMessageWithinBlockLimitAndMovesLowestSeverityToMinor(): void
     {
         $f = [];

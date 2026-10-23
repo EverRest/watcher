@@ -105,4 +105,30 @@ final class LineParserExceptionTest extends TestCase
         self::assertNotSame($a->fields['exception'], $b->fields['exception']);
         self::assertSame($fp->of($a), $fp->of($b));
     }
+
+    public function testContinuationLinesNeverEndUpInTheMessage(): void
+    {
+        // The context JSON starts on the SECOND physical line; the stack line before it carries call arguments.
+        $record = "[2026-10-07T21:49:49+00:00] production.ERROR: Mail failed\n"
+            . "#0 /var/www/html/app/Mailer.php(5): App\\Mailer->send('Anna Kowalski', 'anna@example.com') "
+            . '{"exception":"[object] (RuntimeException(code: 0): m at /var/www/html/app/Mailer.php:5)"} []';
+
+        $e = (new LineParser())->parse($record);
+
+        self::assertSame('Mail failed', $e->message);
+        self::assertStringNotContainsString('Anna Kowalski', $e->message);
+        self::assertStringNotContainsString('anna@example.com', $e->message);
+    }
+
+    public function testFramePathsMustLookLikeSourceFiles(): void
+    {
+        $line = '[2026-10-07T21:49:49+00:00] production.ERROR: x '
+            . '{"exception":"[object] (RuntimeException(code: 0): m at /home/anna.kowalski/secret:9)"} []';
+        $e = (new LineParser())->parse($line);
+        self::assertSame([], $e->frames, 'a path without a file extension is not a frame');
+
+        $ok = (new LineParser())->parse('RuntimeException: Boom in /var/www/html/app/Foo.php:12');
+        self::assertSame('RuntimeException', $ok->errorType);
+        self::assertSame(['/var/www/html/app/Foo.php:12'], $ok->frames);
+    }
 }

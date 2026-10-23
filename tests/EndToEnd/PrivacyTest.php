@@ -5,12 +5,23 @@ declare(strict_types=1);
 namespace Watcher\Tests\EndToEnd;
 
 use PHPUnit\Framework\TestCase;
+use Watcher\Analyze\AnalysisRequest;
+use Watcher\Analyze\AnalysisResult;
+use Watcher\Analyze\Analyzer;
+use Watcher\Analyze\Finding;
+use Watcher\Analyze\FindingKind;
+use Watcher\Analyze\Severity;
+use Watcher\Analyze\TriageRequest;
+use Watcher\Analyze\TriageResult;
+use Watcher\Analyze\Usage;
+use Watcher\Config\WatchConfig;
 use Watcher\RunOutcome;
 use Watcher\Source\LineParser;
 use Watcher\Tests\Fakes\FakeLogSource;
 use Watcher\Tests\Fakes\InMemoryStateStore;
+use Watcher\Watcher;
 
-/** Principle I, layer 1, end to end: no seeded personal value reaches any outbound payload or stored item. */
+/** Principle I, layers 1 and 2, end to end: no seeded personal value reaches any outbound payload or stored item. */
 final class PrivacyTest extends TestCase
 {
     private const ALLOWED_KEYS = ['fp', 'tpl', 'lvl', 'err', 'frames', 'n', 'prev', 'st', 'watch', 'first', 'last'];
@@ -57,5 +68,102 @@ final class PrivacyTest extends TestCase
                 self::assertStringNotContainsString($value, $haystack, "seeded value leaked into $where: $value");
             }
         }
+    }
+
+    private const LAYER2_VALUES = ['CUST-QWERTY', 'ACC-MNBVCX'];
+
+    /** @param array<string, mixed> $patch */
+    private function runLayer2(array $patch): Harness
+    {
+        $parser = new LineParser();
+        $events = [];
+        foreach (file(__DIR__ . '/../Fixtures/privacy/layer2.log', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            $events[] = $parser->parse($line);
+        }
+        $h = new Harness($patch);
+        $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $h->nextWindow();
+        $result = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+
+        return $h;
+    }
+
+    private static function haystack(Harness $h): string
+    {
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        $payload = [
+            $h->analyzer->requests,
+            array_map(static fn (array $s) => $s['message'], $h->notifier->sent),
+            $h->state->all(),
+        ];
+
+        return json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
+    public function testLayer2ExtraPatternsCatchWhatTheNormalizerTableDoesNotKnow(): void
+    {
+        // Control: without extra_patterns the values survive layer 1, proving the fixture is not vacuous.
+        $control = self::haystack($this->runLayer2([]));
+        foreach (self::LAYER2_VALUES as $value) {
+            self::assertStringContainsString($value, $control, "control run should leak $value");
+        }
+
+        $patterns = ['customer' => '/CUST-[A-Z0-9]{6}/', 'account' => '/ACC-[A-Z0-9]{6,}/'];
+        $h = $this->runLayer2(['redaction' => ['extra_patterns' => $patterns]]);
+        $haystack = self::haystack($h);
+        foreach (self::LAYER2_VALUES as $value) {
+            self::assertStringNotContainsString($value, $haystack, "layer 2 leaked $value");
+        }
+        self::assertStringContainsString('<CUSTOMER>', $haystack);
+        self::assertStringContainsString('<ACCOUNT>', $haystack);
+    }
+
+    public function testModelOutputIsScrubbedBeforeRenderingAndStorage(): void
+    {
+        $h = new Harness();
+        $analyzer = new LeakyAnalyzer();
+        $events = Harness::events(\Watcher\Level::Error, 'Disk quota exceeded', 4);
+        $make = fn (): Watcher => new Watcher(WatchConfig::fromArray($h->config()), new FakeLogSource(Harness::totalsOf($events), $events), $h->state, $analyzer, $h->notifier, $h->clock);
+        $make()->run();
+        $h->nextWindow();
+        self::assertSame(RunOutcome::Reported, $make()->run()->outcome);
+
+        $jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl';
+        $text = str_replace("\u{200B}", '', implode("\n", $h->sentTexts())); // the renderer defangs emails with zero-width spaces
+        $text = html_entity_decode($text); // the renderer escapes < and > for Slack
+        self::assertStringContainsString('<EMAIL>', $text);
+        self::assertStringContainsString('<TOKEN>', $text);
+        self::assertStringContainsString('[withheld]', $text);
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        $all = $text . json_encode($h->state->all(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        foreach (['anna.kowalski@example.com', $jwt] as $raw) {
+            self::assertStringNotContainsString($raw, $all);
+        }
+    }
+}
+
+/** Answers like a model that echoes personal data back (defence-in-depth case). */
+final class LeakyAnalyzer implements Analyzer
+{
+    public function triage(TriageRequest $req): TriageResult
+    {
+        throw new \LogicException('not used');
+    }
+
+    public function analyze(AnalysisRequest $req): AnalysisResult
+    {
+        $findings = array_map(static fn ($g): Finding => new Finding(
+            [$g->fingerprint],
+            FindingKind::Bug,
+            Severity::Error,
+            'Quota problem',
+            'Seen for anna.kowalski@example.com with token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl',
+            'a full disk',
+            "free space \xFF",
+            0.9,
+        ), $req->groups);
+
+        return new AnalysisResult($findings, new Usage($req->model, 10, 10, 0, 0, 0.01));
     }
 }

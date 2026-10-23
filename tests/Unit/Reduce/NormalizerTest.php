@@ -81,6 +81,10 @@ final class NormalizerTest extends TestCase
             'host with trailing dot' => ['connect to a.example.com.', 'connect to <HOST>.'],
             'email first' => ['mail john@example.com failed', 'mail <EMAIL> failed'],
             'ip stays ip' => ['from 10.0.12.7 refused', 'from <IP> refused'],
+            'zip is a real tld' => ['fetching evil.zip now', 'fetching <HOST> now'],
+            'sh is a real tld' => ['fetching evil.sh now', 'fetching <HOST> now'],
+            'py is a real tld' => ['fetching evil.py now', 'fetching <HOST> now'],
+            'md is a real tld' => ['fetching evil.md now', 'fetching <HOST> now'],
             'file name' => ['in config.php failed', 'in config.php failed'],
             'file name nested' => ['in app/x.service.json failed', 'in app/x.service.json failed'],
             'version' => ['upgrade 1.2.3 and v2.0', 'upgrade <N>.<N>.<N> and v<N>.<N>'],
@@ -157,6 +161,18 @@ final class NormalizerTest extends TestCase
         self::assertSame('<URL:core-api>', $n->normalize('http://core-api/users?email=x@y.com'));
         self::assertSame('<URL:core-api>', $n->normalize('http://core-api:8080/x?e=a@b.com'));
         self::assertSame('<URL:core-api>', $n->normalize('http://core-api:8080'));
+    }
+
+    public function testNumbersCanBeKeptWhileEverythingElseStaysMasked(): void
+    {
+        $n = (new Normalizer())->keepingNumbers();
+
+        self::assertSame(
+            '412 errors from <IP> at <EMAIL> card <PAN> since 06:00',
+            $n->normalize('412 errors from 10.0.0.1 at a@b.com card 4111 1111 1111 1111 since 06:00'),
+        );
+        // The default instance is untouched.
+        self::assertSame('<N> errors', (new Normalizer())->normalize('412 errors'));
     }
 
     public function testDeterministic(): void

@@ -1,0 +1,8 @@
+[2026-10-07T23:01:00+00:00] production.ERROR: [BILLING]: Invoice generation failed for customer CUST-QWERTY [] []
+[2026-10-07T23:02:00+00:00] production.ERROR: [BILLING]: Invoice generation failed for customer CUST-QWERTY [] []
+[2026-10-07T23:03:00+00:00] production.ERROR: [BILLING]: Invoice generation failed for customer CUST-QWERTY [] []
+[2026-10-07T23:04:00+00:00] production.ERROR: [BILLING]: Invoice generation failed for customer CUST-QWERTY [] []
+[2026-10-07T23:11:00+00:00] production.ERROR: [LEDGER]: Ledger mismatch on account ACC-MNBVCX during close [] []
+[2026-10-07T23:12:00+00:00] production.ERROR: [LEDGER]: Ledger mismatch on account ACC-MNBVCX during close [] []
+[2026-10-07T23:13:00+00:00] production.ERROR: [LEDGER]: Ledger mismatch on account ACC-MNBVCX during close [] []
+[2026-10-07T23:14:00+00:00] production.ERROR: [LEDGER]: Ledger mismatch on account ACC-MNBVCX during close [] []
