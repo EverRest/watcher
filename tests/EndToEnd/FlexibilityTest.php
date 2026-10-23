@@ -186,6 +186,25 @@ final class FlexibilityTest extends TestCase
         self::assertStringNotContainsString(self::SECRET, self::everything($h));
     }
 
+    public function testScenario7FieldMatcherMuteKeepsAGroupWhenNotEveryEventMatchesAndSaysSo(): void
+    {
+        $h = new Harness(['mute' => [['field' => 'tenant', 'equals' => self::SECRET]]]);
+        self::baseline($h, self::beta());
+        $mixed = [];
+        foreach (self::alpha() as $i => $e) {
+            $mixed[] = new LogEvent($e->time, $e->level, $e->message, $e->errorType, [], ['tenant' => $i === 0 ? 'other' : self::SECRET], []);
+        }
+        $total = count($mixed);
+
+        $h->watcher(self::source($mixed))->run();
+
+        self::assertStringContainsString('AlphaException', self::payloads($h));
+        $text = implode("\n", $h->sentTexts());
+        self::assertStringContainsString(sprintf('%d of %d events match mute #0', $total - 1, $total), $text);
+        self::assertStringNotContainsString(' muted', $text);
+        self::assertStringNotContainsString(self::SECRET, self::everything($h));
+    }
+
     public function testScenario7GroupIsAnalysedAgainOnceTheMuteHasExpired(): void
     {
         // 2026-10-08 baseline, 10-09 muted (until is inclusive), 10-10 expired.

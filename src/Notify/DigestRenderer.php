@@ -109,6 +109,10 @@ final class DigestRenderer
             $out[] = ['kind' => 'minor', 'text' => implode(' · ', $parts)];
         }
 
+        foreach ($d->mutePartial as $fp => [$matched, $events, $index]) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ `%s` kept: %d of %d events match mute #%d', substr((string) $fp, 0, 12), $matched, $events, $index)];
+        }
+
         if ($d->levelAnomalyLine !== null) {
             $out[] = ['kind' => 'notice', 'text' => '📈 ' . $this->esc($d->levelAnomalyLine)];
         }

@@ -250,7 +250,7 @@ final class Watcher
         $fingerprinter = new Fingerprinter($normalizer);
         /** @var array<string, list<string>> $ruleHits rule names per fingerprint */
         $ruleHits = [];
-        /** @var array<string, list<string>> $muteHits mute entry indexes per fingerprint */
+        /** @var array<string, array<int, int>> $muteHits fingerprint => [mute entry index => events that matched it] (counts only) */
         $muteHits = [];
         $ruleMatched = false; // set by observe for the event the reducer is processing right now (the stream is sequential)
         $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, &$eventsRead, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits, &$ruleMatched): iterable {
@@ -262,13 +262,15 @@ final class Watcher
                 $hits = [];
                 foreach ($muteMatchers as $i => $m) {
                     if ($m->matchesEvent($e)) {
-                        $hits[] = (string) $i;
+                        $hits[] = (int) $i;
                     }
                 }
                 if ($names !== [] || $hits !== []) {
                     $fp = $fingerprinter->of($e);
                     $ruleHits[$fp] = array_values(array_unique([...($ruleHits[$fp] ?? []), ...$names]));
-                    $muteHits[$fp] = array_values(array_unique([...($muteHits[$fp] ?? []), ...$hits]));
+                    foreach ($hits as $i) {
+                        $muteHits[$fp][$i] = ($muteHits[$fp][$i] ?? 0) + 1;
+                    }
                 }
 
                 return $e;
@@ -468,6 +470,7 @@ final class Watcher
             $links,
             $reducer->overflowedEvents(),
             $c->source['group_cap'],
+            $muteResult->partial,
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));

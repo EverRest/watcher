@@ -34,36 +34,55 @@ final class MuteList
     }
 
     /**
-     * @param list<ProblemGroup>          $groups
-     * @param array<string, list<string>> $eventMatches fingerprint => ENTRY INDEXES (as strings, position in the
-     *                                                  mute list) of field entries that matched any event of the group
+     * @param list<ProblemGroup>           $groups
+     * @param array<string, array<int, int>> $eventMatches fingerprint => [mute entry index => number of the group's events
+     *                                                     that matched that field entry]. A field entry mutes a group only
+     *                                                     when it matched every event of it.
      */
     public function filter(array $groups, array $eventMatches, DateTimeImmutable $now): MuteResult
     {
         $today = $now->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d');
         $kept = [];
+        $partial = [];
         $muted = 0;
         foreach ($groups as $g) {
-            if ($this->isMuted($g, $eventMatches[$g->fingerprint] ?? [], $today)) {
+            $counts = $eventMatches[$g->fingerprint] ?? [];
+            if ($this->isMuted($g, $counts, $today)) {
                 $muted++;
-            } else {
-                $kept[] = $g;
+                continue;
+            }
+            $kept[] = $g;
+            $best = null;
+            foreach ($counts as $i => $n) {
+                if ($n > 0 && $this->active($i, $today) && ($best === null || $n > $best[0])) {
+                    $best = [$n, $g->count, $i];
+                }
+            }
+            if ($best !== null) {
+                $partial[$g->fingerprint] = $best;
             }
         }
 
-        return new MuteResult($kept, $muted);
+        return new MuteResult($kept, $muted, $partial);
     }
 
-    /** @param list<string> $fieldHits */
-    private function isMuted(ProblemGroup $g, array $fieldHits, string $today): bool
+    private function active(int $i, string $today): bool
+    {
+        $until = $this->entries[$i]['until'] ?? null;
+
+        return $until === null || $until >= $today; // inclusive through that UTC day
+    }
+
+    /** @param array<int, int> $fieldCounts */
+    private function isMuted(ProblemGroup $g, array $fieldCounts, string $today): bool
     {
         foreach ($this->entries as $i => $e) {
-            if ($e['until'] !== null && $e['until'] < $today) { // inclusive through that UTC day
+            if (!$this->active($i, $today)) {
                 continue;
             }
             $m = $e['matcher'];
             if ($e['fingerprint'] === $g->fingerprint
-                || ($m !== null && ($m->isFieldMatcher() ? in_array((string) $i, $fieldHits, true) : $m->matchesGroup($g)))) {
+                || ($m !== null && ($m->isFieldMatcher() ? ($fieldCounts[$i] ?? 0) >= $g->count && $g->count > 0 : $m->matchesGroup($g)))) {
                 return true;
             }
         }

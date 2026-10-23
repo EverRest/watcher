@@ -122,7 +122,8 @@ a directory of hashed file names, so wipe the whole directory.
 
 - **Noise.** Each finding shows a 12-character fingerprint in backticks. Copy it into `mute` (with an `until` date if the
   problem is being fixed) to stop it; use a `template`/`error_type`/`field` matcher for a family. A muted group is counted
-  as "N muted" and never reaches a model.
+  as "N muted" and never reaches a model. A `field` matcher (`user_id equals 42`) mutes a group only if every event of
+  it matches; otherwise the group stays and the digest shows `N of M events match mute #i` (index in your `mute` list).
 - **Must-watch topics.** Add a `watch_rules` entry; its groups are analysed even at `warning`.
 - **Reading a finding.** The "Hypothesis" line is a model guess from masked text, not a fact. The evidence line is limited
   to counts, levels, error type, frames and timestamps. Rare problems (fewer events than

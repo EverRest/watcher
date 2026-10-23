@@ -50,6 +50,8 @@ final class DigestData
         public readonly array $links = [],
         public readonly int $overflowedEvents = 0,
         public readonly int $groupCap = 0,
+        /** @var array<string, array{int, int, int}> kept groups partly matched by a field mute: fingerprint => [matched, events, mute index] */
+        public readonly array $mutePartial = [],
     ) {
     }
 }
