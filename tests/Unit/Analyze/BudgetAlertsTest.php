@@ -143,4 +143,16 @@ final class BudgetAlertsTest extends TestCase
         self::assertArrayHasKey('alert:svc:2026-03-01:cost:25', $this->store->all());
         self::assertArrayNotHasKey('alert:svc:2026-03-01:cost:50', $this->store->all());
     }
+
+    public function testReleaseGivesEveryClaimOfTheAlertBackSoTheNextCheckAnnouncesAgain(): void
+    {
+        $a = $this->alerts();
+        $alert = $this->check($a, ['usd' => 0.0, 'tokens' => 0], ['usd' => 95.0, 'tokens' => 0]);
+        self::assertNotNull($alert);
+        self::assertNull($this->check($a, ['usd' => 0.0, 'tokens' => 0], ['usd' => 95.0, 'tokens' => 0]), 'still claimed');
+
+        $a->release($alert);
+
+        self::assertSame(90, $this->check($a, ['usd' => 0.0, 'tokens' => 0], ['usd' => 95.0, 'tokens' => 0])?->percent);
+    }
 }

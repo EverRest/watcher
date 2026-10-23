@@ -6,12 +6,16 @@ namespace Watcher\Analyze;
 
 final class Alert
 {
-    /** @param string $counter 'cost' or 'tokens' */
+    /**
+     * @param string       $counter 'cost' or 'tokens'
+     * @param list<string> $claimed every state key claimed by the check that produced this alert
+     */
     public function __construct(
         public readonly string $counter,
         public readonly int $percent,
         public readonly float $value,
         public readonly float $limit,
+        public readonly array $claimed = [],
     ) {
     }
 

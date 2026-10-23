@@ -36,19 +36,32 @@ final class BudgetAlerts
         }
 
         $best = null;
+        $keys = [];
         foreach ($counters as [$counter, $was, $now, $limit]) {
             foreach ($percents as $percent) {
                 $at = $limit * $percent / 100;
                 if (!($was < $at && $now >= $at)) {
                     continue;
                 }
-                $claimed = $this->store->acquire(Keys::alert($this->service, $day, $counter, $percent), 'alert', Keys::ttl(Keys::ALERT, 0, 0));
-                if ($claimed && ($best === null || $percent > $best->percent)) {
-                    $best = new Alert($counter, $percent, $now, $limit);
+                $key = Keys::alert($this->service, $day, $counter, $percent);
+                if (!$this->store->acquire($key, 'alert', Keys::ttl(Keys::ALERT, 0, 0))) {
+                    continue;
+                }
+                $keys[] = $key;
+                if ($best === null || $percent > $best[1]) {
+                    $best = [$counter, $percent, $now, $limit];
                 }
             }
         }
 
-        return $best;
+        return $best === null ? null : new Alert($best[0], $best[1], $best[2], $best[3], $keys);
+    }
+
+    /** The notice could not be sent: give the claims back so the next run announces it instead of losing it for the day. */
+    public function release(Alert $alert): void
+    {
+        foreach ($alert->claimed as $key) {
+            $this->store->release($key, 'alert');
+        }
     }
 }

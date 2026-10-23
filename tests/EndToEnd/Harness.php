@@ -133,6 +133,8 @@ final class EchoAnalyzer implements Analyzer
     public array $triageRequests = [];
 
     public ?\Watcher\Analyze\AnalyzerFailed $failure = null;
+    /** Fails analyze() only, so triage has already completed and been paid for. */
+    public ?\Watcher\Analyze\AnalyzerFailed $analyzeFailure = null;
     public string $verdict = 'interesting';
     public float $confidence = 0.9;
     public int $inputTokens = 1200;
@@ -161,6 +163,9 @@ final class EchoAnalyzer implements Analyzer
     public function analyze(AnalysisRequest $req): AnalysisResult
     {
         $this->requests[] = $req;
+        if ($this->analyzeFailure !== null) {
+            throw $this->analyzeFailure;
+        }
         // Escalation (the "m-e" model) is the confident second opinion.
         $confidence = $req->model === 'm-e' ? 0.95 : $this->confidence;
         $findings = array_map(

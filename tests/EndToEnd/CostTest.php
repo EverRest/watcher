@@ -44,7 +44,7 @@ final class CostTest extends TestCase
     {
         $out = [];
         foreach ($h->notifier->sent as $s) {
-            if (str_starts_with($s['message']->text, $prefix)) {
+            if (str_contains($s['message']->text, $prefix)) {
                 $out[] = $s['message']->text;
             }
         }
@@ -227,5 +227,51 @@ final class CostTest extends TestCase
 
         self::assertCount(1, $h->analyzer->triageRequests, 'verdict reused, no second triage');
         self::assertSame([], $h->analyzer->requests);
+    }
+
+    public function testUsageOfCompletedCallsIsPricedEvenWhenALaterCallFails(): void
+    {
+        $h = new Harness(['analysis' => ['prices' => ['m-t' => [1000, 0, 0, 0]]]]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $h->analyzer->analyzeFailure = new AnalyzerFailed('provider unavailable');
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertSame(RunOutcome::Failed, $result->outcome);
+        self::assertCount(1, $h->analyzer->triageRequests, 'triage completed before analyze failed');
+        $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
+        self::assertEqualsWithDelta(1.2, $today['usd'], 1e-9, 'the triage call was paid for');
+        self::assertSame(1500, $today['tokens']);
+    }
+
+    public function testASuccessfulRunStillCountsEachCallExactlyOnce(): void
+    {
+        $h = new Harness(['analysis' => ['prices' => ['m-t' => [1000, 0, 0, 0], 'm-a' => [1000, 0, 0, 0]]]]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
+        self::assertEqualsWithDelta(2.4, $today['usd'], 1e-9);
+        self::assertSame(3000, $today['tokens']);
+        self::assertEqualsWithDelta(2.4, $result->usage?->costUsd ?? -1, 1e-9);
+    }
+
+    public function testAFailedAlertNoticeGivesTheClaimBackSoTheAlertIsNotLostForTheDay(): void
+    {
+        $h = new Harness(self::BUDGET);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $h->analyzer->inputTokens = 1000; // $0.50 of $1.00: the 50% alert
+        $h->notifier->failOnce(new \Watcher\Notify\DeliveryFailed('slack delivery failed: HTTP 500'));
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertSame(RunOutcome::Failed, $result->outcome);
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        self::assertSame([], array_filter(array_keys($h->state->all()), static fn (string $k): bool => str_starts_with($k, Keys::ALERT . ':')), 'claims released');
     }
 }

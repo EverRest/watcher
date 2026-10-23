@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit\Notify;
 
 use PHPUnit\Framework\TestCase;
+use Watcher\Config\WatchConfig;
 use Watcher\Notify\Destination;
 
 final class DestinationTest extends TestCase
@@ -46,5 +47,36 @@ final class DestinationTest extends TestCase
     public function testHasNoStringCast(): void
     {
         self::assertNotInstanceOf(\Stringable::class, new Destination(self::HOOK));
+    }
+
+    public function testNoticeUsesItsOwnWebhookWhenSet(): void
+    {
+        $c = WatchConfig::fromArray(self::config(['notice' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/notice']]));
+
+        self::assertSame('https://hooks.example/notice', (new Destination($c->notify['notice']['webhook']))->webhook());
+        self::assertSame('https://hooks.example/digest', (new Destination($c->notify['digest']['webhook']))->webhook());
+    }
+
+    public function testNoticeFallsBackToTheDigestWebhook(): void
+    {
+        $c = WatchConfig::fromArray(self::config([]));
+
+        self::assertSame('https://hooks.example/digest', (new Destination($c->notify['notice']['webhook']))->webhook());
+    }
+
+    /**
+     * @param array<string, mixed> $extra
+     * @return array<string, mixed>
+     */
+    private static function config(array $extra): array
+    {
+        return [
+            'service' => 'svc',
+            'schedule' => ['run_at' => '06:00'],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid'], 'stream_tags' => ['app' => 'svc']],
+            'analysis' => ['api_key' => 'k', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], 'prices' => ['a' => [1, 1, 1, 1], 'b' => [1, 1, 1, 1], 'c' => [1, 1, 1, 1]]],
+            'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent']],
+            'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/digest']] + $extra,
+        ];
     }
 }

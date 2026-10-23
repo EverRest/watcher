@@ -30,6 +30,7 @@ use Watcher\Notify\Destination;
 use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
 use Watcher\Notify\Message;
+use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\Notifier;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\Fingerprinter;
@@ -116,12 +117,16 @@ final class Watcher
             }
 
             return $this->locked($window);
-        } catch (SourceUnavailable|AnalyzerFailed|DeliveryFailed $e) {
-            // US5: post a user-visible "source/analysis/delivery failed" notice here.
+        } catch (SourceUnavailable $e) {
+            return $this->failWithNotice('source', $e->getMessage());
+        } catch (AnalyzerFailed $e) {
+            return $this->failWithNotice('analysis', $e->getMessage());
+        } catch (DeliveryFailed $e) {
+            // The channel that just failed cannot carry the news: host log and exit code only.
             return $this->fail($e->getMessage());
         } catch (Throwable $e) {
             // State and unexpected faults: class name only, never a message or chain that might carry a secret.
-            return $this->fail('internal error (' . $e::class . ')');
+            return $this->failWithNotice('run', 'internal error (' . $e::class . ')');
         } finally {
             try {
                 $this->state->release($lockKey, $owner);
@@ -136,6 +141,38 @@ final class Watcher
         $this->hostLog?->error('watcher run failed: ' . $reason, ['service' => $this->config->service]);
 
         return new RunResult(RunOutcome::Failed, $reason);
+    }
+
+    /** A failed notice must never mask the original failure or crash the run (FR-031). */
+    private function failWithNotice(string $kind, string $reason): RunResult
+    {
+        $result = $this->fail($reason);
+        try {
+            $this->notifier->send($this->notices()->failure($this->config->service, $this->environment(), $kind, $reason), $this->noticeDestination());
+        } catch (Throwable) {
+            // Already on the way out with a failure; the host log and exit code carry it.
+        }
+
+        return $result;
+    }
+
+    private function notices(): NoticeRenderer
+    {
+        $c = $this->config;
+
+        return new NoticeRenderer([$c->analysis['api_key'], $c->notify['digest']['webhook'], $c->notify['notice']['webhook']]);
+    }
+
+    private function noticeDestination(): Destination
+    {
+        return new Destination($this->config->notify['notice']['webhook']);
+    }
+
+    private function environment(): string
+    {
+        $env = $this->config->source['stream_tags']['env'] ?? null;
+
+        return is_string($env) ? $env : 'default';
     }
 
     private function locked(Window $window): RunResult
@@ -224,7 +261,7 @@ final class Watcher
         );
 
         $groups = $rules->apply($groups, $ruleHits);
-        $environment = is_string($c->source['stream_tags']['env'] ?? null) ? $c->source['stream_tags']['env'] : 'default';
+        $environment = $this->environment();
         $renderer = new DigestRenderer();
 
         if ($prev === null) {
@@ -268,20 +305,26 @@ final class Watcher
 
         $tz = new \DateTimeZone($c->schedule['timezone']);
         $spend = new Spend($this->state, $this->clock, $tz, $service);
-        $notice = new Destination($c->notify['notice']['webhook']);
+        $notice = $this->noticeDestination();
         $triageOnly = $spend->exhausted($c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']);
 
         $before = $spend->today();
-        $router = new ModelRouter(self::redacting($this->analyzer, $redactor), new VerdictCache($this->state, $service, $retention), $this->routerSettings());
-        $routed = $router->route($redacted, $triageOnly); // AnalyzerFailed ends the run; US5 adds the user-visible notice
-
         $calculator = new CostCalculator($c->analysis['prices']);
+        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator), new VerdictCache($this->state, $service, $retention), $this->routerSettings());
+        try {
+            $routed = $router->route($redacted, $triageOnly);
+        } catch (AnalyzerFailed $e) {
+            // The window was read: keep it as the next window's comparison base, but leave no RunRecord so the next trigger retries.
+            $this->writeSnapshot($window, $allGroups, $totals);
+
+            throw $e;
+        }
+
         $usage = null;
         $costUsd = 0.0;
         $models = [];
         foreach ($routed->usageByStep as $step => $u) {
-            $cost = $calculator->cost($u);
-            $spend->add($u, $cost);
+            $cost = $calculator->cost($u); // already added to Spend per call, see metered()
             $costUsd += $cost;
             $models[$step] = $c->analysis['models'][$step];
             $priced = new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost);
@@ -290,9 +333,10 @@ final class Watcher
         $after = $spend->today();
 
         if ($triageOnly && $routed->triaged > 0) {
-            $this->noticeOnce('exhausted:' . rawurlencode($service) . ':' . $spend->day(), 'budget exhausted: triage only today', $notice);
+            $this->noticeOnce('exhausted:' . rawurlencode($service) . ':' . $spend->day(), $this->notices()->budgetExhausted($service, $environment), $notice);
         }
-        $alert = (new BudgetAlerts($this->state, $this->clock, $tz, $service))->check(
+        $alerts = new BudgetAlerts($this->state, $this->clock, $tz, $service);
+        $alert = $alerts->check(
             $before,
             $after,
             $c->analysis['daily_budget_usd'],
@@ -300,7 +344,13 @@ final class Watcher
             $c->analysis['budget_alert_percents'],
         );
         if ($alert !== null) {
-            $this->notifier->send(self::plainNotice($alert->noticeText($service)), $notice);
+            try {
+                $this->notifier->send(self::plainNotice($alert->noticeText($service)), $notice);
+            } catch (Throwable $e) {
+                $alerts->release($alert);
+
+                throw $e;
+            }
         }
 
         $findings = $routed->findings; // already scrubbed by the decorator, before the router cached them
@@ -376,6 +426,32 @@ final class Watcher
         };
     }
 
+    /** Each call is priced and added to Spend as it returns, so a later failure in the same run cannot lose what was already paid for. */
+    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator): Analyzer
+    {
+        return new class ($inner, $spend, $calculator) implements Analyzer {
+            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator)
+            {
+            }
+
+            public function triage(TriageRequest $req): TriageResult
+            {
+                $r = $this->inner->triage($req);
+                $this->spend->add($r->usage, $this->calculator->cost($r->usage));
+
+                return $r;
+            }
+
+            public function analyze(AnalysisRequest $req): AnalysisResult
+            {
+                $r = $this->inner->analyze($req);
+                $this->spend->add($r->usage, $this->calculator->cost($r->usage));
+
+                return $r;
+            }
+        };
+    }
+
     private function routerSettings(): RouterSettings
     {
         $a = $this->config->analysis;
@@ -401,14 +477,14 @@ final class Watcher
     }
 
     /** Sends once per key (the key lives two days); a failed send gives the key back so the next run retries. */
-    private function noticeOnce(string $key, string $text, Destination $to): void
+    private function noticeOnce(string $key, Message $message, Destination $to): void
     {
         $owner = bin2hex(random_bytes(8));
         if (!$this->state->acquire($key, $owner, Keys::ttl(Keys::SPEND, 0, 0))) {
             return;
         }
         try {
-            $this->notifier->send(self::plainNotice($text), $to);
+            $this->notifier->send($message, $to);
         } catch (Throwable $e) {
             $this->state->release($key, $owner);
 

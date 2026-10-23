@@ -230,26 +230,14 @@ final class DigestRenderer
         return $n < 1000 ? (string) $n : rtrim(rtrim(number_format($n / 1000, 1, '.', ''), '0'), '.') . 'k';
     }
 
-    /** Extensions that look like a domain label but are file names: kept readable and copyable. */
-    private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|sql|csv|env|lock|rb|jar|gz';
-
-    /**
-     * One line, Slack control sequences neutralised: model text cannot ping, link or format, and — because log
-     * content can steer the model (prompt injection) — cannot produce anything Slack would auto-link: a zero-width
-     * space breaks `scheme://`, `www.` and `host.tld` tokens (file names such as `X.php:88` stay intact).
-     */
     private function esc(string $s): string
     {
-        $s = trim((string) preg_replace('/\s+/u', ' ', $s));
-        $s = str_replace(['&', '<', '>', '`', '@', '://'], ['&amp;', '&lt;', '&gt;', "'", "@\u{200B}", ":\u{200B}//"], $s);
-        $s = (string) preg_replace('/\bwww\./i', "www\u{200B}.", $s);
-
-        return (string) preg_replace('/([a-z0-9-]\.)(?!(?:' . self::FILE_EXT . ')\b)(?=[a-z]{2,24}\b)/i', "$1\u{200B}", $s);
+        return SlackText::escape($s);
     }
 
     private function plain(string $s): string
     {
-        return str_replace(['&amp;', '&lt;', '&gt;', "\u{200B}"], ['&', '<', '>', ''], $s);
+        return SlackText::plain($s);
     }
 
     private function cap(string $s, int $max): string
