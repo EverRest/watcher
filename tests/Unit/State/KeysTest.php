@@ -23,6 +23,27 @@ final class KeysTest extends TestCase
         self::assertSame('alert:api:2026-01-01:cost:75', Keys::alert('api', '2026-01-01', 'cost', 75));
     }
 
+    public function testHeartbeatKeys(): void
+    {
+        self::assertSame('hb:api', Keys::heartbeat('api'));
+        self::assertSame('trig:api', Keys::trigger('api'));
+        self::assertSame('hbweek:api:2026-W43:reported', Keys::week('api', '2026-W43', 'reported'));
+        self::assertSame('hbsent:api:2026-W43', Keys::weekSent('api', '2026-W43'));
+        self::assertNotSame(Keys::heartbeat('a:b'), Keys::heartbeat('a'));
+        self::assertNotSame(Keys::week('a', '2026-W43', 'x'), Keys::week('a:2026-W43', 'x', 'x'));
+    }
+
+    public function testHeartbeatTtls(): void
+    {
+        self::assertSame(3 * 2592000, Keys::ttl(Keys::HEARTBEAT, 2592000, 900));
+        self::assertSame(3 * 2592000, Keys::ttl(Keys::TRIGGER, 2592000, 900));
+        self::assertSame(1209600, Keys::ttl(Keys::WEEK, 2592000, 900));
+        self::assertSame(1209600, Keys::ttl(Keys::WEEKSENT, 2592000, 900));
+        foreach ([Keys::HEARTBEAT, Keys::TRIGGER, Keys::WEEK, Keys::WEEKSENT] as $kind) {
+            self::assertGreaterThan(0, Keys::ttl($kind, 1, 1));
+        }
+    }
+
     public function testColonsInServiceCannotCollide(): void
     {
         self::assertNotSame(Keys::verdict('a:b', 'c'), Keys::verdict('a', 'b:c'));

@@ -81,4 +81,20 @@ final class NoticeRendererTest extends TestCase
 
         self::assertSame('❌ watcher · svc · stg — source failed: token invalid', $m->text);
     }
+
+    public function testWeeklySummaryCarriesCountsAndCostOnly(): void
+    {
+        $m = (new NoticeRenderer())->weekly('svc', 'stg', '2026-W43', ['reported' => 1, 'quiet' => 5, 'baselined' => 0, 'failed' => 2, 'skipped' => 3], 0.12345);
+
+        self::assertSame('📊 watcher · svc · stg — week 2026-W43: reported 1, quiet 5, baselined 0, failed 2, skipped 3, cost $0.1235', $m->text);
+        self::assertSame([['kind' => 'notice', 'text' => $m->text]], $m->sections);
+    }
+
+    public function testWeeklySummaryEscapesServiceAndEnvironment(): void
+    {
+        $m = (new NoticeRenderer())->weekly('a<b>', 'x&y', '2026-W01', [], 0.0);
+
+        self::assertStringNotContainsString("<b>", $m->sections[0]["text"]);
+        self::assertStringContainsString('reported 0, quiet 0, baselined 0, failed 0, skipped 0, cost $0.0000', $m->text);
+    }
 }

@@ -17,7 +17,7 @@ final class WatchConfig
     private const TOP_LEVEL = [
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
-        'analysis', 'redaction', 'state', 'notify',
+        'analysis', 'redaction', 'state', 'notify', 'heartbeat',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -36,6 +36,7 @@ final class WatchConfig
      * @param array<string, string> $redactionPatterns
      * @param array<string, mixed> $state
      * @param array<string, mixed> $notify
+     * @param array{stale_after: int, weekly_summary: bool} $heartbeat stale_after in seconds
      */
     private function __construct(
         public readonly string $service,
@@ -56,6 +57,7 @@ final class WatchConfig
         public readonly int $minGroupEventsForText,
         public readonly array $state,
         public readonly array $notify,
+        public readonly array $heartbeat,
     ) {
     }
 
@@ -155,7 +157,37 @@ final class WatchConfig
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
             self::state(self::section($config, 'state')),
             self::notify(self::section($config, 'notify')),
+            self::heartbeat(self::section($config, 'heartbeat'), $interval),
         );
+    }
+
+    /**
+     * @param array<string, mixed> $h
+     * @return array{stale_after: int, weekly_summary: bool}
+     */
+    private static function heartbeat(array $h, \DateInterval $window): array
+    {
+        self::only($h, ['stale_after', 'weekly_summary'], 'heartbeat');
+        $weekly = $h['weekly_summary'] ?? false;
+        if (!is_bool($weekly)) {
+            throw new InvalidConfig('heartbeat.weekly_summary must be true or false');
+        }
+        $epoch = new \DateTimeImmutable('@0');
+        if (array_key_exists('stale_after', $h)) {
+            $given = $h['stale_after'];
+            try {
+                $seconds = is_string($given) ? $epoch->add(new \DateInterval($given))->getTimestamp() : 0;
+            } catch (\Exception) {
+                $seconds = 0;
+            }
+            if ($seconds < 1) {
+                throw new InvalidConfig('heartbeat.stale_after must be an ISO-8601 duration longer than zero');
+            }
+        } else {
+            $seconds = (int) ceil(1.5 * $epoch->add($window)->getTimestamp());
+        }
+
+        return ['stale_after' => $seconds, 'weekly_summary' => $weekly];
     }
 
     /**

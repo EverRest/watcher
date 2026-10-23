@@ -1,0 +1,26 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Watcher\Operate;
+
+/**
+ * Optional, provider-specific: what a provider's free models-list endpoint says. Found with `instanceof` by the Doctor;
+ * a provider without one gets a `skip`, not a `fail`. Never makes a billable call.
+ */
+interface ModelCatalog
+{
+    /**
+     * Calls the models list with each auth scheme.
+     *
+     * @return array<string, int|string> scheme ('bearer' = the one the SDK uses, 'x-api-key') => HTTP status, or 'timeout' / 'error'
+     */
+    public function probe(): array;
+
+    /**
+     * Model ids of the last probe (from the scheme that worked, 'bearer' first); probes first when nothing was probed yet.
+     *
+     * @return list<string>
+     */
+    public function modelIds(): array;
+}

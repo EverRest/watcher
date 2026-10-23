@@ -114,6 +114,11 @@ return [
         'notice' => null,                                // failures and budget notices; null = use the digest destination
     ],
 
+    'heartbeat' => [                                     // optional
+        'stale_after' => 'PT36H',                        // ISO-8601; `watcher status` is non-zero when the last ok run is older. Default 1.5 x schedule.window
+        'weekly_summary' => false,                       // true: one counts-and-cost line per ISO week to the notice destination, default false
+    ],
+
     'service_context' => 'Order intake and fulfilment. Critical: payment capture, stock reservation.', // <= 1000 chars; default ''
 
     'dependencies' => [                                  // other services whose logs give context; default []

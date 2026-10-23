@@ -28,6 +28,21 @@ final class NoticeRenderer
         return $this->notice('⚠️', $service, $environment, 'budget exhausted: triage only today');
     }
 
+    /**
+     * Weekly "it is alive" line: counts and cost only, never content.
+     *
+     * @param array<string, int> $counts reported, quiet, baselined, failed, skipped (missing = 0)
+     */
+    public function weekly(string $service, string $environment, string $isoWeek, array $counts, float $costUsd): Message
+    {
+        $parts = [];
+        foreach (['reported', 'quiet', 'baselined', 'failed', 'skipped'] as $name) {
+            $parts[] = $name . ' ' . (int) ($counts[$name] ?? 0);
+        }
+
+        return $this->notice('📊', $service, $environment, sprintf('week %s: %s, cost $%s', SlackText::escape($isoWeek), implode(', ', $parts), number_format($costUsd, 4, '.', '')));
+    }
+
     private function notice(string $icon, string $service, string $environment, string $tail): Message
     {
         $text = sprintf('%s watcher · %s · %s — %s', $icon, SlackText::escape($service), SlackText::escape($environment), $tail);

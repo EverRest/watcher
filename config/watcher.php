@@ -111,6 +111,11 @@ return [
         'version_label' => null,
     ],
 
+    'heartbeat' => [
+        // 'stale_after' => 'PT36H',               // default: 1.5 x schedule.window
+        'weekly_summary' => false,                 // one counts-and-cost line per ISO week
+    ],
+
     'links' => [
         'grafana' => ['base_url' => env('WATCHER_GRAFANA_URL'), 'datasource_uid' => env('WATCHER_LOKI_DS_UID')],
         'datadog' => ['app_url' => null],

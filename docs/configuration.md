@@ -103,6 +103,13 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `notify.digest.webhook` | required | Slack incoming webhook for the digest. |
 | `notify.notice` | null | Separate destination (same shape) for failures, budget notices and baseline messages; null uses the digest destination. |
 
+### `heartbeat` (optional)
+
+| Key | Default | Notes |
+|---|---|---|
+| `heartbeat.stale_after` | 1.5 x `schedule.window` | ISO-8601 duration (> 0). `watcher status` reports `stale` and exits non-zero when the last reported/quiet/baselined run is older than this. |
+| `heartbeat.weekly_summary` | `false` | `true` sends one line per ISO week (service timezone) to the notice destination, from the first due run of the next week: counts of reported, quiet, baselined, failed and skipped runs, and the week's cost. Nothing is sent for a week with no run. |
+
 ### Context (all optional)
 
 | Key | Default | Notes |

@@ -118,6 +118,22 @@ final class WatchConfigTest extends TestCase
         self::assertSame('short', $c->serviceContext);
     }
 
+    public function testHeartbeatDefaultsToOneAndAHalfWindowsAndNoWeeklySummary(): void
+    {
+        $c = WatchConfig::fromArray(self::valid());
+        self::assertSame(['stale_after' => 129600, 'weekly_summary' => false], $c->heartbeat);
+
+        $c = WatchConfig::fromArray(self::with(['schedule' => ['window' => 'PT1H']]));
+        self::assertSame(5400, $c->heartbeat['stale_after']);
+    }
+
+    public function testHeartbeatExplicitValues(): void
+    {
+        $c = WatchConfig::fromArray(self::with(['heartbeat' => ['stale_after' => 'PT2H', 'weekly_summary' => true]]));
+
+        self::assertSame(['stale_after' => 7200, 'weekly_summary' => true], $c->heartbeat);
+    }
+
     /** @return array<string, array{array<string, mixed>, string}> */
     public static function invalidCases(): array
     {
@@ -160,6 +176,12 @@ final class WatchConfigTest extends TestCase
             'datadog without keys' => [self::with(['source' => ['driver' => 'datadog']]), 'source.datadog.api_key'],
             'missing webhook' => [$unset(['notify', 'digest', 'webhook']), 'notify.digest.webhook'],
             'unknown source driver' => [self::with(['source' => ['driver' => 'nope']]), 'source.driver'],
+            'heartbeat not a map' => [self::with(['heartbeat' => 'on']), 'heartbeat'],
+            'heartbeat stale_after not ISO' => [self::with(['heartbeat' => ['stale_after' => '36h']]), 'heartbeat.stale_after'],
+            'heartbeat stale_after zero' => [self::with(['heartbeat' => ['stale_after' => 'PT0S']]), 'heartbeat.stale_after'],
+            'heartbeat stale_after int' => [self::with(['heartbeat' => ['stale_after' => 3600]]), 'heartbeat.stale_after'],
+            'heartbeat weekly_summary not bool' => [self::with(['heartbeat' => ['weekly_summary' => 'yes']]), 'heartbeat.weekly_summary'],
+            'unknown heartbeat key' => [self::with(['heartbeat' => ['stale_afte' => 'PT1H']]), 'heartbeat.stale_afte'],
             'unknown top-level key' => [self::with(['analisys' => []]), 'analisys'],
             'growth_factor = 1' => [self::with(['selection' => ['growth_factor' => 1]]), 'selection.growth_factor'],
             'confidence 0' => [self::with(['analysis' => ['confidence_threshold' => 0]]), 'analysis.confidence_threshold'],

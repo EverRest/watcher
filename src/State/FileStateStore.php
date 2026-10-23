@@ -16,10 +16,100 @@ use RuntimeException;
  *
  * Keys are hashed into the filename, so a key can never address a path outside $dir.
  */
-final class FileStateStore implements StateStore
+final class FileStateStore implements StateStore, Purgeable
 {
-    public function __construct(private readonly string $dir, private readonly ClockInterface $clock)
+    private const PURGE_INTERVAL = 86400;
+
+    /** @param int $lockLifetime seconds after which a lock sidecar or temp file is considered abandoned (schedule.lock_ttl) */
+    public function __construct(
+        private readonly string $dir,
+        private readonly ClockInterface $clock,
+        private readonly int $lockLifetime = 900,
+    ) {
+    }
+
+    public function purge(int $maxFiles = 5000, float $maxSeconds = 2.0): int
     {
+        if (! is_dir($this->dir)) {
+            return 0;
+        }
+        $now = $this->now();
+        $marker = $this->dir . '/.purge';
+        $last = (int) @file_get_contents($marker);
+        if ($last > 0 && $now - $last < self::PURGE_INTERVAL) {
+            return 0;
+        }
+        // ponytail: marker is written before the sweep, so a backlog above maxFiles drains one batch per day.
+        @file_put_contents($marker, (string) $now);
+        $deadline = microtime(true) + $maxSeconds;
+        $removed = 0;
+        $names = @scandir($this->dir) ?: [];
+        foreach ($names as $name) {
+            if ($removed >= $maxFiles || microtime(true) >= $deadline) {
+                break;
+            }
+            $path = $this->dir . '/' . $name;
+            if (preg_match('/^[0-9a-f]{64}\.json$/', $name) === 1) {
+                $removed += $this->purgeRecord($path, $now);
+            } elseif (preg_match('/^[0-9a-f]{64}\.json\.lock$/', $name) === 1) {
+                $removed += $this->purgeSidecar($path, $now);
+            } elseif (preg_match('/^[0-9a-f]{64}\.json\.[0-9a-f]{8}\.tmp$/', $name) === 1 && $this->abandoned($path, $now)) {
+                $removed += @unlink($path) ? 1 : 0;
+            }
+        }
+
+        return $removed;
+    }
+
+    private function abandoned(string $path, int $now): bool
+    {
+        clearstatcache(true, $path);
+        $mtime = @filemtime($path);
+
+        return $mtime !== false && $now - $mtime > $this->lockLifetime;
+    }
+
+    /** Deletes an expired record under its key lock, so a concurrent put is never undone. A held lock means skip. */
+    private function purgeRecord(string $path, int $now): int
+    {
+        $handle = @fopen($path . '.lock', 'c');
+        if ($handle === false) {
+            return 0;
+        }
+        try {
+            if (! flock($handle, LOCK_EX | LOCK_NB)) {
+                return 0;
+            }
+            $record = json_decode((string) @file_get_contents($path), true);
+            if (is_array($record) && is_int($record['expires_at'] ?? null) && $record['expires_at'] <= $now) {
+                return @unlink($path) ? 1 : 0;
+            }
+
+            return 0;
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /** Removes an old, unheld sidecar. Waiters on the old inode notice in locked() and reopen. */
+    private function purgeSidecar(string $path, int $now): int
+    {
+        if (! $this->abandoned($path, $now)) {
+            return 0;
+        }
+        $handle = @fopen($path, 'c');
+        if ($handle === false) {
+            return 0;
+        }
+        try {
+            if (! flock($handle, LOCK_EX | LOCK_NB)) {
+                return 0;
+            }
+
+            return @unlink($path) ? 1 : 0;
+        } finally {
+            fclose($handle);
+        }
     }
 
     public function get(string $key): ?array
@@ -89,16 +179,37 @@ final class FileStateStore implements StateStore
         if (! is_dir($this->dir) && ! @mkdir($this->dir, 0700, true) && ! is_dir($this->dir)) {
             throw new RuntimeException('Cannot create state directory');
         }
-        $handle = fopen($this->path($key) . '.lock', 'c');
-        if ($handle === false || ! flock($handle, LOCK_EX)) {
-            throw new RuntimeException('Cannot lock state key');
-        }
+        $handle = $this->lock($this->path($key) . '.lock');
         try {
             return $fn();
         } finally {
             flock($handle, LOCK_UN);
             fclose($handle);
         }
+    }
+
+    /**
+     * Takes the sidecar lock. A purge may unlink the sidecar while we wait on it; two holders could then lock two
+     * different inodes of the same path, so after flock the path must still be the file we hold, else reopen.
+     *
+     * @return resource
+     */
+    private function lock(string $lockPath): mixed
+    {
+        for ($attempt = 0; $attempt < 10; $attempt++) {
+            $handle = fopen($lockPath, 'c');
+            if ($handle === false || ! flock($handle, LOCK_EX)) {
+                throw new RuntimeException('Cannot lock state key');
+            }
+            clearstatcache(true, $lockPath);
+            $held = fstat($handle);
+            $path = @stat($lockPath);
+            if ($held !== false && $path !== false && $held['ino'] === $path['ino'] && $held['dev'] === $path['dev']) {
+                return $handle;
+            }
+            fclose($handle);
+        }
+        throw new RuntimeException('Cannot lock state key');
     }
 
     /** @return array{value: array<mixed>, owner: ?string, expires_at: int}|null */

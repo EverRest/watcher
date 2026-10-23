@@ -1,0 +1,429 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Watcher\Tests\Unit\Operate;
+
+use DateTimeImmutable;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+use Watcher\Config\WatchConfig;
+use Watcher\Notify\DeliveryFailed;
+use Watcher\Operate\CheckResult;
+use Watcher\Operate\Doctor;
+use Watcher\Operate\ModelCatalog;
+use Watcher\Source\SourceUnavailable;
+use Watcher\Tests\Fakes\FailingStateStore;
+use Watcher\Tests\Fakes\FakeLogSource;
+use Watcher\Tests\Fakes\FakeNotifier;
+use Watcher\Tests\Fakes\FrozenClock;
+use Watcher\Tests\Fakes\InMemoryStateStore;
+
+final class DoctorTest extends TestCase
+{
+    private const KEY = 'sk-ant-SECRET-KEY';
+    private const HOOK = 'https://hooks.slack.test/services/T0/B0/SECRETHOOK';
+    private const HOOK2 = 'https://hooks.slack.test/services/T0/B0/OTHERHOOK';
+
+    private FrozenClock $clock;
+    private InMemoryStateStore $store;
+    private FakeLogSource $source;
+    private FakeNotifier $notifier;
+
+    protected function setUp(): void
+    {
+        $this->clock = new FrozenClock(new DateTimeImmutable('2026-10-24T09:00:00Z'));
+        $this->store = new InMemoryStateStore($this->clock);
+        $this->source = new FakeLogSource(['error' => 3]);
+        $this->notifier = new FakeNotifier();
+    }
+
+    /**
+     * @param array<string, mixed> $notify
+     * @param array<string, mixed> $prices
+     */
+    private static function config(array $notify = [], ?array $prices = null): WatchConfig
+    {
+        return WatchConfig::fromArray([
+            'service' => 'orders',
+            'schedule' => ['run_at' => '06:00'],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test', 'auth' => ['type' => 'bearer', 'token' => 'LOKITOKEN']], 'stream_tags' => ['app' => 'orders']],
+            'analysis' => [
+                'api_key' => self::KEY,
+                'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'],
+                'prices' => $prices ?? ['m-small' => [1, 5, 0.1, 1.25], 'm-mid' => [3, 15, 0.3, 3.75], 'm-big' => [5, 25, 0.5, 6.25]],
+            ],
+            'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],
+            'notify' => $notify ?: ['digest' => ['webhook' => self::HOOK]],
+        ]);
+    }
+
+    /**
+     * @param array<string, int|string> $probe
+     * @param list<string> $ids
+     */
+    private static function catalog(array $probe, array $ids): ModelCatalog
+    {
+        return new class ($probe, $ids) implements ModelCatalog {
+            /**
+     * @param array<string, int|string> $probe
+     * @param list<string> $ids
+     */
+            public function __construct(private readonly array $probe, private readonly array $ids)
+            {
+            }
+
+            public function probe(): array
+            {
+                return $this->probe;
+            }
+
+            public function modelIds(): array
+            {
+                return $this->ids;
+            }
+        };
+    }
+
+    private function doctor(?WatchConfig $config = null, ?ModelCatalog $catalog = null, ?\Watcher\State\StateStore $store = null): Doctor
+    {
+        return new Doctor(
+            $config ?? self::config(),
+            $this->source,
+            $store ?? $this->store,
+            $catalog ?? self::catalog(['bearer' => 200, 'x-api-key' => 200], ['m-small', 'm-mid', 'm-big']),
+            $this->notifier,
+            $this->clock,
+        );
+    }
+
+    /** @return array<string, CheckResult> */
+    private static function byName(\Watcher\Operate\CheckReport $r): array
+    {
+        $out = [];
+        foreach ($r->results as $c) {
+            $out[$c->name] = $c;
+        }
+
+        return $out;
+    }
+
+    private static function assertFailsOnly(string $name, string $reason, \Watcher\Operate\CheckReport $r): void
+    {
+        foreach (self::byName($r) as $n => $c) {
+            if ($n === $name) {
+                self::assertSame('fail', $c->status, $n);
+                self::assertSame($reason, $c->reason);
+            } else {
+                self::assertSame('pass', $c->status, "$n: {$c->reason}");
+            }
+        }
+        self::assertFalse($r->ok());
+        self::assertSame(1, $r->exitCode());
+    }
+
+    public function testAllGreen(): void
+    {
+        $r = $this->doctor()->run();
+
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'], array_keys(self::byName($r)));
+        self::assertTrue($r->ok());
+        self::assertSame(0, $r->exitCode());
+        self::assertSame([], $this->notifier->sent);
+        self::assertStringContainsString('result: ok', $r->text());
+    }
+
+    public function testSourceQueriesFiveMinutesReadOnly(): void
+    {
+        $this->doctor()->run();
+
+        self::assertSame([], $this->source->callsTo('lines'));
+        $args = $this->source->callsTo('totals');
+        self::assertCount(1, $args);
+        self::assertSame(300, $args[0][0]->end->getTimestamp() - $args[0][0]->start->getTimestamp());
+        self::assertSame(['app' => 'orders'], $args[0][1]->tags);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function sourceFailures(): array
+    {
+        return [
+            'unavailable' => ['loki unreachable', 'unavailable'],
+            'unauthorised' => ['loki 401 Unauthorized', 'unauthorised'],
+            'forbidden' => ['datadog 403 Forbidden', 'unauthorised'],
+            'http' => ['loki 502 Bad Gateway', 'HTTP 502'],
+        ];
+    }
+
+    #[DataProvider('sourceFailures')]
+    public function testSourceFailureIsNamedAndTheRestStillRun(string $message, string $reason): void
+    {
+        $this->source->failWith(new SourceUnavailable($message . ' ' . self::KEY));
+
+        $r = $this->doctor()->run();
+
+        self::assertFailsOnly('source', $reason, $r);
+        self::assertStringNotContainsString(self::KEY, $r->text() . json_encode($r->toArray()));
+    }
+
+    public function testPackageSchemeRejectedButApiKeyWorks(): void
+    {
+        $r = $this->doctor(catalog: self::catalog(['bearer' => 401, 'x-api-key' => 200], []))->run();
+
+        $c = self::byName($r)['provider_auth'];
+        self::assertSame('fail', $c->status);
+        self::assertSame('package scheme (Authorization: Bearer) rejected (HTTP 401) but x-api-key works: the analyzer needs a code change', $c->reason);
+        self::assertSame('skip', self::byName($r)['models']->status);
+    }
+
+    public function testNoSchemeAccepted(): void
+    {
+        $r = $this->doctor(catalog: self::catalog(['bearer' => 401, 'x-api-key' => 403], []))->run();
+
+        self::assertSame('no scheme accepted (HTTP 401/403)', self::byName($r)['provider_auth']->reason);
+    }
+
+    public function testProviderTimeout(): void
+    {
+        $r = $this->doctor(catalog: self::catalog(['bearer' => 'timeout', 'x-api-key' => 'timeout'], []))->run();
+
+        self::assertSame('timeout', self::byName($r)['provider_auth']->reason);
+    }
+
+    public function testNoCatalogSkipsProviderChecksAndStaysGreen(): void
+    {
+        $d = new Doctor(self::config(), $this->source, $this->store, null, $this->notifier, $this->clock);
+
+        $r = $d->run();
+
+        self::assertSame('skip', self::byName($r)['provider_auth']->status);
+        self::assertSame('skip', self::byName($r)['models']->status);
+        self::assertTrue($r->ok());
+    }
+
+    public function testUnknownModelIdsAreNamedPerStepAndDatedFormsMatch(): void
+    {
+        $ids = ['m-small-20251001', 'm-big'];
+
+        $r = $this->doctor(catalog: self::catalog(['bearer' => 200, 'x-api-key' => 200], $ids))->run();
+
+        self::assertFailsOnly('models', 'unknown model for analyze', $r);
+    }
+
+    public function testExtraPriceEntriesDoNotMatter(): void
+    {
+        // WatchConfig already rejects a missing price; the Doctor's own check is a second line.
+        $r = $this->doctor(self::config(prices: ['m-small' => [1, 5, 0, 0], 'm-mid' => [1, 5, 0, 0], 'm-big' => [1, 5, 0, 0], 'other' => [1, 1, 0, 0]]))->run();
+
+        self::assertTrue($r->ok());
+    }
+
+    public function testStateWriteFailure(): void
+    {
+        $store = new FailingStateStore($this->store);
+        $store->failOn('put');
+
+        $r = $this->doctor(store: $store)->run();
+
+        self::assertFailsOnly('state', 'write failed', $r);
+        self::assertStringNotContainsString('hunter2', $r->text() . json_encode($r->toArray()));
+    }
+
+    public function testStateInternalErrorNamesTheClassOnly(): void
+    {
+        $store = new FailingStateStore($this->store);
+        $store->failOn('get');
+
+        $r = $this->doctor(store: $store)->run();
+
+        self::assertFailsOnly('state', 'internal error (RuntimeException)', $r);
+    }
+
+    public function testStateReadBackMismatchAndNonExclusiveLock(): void
+    {
+        $broken = new class ($this->store) implements \Watcher\State\StateStore {
+            public function __construct(private readonly \Watcher\State\StateStore $inner)
+            {
+            }
+
+            public function get(string $key): ?array
+            {
+                return null;
+            }
+
+            public function put(string $key, array $value, int $ttlSeconds): void
+            {
+                $this->inner->put($key, $value, $ttlSeconds);
+            }
+
+            public function acquire(string $key, string $owner, int $ttlSeconds): bool
+            {
+                return true;
+            }
+
+            public function release(string $key, string $owner): void
+            {
+            }
+
+            public function increment(string $key, float $by, int $ttlSeconds): float
+            {
+                return $this->inner->increment($key, $by, $ttlSeconds);
+            }
+        };
+
+        self::assertFailsOnly('state', 'read-back mismatch', $this->doctor(store: $broken)->run());
+    }
+
+    public function testStateLockNotExclusive(): void
+    {
+        $lax = new class ($this->store) implements \Watcher\State\StateStore {
+            public function __construct(private readonly \Watcher\State\StateStore $inner)
+            {
+            }
+
+            public function get(string $key): ?array
+            {
+                return $this->inner->get($key);
+            }
+
+            public function put(string $key, array $value, int $ttlSeconds): void
+            {
+                $this->inner->put($key, $value, $ttlSeconds);
+            }
+
+            public function acquire(string $key, string $owner, int $ttlSeconds): bool
+            {
+                return true;
+            }
+
+            public function release(string $key, string $owner): void
+            {
+            }
+
+            public function increment(string $key, float $by, int $ttlSeconds): float
+            {
+                return $this->inner->increment($key, $by, $ttlSeconds);
+            }
+        };
+
+        self::assertFailsOnly('state', 'lock not exclusive', $this->doctor(store: $lax)->run());
+    }
+
+    public function testStateUsesUniqueScratchKeysWithTtlAndLeavesRealKeys(): void
+    {
+        $this->store->put('run:orders:x', ['outcome' => 'quiet'], 1000);
+
+        $this->doctor()->run();
+        $this->doctor()->run();
+
+        self::assertSame(['outcome' => 'quiet'], $this->store->get('run:orders:x'));
+        foreach ($this->store->ttls() as $key => $ttl) {
+            if ($key !== 'run:orders:x') {
+                self::assertStringStartsWith('check:', $key);
+                self::assertLessThanOrEqual(60, $ttl);
+            }
+        }
+        self::assertGreaterThanOrEqual(4, count($this->store->ttls())); // two runs, distinct keys left to expire
+    }
+
+    public function testInvalidWebhookIsNamed(): void
+    {
+        $cfg = self::config(['digest' => ['webhook' => self::HOOK], 'notice' => ['webhook' => 'http://insecure.test/x']]);
+
+        $r = $this->doctor($cfg)->run();
+
+        self::assertFailsOnly('notifier', 'notice webhook invalid', $r);
+        self::assertStringNotContainsString('insecure.test', $r->text() . json_encode($r->toArray()));
+    }
+
+    public function testNothingPostedWithoutPostTest(): void
+    {
+        $this->doctor(self::config(['digest' => ['webhook' => self::HOOK], 'notice' => ['webhook' => self::HOOK2]]))->run();
+
+        self::assertSame(0, $this->notifier->attempts);
+    }
+
+    public function testPostTestSendsOneLabelledMessagePerDistinctDestination(): void
+    {
+        $r = $this->doctor(self::config(['digest' => ['webhook' => self::HOOK], 'notice' => ['webhook' => self::HOOK2]]))->run(postTest: true);
+
+        self::assertTrue($r->ok());
+        self::assertCount(2, $this->notifier->sent);
+        self::assertSame(self::HOOK, $this->notifier->sent[0]['to']->webhook());
+        self::assertSame(self::HOOK2, $this->notifier->sent[1]['to']->webhook());
+        self::assertSame('watcher check: test message for orders (digest) - safe to ignore', $this->notifier->sent[0]['message']->text);
+        self::assertSame('watcher check: test message for orders (notice) - safe to ignore', $this->notifier->sent[1]['message']->text);
+    }
+
+    public function testPostTestWithOneSharedWebhookPostsOnce(): void
+    {
+        $this->doctor()->run(postTest: true); // notice defaults to digest
+
+        self::assertCount(1, $this->notifier->sent);
+        self::assertSame('watcher check: test message for orders (digest, notice) - safe to ignore', $this->notifier->sent[0]['message']->text);
+    }
+
+    public function testPostTestFailureIsReportedWithoutTheUrl(): void
+    {
+        $this->notifier->failWith(new DeliveryFailed('slack 404 ' . self::HOOK));
+
+        $r = $this->doctor()->run(postTest: true);
+
+        self::assertFalse($r->ok());
+        self::assertSame('fail', self::byName($r)['post_test']->status);
+        self::assertStringNotContainsString('SECRETHOOK', $r->text() . json_encode($r->toArray()));
+    }
+
+    public function testNoPostTestCheckWithoutTheFlag(): void
+    {
+        self::assertArrayNotHasKey('post_test', self::byName($this->doctor()->run()));
+    }
+
+    public function testInvalidConfigSkipsEverythingElse(): void
+    {
+        $r = Doctor::configFailure('invalid: analysis.models.triage');
+
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'], array_keys(self::byName($r)));
+        self::assertSame('fail', self::byName($r)['config']->status);
+        self::assertSame('invalid: analysis.models.triage', self::byName($r)['config']->reason);
+        self::assertSame('skip', self::byName($r)['state']->status);
+        self::assertSame('config invalid', self::byName($r)['state']->reason);
+        self::assertSame(1, $r->exitCode());
+    }
+
+    public function testReportAndJsonCarryNoSecretOrLogContent(): void
+    {
+        $this->source->failWith(new SourceUnavailable('loki 500 secret log line user@example.com'));
+
+        $r = $this->doctor()->run(postTest: true);
+        $out = $r->text() . json_encode($r->toArray(), JSON_THROW_ON_ERROR);
+
+        foreach ([self::KEY, 'SECRETHOOK', 'LOKITOKEN', 'user@example.com', 'secret log line', 'hooks.slack.test'] as $needle) {
+            self::assertStringNotContainsString($needle, $out);
+        }
+        $json = $r->toArray();
+        self::assertSame(1, $json['schema']);
+        self::assertFalse($json['ok']);
+        self::assertSame(['name', 'status', 'reason'], array_keys($json['checks'][0]));
+    }
+
+    public function testTwoDoctorsOnOneStoreDoNotInterfere(): void
+    {
+        $a = $this->doctor();
+        $b = $this->doctor();
+
+        self::assertTrue($a->run()->ok());
+        self::assertTrue($b->run()->ok());
+    }
+
+    public function testHumanTextLayout(): void
+    {
+        $this->source->failWith(new SourceUnavailable('loki 401'));
+
+        $text = $this->doctor()->run()->text();
+
+        self::assertStringContainsString("source         FAIL  unauthorised\n", $text);
+        self::assertStringContainsString("config         PASS\n", $text);
+        self::assertStringEndsWith("result: 1 failed\n", $text);
+    }
+}
