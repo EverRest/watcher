@@ -1,0 +1,1 @@
+[2026-10-22 10:02:00] production.ERROR: Query failed {"exception":"[object] (Illuminate\\Database\\QueryException(code: 40001): SQLSTATE[40001]: Serialization failure: 1213 Deadlock (Connection: mysql, SQL: update `quota` set `used` = 9001 where `id` = 77) at /var/www/html/app/Repositories/QuotaRepository.php:88)"} []

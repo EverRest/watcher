@@ -14,13 +14,32 @@ final class LineParser
 {
     private const TEXT = '/^\[(?<dt>[^\]]+)\] (?<ch>[\w.-]+)\.(?<lvl>[A-Z]+)(?: \[(?<app>[^\]]*)\])?: (?<msg>.*?)(?<ctx> \{.*\})?(?<extra> \[.*\]|\{.*\})?$/';
 
+    private const OBJECT_FORM = '/\[object\] \((?<t>[A-Za-z_][\w\\\\]*)\(code: [^)]*\):(?:.* at (?<f>(?:[A-Za-z]:)?[\\\\\/][^\s:]+):(?<l>\d+)\))?/';
+    private const MESSAGE_FORM = '/^(?<t>[A-Za-z_][\w\\\\]*(?:Exception|Error)): .* in (?<f>(?:[A-Za-z]:)?[\\\\\/][^\s:]+):(?<l>\d+)$/';
+    private const TRACE_LINE = '/^#\d+ (?<f>(?:[A-Za-z]:)?[\\\\\/][^\s(:]+)\((?<l>\d+)\): /m';
+
     private const LEVEL_KEYS = ['level', 'severity', 'status'];
     private const MESSAGE_KEYS = ['message', 'msg'];
     private const TYPE_KEYS = ['exception.class', 'error.kind'];
     private const TRACE_KEYS = ['exception.trace', 'error.stack'];
     private const TIME_KEYS = ['time', 'timestamp', '@timestamp', 'datetime', 'ts'];
 
-    /** @param ?DateTimeImmutable $fallbackTime used when the line carries no usable time (default: now, UTC) */
+    /** Does this physical line begin a new record (`[timestamp]` text or a JSON object)? */
+    public function startsRecord(string $line): bool
+    {
+        $trimmed = trim($line);
+        if (str_starts_with($trimmed, '{')) {
+            return is_array(json_decode($trimmed, true));
+        }
+        $m = $this->text($line);
+
+        return $m !== null && $this->time($m['dt']) !== null;
+    }
+
+    /**
+     * @param ?DateTimeImmutable $fallbackTime used when the line carries no usable time (default: now, UTC)
+     * @param string             $line         one record; continuation lines (stack trace) follow the first, joined by "\n"
+     */
     public function parse(string $line, ?DateTimeImmutable $fallbackTime = null): LogEvent
     {
         $fallback = $fallbackTime ?? new DateTimeImmutable('now', new DateTimeZone('UTC'));
@@ -29,28 +48,93 @@ final class LineParser
         if (str_starts_with($trimmed, '{')) {
             $data = json_decode($trimmed, true);
             if (is_array($data)) {
-                return $this->fromJson($data, $fallback);
+                return $this->withException($this->fromJson($data, $fallback), '');
             }
         }
 
-        if (preg_match(self::TEXT, $line, $m) === 1) {
-            $time = $this->time($m['dt']);
-            if ($time !== null) {
-                $ctx = json_decode(trim($m['ctx'] ?? ''), true);
+        $nl = strpos($line, "\n");
+        $head = $nl === false ? $line : substr($line, 0, $nl);
+        $rest = $nl === false ? '' : substr($line, $nl + 1);
 
-                return new LogEvent(
-                    $time,
-                    Level::parse($m['lvl']),
-                    $m['msg'],
-                    null,
-                    [],
-                    is_array($ctx) ? $this->flatten($ctx, '', []) : [],
-                    [],
-                );
+        $m = $this->text($head);
+        // Laravel leaves the context JSON open on the first line when the exception trace has line breaks.
+        if ($rest !== '' && ($m === null || $this->ctx($m['ctx'] ?? '') === null)) {
+            $whole = $this->text($line, 's');
+            if ($whole !== null && $this->ctx($whole['ctx'] ?? '') !== null) {
+                $m = $whole;
             }
         }
+        $time = $m === null ? null : $this->time($m['dt']);
+        if ($m !== null && $time !== null) {
+            $ctx = $this->ctx($m['ctx'] ?? '');
 
-        return new LogEvent($fallback, Level::Info, $line, null, [], [], []);
+            return $this->withException(new LogEvent(
+                $time,
+                Level::parse($m['lvl']),
+                $m['msg'],
+                null,
+                [],
+                $ctx !== null ? $this->flatten($ctx, '', []) : [],
+                [],
+            ), $rest);
+        }
+
+        return $this->withException(new LogEvent($fallback, Level::Info, $head, null, [], [], []), $rest);
+    }
+
+    /**
+     * Context JSON; Monolog writes a trace into it with raw line breaks, which strict JSON rejects.
+     *
+     * @return ?array<mixed>
+     */
+    private function ctx(string $raw): ?array
+    {
+        $raw = trim($raw);
+        $data = json_decode($raw, true) ?? json_decode(str_replace("\n", '\\n', $raw), true);
+
+        return is_array($data) ? $data : null;
+    }
+
+    /** @return ?array<string|int, string> */
+    private function text(string $line, string $flags = ''): ?array
+    {
+        return preg_match(self::TEXT . $flags, $line, $m) === 1 ? $m : null;
+    }
+
+    /**
+     * Fills errorType and `path:line` frames (never messages or call arguments) from the Monolog
+     * `[object] (Class(code: N): msg at path:line)` form, the `Class: msg in path:line` message form
+     * and `#N path(line): call` trace lines. Only when the event has neither yet.
+     * ponytail: vendor frames are kept; the 5-frame cap is the only filter.
+     */
+    private function withException(LogEvent $e, string $rest): LogEvent
+    {
+        if ($e->errorType !== null || $e->frames !== []) {
+            return $e;
+        }
+        $exception = is_string($e->fields['exception'] ?? null) ? $e->fields['exception'] : '';
+        $type = null;
+        $frames = [];
+
+        if (preg_match(self::OBJECT_FORM, $exception, $m) === 1) {
+            $type = $m['t'];
+            if (isset($m['f'], $m['l'])) {
+                $frames[] = $m['f'] . ':' . $m['l'];
+            }
+        } elseif (preg_match(self::MESSAGE_FORM, $e->message, $m) === 1) {
+            $type = $m['t'];
+            $frames[] = $m['f'] . ':' . $m['l'];
+        }
+        if (preg_match_all(self::TRACE_LINE, $exception . "\n" . $rest, $t, PREG_SET_ORDER) > 0) {
+            foreach ($t as $x) {
+                $frames[] = $x['f'] . ':' . $x['l'];
+            }
+        }
+        if ($type === null && $frames === []) {
+            return $e;
+        }
+
+        return new LogEvent($e->time, $e->level, $e->message, $type, array_values(array_unique($frames)), $e->fields, $e->labels);
     }
 
     /** @param array<mixed> $data */

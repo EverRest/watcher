@@ -1,0 +1,7 @@
+[2026-10-22 10:00:00] production.ERROR: Job failed {"exception":"[object] (App\\Exceptions\\QuotaException(code: 0): Quota exceeded at /var/www/html/app/Services/Quota.php:42)
+[stacktrace]
+#0 /var/www/html/app/Services/X.php(42): App\\Services\\X->run()
+#1 /var/www/html/vendor/laravel/framework/src/Illuminate/Queue/Worker.php(120): App\\Jobs\\J->handle()
+#1 {main}
+"} []
+[2026-10-22 10:00:05] production.INFO: next record {"a":1} []

@@ -1,0 +1,5 @@
+[2026-10-22 10:05:00] production.ERROR: First failure
+#0 /var/www/html/app/A.php(1): A->a()
+{"level":"error","message":"json between","time":"2026-10-22T10:05:01Z"}
+#0 /var/www/html/app/Orphan.php(9): O->o()
+[2026-10-22 10:05:02] production.ERROR: Last failure

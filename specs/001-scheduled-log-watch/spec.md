@@ -26,6 +26,7 @@ service's perimeter. First consumer: `orders-api`; nothing in the package may be
 
 ### Session 2026-10-23
 
+- Q: Do real logs match the one-line corpus? → A: Not necessarily: frameworks write exceptions over several lines and inside a context field. The package assembles continuation lines into one event and extracts exception class, top frames and file:line (FR-045), because for rare groups whose message text is withheld these are all the model sees.
 - Q: How does a Reader silence known noise or an already-handled problem so it stops appearing? → A: A mute list in the service configuration: fingerprints or content rules, each with an optional expiry date; every finding in the digest shows its short fingerprint so it can be copied into the list. Slack-reaction muting is out of scope for v1.
 - Q: What does the very first run do when there is no previous window to compare against? → A: Baseline only: store groups and counters, make no AI request, post one short message "baseline recorded: N groups, M events"; full analysis starts from the second run.
 - Q: Should a run pull every raw line or let the log backend do the counting? → A: Backend-side counting by level and pattern where the source supports it, plus a small per-group sample read only to derive the template; sources without aggregation fall back to paged raw reading up to a hard event cap, with "truncated" stated in the digest.
@@ -248,6 +249,13 @@ finding has a log link and code links at the deployed commit.
   source MUST NOT require changes to the rest of the pipeline.
 - **FR-003**: The package MUST accept both plain-text and structured (JSON) log lines and normalise them
   to one internal event shape.
+- **FR-045**: Log entries that span several lines (a message line followed by stack-trace lines
+  such as `#0 /path/File.php(12): ...`) MUST be assembled into one event, and the exception class,
+  the top frames (at most 5) and the originating file:line MUST be extracted from the forms real
+  frameworks write: a context field `exception` holding `[object] (Class(code: N): message at
+  /path/File.php:LINE)` optionally followed by `[stacktrace]` and `#N` lines, and a message of the
+  form `Class: message in /path/File.php:LINE`. When nothing can be extracted the event simply has
+  no error type and no frames.
 - **FR-036**: Totals per level over the window MUST be counted by the backend. Lines that can become
   candidates — level ≥ a configurable read level (default warning) or matching a watch rule — MUST
   be filtered by the backend and read in pages up to a hard per-run event cap (default 200,000), then

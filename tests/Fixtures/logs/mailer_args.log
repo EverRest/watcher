@@ -1,0 +1,3 @@
+[2026-10-22 10:06:00] production.ERROR: Mail failed
+#0 /var/www/x.php(5): App\Mailer->send('anna@example.com', 'tok_ABCDEF123456')
+#1 {main}

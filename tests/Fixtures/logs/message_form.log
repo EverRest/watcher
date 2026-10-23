@@ -1,0 +1,3 @@
+[2026-10-22 10:03:00] production.ERROR: RuntimeException: Name mismatch in /var/www/html/app/Foo.php:12
+#0 /var/www/html/app/Bar.php(7): App\Foo->check()
+#1 {main}

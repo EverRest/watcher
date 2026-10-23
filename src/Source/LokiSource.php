@@ -85,12 +85,16 @@ final class LokiSource implements LogSource
         while (true) {
             $entries = $this->page($query, (string) $start, $end);
             $fresh = 0;
+            $freshEntries = [];
             foreach ($entries as [$ts, $line, $labels]) {
                 $key = $ts . "\0" . $line . "\0" . json_encode($labels);
                 if ($ts === $start && isset($seenAtStart[$key])) {
                     continue;
                 }
                 ++$fresh;
+                $freshEntries[] = [$ts, $line, $labels];
+            }
+            foreach ($this->records($freshEntries) as [$ts, $line, $labels]) {
                 $event = $this->event($ts, $line, $labels);
                 if (!$this->wanted($event, $filter)) {
                     continue;
@@ -179,6 +183,32 @@ final class LokiSource implements LogSource
         usort($entries, static fn (array $a, array $b): int => $a[0] <=> $b[0]);
 
         return $entries;
+    }
+
+    /**
+     * Loki returns one entry per physical line: join continuation lines to the record they follow,
+     * per stream, so interleaved streams never mix. A record split by a page edge stays split.
+     *
+     * @param list<array{int, string, array<string, string>}> $entries time-ordered
+     *
+     * @return list<array{int, string, array<string, string>}> records ordered by their first line
+     */
+    private function records(array $entries): array
+    {
+        $parser = new LineParser();
+        $out = [];
+        $open = []; // stream key => index into $out
+        foreach ($entries as [$ts, $line, $labels]) {
+            $stream = json_encode($labels);
+            if (isset($open[$stream]) && !$parser->startsRecord($line)) {
+                $out[$open[$stream]][1] .= "\n" . $line;
+                continue;
+            }
+            $open[$stream] = count($out);
+            $out[] = [$ts, $line, $labels];
+        }
+
+        return $out;
     }
 
     /** @param array<string, string> $labels */

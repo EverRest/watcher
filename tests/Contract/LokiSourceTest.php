@@ -199,6 +199,41 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->source([])->totals($this->window(), new StreamSelector(['app} or {x' => 'v']));
     }
 
+    public function testMultiLineRecordsArriveAsSeparateEntriesAndAreAssembled(): void
+    {
+        $lines = [];
+        foreach (['laravel_multiline.log', 'query_exception_a.log', 'message_form.log'] as $f) {
+            $lines = array_merge($lines, \Watcher\Tests\Unit\Source\EventAssemblerTest::fixtureLines($f));
+        }
+        $source = $this->makeSourceWithLines($lines);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertSame(
+            ['App\Exceptions\QuotaException', 'Illuminate\Database\QueryException', 'RuntimeException'],
+            array_map(static fn (LogEvent $e): ?string => $e->errorType, $events),
+        );
+        $this->assertSame('/var/www/html/app/Services/Quota.php:42', $events[0]->frames[0]);
+        $this->assertFalse($source->lastReadTruncated());
+    }
+
+    public function testEventCapCountsAssembledEvents(): void
+    {
+        $source = $this->makeSourceWithLines(\Watcher\Tests\Unit\Source\EventAssemblerTest::fixtureLines('laravel_multiline.log'));
+        // 7 physical lines, 2 records (1 ERROR + 1 INFO); cap 1 of the wanted ones
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 1)));
+
+        $this->assertCount(1, $events);
+        $this->assertTrue($source->lastReadTruncated());
+
+        $source = $this->makeSourceWithLines(\Watcher\Tests\Unit\Source\EventAssemblerTest::fixtureLines('laravel_multiline.log'));
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 2)));
+
+        $this->assertCount(2, $events);
+        $this->assertFalse($source->lastReadTruncated());
+    }
+
     public function testVersionsRequestAndFixtureMapping(): void
     {
         $source = $this->source([new Response(200, [], $this->fixture('versions_matrix.json'))]);

@@ -1,0 +1,9 @@
+[2026-10-22 10:04:00] production.ERROR: Deep failure {"a":1}
+#0 /var/www/html/app/A.php(1): A->a()
+#1 /var/www/html/app/B.php(2): B->b()
+#2 /var/www/html/app/C.php(3): C->c()
+#3 /var/www/html/app/D.php(4): D->d()
+#4 /var/www/html/app/E.php(5): E->e()
+#5 /var/www/html/app/F.php(6): F->f()
+#6 /var/www/html/app/G.php(7): G->g()
+#7 {main}
