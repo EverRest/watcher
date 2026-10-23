@@ -255,7 +255,7 @@ and every finding has a log link and code links at the deployed commit (quicksta
 - [x] T110 [P] Write `config/watcher.example.php` with neutral names only (`orders-api`, `billing`, `auth`, `svc.cluster.local`, `https://git.example.com/group/orders-api`; never a real consumer's names — Principle VI) and documented defaults, including default models `claude-haiku-5-5` (triage), `claude-sonnet-5-5` (analyze), `claude-opus-5-5` (escalate) and their prices — the only place model ids appear besides README
 - [x] T111 [P] Write `README.md`: install, read-only credentials per source, scheduling (hourly trigger + `run_at`), state drivers (file = single runner only), privacy guarantees, cost model, exit codes
 - [x] T112 [P] Add architecture tests: no model id string (`claude-`) under `src/`; no consumer-specific string (`orders-api`, `tenant-a`, `example`) under `src/` or `config/` (Principle VI); `LogSource` implementations issue only GET/read-only POST query endpoints (Loki `query`, `query_range`; Datadog `analytics/aggregate`, `events/search`) — FR-004, Principle II — in `tests/Unit/ArchitectureTest.php`
-- [ ] T113 Run the full `specs/001-scheduled-log-watch/quickstart.md` (scenarios 1–14) and gates: `composer test`, `composer stan`, `composer style`, each exit 0
+- [x] T113 Run the full `specs/001-scheduled-log-watch/quickstart.md` (scenarios 1–14) and gates: `composer test`, `composer stan`, `composer style`, each exit 0
 - [ ] T114 Manual smoke with an Operator (quickstart §3) against one orders-api environment; compare the first digest with `orders-api/docs/context/logs/dev-notes` for SC-001; record result in `CHANGELOG.md`
 
 ---

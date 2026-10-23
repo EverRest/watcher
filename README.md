@@ -170,7 +170,7 @@ fingerprint, evidence, a hypothesis (always labelled as such) and a suggested ne
   threshold again or on the next day.
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
-- Tests ran on PHP 8.5 locally; the CI matrix (8.1 to 8.4) has not run yet because the repository has no remote.
+- The suite passes on PHP 8.1, 8.3, 8.4 (official Docker images) and 8.5; the GitHub Actions matrix in `.github/workflows/ci.yml` has not run yet because the repository has no remote.
 - Only Slack, Anthropic, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
 
 ## Development
