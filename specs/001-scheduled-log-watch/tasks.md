@@ -126,14 +126,14 @@ value is free of seeded values (quickstart scenario 5, SC-002 = 100%).
 
 ### Tests first
 
-- [ ] T056 [US2] Extend `tests/EndToEnd/PrivacyTest.php` to layer 2: no value from `tests/Fixtures/privacy/seeded-values.php` (including those embedded in messages and exception texts) appears in any `FakeAnalyzer` payload, `FakeNotifier` message or `InMemoryStateStore` value (SC-002 = 100%)
-- [ ] T057 [P] [US2] Test `Redactor` layer 2: pattern scan on the template replaces leftovers with typed placeholders; `redaction.extra_patterns` applied as `<NAME>`; a pattern that throws or a non-UTF-8 value → field dropped (fail closed), never copied raw in `tests/Unit/Privacy/RedactorTest.php`
-- [ ] T058 [P] [US2] Test that `LogEvent::$fields`, `labels` and samples are never reachable from `RedactedGroup` (reflection on the class: only the allowlisted properties exist) in `tests/Unit/Privacy/RedactedGroupTest.php`
+- [x] T056 [US2] Extend `tests/EndToEnd/PrivacyTest.php` to layer 2: no value from `tests/Fixtures/privacy/seeded-values.php` (including those embedded in messages and exception texts) appears in any `FakeAnalyzer` payload, `FakeNotifier` message or `InMemoryStateStore` value (SC-002 = 100%)
+- [x] T057 [P] [US2] Test `Redactor` layer 2: pattern scan on the template replaces leftovers with typed placeholders; `redaction.extra_patterns` applied as `<NAME>`; a pattern that throws or a non-UTF-8 value → field dropped (fail closed), never copied raw in `tests/Unit/Privacy/RedactorTest.php`
+- [x] T058 [P] [US2] Test that `LogEvent::$fields`, `labels` and samples are never reachable from `RedactedGroup` (reflection on the class: only the allowlisted properties exist) in `tests/Unit/Privacy/RedactedGroupTest.php`
 
 ### Implementation
 
-- [ ] T059 [US2] Implement `Redactor` (allowlist projection + Normalizer-table scan + extra patterns, fail closed) producing `RedactedGroup` in `src/Privacy/Redactor.php`
-- [ ] T060 [US2] Route every group through `Redactor` before Selector output reaches the analyzer or renderer; persist templates only inside redacted `Finding`s in `src/Watcher.php`
+- [x] T059 [US2] Implement `Redactor` (allowlist projection + Normalizer-table scan + extra patterns, fail closed) producing `RedactedGroup` in `src/Privacy/Redactor.php`
+- [x] T060 [US2] Route every group through `Redactor` before Selector output reaches the analyzer or renderer; persist templates only inside redacted `Finding`s in `src/Watcher.php`
 
 **Checkpoint**: MVP = US1 + US2 green; quickstart scenarios 1–5 pass.
 
@@ -154,15 +154,18 @@ caps and footer are asserted (quickstart scenarios 12–14).
 - [ ] T064 [P] [US3] Test `CompactPayload`: each template sent once and referenced by index, unindented JSON, short keys, ≤ 5 frames; fixture of 500 groups stays under the configured `max_input_tokens` after truncation in `tests/Unit/Analyze/CompactPayloadTest.php`
 - [ ] T065 [P] [US3] Test `AnthropicAnalyzer::triage()` request shape (triage schema `{verdicts:[{g,v,why≤100}]}`), and that the stable system prefix carries `cache_control: {type: "ephemeral"}`; usage cache fields mapped in `tests/Unit/Analyze/AnthropicAnalyzerTriageTest.php`
 - [ ] T066 [P] [US3] Test `CostCalculator` from `analysis.prices` (input, output, cache_read, cache_write per MTok) and footer line `tokens in / out / cached · model per step · ≈ $` in `tests/Unit/Analyze/CostCalculatorTest.php`
-- [ ] T067 [US3] End-to-end scenarios 12 (budget exhausted), 13 (truncation line), 14 (single escalation, cap respected) in `tests/EndToEnd/CostTest.php`
+- [ ] T067 [P] [US3] Test `BudgetAlerts` (FR-046): table of (before, after, limit, thresholds) → highest newly crossed percent or none (24→26% = 25; 49→80% = 75 only; already announced 50 then 55% = none; 91% = 90); cost and token counters independent; each (counter, percent) announced once per day (state key `alert:…`), the next day announces again; a run with no model call changes nothing; limit null for tokens → no token alerts; the notice text names counter, percent, absolute value and limit; the digest footer shows the day's total and percentage in `tests/Unit/Analyze/BudgetAlertsTest.php`
+- [ ] T068 [P] [US3] Test config rules for FR-046: `analysis.prices` required for every configured model (missing → InvalidConfig naming `analysis.prices.<role>`), `budget_alert_percents` integers 1–99 ascending (default 25/50/75/90), `daily_token_limit` null or positive integer in `tests/Unit/Config/WatchConfigTest.php`
+- [ ] T069 [US3] End-to-end scenarios 12 (budget exhausted), 13 (truncation line), 14 (single escalation, cap respected) in `tests/EndToEnd/CostTest.php`
 
 ### Implementation
 
-- [ ] T068 [P] [US3] Implement `CompactPayload` in `src/Analyze/CompactPayload.php`
-- [ ] T069 [P] [US3] Implement `Budget`, `CostCalculator`, `Usage` aggregation, `Spend` via `StateStore::increment` in `src/Analyze/`
-- [ ] T070 [US3] Add `triage()` to `AnthropicAnalyzer` with `src/Analyze/prompts/triage.md`, `cache_control` on the stable prefix (verify the SDK passes it; if not, use the SDK's raw-parameter option) in `src/Analyze/AnthropicAnalyzer.php`
-- [ ] T071 [US3] Implement `ModelRouter` (triage → analyze → escalate) and verdict reuse via `verdict:` keys in `src/Analyze/ModelRouter.php`, `src/Analyze/VerdictCache.php`
-- [ ] T072 [US3] Wire router, budget and footer into the pipeline; `RunResult` carries `Usage` in `src/Watcher.php`, `src/Notify/DigestRenderer.php`
+- [ ] T070 [P] [US3] Implement `CompactPayload` in `src/Analyze/CompactPayload.php`
+- [ ] T071 [P] [US3] Implement `Budget`, `CostCalculator`, `Usage` aggregation, `Spend` via `StateStore::increment` in `src/Analyze/`
+- [ ] T072 [US3] Implement `BudgetAlerts` and make `Spend` keep both counters (`usd`, `tokens`) via `StateStore::increment`; add `daily_token_limit`, `budget_alert_percents` and required `prices` validation to `WatchConfig`; compute alerts after every model call, send ONE notice (highest newly crossed percent) to the notice destination, mark `alert:` keys with a 2-day TTL, and show the day's total and percentage in the digest footer in `src/Analyze/BudgetAlerts.php`, `src/Analyze/Budget.php`, `src/Config/WatchConfig.php`, `src/Notify/DigestRenderer.php`
+- [ ] T073 [US3] Add `triage()` to `AnthropicAnalyzer` with `src/Analyze/prompts/triage.md`, `cache_control` on the stable prefix (verify the SDK passes it; if not, use the SDK's raw-parameter option) in `src/Analyze/AnthropicAnalyzer.php`
+- [ ] T074 [US3] Implement `ModelRouter` (triage → analyze → escalate) and verdict reuse via `verdict:` keys in `src/Analyze/ModelRouter.php`, `src/Analyze/VerdictCache.php`
+- [ ] T075 [US3] Wire router, budget and footer into the pipeline; `RunResult` carries `Usage` in `src/Watcher.php`, `src/Notify/DigestRenderer.php`
 
 ---
 
@@ -176,24 +179,24 @@ digests; quickstart scenarios 6–9.
 
 ### Tests first
 
-- [ ] T073 [P] [US4] Write `DatadogSourceTest extends LogSourceContractTest` with fixtures for `POST /api/v2/logs/analytics/aggregate` (`compute count total`, `group_by facet status`) and `POST /api/v2/logs/events/search` (`page.limit` 1000, cursor → `meta.page.after`), headers `DD-API-KEY` + `DD-APPLICATION-KEY`, base `https://api.<site>`, 429 with `X-RateLimit-Reset` retried ≤ 3 times then `SourceUnavailable` in `tests/Contract/DatadogSourceTest.php`, `tests/Fixtures/datadog/`
-- [ ] T074 [P] [US4] Write `RedisStateStoreTest` (skips without `WATCHER_TEST_REDIS`) and `PdoStateStoreTest` (SQLite in-memory) extending `StateStoreContractTest` in `tests/Contract/`
-- [ ] T075 [P] [US4] Test `RunGate`: `run_at` 06:00 + timezone; trigger at 05:00 → not due; at 06:00–06:59 → due with window ending at 06:00 local; DST change day handled in `tests/Unit/Schedule/RunGateTest.php`
-- [ ] T076 [P] [US4] Test stream tags build the Loki selector `{app="orders-api",env="stg"}` and the Datadog query `app:orders-api env:stg`; watch rules in explicit form only — `template` regex, `error_type` regex, `field` + `equals`|`matches` evaluated locally — make a warning group a candidate with reason `watch_rule`, never filter others out, and only the rule name appears in `watchMatches`; config with a free-form rule or two matcher keys is rejected in `tests/Unit/Select/WatchRulesTest.php`
-- [ ] T077 [P] [US4] Test `MuteList`: fingerprint entries and matcher entries (same explicit form as watch rules) exclude groups from candidates and from analyzer input; counted as "N muted"; entry with past `until` no longer applies in `tests/Unit/Select/MuteListTest.php`
-- [ ] T078 [P] [US4] Test `RunCommand` (`watcher:run --now=`) returns `RunResult::exitCode()` and config is read from `config/watcher.php`; invalid config → exit 2 with the key name and no external call (FR-015) in `tests/Unit/Laravel/RunCommandTest.php`
-- [ ] T079 [US4] End-to-end scenarios 6 (watch rule), 7 (mute then expiry), 8 (not due → no external call), 9 (two concurrent runners → one `reported`, one `skipped_locked`) in `tests/EndToEnd/FlexibilityTest.php`
+- [ ] T076 [P] [US4] Write `DatadogSourceTest extends LogSourceContractTest` with fixtures for `POST /api/v2/logs/analytics/aggregate` (`compute count total`, `group_by facet status`) and `POST /api/v2/logs/events/search` (`page.limit` 1000, cursor → `meta.page.after`), headers `DD-API-KEY` + `DD-APPLICATION-KEY`, base `https://api.<site>`, 429 with `X-RateLimit-Reset` retried ≤ 3 times then `SourceUnavailable` in `tests/Contract/DatadogSourceTest.php`, `tests/Fixtures/datadog/`
+- [ ] T077 [P] [US4] Write `RedisStateStoreTest` (skips without `WATCHER_TEST_REDIS`) and `PdoStateStoreTest` (SQLite in-memory) extending `StateStoreContractTest` in `tests/Contract/`
+- [ ] T078 [P] [US4] Test `RunGate`: `run_at` 06:00 + timezone; trigger at 05:00 → not due; at 06:00–06:59 → due with window ending at 06:00 local; DST change day handled in `tests/Unit/Schedule/RunGateTest.php`
+- [ ] T079 [P] [US4] Test stream tags build the Loki selector `{app="orders-api",env="stg"}` and the Datadog query `app:orders-api env:stg`; watch rules in explicit form only — `template` regex, `error_type` regex, `field` + `equals`|`matches` evaluated locally — make a warning group a candidate with reason `watch_rule`, never filter others out, and only the rule name appears in `watchMatches`; config with a free-form rule or two matcher keys is rejected in `tests/Unit/Select/WatchRulesTest.php`
+- [ ] T080 [P] [US4] Test `MuteList`: fingerprint entries and matcher entries (same explicit form as watch rules) exclude groups from candidates and from analyzer input; counted as "N muted"; entry with past `until` no longer applies in `tests/Unit/Select/MuteListTest.php`
+- [ ] T081 [P] [US4] Test `RunCommand` (`watcher:run --now=`) returns `RunResult::exitCode()` and config is read from `config/watcher.php`; invalid config → exit 2 with the key name and no external call (FR-015) in `tests/Unit/Laravel/RunCommandTest.php`
+- [ ] T082 [US4] End-to-end scenarios 6 (watch rule), 7 (mute then expiry), 8 (not due → no external call), 9 (two concurrent runners → one `reported`, one `skipped_locked`) in `tests/EndToEnd/FlexibilityTest.php`
 
 ### Implementation
 
-- [ ] T080 [P] [US4] Implement `DatadogSource` in `src/Source/DatadogSource.php`
-- [ ] T081 [P] [US4] Implement `RedisStateStore` (`SET NX EX`, `INCRBYFLOAT`+`EXPIRE`, compare-and-delete Lua release) in `src/State/RedisStateStore.php`
-- [ ] T082 [P] [US4] Implement `PdoStateStore` (table `watcher_state(key VARCHAR(191) PK, value TEXT, expires_at BIGINT)`, opportunistic purge, insert-as-lock) and `PdoStateStore::createTableSql()` in `src/State/PdoStateStore.php`
-- [ ] T083 [P] [US4] Implement `RunGate` in `src/Schedule/RunGate.php`
-- [ ] T084 [P] [US4] Implement `WatchRules`, `MuteList` and selector integration in `src/Select/`
-- [ ] T085 [US4] Implement driver factories (source, state, notifier) from `WatchConfig` in `src/Config/Factory.php`
-- [ ] T086 [P] [US4] Implement `WatcherServiceProvider`, `RunCommand`, publishable `config/watcher.php` in `src/Laravel/`
-- [ ] T087 [P] [US4] Implement plain CLI `bin/watcher run --config=… [--now=…]` in `bin/watcher` (exit codes 0/1/2 as `RunResult::exitCode()`; invalid config → 2), with `tests/Unit/CliTest.php`
+- [ ] T083 [P] [US4] Implement `DatadogSource` in `src/Source/DatadogSource.php`
+- [ ] T084 [P] [US4] Implement `RedisStateStore` (`SET NX EX`, `INCRBYFLOAT`+`EXPIRE`, compare-and-delete Lua release) in `src/State/RedisStateStore.php`
+- [ ] T085 [P] [US4] Implement `PdoStateStore` (table `watcher_state(key VARCHAR(191) PK, value TEXT, expires_at BIGINT)`, opportunistic purge, insert-as-lock) and `PdoStateStore::createTableSql()` in `src/State/PdoStateStore.php`
+- [ ] T086 [P] [US4] Implement `RunGate` in `src/Schedule/RunGate.php`
+- [ ] T087 [P] [US4] Implement `WatchRules`, `MuteList` and selector integration in `src/Select/`
+- [ ] T088 [US4] Implement driver factories (source, state, notifier) from `WatchConfig` in `src/Config/Factory.php`
+- [ ] T089 [P] [US4] Implement `WatcherServiceProvider`, `RunCommand`, publishable `config/watcher.php` in `src/Laravel/`
+- [ ] T090 [P] [US4] Implement plain CLI `bin/watcher run --config=… [--now=…]` in `bin/watcher` (exit codes 0/1/2 as `RunResult::exitCode()`; invalid config → 2), with `tests/Unit/CliTest.php`
 
 ---
 
@@ -206,14 +209,14 @@ digests; quickstart scenarios 6–9.
 
 ### Tests first
 
-- [ ] T088 [P] [US5] Test failure notices rendering ("source failed: …", "analysis failed: …", "budget exhausted …"; baseline notice already covered in US1); no secret, raw line or field value in any notice in `tests/Unit/Notify/NoticeRendererTest.php`
-- [ ] T089 [P] [US5] Test notice destination: `notify.notice` used when set, falls back to `notify.digest` (FR-037) in `tests/Unit/Notify/DestinationTest.php`
-- [ ] T090 [US5] End-to-end: scenario 10 (invalid output twice → one retry → `failed` + "analysis failed"), scenario 11 (source 401 → `failed` + "source failed", exit 1), provider unavailable after SDK retries (5xx/529) → `failed` + "analysis failed: provider unavailable" with the snapshot still written, Slack failure → host logger error + exit 1, state store failure → exit 1, empty window distinguished from unreachable source in `tests/EndToEnd/FailureTest.php`
+- [ ] T091 [P] [US5] Test failure notices rendering ("source failed: …", "analysis failed: …", "budget exhausted …"; baseline notice already covered in US1); no secret, raw line or field value in any notice in `tests/Unit/Notify/NoticeRendererTest.php`
+- [ ] T092 [P] [US5] Test notice destination: `notify.notice` used when set, falls back to `notify.digest` (FR-037) in `tests/Unit/Notify/DestinationTest.php`
+- [ ] T093 [US5] End-to-end: scenario 10 (invalid output twice → one retry → `failed` + "analysis failed"), scenario 11 (source 401 → `failed` + "source failed", exit 1), provider unavailable after SDK retries (5xx/529) → `failed` + "analysis failed: provider unavailable" with the snapshot still written, Slack failure → host logger error + exit 1, state store failure → exit 1, empty window distinguished from unreachable source in `tests/EndToEnd/FailureTest.php`
 
 ### Implementation
 
-- [ ] T091 [US5] Implement `NoticeRenderer` and notice destination fallback in `src/Notify/`
-- [ ] T092 [US5] Map `SourceUnavailable`, `AnalyzerFailed` (after one retry), `DeliveryFailed`, store exceptions to `RunOutcome::failed` + notice/host log in `src/Watcher.php`
+- [ ] T094 [US5] Implement `NoticeRenderer` and notice destination fallback in `src/Notify/`
+- [ ] T095 [US5] Map `SourceUnavailable`, `AnalyzerFailed` (after one retry), `DeliveryFailed`, store exceptions to `RunOutcome::failed` + notice/host log in `src/Watcher.php`
 
 ---
 
@@ -227,32 +230,32 @@ and every finding has a log link and code links at the deployed commit (quicksta
 
 ### Tests first
 
-- [ ] T093 [US6] Extend the privacy corpus and `tests/EndToEnd/PrivacyTest.php` before any US6 outbound code (Principle I): add to `tests/Fixtures/privacy/corpus.log` URLs carrying personal data (personal subdomain `john-smith.example.com`, `user:pass@host`, email and token in query), a dependency stream with seeded PII, and a `service_context` containing a seeded email; add the new values to `seeded-values.php`; assert none of them reaches the dependency-context part of any `FakeAnalyzer` payload, the service-context prefix, deploy fields, log links or code links
-- [ ] T094 [P] [US6] Test `DependencyResolver`: declared deps from `dependencies`; hosts from `<URL:host>` in templates; every run reads each declared dep's `totals()` once; candidate referencing a declared host, or a dep whose error total grew ≥ `growth_factor` vs its previous window → dependency lines requested; undeclared host → listed; quiet day → exactly one totals query per dep and zero dependency `lines()` calls in `tests/Unit/Context/DependencyResolverTest.php`
-- [ ] T095 [P] [US6] Test `DependencyContextReader`: for a triggered dep one `lines()` (totals already read) with level ≥ error capped at `dependency_read_cap` (5,000), top 5 groups by count, redacted through `Redactor`, previous totals from `snap:{service}:dep:{name}:…`; no previous dep snapshot → growth trigger off, context without new/grown marks, snapshot written; source override honoured in `tests/Unit/Context/DependencyContextReaderTest.php`
-- [ ] T096 [P] [US6] Test `DeployInfo`: release/commit from config stored in each snapshot; release change → new groups marked "first seen after <release>"; with `version_label` set, the deploy moment comes from a `count by (<label>)` fixture (Loki) / `group_by version` fixture (Datadog) in `tests/Unit/Context/DeployInfoTest.php`
-- [ ] T097 [P] [US6] Test `LogLinkBuilder`: Grafana Explore URL (datasource uid, stream tags, level, `|= "<literal>"`, window) and Datadog `logs?query=…&from_ts=…&to_ts=…`; literal = longest placeholder-free run of the redacted template ≤ 60 chars; no seeded privacy value from the corpus ever appears in a link in `tests/Unit/Context/LogLinkBuilderTest.php`
-- [ ] T098 [P] [US6] Test `CodeLinkBuilder`: `path_map` `/var/www/html/` → `app/`; GitLab `{web_url}/-/blob/{commit}/{path}#L{line}` and GitHub `{web_url}/blob/{commit}/{path}#L{line}`; vendor/unmapped path → no link; no commit → no link in `tests/Unit/Context/CodeLinkBuilderTest.php`
-- [ ] T099 [P] [US6] Test `service_context`: ≤ 1,000 chars enforced by config validation, passed through the redaction scan, placed in the stable (cached) prefix of every analysis request in `tests/Unit/Analyze/ServiceContextTest.php`
-- [ ] T100 [US6] End-to-end scenarios 15–19 (dependency named, undeclared host listed, after-release mark, log link, code links) in `tests/EndToEnd/ContextTest.php`
+- [ ] T096 [US6] Extend the privacy corpus and `tests/EndToEnd/PrivacyTest.php` before any US6 outbound code (Principle I): add to `tests/Fixtures/privacy/corpus.log` URLs carrying personal data (personal subdomain `john-smith.example.com`, `user:pass@host`, email and token in query), a dependency stream with seeded PII, and a `service_context` containing a seeded email; add the new values to `seeded-values.php`; assert none of them reaches the dependency-context part of any `FakeAnalyzer` payload, the service-context prefix, deploy fields, log links or code links
+- [ ] T097 [P] [US6] Test `DependencyResolver`: declared deps from `dependencies`; hosts from `<URL:host>` in templates; every run reads each declared dep's `totals()` once; candidate referencing a declared host, or a dep whose error total grew ≥ `growth_factor` vs its previous window → dependency lines requested; undeclared host → listed; quiet day → exactly one totals query per dep and zero dependency `lines()` calls in `tests/Unit/Context/DependencyResolverTest.php`
+- [ ] T098 [P] [US6] Test `DependencyContextReader`: for a triggered dep one `lines()` (totals already read) with level ≥ error capped at `dependency_read_cap` (5,000), top 5 groups by count, redacted through `Redactor`, previous totals from `snap:{service}:dep:{name}:…`; no previous dep snapshot → growth trigger off, context without new/grown marks, snapshot written; source override honoured in `tests/Unit/Context/DependencyContextReaderTest.php`
+- [ ] T099 [P] [US6] Test `DeployInfo`: release/commit from config stored in each snapshot; release change → new groups marked "first seen after <release>"; with `version_label` set, the deploy moment comes from a `count by (<label>)` fixture (Loki) / `group_by version` fixture (Datadog) in `tests/Unit/Context/DeployInfoTest.php`
+- [ ] T100 [P] [US6] Test `LogLinkBuilder`: Grafana Explore URL (datasource uid, stream tags, level, `|= "<literal>"`, window) and Datadog `logs?query=…&from_ts=…&to_ts=…`; literal = longest placeholder-free run of the redacted template ≤ 60 chars; no seeded privacy value from the corpus ever appears in a link in `tests/Unit/Context/LogLinkBuilderTest.php`
+- [ ] T101 [P] [US6] Test `CodeLinkBuilder`: `path_map` `/var/www/html/` → `app/`; GitLab `{web_url}/-/blob/{commit}/{path}#L{line}` and GitHub `{web_url}/blob/{commit}/{path}#L{line}`; vendor/unmapped path → no link; no commit → no link in `tests/Unit/Context/CodeLinkBuilderTest.php`
+- [ ] T102 [P] [US6] Test `service_context`: ≤ 1,000 chars enforced by config validation, passed through the redaction scan, placed in the stable (cached) prefix of every analysis request in `tests/Unit/Analyze/ServiceContextTest.php`
+- [ ] T103 [US6] End-to-end scenarios 15–19 (dependency named, undeclared host listed, after-release mark, log link, code links) in `tests/EndToEnd/ContextTest.php`
 
 ### Implementation
 
-- [ ] T101 [P] [US6] Implement `DependencyResolver` and `DependencyContextReader` in `src/Context/`
-- [ ] T102 [P] [US6] Implement `DeployInfo` in `src/Context/DeployInfo.php` on top of `LogSource::versions()`; implement `versions()` in `src/Source/LokiSource.php` (`count by (<label>)`) now and in `src/Source/DatadogSource.php` (`group_by version`) — the Datadog half needs US4 T080; until then `LokiSource` is the only source and `LogSourceContractTest` covers both
-- [ ] T103 [P] [US6] Implement `LogLinkBuilder` and `CodeLinkBuilder` in `src/Context/`
-- [ ] T104 [US6] Add dependency context, deploy info and service context to the analysis request (`CompactPayload`, `prompts/analyze.md`), and release header, "after <release>", "undeclared dependency" line, log and code links to `DigestRenderer` in `src/Analyze/`, `src/Notify/DigestRenderer.php`
-- [ ] T105 [US6] Wire context into the pipeline (after selection, before analysis; dependency reads count toward the token budget) in `src/Watcher.php`
+- [ ] T104 [P] [US6] Implement `DependencyResolver` and `DependencyContextReader` in `src/Context/`
+- [ ] T105 [P] [US6] Implement `DeployInfo` in `src/Context/DeployInfo.php` on top of `LogSource::versions()`; implement `versions()` in `src/Source/LokiSource.php` (`count by (<label>)`) now and in `src/Source/DatadogSource.php` (`group_by version`) — the Datadog half needs US4 T083; until then `LokiSource` is the only source and `LogSourceContractTest` covers both
+- [ ] T106 [P] [US6] Implement `LogLinkBuilder` and `CodeLinkBuilder` in `src/Context/`
+- [ ] T107 [US6] Add dependency context, deploy info and service context to the analysis request (`CompactPayload`, `prompts/analyze.md`), and release header, "after <release>", "undeclared dependency" line, log and code links to `DigestRenderer` in `src/Analyze/`, `src/Notify/DigestRenderer.php`
+- [ ] T108 [US6] Wire context into the pipeline (after selection, before analysis; dependency reads count toward the token budget) in `src/Watcher.php`
 
 ---
 
 ## Phase 9: Polish & Cross-Cutting
 
-- [ ] T106 [P] Write `config/watcher.example.php` with neutral names only (`orders-api`, `billing`, `auth`, `svc.cluster.local`, `https://git.example.com/group/orders-api`; never a real consumer's names — Principle VI) and documented defaults, including default models `claude-haiku-5-5` (triage), `claude-sonnet-5-5` (analyze), `claude-opus-5-5` (escalate) and their prices — the only place model ids appear besides README
-- [ ] T107 [P] Write `README.md`: install, read-only credentials per source, scheduling (hourly trigger + `run_at`), state drivers (file = single runner only), privacy guarantees, cost model, exit codes
-- [ ] T108 [P] Add architecture tests: no model id string (`claude-`) under `src/`; no consumer-specific string (`orders-api`, `tenant-a`, `example`) under `src/` or `config/` (Principle VI); `LogSource` implementations issue only GET/read-only POST query endpoints (Loki `query`, `query_range`; Datadog `analytics/aggregate`, `events/search`) — FR-004, Principle II — in `tests/Unit/ArchitectureTest.php`
-- [ ] T109 Run the full `specs/001-scheduled-log-watch/quickstart.md` (scenarios 1–14) and gates: `composer test`, `composer stan`, `composer style`, each exit 0
-- [ ] T110 Manual smoke with an Operator (quickstart §3) against one orders-api environment; compare the first digest with `orders-api/docs/context/logs/dev-notes` for SC-001; record result in `CHANGELOG.md`
+- [ ] T109 [P] Write `config/watcher.example.php` with neutral names only (`orders-api`, `billing`, `auth`, `svc.cluster.local`, `https://git.example.com/group/orders-api`; never a real consumer's names — Principle VI) and documented defaults, including default models `claude-haiku-5-5` (triage), `claude-sonnet-5-5` (analyze), `claude-opus-5-5` (escalate) and their prices — the only place model ids appear besides README
+- [ ] T110 [P] Write `README.md`: install, read-only credentials per source, scheduling (hourly trigger + `run_at`), state drivers (file = single runner only), privacy guarantees, cost model, exit codes
+- [ ] T111 [P] Add architecture tests: no model id string (`claude-`) under `src/`; no consumer-specific string (`orders-api`, `tenant-a`, `example`) under `src/` or `config/` (Principle VI); `LogSource` implementations issue only GET/read-only POST query endpoints (Loki `query`, `query_range`; Datadog `analytics/aggregate`, `events/search`) — FR-004, Principle II — in `tests/Unit/ArchitectureTest.php`
+- [ ] T112 Run the full `specs/001-scheduled-log-watch/quickstart.md` (scenarios 1–14) and gates: `composer test`, `composer stan`, `composer style`, each exit 0
+- [ ] T113 Manual smoke with an Operator (quickstart §3) against one orders-api environment; compare the first digest with `orders-api/docs/context/logs/dev-notes` for SC-001; record result in `CHANGELOG.md`
 
 ---
 
@@ -263,22 +266,22 @@ Phase 1 Setup → Phase 2 Foundational → US1 → US2 ═► MVP
                                          └──► US3 (needs US1 analyzer + pipeline)
                                          └──► US4 (needs US1 pipeline; stores/sources independent)
                                          └──► US5 (needs US1 pipeline)
-                                         └──► US6 (needs US1 pipeline + US2 Redactor; the Datadog half of T102 needs US4 T080)
+                                         └──► US6 (needs US1 pipeline + US2 Redactor; the Datadog half of T105 needs US4 T083)
                                                          → Phase 8 Polish
 ```
 
 - US2 depends on US1 (`RedactedGroup`, pipeline) and must land before any real-environment use.
 - US3, US4, US5, US6 are independent of each other after US1 (US6 also needs US2); each touches
-  `src/Watcher.php` in one small wiring task (T072, T085, T092, T105) — do those sequentially.
+  `src/Watcher.php` in one small wiring task (T075, T088, T095, T108) — do those sequentially.
 - Within a story: tests → value objects → services → wiring.
 
 ## Parallel Examples
 
 - **Phase 2**: T006–T013 together; then T014–T018, T022, T024 together.
 - **US1**: T026–T038 together, then T039 (privacy layer 1, must be red until the pipeline exists); then T042, T043, T049, T051 together; T045 → T046 → T048 → T050 → T052 → T055.
-- **US3**: T061–T066 together; then T068, T069 together.
-- **US4**: T073–T078 together; then T080–T084, T086, T087 together.
-- **US6**: T093 first (privacy corpus extension, red); then T094–T099 together; then T101–T103 together; T104 → T105.
+- **US3**: T061–T066 together; then T070, T071 together.
+- **US4**: T076–T081 together; then T083–T087, T089, T090 together.
+- **US6**: T096 first (privacy corpus extension, red); then T097–T102 together; then T104–T106 together; T107 → T108.
 
 ## Implementation Strategy
 

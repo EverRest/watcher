@@ -111,7 +111,8 @@ Per finding: `logUrl: string`; per frame: `codeUrl: ?string` (null when the path
 | **Verdict** | `verdict:{service}:{fingerprint}` | `{triage: noise\|known\|interesting, finding?: Finding, atCount: int, at}` | retention |
 | **Reported** | `reported:{service}:{fingerprint}` | `{lastReportedAt, atCount}` | retention |
 | **RunRecord** | `run:{service}:{windowEnd}` | `{outcome, usage, startedAt, finishedAt}` — also the idempotency marker (FR-028) | retention |
-| **Spend** | `spend:{service}:{yyyy-mm-dd}` | `float` USD, incremented per request | 2 days |
+| **Spend** | `spend:{service}:{yyyy-mm-dd}` | `{usd: float, tokens: int}`, incremented per request | 2 days |
+| **BudgetAlert** | `alert:{service}:{yyyy-mm-dd}:{counter}:{percent}` | `{sentAt}` — marks a threshold already announced | 2 days |
 | **Lock** | `lock:{service}:{windowEnd}` | owner token | lock TTL (default 15 min) |
 
 No raw message, field, sample or label value is ever written (Principle I). Templates are stored

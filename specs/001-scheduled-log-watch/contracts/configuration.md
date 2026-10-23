@@ -93,6 +93,8 @@ return [
         'confidence_threshold' => 0.6,
         'escalation_cap'       => 3,
         'daily_budget_usd'     => 0.50,
+        'daily_token_limit'    => null,                // FR-046: optional tokens/day cap (input+output+cache)
+        'budget_alert_percents'=> [25, 50, 75, 90],    // FR-046: integers 1-99, ascending
         'prices' => [ /* model => [input, output, cache_read, cache_write] USD per MTok; for cost line */ ],
     ],
 
@@ -118,6 +120,7 @@ return [
 
 ## Validation rules
 
+- `analysis.prices` is REQUIRED for every model in `analysis.models` (FR-046); `budget_alert_percents` are integers 1–99 in ascending order.
 - Required: `service`, `schedule.run_at`, `source.driver` + its credentials, `analysis.api_key`,
   all three `analysis.models`, `state.driver` + its settings, `notify.digest.webhook`.
 - `growth_factor` > 1; `0 < confidence_threshold < 1`; `top_m ≤ top_n`; positive integers elsewhere.

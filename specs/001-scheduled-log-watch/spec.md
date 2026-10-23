@@ -26,6 +26,7 @@ service's perimeter. First consumer: `orders-api`; nothing in the package may be
 
 ### Session 2026-10-23
 
+- Q: Should spend be counted and announced as it approaches the limit? → A: Yes, mandatory. Every model call adds provider-reported tokens and estimated cost (configured per-model prices, required) to daily per-service counters; crossing 25%, 50%, 75% or 90% of the daily limit sends one notice per threshold per day (highest only when several are crossed in one run).
 - Q: Do real logs match the one-line corpus? → A: Not necessarily: frameworks write exceptions over several lines and inside a context field. The package assembles continuation lines into one event and extracts exception class, top frames and file:line (FR-045), because for rare groups whose message text is withheld these are all the model sees.
 - Q: How does a Reader silence known noise or an already-handled problem so it stops appearing? → A: A mute list in the service configuration: fingerprints or content rules, each with an optional expiry date; every finding in the digest shows its short fingerprint so it can be copied into the list. Slack-reaction muting is out of scope for v1.
 - Q: What does the very first run do when there is no previous window to compare against? → A: Baseline only: store groups and counters, make no AI request, post one short message "baseline recorded: N groups, M events"; full analysis starts from the second run.
@@ -346,6 +347,14 @@ finding has a log link and code links at the deployed commit.
   budget, lowest-priority groups MUST be dropped and the digest MUST state how many.
 - **FR-022**: A hard daily spend cap per service MUST be enforced; when reached, runs perform at most
   triage and the digest MUST say the budget is exhausted.
+- **FR-046**: Every run that calls a model MUST add the provider-reported tokens (input, output,
+  cache read, cache write) and the estimated cost (configured per-model prices, which are REQUIRED
+  for every configured model) to per-service daily counters kept in state. When a counter first
+  crosses 25%, 50%, 75% or 90% of its daily limit (cost: `daily_budget_usd`; tokens: optional
+  `daily_token_limit`; thresholds configurable) the run MUST send one notice to the notice
+  destination naming the counter, the percentage, the absolute value and the limit. Each threshold
+  is announced at most once per day and per counter; if one run crosses several, only the highest is
+  announced. The digest footer MUST show the day's total and percentage. At 100% FR-022 applies.
 - **FR-023**: Model output MUST follow a fixed structure: for each finding the affected groups, kind
   (bug, regression, anomaly, noise), severity (info, warn, error, critical), title, evidence,
   suspected cause, suggested action, confidence (0–1). Output not matching the structure MUST be
