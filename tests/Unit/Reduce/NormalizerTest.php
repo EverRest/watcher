@@ -58,8 +58,11 @@ final class NormalizerTest extends TestCase
             'undeclared single label with credentials' => ['http://user:pa55@db/x', '<URL>'],
             'declared single label' => ['calling http://core/v1?id=7 now', 'calling <URL:core> now'],
             'declared with port and credentials' => ['http://u:p1@core:8080/x', '<URL:core>'],
-            'declared plus domain suffix' => ['http://core.example-ns.vendor.net/x', '<URL:core.example-ns.vendor.net>'],
-            'declared name is case-insensitive' => ['http://CORE.svc/x', '<URL:core.svc>'],
+            'declared plus domain suffix' => ['http://core.example-ns.vendor.net/x', '<URL:core>'],
+            'declared name is case-insensitive' => ['http://CORE/x', '<URL:core>'],
+            'declared name with a non-allowlisted suffix' => ['http://core.svc/x', '<URL>'],
+            'declared name under domain, one label' => ['http://core.vendor.net/x', '<URL:core>'],
+            'declared name under domain, two labels' => ['http://core.a.b.vendor.net/x', '<URL>'],
             'person name under a dependency domain' => ['http://anna-kowalski.vendor.net/api', '<URL>'],
             'tenant id under a dependency domain' => ['http://tenant-48213.vendor.net/api', '<URL>'],
             'user id single label' => ['http://user48213/api', '<URL>'],
@@ -68,6 +71,7 @@ final class NormalizerTest extends TestCase
             'credentials on public host' => ['https://user:pass@api.vendor.io/x', '<URL>'],
             'person-like host dropped' => ['see https://john-smith.example.com/me', 'see <URL>'],
             'declared dependency' => ['https://api.stripe.com/v1/x', '<URL:api.stripe.com>'],
+            'declared dotted name with attacker suffix' => ['https://api.stripe.com.evil.example/x', '<URL>'],
             'dependency domain alone keeps nothing' => ['https://eu.cdn.vendor.net/a', '<URL>'],
             'dependency domain itself keeps nothing' => ['https://vendor.net/a', '<URL>'],
             'suffix must be label boundary' => ['https://evilvendor.net/a', '<URL>'],
@@ -88,7 +92,11 @@ final class NormalizerTest extends TestCase
             'dependency domain alone keeps nothing' => ['svc-x.billing.svc.cluster.local', '<HOST>'],
             'person under the default domain' => ['dial anna-kowalski.svc.cluster.local', 'dial <HOST>'],
             'tenant id under the default domain' => ['dial tenant-48213.svc.cluster.local', 'dial <HOST>'],
-            'declared plus default domain' => ['dial core-api.example-ns.svc.cluster.local', 'dial <HOST:core-api.example-ns.svc.cluster.local>'],
+            'declared plus default domain' => ['dial core-api.example-ns.svc.cluster.local', 'dial <HOST:core-api>'],
+            'attacker suffix labels' => ['dns billing.john-smith.evil.example down', 'dns <HOST> down'],
+            'declared name under foreign domain' => ['dns core-api.evil.com down', 'dns <HOST> down'],
+            'declared name, two extra labels' => ['dial core-api.eu.tenant-48213.svc.cluster.local', 'dial <HOST>'],
+            'declared name as prefix of another label' => ['dial core-api-evil.svc.cluster.local', 'dial <HOST>'],
             'declared dependency' => ['dns api.stripe.com down', 'dns <HOST:api.stripe.com> down'],
             'host with trailing dot' => ['connect to a.example.com.', 'connect to <HOST>.'],
             'email first' => ['mail john@example.com failed', 'mail <EMAIL> failed'],
@@ -210,15 +218,72 @@ final class NormalizerTest extends TestCase
 
     public function testInputIsCutAtTheCapWithoutSplittingACharacter(): void
     {
-        $out = (new Normalizer())->normalize(str_repeat('é', 5000));
+        $out = (new Normalizer())->normalize(str_repeat('é', 4000) . ' ' . str_repeat('é', 1000));
 
-        self::assertSame(str_repeat('é', 4096), $out);
+        self::assertSame(str_repeat('é', 4000), $out);
         self::assertSame(1, preg_match('//u', $out));
     }
 
     public function testShortInputIsNotCut(): void
     {
         self::assertSame(4096, mb_strlen((new Normalizer())->normalize(str_repeat('x', 4096))));
+    }
+
+    public function testDeclaredNameKeptOnlyAsEqualityOrAllowlistedDomain(): void
+    {
+        $n = new Normalizer(['core-api'], ['svc.cluster.local']);
+        self::assertSame('<URL:core-api>', $n->normalize('http://CORE-API:8080/x'));
+        self::assertSame('dial <HOST:core-api>', $n->normalize('dial core-api.example-ns.svc.cluster.local'));
+        self::assertSame('<URL>', $n->normalize('http://billing.john-smith.evil.example/x'));
+        self::assertSame('dial <HOST>', $n->normalize('dial billing.evil.com'));
+
+        $bare = new Normalizer(['core-api']);
+        self::assertSame('<URL:core-api>', $bare->normalize('http://core-api/x'));
+        self::assertSame('dial <HOST>', $bare->normalize('dial core-api.example-ns.svc.cluster.local'));
+    }
+
+    /** @return array<string, array{string, string}> value, fragment that must not survive */
+    public static function straddling(): array
+    {
+        return [
+            'email' => ['anna.kowalski@example.org', 'example.org'],
+            'jwt' => ['eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl', 'eyJhbGci'],
+            'hex id' => ['deadbeefcafebabe0123456789abcdef', 'deadbeef'],
+            'person words' => ['Anna Kowalski Wisniewska', 'Wisniewska'],
+        ];
+    }
+
+    #[DataProvider('straddling')]
+    public function testValueStraddlingTheCutLeavesNoFragment(string $value, string $fragment): void
+    {
+        foreach ([4, 9, intdiv(strlen($value), 2), strlen($value) - 1] as $keep) {
+            // the cut falls `$keep` characters into the value
+            $prefix = str_repeat('x', 4096 - $keep - 1) . ' ';
+            $out = (new Normalizer())->normalize($prefix . $value . str_repeat(' y', 600));
+            // a complete earlier word may stay; the partial one (and anything after it) must not
+            self::assertTrue(str_starts_with($out, str_repeat('x', 4096 - $keep - 1)), "keep=$keep");
+            self::assertStringNotContainsString(substr($value, 0, $keep), $out);
+            self::assertStringNotContainsString($fragment, $out);
+        }
+    }
+
+    public function testMultibyteAtTheCutDropsThePartialWord(): void
+    {
+        $out = (new Normalizer())->normalize(str_repeat('é', 4000) . ' ' . str_repeat('ж', 200));
+        self::assertSame(str_repeat('é', 4000), $out);
+        self::assertSame(1, preg_match('//u', $out));
+    }
+
+    public function testExactlyCapLongKeepsItsTail(): void
+    {
+        $out = (new Normalizer())->normalize(str_repeat('x', 4090) . ' tail');
+        self::assertStringEndsWith(' tail', $out);
+    }
+
+    public function testTruncatedTextWithoutWhitespaceIsEmpty(): void
+    {
+        self::assertSame('', (new Normalizer())->normalize(str_repeat('x', 5000)));
+        self::assertSame('', (new Normalizer())->normalize(str_repeat('é', 5000)));
     }
 
     public function testDeterministic(): void

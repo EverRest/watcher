@@ -19,10 +19,10 @@ final class DependencyResolverTest extends TestCase
         self::assertSame(0, $plan->undeclaredHosts);
     }
 
-    public function testReferenceBySuffixButNotPrefixLookalike(): void
+    public function testReferenceByDeclaredNameButNotUndeclared(): void
     {
         $plan = (new DependencyResolver())->plan(
-            ['x', 'timeout <HOST:payments.svc>', 'timeout <HOST>'],
+            ['x', 'timeout <HOST:payments>', 'timeout <HOST>'],
             ['payments' => self::QUIET],
             ['payments' => self::QUIET],
             3.0,

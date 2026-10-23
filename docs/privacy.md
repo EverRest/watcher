@@ -37,8 +37,8 @@ credentials, anything from `fields`.
 ## How a message becomes a template
 
 1. **Pattern masking** (`src/Reduce/Normalizer.php`, one ordered table): emails -> `<EMAIL>`; URLs -> `<URL>` (path,
-   query, credentials and port always removed; the host stays only if it equals a declared dependency name or starts with `<name>.`; the digest only counts
-   undeclared call targets, never names them). Each message is cut at 4096 characters before these rules run; UUIDs and long hex -> `<ID>`; IP addresses -> `<IP>`; JWT-like strings -> `<TOKEN>`; bare host
+   query, credentials and port always removed; the placeholder carries the declared dependency name only (`<URL:name>`, never a suffix) and only when the host equals it or is `name.<domain>` / `name.<label>.<domain>` for a configured `dependency_domains` entry; the digest only counts
+   undeclared call targets, never names them). Each message is cut at 4096 characters before these rules run, and a trailing partial token is dropped with the cut (no whitespace at all: empty text); UUIDs and long hex -> `<ID>`; IP addresses -> `<IP>`; JWT-like strings -> `<TOKEN>`; bare host
    names -> `<HOST>`; card-like numbers -> `<PAN>`; remaining digits -> `<N>`; long quoted strings -> `<STR>`. Placeholder-
    shaped text in the input is neutralised first, so log content cannot hide a value inside `<...>`.
 2. **Variation masking** (`src/Reduce/TemplateMiner.php`): events are clustered by level, error type, length and first

@@ -108,7 +108,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `service_context` | `''` | Up to 1000 characters: what the service does and what is critical. Sent to the model on every request after the redaction scan. Never put personal data in it. |
 | `dependencies` | `[]` | `name => ['stream_tags' => [...]]`. Their error totals are read each run; lines only when a candidate references the host or the dependency's errors grew. A per-dependency `source` override is not available yet (rejected). |
 | `dependency_read_cap` | `5000` | Events read per triggered dependency. |
-| `dependency_domains` | `['svc.cluster.local']` | A host in log text is kept (as `<URL:host>`) only if it equals a declared dependency name or starts with `<name>.`; every other host (single-label, or under one of these suffixes) is masked as `<URL>`/`<HOST>`. The digest only counts such call targets, it never names them. |
+| `dependency_domains` | `['svc.cluster.local']` | A host in log text becomes `<URL:name>`/`<HOST:name>` (the declared name only, never a suffix) if it equals a declared dependency name or is `name.<d>` / `name.<one label>.<d>` for one of these domains; every other host is masked as `<URL>`/`<HOST>`. The digest only counts such call targets, it never names them. |
 | `deploy.release`, `deploy.commit` | null | Usually from CI. A new group after a release change is marked "first seen after <release>". |
 | `deploy.version_label` | null | Log label that carries the running version, if your source has one (gives the deploy moment). |
 | `links.grafana.{base_url,datasource_uid}` / `links.datadog.app_url` | none | Builds a log-query link per finding from redacted data only. |
