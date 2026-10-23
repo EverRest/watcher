@@ -16,6 +16,10 @@ final class DigestData
      * @param list<Finding>                $findings
      * @param array<string, RedactedGroup> $groups  by fingerprint (count and trend)
      * @param array<string, string>        $models  step => model id, for the footer
+     * @param array<string, string>        $afterReleaseFingerprints fingerprint => release a NEW group was first seen after
+     * @param list<string>                 $undeclaredDependencies   hosts seen in templates that no declared dependency covers
+     * @param list<string>                 $failedDependencies       declared dependencies whose source was unavailable
+     * @param array<string, array{log: ?string, code: list<string>}> $links by fingerprint; URLs built from config and redacted data only
      */
     public function __construct(
         public readonly string $service,
@@ -39,6 +43,10 @@ final class DigestData
         public readonly ?float $dailyBudgetUsd = null,
         public readonly ?int $todayTokens = null,
         public readonly ?int $dailyTokenLimit = null,
+        public readonly array $afterReleaseFingerprints = [],
+        public readonly array $undeclaredDependencies = [],
+        public readonly array $failedDependencies = [],
+        public readonly array $links = [],
     ) {
     }
 }

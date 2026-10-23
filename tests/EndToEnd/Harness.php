@@ -19,7 +19,6 @@ use Watcher\Config\WatchConfig;
 use Watcher\Level;
 use Watcher\Source\LogEvent;
 use Watcher\State\StateStore;
-use Watcher\Tests\Fakes\FakeLogSource;
 use Watcher\Tests\Fakes\FakeNotifier;
 use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Tests\Fakes\InMemoryStateStore;
@@ -66,7 +65,7 @@ final class Harness
         ], $this->configPatch);
     }
 
-    public function watcher(FakeLogSource $source): Watcher
+    public function watcher(\Watcher\Source\LogSource $source): Watcher
     {
         return new Watcher(WatchConfig::fromArray($this->config()), $source, $this->state, $this->analyzer, $this->notifier, $this->clock);
     }
@@ -168,8 +167,13 @@ final class EchoAnalyzer implements Analyzer
         }
         // Escalation (the "m-e" model) is the confident second opinion.
         $confidence = $req->model === 'm-e' ? 0.95 : $this->confidence;
+        // Like a model told to name a dependency that shows errors in the same window.
+        $evidence = '';
+        foreach ($req->dependencyContext as $dep) {
+            $evidence .= '; dependency ' . $dep->name . ' shows ' . $dep->errors() . ' errors';
+        }
         $findings = array_map(
-            static fn ($g): Finding => new Finding([$g->fingerprint], FindingKind::Bug, Severity::Error, 'Problem ' . $g->fingerprint, 'seen repeatedly', 'a dependency may be failing', 'inspect the dependency', $confidence),
+            static fn ($g): Finding => new Finding([$g->fingerprint], FindingKind::Bug, Severity::Error, 'Problem ' . $g->fingerprint, 'seen repeatedly' . $evidence, 'a dependency may be failing', 'inspect the dependency', $confidence),
             $req->groups,
         );
 

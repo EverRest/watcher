@@ -75,4 +75,34 @@ final class CompactPayloadTest extends TestCase
         self::assertSame(10, count(self::decode($compact)['t']));
         self::assertCount(500, self::decode($compact)['g']);
     }
+
+    public function testDependencySectionSharesTheTemplateTableAndOmitsFingerprints(): void
+    {
+        $dep = new \Watcher\Context\DependencyContext(
+            'core-api',
+            true,
+            ['error' => 4, 'critical' => 1, 'warning' => 90],
+            ['error' => 1],
+            [self::group('dep1', 'Pool exhausted'), self::group('dep2', 'Timeout <N> ms', [], 7)],
+            [0],
+            false,
+        );
+        $d = self::decode(CompactPayload::encode([self::group('a', 'Timeout <N> ms')], [$dep]));
+
+        self::assertSame(['Timeout <N> ms', 'Pool exhausted'], $d['t']);
+        self::assertSame('core-api', $d['d'][0]['n']);
+        self::assertSame(5, $d['d'][0]['err']);
+        self::assertSame(1, $d['d'][0]['prev']);
+        self::assertSame([1, 0], array_column($d['d'][0]['top'], 't'));
+        self::assertSame([0], $d['d'][0]['r']);
+        self::assertArrayNotHasKey('fp', $d['d'][0]['top'][0]);
+        self::assertSame(7, $d['d'][0]['top'][1]['n']);
+    }
+
+    public function testNoDependenciesMeansNoDSectionAndUnavailableOnesAreSkipped(): void
+    {
+        self::assertArrayNotHasKey('d', self::decode(CompactPayload::encode([self::group('a', 'x')])));
+        $down = new \Watcher\Context\DependencyContext('core-api', true, [], null, [], [], true, true);
+        self::assertArrayNotHasKey('d', self::decode(CompactPayload::encode([self::group('a', 'x')], [$down])));
+    }
 }

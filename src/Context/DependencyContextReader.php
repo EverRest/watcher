@@ -35,6 +35,7 @@ final class DependencyContextReader
      * @param array<string, array{stream_tags: array<string, string>, source?: ?string}> $declared
      * @param callable(string): LogSource                                                $sourceFor dep name => source
      * @param array<string, array<string, int>|null>                                     $previousTotals from the previous dep snapshots
+     * @param array<string, array<string, int>>                                          $currentTotals  totals the caller already queried (not asked for again)
      */
     public function read(
         string $service,
@@ -44,6 +45,7 @@ final class DependencyContextReader
         Window $window,
         int $readCap,
         array $previousTotals = [],
+        array $currentTotals = [],
     ): DependencyReadResult {
         $contexts = [];
         $failed = [];
@@ -58,7 +60,7 @@ final class DependencyContextReader
             $refs = $plan->referencedBy[$name] ?? [];
 
             try {
-                $totals = $source->totals($window, $selector);
+                $totals = $currentTotals[$name] ?? $source->totals($window, $selector);
                 $top = [];
                 $counts = [];
                 if (in_array($name, $plan->linesFor, true)) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher\Analyze;
 
+use Watcher\Context\DependencyContext;
 use Watcher\Privacy\GroupStatusLabel;
 use Watcher\Privacy\RedactedGroup;
 
@@ -18,11 +19,12 @@ final class ModelRouter
     }
 
     /**
-     * @param list<RedactedGroup> $groups
+     * @param list<RedactedGroup>     $groups
+     * @param list<DependencyContext> $dependencyContext indexes refer to positions in $groups; goes to analysis and escalation, never triage
      *
      * @throws AnalyzerFailed
      */
-    public function route(array $groups, bool $triageOnly): RouterResult
+    public function route(array $groups, bool $triageOnly, array $dependencyContext = []): RouterResult
     {
         $fresh = [];
         $reused = 0;
@@ -65,7 +67,7 @@ final class ModelRouter
             $dropped = max(0, count($interesting) - $this->s->topM);
             $top = array_slice($interesting, 0, $this->s->topM);
 
-            $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $this->s->analyzeMaxTokens));
+            $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $this->s->analyzeMaxTokens, self::remap($dependencyContext, $groups, $top)));
             $usage['analyze'] = $res->usage;
             $findings = $res->findings;
 
@@ -78,7 +80,7 @@ final class ModelRouter
                 if ($escalations < $this->s->escalationCap && $this->needsEscalation($f)) {
                     ++$escalations;
                     $sub = array_values(array_filter(array_map(static fn (string $fp): ?RedactedGroup => $byFp[$fp] ?? null, $f->fingerprints)));
-                    $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $this->s->escalateMaxTokens));
+                    $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $this->s->escalateMaxTokens, self::remap($dependencyContext, $groups, $sub)));
                     $usage['escalate'] = isset($usage['escalate']) ? $usage['escalate']->plus($again->usage) : $again->usage;
                     if ($again->findings !== []) {
                         foreach ($again->findings as $e) {
@@ -110,6 +112,35 @@ final class ModelRouter
         }
 
         return new RouterResult($findings, $usage, $escalations, $reused, count($fresh), $dropped);
+    }
+
+    /**
+     * Re-points each dependency's references from positions in $from to positions in $to (same groups, by fingerprint).
+     *
+     * @param list<DependencyContext> $contexts
+     * @param list<RedactedGroup>     $from
+     * @param list<RedactedGroup>     $to
+     *
+     * @return list<DependencyContext>
+     */
+    private static function remap(array $contexts, array $from, array $to): array
+    {
+        $pos = [];
+        foreach ($to as $i => $g) {
+            $pos[$g->fingerprint] = $i;
+        }
+
+        return array_map(static function (DependencyContext $c) use ($from, $pos): DependencyContext {
+            $idx = [];
+            foreach ($c->referencedByTemplateIndexes as $i) {
+                $p = isset($from[$i]) ? ($pos[$from[$i]->fingerprint] ?? null) : null;
+                if ($p !== null) {
+                    $idx[] = $p;
+                }
+            }
+
+            return $c->withReferences($idx);
+        }, $contexts);
     }
 
     private function needsEscalation(Finding $f): bool

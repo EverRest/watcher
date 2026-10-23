@@ -24,6 +24,8 @@ final class DigestRenderer
     public const MAX_SECTIONS = 40;
     public const MAX_SECTION_CHARS = 2800;
     public const MAX_TEXT_CHARS = 4000;
+    public const MAX_UNDECLARED = 10;
+    private const MAX_LINKS_CHARS = 1800;
 
     private const ICONS = ['critical' => '🔴', 'error' => '🟠', 'warn' => '🟡', 'info' => '🔵'];
 
@@ -89,7 +91,8 @@ final class DigestRenderer
             }
             $out[] = ['kind' => 'severity', 'text' => sprintf('%s *%s* (%d)', self::ICONS[$sev->value], $sev->value, count($items))];
             foreach ($items as $s) {
-                $out[] = ['kind' => 'finding', 'text' => $this->cap($this->finding($s['f'], $s['n'], $d), self::MAX_SECTION_CHARS)];
+                $links = $this->linksLine($s['f'], $d);
+                $out[] = ['kind' => 'finding', 'text' => $this->cap($this->finding($s['f'], $s['n'], $d), self::MAX_SECTION_CHARS - mb_strlen($links)) . $links];
             }
         }
 
@@ -117,6 +120,13 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s groups dropped (budget)', number_format($d->droppedGroups))];
         }
 
+        foreach (array_slice($d->undeclaredDependencies, 0, self::MAX_UNDECLARED) as $host) {
+            $out[] = ['kind' => 'notice', 'text' => '🔗 undeclared dependency: ' . $this->esc($host)];
+        }
+        foreach ($d->failedDependencies as $name) {
+            $out[] = ['kind' => 'notice', 'text' => '⚠️ dependency unavailable: ' . $this->esc($name)];
+        }
+
         $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
 
         return $out;
@@ -134,6 +144,11 @@ final class DigestRenderer
             }
         }
 
+        $after = $group !== null ? ($d->afterReleaseFingerprints[$group->fingerprint] ?? null) : null;
+        if ($after !== null) {
+            $trend .= ' · first seen after ' . $this->esc($after);
+        }
+
         return sprintf(
             "• %s — %s×%s  `%s`\n  Evidence: %s\n  Hypothesis: %s  Next: %s",
             $this->esc($f->title),
@@ -144,6 +159,46 @@ final class DigestRenderer
             $this->esc($f->suspectedCause),
             $this->esc($f->suggestedAction)
         );
+    }
+
+    /**
+     * Links are built by us from config and redacted data, so they stay clickable (never passed through escape());
+     * the labels are fixed text and a URL that could break out of Slack's `<url|label>` syntax is dropped.
+     */
+    private function linksLine(Finding $f, DigestData $d): string
+    {
+        $g = $this->primaryGroup($f, $d);
+        $set = $g === null ? null : ($d->links[$g->fingerprint] ?? null);
+        if ($set === null) {
+            return '';
+        }
+        $parts = [];
+        $log = $this->link($set['log'], 'log');
+        if ($log !== null) {
+            $parts[] = $log;
+        }
+        $n = 0;
+        foreach ($set['code'] as $url) {
+            $code = $n < 3 ? $this->link($url, 'code ' . ($n + 1)) : null;
+            if ($code !== null) {
+                $parts[] = $code;
+                ++$n;
+            }
+        }
+        while ($parts !== []) {
+            $line = "\n  Links: " . implode(' · ', $parts);
+            if (mb_strlen($line) <= self::MAX_LINKS_CHARS) {
+                return $line;
+            }
+            array_pop($parts);
+        }
+
+        return '';
+    }
+
+    private function link(?string $url, string $label): ?string
+    {
+        return $url !== null && preg_match('~^https?://[^\s<>|]+$~', $url) === 1 ? "<$url|$label>" : null;
     }
 
     private function footer(DigestData $d): string

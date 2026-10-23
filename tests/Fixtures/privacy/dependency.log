@@ -1,0 +1,5 @@
+[2026-10-07T22:10:01+00:00] production.ERROR: [PAY]: charge failed for Taras Kovalenko card 4111 1111 1111 1111 (taras.kovalenko@example.org) [] []
+[2026-10-07T22:10:05+00:00] production.ERROR: [PAY]: upstream https://gw_user:Qw3rty9pass@10.20.30.41/pay?email=lesya.ukrainka@example.org timed out for 203.0.113.99 [] []
+[2026-10-07T22:10:07+00:00] production.CRITICAL: [PAY]: Database connection lost for tenant-owner Bohdan Lysenko [] []
+{"timestamp":"2026-10-07T22:10:09+00:00","level":"error","message":"webhook retry exhausted for hanna.melnyk@example.org","context":{"name":"Hanna Melnyk","auth":"Bearer 1a2b3c4d5e6f708192a3b4c5d6e7f809"}}
+{"timestamp":"2026-10-07T22:10:11+00:00","level":"error","message":"Callback https://bohdan-lysenko.example.net/hook?token=tk_aa11bb22cc33dd44 refused","context":{"phone":"+380 44 555 01 23"}}

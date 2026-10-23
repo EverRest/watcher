@@ -13,12 +13,14 @@ use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
+use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\Usage;
 use Watcher\Config\WatchConfig;
 use Watcher\RunOutcome;
 use Watcher\Source\LineParser;
 use Watcher\Tests\Fakes\FakeLogSource;
 use Watcher\Tests\Fakes\InMemoryStateStore;
+use Watcher\Tests\Fakes\RoutedLogSource;
 use Watcher\Watcher;
 
 /** Principle I, layers 1 and 2, end to end: no seeded personal value reaches any outbound payload or stored item. */
@@ -68,6 +70,78 @@ final class PrivacyTest extends TestCase
                 self::assertStringNotContainsString($value, $haystack, "seeded value leaked into $where: $value");
             }
         }
+    }
+
+    /** @return list<\Watcher\Source\LogEvent> */
+    private static function eventsFrom(string $file): array
+    {
+        $parser = new LineParser();
+        $events = [];
+        foreach (file(__DIR__ . '/../Fixtures/privacy/' . $file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            $events[] = $parser->parse($line);
+        }
+
+        return $events;
+    }
+
+    /** US6 (T097): dependencies, deploy block, links, repo and service context all configured; still no seeded value anywhere. */
+    public function testNoSeededValueLeaksThroughDependencyContextLinksOrServiceContext(): void
+    {
+        /** @var list<string> $seeded */
+        $seeded = require __DIR__ . '/../Fixtures/privacy/seeded-values.php';
+        $own = self::eventsFrom('corpus.log');
+        $dep = self::eventsFrom('dependency.log');
+        $h = new Harness([
+            'service_context' => trim((string) file_get_contents(__DIR__ . '/../Fixtures/privacy/service-context.txt')),
+            'dependencies' => ['billing-gateway' => ['stream_tags' => ['app' => 'billing-gateway', 'env' => 'stg']]],
+            'deploy' => ['release' => 'v2026.10.8', 'commit' => 'abc123def456'],
+            'links' => ['grafana' => ['base_url' => 'https://grafana.test', 'datasource_uid' => 'loki-uid']],
+            'repo' => ['provider' => 'gitlab', 'web_url' => 'https://git.test/acme/svc', 'path_map' => ['/var/www/html/' => 'app/']],
+        ]);
+        $source = static fn (): RoutedLogSource => new RoutedLogSource(
+            ['billing-gateway' => new FakeLogSource(Harness::totalsOf($dep), $dep)],
+            new FakeLogSource(Harness::totalsOf($own), $own),
+        );
+
+        $h->watcher($source())->run();
+        $h->nextWindow();
+        $result = $h->watcher($source())->run();
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+
+        $depRead = false;
+        foreach ($h->analyzer->requests as $req) {
+            $depRead = $depRead || $req->dependencyContext !== [];
+        }
+        self::assertTrue($depRead, 'control: the dependency part must actually be present in the analysis request');
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+
+        $encoded = [];
+        foreach ($h->analyzer->allRequests() as $req) {
+            $encoded[] = $req->serviceContext;
+            $encoded[] = $req instanceof AnalysisRequest ? CompactPayload::encode($req->groups, $req->dependencyContext) : CompactPayload::encode($req->groups);
+        }
+        $links = [];
+        foreach ($h->notifier->sent as $s) {
+            $links[] = $s['message']->text;
+            $links[] = implode("\n", array_column($s['message']->sections, 'text'));
+        }
+        $payloads = [
+            'analyzer request' => [$h->analyzer->allRequests(), $encoded],
+            'notifier message' => [array_map(static fn (array $s) => $s['message'], $h->notifier->sent), $links],
+            'state store' => $h->state->all(),
+        ];
+        foreach ($payloads as $where => $payload) {
+            $plain = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $views = [$plain, json_encode($payload, JSON_THROW_ON_ERROR), rawurldecode($plain), rawurldecode(rawurldecode($plain))];
+            foreach ($views as $haystack) {
+                foreach ($seeded as $value) {
+                    self::assertStringNotContainsString($value, $haystack, "seeded value leaked into $where: $value");
+                }
+            }
+        }
+        // The service context really was sent, minus its e-mail.
+        self::assertStringContainsString('<EMAIL>', $h->analyzer->requests[0]->serviceContext);
+        self::assertStringContainsString('grafana.test/explore', implode("\n", $links));
     }
 
     private const LAYER2_VALUES = ['CUST-QWERTY', 'ACC-MNBVCX'];

@@ -25,6 +25,13 @@ use Watcher\Analyze\Usage;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
+use Watcher\Context\CodeLinkBuilder;
+use Watcher\Context\DependencyContext;
+use Watcher\Context\DependencyContextReader;
+use Watcher\Context\DependencyPlan;
+use Watcher\Context\DependencyResolver;
+use Watcher\Context\DeployInfo;
+use Watcher\Context\LogLinkBuilder;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Notify\Destination;
 use Watcher\Notify\DigestData;
@@ -32,6 +39,7 @@ use Watcher\Notify\DigestRenderer;
 use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\Notifier;
+use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\GroupStatus;
@@ -57,6 +65,12 @@ use Watcher\State\StateStore;
 final class Watcher
 {
     private readonly ClockInterface $clock;
+
+    /** Dependency snapshots wait here and are written together with the window snapshot, so a failed run leaves none. */
+    /** @var list<array{0: string, 1: array<mixed>, 2: int}> */
+    private array $pendingWrites = [];
+
+    private ?DeployInfo $deployInfo = null;
 
     public function __construct(
         private readonly WatchConfig $config,
@@ -196,8 +210,10 @@ final class Watcher
         $readMin = $c->source['read_min_level'];
         $totals = $this->source->totals($window, $selector);
 
-        /** @var array{groups?: array<string, int>, totals?: array<string, int>}|null $prev */
+        /** @var array{groups?: array<string, int>, totals?: array<string, int>, deploy?: array<string, string|null>}|null $prev */
         $prev = $this->state->get(Keys::snapshot($service, self::windowKey($window->start)));
+        $this->pendingWrites = [];
+        $deploy = $this->deployInfo = DeployInfo::resolve($c->deploy, $prev['deploy'] ?? null, $this->source, $window, $selector);
         $anomalies = LevelAnomaly::levels($prev === null ? null : ($prev['totals'] ?? []), $totals, $c->selection['growth_factor'], $readMin);
 
         $truncated = false;
@@ -265,6 +281,7 @@ final class Watcher
         $renderer = new DigestRenderer();
 
         if ($prev === null) {
+            $this->readDependencies($window, $normalizer, $redactor, null);
             $this->writeSnapshot($window, $allGroups, $totals);
             $this->notifier->send(
                 $renderer->renderBaseline($service, $environment, count($groups), array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups))),
@@ -285,6 +302,7 @@ final class Watcher
         }
 
         if ($candidates === []) {
+            $this->readDependencies($window, $normalizer, $redactor, null);
             $this->writeSnapshot($window, $allGroups, $totals);
             $this->writeRun($runKey, RunOutcome::Quiet, null, $started);
 
@@ -303,6 +321,9 @@ final class Watcher
         );
         $redacted = array_map(static fn ($cand) => $redactedBy[$cand->group->fingerprint], $truncation->kept);
 
+        [$dependencies, $failedDependencies, $undeclared] = $this->readDependencies($window, $normalizer, $redactor, array_map(static fn (RedactedGroup $g): ?string => $g->template, $redacted));
+        $dependencies = self::fitDependencies($redacted, $dependencies, $c->analysis['max_input_tokens']['analyze']);
+
         $tz = new \DateTimeZone($c->schedule['timezone']);
         $spend = new Spend($this->state, $this->clock, $tz, $service);
         $notice = $this->noticeDestination();
@@ -310,9 +331,9 @@ final class Watcher
 
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
-        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator), new VerdictCache($this->state, $service, $retention), $this->routerSettings());
+        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator), new VerdictCache($this->state, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
         try {
-            $routed = $router->route($redacted, $triageOnly);
+            $routed = $router->route($redacted, $triageOnly, $dependencies);
         } catch (AnalyzerFailed $e) {
             // The window was read: keep it as the next window's comparison base, but leave no RunRecord so the next trigger retries.
             $this->writeSnapshot($window, $allGroups, $totals);
@@ -367,6 +388,17 @@ final class Watcher
         foreach ($redacted as $g) {
             $byFingerprint[$g->fingerprint] = $g;
         }
+        $logLinks = new LogLinkBuilder($c->links, $c->source['stream_tags']);
+        $codeLinks = new CodeLinkBuilder($c->repo ?? [], $deploy->commit);
+        $links = [];
+        $afterRelease = [];
+        foreach ($redacted as $g) {
+            $links[$g->fingerprint] = ['log' => $logLinks->forGroup($g, $window), 'code' => $codeLinks->forGroup($g)];
+            $mark = $deploy->firstSeenAfterLabel($g->status);
+            if ($mark !== null) {
+                $afterRelease[$g->fingerprint] = $mark;
+            }
+        }
         $message = $renderer->render(new DigestData(
             $service,
             $environment,
@@ -375,7 +407,7 @@ final class Watcher
             $c->schedule['timezone'],
             $findings,
             $byFingerprint,
-            null,
+            $deploy->release,
             $usage,
             $models,
             $costUsd,
@@ -389,6 +421,10 @@ final class Watcher
             $c->analysis['daily_budget_usd'],
             $after['tokens'],
             $c->analysis['daily_token_limit'],
+            $afterRelease,
+            $undeclared,
+            $failedDependencies,
+            $links,
         ), $c->analysis['confidence_threshold']);
         $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
 
@@ -452,7 +488,139 @@ final class Watcher
         };
     }
 
-    private function routerSettings(): RouterSettings
+    /** FR-040: the service context passes the same redaction scan as templates; unscannable means empty, never raw. */
+    private function serviceContext(Redactor $redactor): string
+    {
+        if ($this->config->serviceContext === '') {
+            return '';
+        }
+        $scanned = $redactor->redactText($this->config->serviceContext);
+        if ($scanned === null) {
+            $this->hostLog?->warning('service_context could not be scanned and was not sent', ['service' => $this->config->service]);
+        }
+
+        return $scanned ?? '';
+    }
+
+    /**
+     * FR-039: reads each declared dependency's totals once, plans which need a line read, and reads them.
+     * $templates null = nothing to correlate (baseline / quiet run): totals and snapshots only, no line reads.
+     * A dependency that cannot be read never fails the run.
+     *
+     * @param list<string|null>|null $templates redacted templates of the candidates
+     *
+     * @return array{0: list<DependencyContext>, 1: list<string>, 2: list<string>} contexts, unavailable names, undeclared hosts
+     */
+    private function readDependencies(Window $window, Normalizer $normalizer, Redactor $redactor, ?array $templates): array
+    {
+        $c = $this->config;
+        $current = [];
+        $previous = [];
+        $declared = [];
+        $failed = [];
+        foreach ($c->dependencies as $name => $dep) {
+            $name = (string) $name;
+            $snap = $this->state->get(Keys::dependencySnapshot($c->service, $name, self::windowKey($window->start)));
+            /** @var array<string, int>|null $prevTotals */
+            $prevTotals = is_array($snap['totals'] ?? null) ? $snap['totals'] : null;
+            $previous[$name] = $prevTotals;
+            try {
+                $tags = array_map('strval', $dep['stream_tags']);
+                $current[$name] = $this->source->totals($window, new StreamSelector($tags));
+                $declared[$name] = ['stream_tags' => $tags, 'source' => null];
+            } catch (SourceUnavailable) {
+                $failed[] = $name;
+                $this->hostLog?->warning('dependency unavailable', ['dependency' => $name]);
+            }
+        }
+
+        $plan = $templates === null
+            ? new DependencyPlan()
+            : (new DependencyResolver())->plan($templates, $current, $previous, $c->selection['growth_factor']);
+        $contexts = [];
+        if ($declared !== []) {
+            $sink = function (string $key, array $value, int $ttl): void {
+                $this->pendingWrites[] = [$key, $value, $ttl];
+            };
+            $buffer = new class ($this->state, $sink) implements StateStore {
+                public function __construct(private readonly StateStore $inner, private readonly \Closure $sink)
+                {
+                }
+
+                public function get(string $key): ?array
+                {
+                    return $this->inner->get($key);
+                }
+
+                public function put(string $key, array $value, int $ttlSeconds): void
+                {
+                    ($this->sink)($key, $value, $ttlSeconds);
+                }
+
+                public function acquire(string $key, string $owner, int $ttlSeconds): bool
+                {
+                    return $this->inner->acquire($key, $owner, $ttlSeconds);
+                }
+
+                public function release(string $key, string $owner): void
+                {
+                    $this->inner->release($key, $owner);
+                }
+
+                public function increment(string $key, float $by, int $ttlSeconds): float
+                {
+                    return $this->inner->increment($key, $by, $ttlSeconds);
+                }
+            };
+            try {
+                $reader = new DependencyContextReader($normalizer, $redactor, $buffer, $c->state['retention'], $c->minGroupEventsForText);
+                $contexts = $reader->read($c->service, $declared, fn (string $name): LogSource => $this->source, $plan, $window, $c->dependencyReadCap, $previous, $current)->contexts;
+            } catch (Throwable $e) {
+                $failed = [...$failed, ...array_keys($declared)];
+                $this->hostLog?->warning('dependency read failed (' . $e::class . ')', ['service' => $c->service]);
+            }
+        }
+        foreach ($contexts as $ctx) {
+            if ($ctx->unavailable) {
+                $failed[] = $ctx->name;
+            }
+        }
+
+        return [array_values(array_filter($contexts, static fn (DependencyContext $d): bool => !$d->unavailable)), array_values(array_unique(array_map('strval', $failed))), $plan->undeclaredHosts];
+    }
+
+    /**
+     * The dependency section counts toward the analysis input: when it does not fit, dependency top errors go first
+     * (lowest count), never the candidates.
+     *
+     * @param list<RedactedGroup>     $groups
+     * @param list<DependencyContext> $deps
+     *
+     * @return list<DependencyContext>
+     */
+    private static function fitDependencies(array $groups, array $deps, int $maxInputTokens): array
+    {
+        while ($deps !== [] && Budget::estimateTokens(CompactPayload::encode($groups, $deps)) > $maxInputTokens) {
+            $at = null;
+            foreach ($deps as $i => $d) {
+                foreach ($d->topErrors as $j => $g) {
+                    if ($at === null || $g->count <= $deps[$at[0]]->topErrors[$at[1]]->count) {
+                        $at = [$i, $j];
+                    }
+                }
+            }
+            if ($at === null) {
+                break;
+            }
+            $top = $deps[$at[0]]->topErrors;
+            unset($top[$at[1]]);
+            $deps[$at[0]] = $deps[$at[0]]->withTopErrors(array_values($top));
+        }
+
+        return $deps;
+    }
+
+    private function routerSettings(string $serviceContext): RouterSettings
     {
         $a = $this->config->analysis;
 
@@ -467,7 +635,7 @@ final class Watcher
             $a['escalation_cap'],
             $a['confidence_threshold'],
             $this->config->selection['growth_factor'],
-            $this->config->serviceContext,
+            $serviceContext,
         );
     }
 
@@ -502,9 +670,13 @@ final class Watcher
         foreach ($groups as $g) {
             $counts[$g->fingerprint] = $g->count;
         }
+        foreach ($this->pendingWrites as [$key, $value, $ttl]) {
+            $this->state->put($key, $value, $ttl);
+        }
+        $this->pendingWrites = [];
         $this->state->put(
             Keys::snapshot($this->config->service, self::windowKey($window->end)),
-            ['groups' => $counts, 'totals' => $totals],
+            ['groups' => $counts, 'totals' => $totals, 'deploy' => $this->deployInfo?->toSnapshot()],
             $this->config->state['retention'],
         );
     }

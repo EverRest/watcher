@@ -444,6 +444,9 @@ final class WatchConfig
             if (!is_array($dep) || !is_array($dep['stream_tags'] ?? null)) {
                 throw new InvalidConfig('dependencies.' . $name . '.stream_tags must be a map');
             }
+            if (($dep['source'] ?? null) !== null) {
+                throw new InvalidConfig('dependencies.' . $name . '.source is not available yet; the service source serves all dependencies');
+            }
         }
 
         return $deps;

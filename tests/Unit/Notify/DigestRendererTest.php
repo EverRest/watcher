@@ -273,4 +273,70 @@ final class DigestRendererTest extends TestCase
         self::assertSame('✅ watcher · svc · stg — baseline recorded: 214 groups, 96,310 events. Analysis starts next run.', $m->sections[0]['text']);
         self::assertSame($m->sections[0]['text'], $m->text);
     }
+
+    /**
+     * @param list<string> $code
+     *
+     * @return array<string, array{log: ?string, code: list<string>}>
+     */
+    private function links(string $fp, ?string $log, array $code = []): array
+    {
+        return [$fp => ['log' => $log, 'code' => $code]];
+    }
+
+    public function testFirstSeenAfterReleaseMarkLogLinkAndUpToThreeCodeLinks(): void
+    {
+        $f = $this->finding(1);
+        $fp = $f->fingerprints[0];
+        $m = (new DigestRenderer())->render($this->data([$f], [], [
+            'release' => 'v2.0',
+            'afterReleaseFingerprints' => [$fp => 'v2.0'],
+            'links' => $this->links($fp, 'https://logs.test/q?x=1', ['https://git.test/a#L1', 'https://git.test/b#L2', 'https://git.test/c#L3', 'https://git.test/d#L4']),
+        ]), 0.5);
+        $text = $this->text($m, 'finding');
+
+        self::assertStringContainsString('first seen after v2.0', $text);
+        self::assertStringContainsString('<https://logs.test/q?x=1|log>', $text);
+        self::assertStringContainsString('<https://git.test/c#L3|code 3>', $text);
+        self::assertStringNotContainsString('git.test/d', $text);
+    }
+
+    public function testNoMarkWithoutTheMapAndNoLinksWithoutLinks(): void
+    {
+        $text = $this->text((new DigestRenderer())->render($this->data([$this->finding(1)], [], ['release' => 'v2.0']), 0.5));
+
+        self::assertStringNotContainsString('first seen after', $text);
+        self::assertStringNotContainsString('<http', $text);
+    }
+
+    public function testUndeclaredAndUnavailableDependencyLinesAreCappedAndEscaped(): void
+    {
+        $hosts = array_map(static fn (int $i): string => "host-$i", range(1, 12));
+        $m = (new DigestRenderer())->render($this->data([], [], [
+            'undeclaredDependencies' => $hosts,
+            'failedDependencies' => ['core-api', 'a<!channel>'],
+        ]), 0.5);
+        $text = $this->text($m, 'notice');
+
+        self::assertSame(10, substr_count($text, 'undeclared dependency: host-'));
+        self::assertStringContainsString('undeclared dependency: host-10', $text);
+        self::assertStringNotContainsString('host-11', $text);
+        self::assertStringContainsString('dependency unavailable: core-api', $text);
+        self::assertStringNotContainsString('<!channel>', $text);
+    }
+
+    public function testALinkCannotInjectMarkupOrAScheme(): void
+    {
+        $f = $this->finding(1);
+        $fp = $f->fingerprints[0];
+        $m = (new DigestRenderer())->render($this->data([$f], [], [
+            'links' => $this->links($fp, 'https://logs.test/a|<!here>', ['javascript:alert(1)', 'https://git.test/ok#L1']),
+        ]), 0.5);
+        $text = $this->text($m, 'finding');
+
+        self::assertStringNotContainsString('<!here>', $text);
+        self::assertStringNotContainsString('javascript:', $text);
+        self::assertStringNotContainsString('|log>', $text);
+        self::assertStringContainsString('<https://git.test/ok#L1|code 1>', $text);
+    }
 }

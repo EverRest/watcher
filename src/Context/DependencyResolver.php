@@ -64,8 +64,12 @@ final class DependencyResolver
         return new DependencyPlan($linesFor, $referencedBy, array_slice($hosts, 0, self::MAX_UNDECLARED), $first);
     }
 
-    /** @param array<string, int> $totals */
-    private static function errors(array $totals): int
+    /**
+     * Error-and-above total of a per-level totals map.
+     *
+     * @param array<string, int> $totals
+     */
+    public static function errors(array $totals): int
     {
         $sum = 0;
         foreach ($totals as $level => $n) {

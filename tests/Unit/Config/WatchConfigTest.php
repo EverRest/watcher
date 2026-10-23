@@ -179,6 +179,7 @@ final class WatchConfigTest extends TestCase
             'min_group_events_for_text negative' => [self::with(['redaction' => ['min_group_events_for_text' => -2]]), 'redaction.min_group_events_for_text'],
             'min_group_events_for_text string' => [self::with(['redaction' => ['min_group_events_for_text' => '3']]), 'redaction.min_group_events_for_text'],
             'min_group_events_for_text float' => [self::with(['redaction' => ['min_group_events_for_text' => 2.5]]), 'redaction.min_group_events_for_text'],
+            'dependency source override' => [self::with(['dependencies' => ['core-api' => ['stream_tags' => ['app' => 'core-api'], 'source' => 'other']]]), 'dependencies.core-api.source'],
             'service_context too long' => [self::with(['service_context' => str_repeat('a', 1001)]), 'service_context'],
         ];
     }

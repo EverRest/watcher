@@ -14,6 +14,15 @@ You analyse grouped, already-masked application log summaries and report finding
 
 The user message is compact JSON `{"t": [...], "g": [...]}`. `t` is the list of distinct normalised message templates; `g` is the list of log groups. Group keys: `fp` fingerprint, `t` index into `t` of the group's template (null if none), `lvl` level, `err` error type, `frames` up to 5 stack frames, `n` occurrences in this window, `prev` occurrences in the previous window (null if unknown), `st` one of new/grown/unchanged, `watch` matched watch rules, `first` and `last` timestamps.
 
+## Dependency context
+
+The input may also hold a `d` section: one entry per declared dependency of this service, already masked like the groups. Keys: `n` dependency name, `err` error-and-above events in this window, `prev` the same in the previous window (null if unknown), `top` that dependency's most frequent error groups (`t` index into `t`, `lvl`, `err`, `n`, `prev`, `st`; they have no `fp` and are not findings), `r` indexes into `t` of the templates in `g` that mention the dependency.
+
+- When a dependency shows errors or an anomaly (`err` well above `prev`, a new or grown `top` group) in the same window as a group, say so in `evidence` by the dependency's name and counts.
+- Treat it as a possible cause only as a hypothesis ("possibly", "may be"); correlation in time is not proof.
+- A dependency's name (`n`) is allowed in `evidence`; hosts and URLs still are not.
+- Never invent facts about a dependency that are not in `d`. If `d` is absent or shows nothing, say nothing about dependencies.
+
 ## Output
 
 Return only a JSON object `{"findings": [...]}`. Each finding has:

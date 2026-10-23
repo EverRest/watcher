@@ -12,6 +12,7 @@ use Anthropic\Messages\Message;
 use Anthropic\Messages\TextBlock;
 use JsonException;
 use Psr\Http\Client\ClientInterface;
+use Watcher\Context\DependencyContext;
 use Watcher\Privacy\RedactedGroup;
 
 /** Thin wrapper over the official SDK: one structured-output call, validated in code, one retry on bad output. */
@@ -59,6 +60,7 @@ final class AnthropicAnalyzer implements Analyzer
             $req->model,
             $req->maxOutputTokens,
             fn (array $data): array => $this->validator->analysis($data, $allowed),
+            $req->dependencyContext,
         );
 
         return new AnalysisResult($findings, $usage);
@@ -69,15 +71,16 @@ final class AnthropicAnalyzer implements Analyzer
      *
      * @param list<RedactedGroup>          $groups
      * @param callable(array<mixed>): array<mixed> $validate
+     * @param list<DependencyContext>      $dependencyContext
      *
      * @return array{0: array<mixed>, 1: Usage}
      */
-    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate): array
+    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = []): array
     {
         $usage = null;
 
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
-            $message = $this->call($kind, $groups, $context, $model, $maxTokens);
+            $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext);
             $u = $this->usage($message);
             $usage = $usage === null ? $u : $usage->plus($u);
 
@@ -91,15 +94,18 @@ final class AnthropicAnalyzer implements Analyzer
         throw new AnalyzerFailed('invalid model output');
     }
 
-    /** @param list<RedactedGroup> $groups */
-    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens): Message
+    /**
+     * @param list<RedactedGroup>     $groups
+     * @param list<DependencyContext> $dependencyContext
+     */
+    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = []): Message
     {
         $prompt = (string) file_get_contents(__DIR__ . '/prompts/' . ($kind === 'triage' ? 'triage' : 'analyze') . '.md');
 
         try {
             return $this->client->messages->create(
                 maxTokens: $maxTokens,
-                messages: [['role' => 'user', 'content' => CompactPayload::encode($groups)]],
+                messages: [['role' => 'user', 'content' => CompactPayload::encode($groups, $dependencyContext)]],
                 model: $model,
                 outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for($kind)]],
                 system: [[
