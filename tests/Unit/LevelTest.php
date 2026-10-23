@@ -37,6 +37,39 @@ final class LevelTest extends TestCase
         self::assertSame($expected, Level::parse($raw));
     }
 
+    /** @return array<string, array{string, ?Level}> */
+    public static function tryParseCases(): array
+    {
+        return [
+            'trace is debug (no Trace case)' => ['trace', Level::Debug],
+            'pino 10 trace' => ['10', Level::Debug],
+            'pino 20 debug' => ['20', Level::Debug],
+            'pino 30 info' => ['30', Level::Info],
+            'pino 40 warn' => ['40', Level::Warning],
+            'pino 50 error' => ['50', Level::Error],
+            'pino 60 fatal' => ['60', Level::Emergency],
+            'panic' => ['panic', Level::Emergency],
+            'ok (datadog)' => ['ok', Level::Info],
+            'small ints are not guessed' => ['3', null],
+            'unknown' => ['banana', null],
+            'empty' => ['', null],
+        ];
+    }
+
+    #[DataProvider('tryParseCases')]
+    public function testTryParse(string $raw, ?Level $expected): void
+    {
+        self::assertSame($expected, Level::tryParse($raw));
+    }
+
+    public function testSyslogSeverityNumbers(): void
+    {
+        self::assertSame(Level::Emergency, Level::fromSyslog(0));
+        self::assertSame(Level::Error, Level::fromSyslog(3));
+        self::assertSame(Level::Debug, Level::fromSyslog(7));
+        self::assertNull(Level::fromSyslog(8));
+    }
+
     public function testOrderingFollowsPsr3(): void
     {
         self::assertTrue(Level::Error->atLeast(Level::Warning));

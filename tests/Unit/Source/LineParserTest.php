@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit\Source;
 
 use DateTimeImmutable;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Watcher\Level;
 use Watcher\Source\LineParser;
@@ -139,5 +140,110 @@ final class LineParserTest extends TestCase
     {
         $e = new LogEvent(new DateTimeImmutable(), Level::Error, 'm', null, ['1', '2', '3', '4', '5', '6'], [], []);
         self::assertSame(['1', '2', '3', '4', '5'], $e->frames);
+    }
+
+    /** @return array<string, array{mixed, ?string}> */
+    public static function epochCases(): array
+    {
+        return [
+            'seconds int' => [1792627200, '2026-10-22T00:00:00+00:00'],
+            'seconds float' => [1792627200.5, '2026-10-22T00:00:00+00:00'],
+            'seconds string' => ['1792627200', '2026-10-22T00:00:00+00:00'],
+            'milliseconds int' => [1792627200123, '2026-10-22T00:00:00+00:00'],
+            'milliseconds string' => ['1792627200123', '2026-10-22T00:00:00+00:00'],
+            'milliseconds float' => [1792627200123.0, '2026-10-22T00:00:00+00:00'],
+            'microseconds' => [1792627200123456, '2026-10-22T00:00:00+00:00'],
+            'nanoseconds' => [1792627200123456789, '2026-10-22T00:00:00+00:00'],
+            'nanoseconds string' => ['1792627200123456789', '2026-10-22T00:00:00+00:00'],
+            'iso unchanged' => ['2026-10-22T10:00:00+02:00', '2026-10-22T08:00:00+00:00'],
+            'before 2000' => [100000, null],
+            'zero' => [0, null],
+            'negative' => [-1792627200, null],
+            'far future seconds' => [99999999999, null],
+            'far future ms' => [99999999999999, null],
+            'year 3000 iso' => ['3000-01-01T00:00:00Z', null],
+        ];
+    }
+
+    #[DataProvider('epochCases')]
+    public function testJsonTimeEpochUnitsAndRange(mixed $raw, ?string $expected): void
+    {
+        $fallback = new DateTimeImmutable('2026-10-23T12:00:00+00:00');
+        $e = $this->parser()->parse((string) json_encode(['level' => 'error', 'message' => 'm', 'time' => $raw]), $fallback);
+
+        self::assertSame($expected ?? '2026-10-23T12:00:00+00:00', $e->time->format('c'));
+    }
+
+    /** @return array<string, array{string, Level}> */
+    public static function levelCases(): array
+    {
+        return [
+            'pino error' => ['{"level":50,"msg":"m"}', Level::Error],
+            'pino fatal' => ['{"level":60,"msg":"m"}', Level::Emergency],
+            'pino trace' => ['{"level":10,"msg":"m"}', Level::Debug],
+            'trace string' => ['{"level":"trace","msg":"m"}', Level::Debug],
+            'syslog severity key' => ['{"severity":3,"msg":"m"}', Level::Error],
+            'syslog severity 7' => ['{"severity":7,"msg":"m"}', Level::Debug],
+            'small int under level is not syslog' => ['{"level":3,"msg":"m"}', Level::Info],
+            'http status is not a level' => ['{"status":500,"message":"m"}', Level::Info],
+            'http status string is not a level' => ['{"status":"500","message":"m"}', Level::Info],
+            'datadog status' => ['{"status":"error","message":"m"}', Level::Error],
+            'warning variant' => ['{"level":"Warning","msg":"m"}', Level::Warning],
+            'panic' => ['{"level":"panic","msg":"m"}', Level::Emergency],
+        ];
+    }
+
+    #[DataProvider('levelCases')]
+    public function testJsonLevels(string $line, Level $expected): void
+    {
+        self::assertSame($expected, $this->parser()->parse($line)->level);
+    }
+
+    public function testHttpStatusStaysAFieldAndLevelFallsBackToTheOtherKey(): void
+    {
+        $e = $this->parser()->parse('{"status":500,"level":"warn","message":"m"}');
+
+        self::assertSame(Level::Warning, $e->level);
+        self::assertSame(500, $e->fields['status']);
+    }
+
+    public function testUnknownLevelTokensAreCounted(): void
+    {
+        $p = $this->parser();
+
+        $p->parse('{"level":"banana","message":"m"}');
+        $p->parse('{"level":"error","message":"m"}');
+        $p->parse('{"message":"no level at all"}');
+        $p->parse('{"level":7,"message":"m"}');
+        $p->parse('[2026-10-22 10:00:00] prod.WEIRD: x');
+
+        self::assertSame(3, $p->unknownLevels);
+    }
+
+    /** @return array<string, array{string, Level}> */
+    public static function plainCases(): array
+    {
+        return [
+            'upper word' => ['ERROR db down', Level::Error],
+            'warn' => ['WARN slow query', Level::Warning],
+            'bracketed' => ['[ERROR] queue stuck', Level::Error],
+            'logfmt' => ['ts=1 level=warn msg="retry"', Level::Warning],
+            'timestamp then level' => ['2026-10-22T10:00:00.000Z CRITICAL disk full', Level::Critical],
+            'syslog pri' => ['<3>kernel: oom', Level::Error],
+            'syslog pri with facility' => ['<11>app: bad', Level::Error],
+            'colon' => ['Fatal error: Uncaught x', Level::Emergency],
+            'no level word' => ['just some text', Level::Info],
+            'level word not at start' => ['the ERROR was logged', Level::Info],
+            'prefix of a longer word' => ['Errors were found', Level::Info],
+        ];
+    }
+
+    #[DataProvider('plainCases')]
+    public function testPlainLineLevelFromPrefix(string $line, Level $expected): void
+    {
+        $e = $this->parser()->parse($line);
+
+        self::assertSame($expected, $e->level);
+        self::assertSame($line, $e->message);
     }
 }

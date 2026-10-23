@@ -1,0 +1,56 @@
+ERROR db down 0
+WARN slow query 1
+INFO started worker 2
+[ERROR] queue stuck 3
+level=warn msg="retry 4"
+2026-10-22T10:00:00.000Z CRITICAL disk full 5
+<3>kernel: oom 6
+just some text without a level 7
+ERROR db down 8
+WARN slow query 9
+INFO started worker 10
+[ERROR] queue stuck 11
+level=warn msg="retry 12"
+2026-10-22T10:00:00.000Z CRITICAL disk full 13
+<3>kernel: oom 14
+just some text without a level 15
+ERROR db down 16
+WARN slow query 17
+INFO started worker 18
+[ERROR] queue stuck 19
+level=warn msg="retry 20"
+2026-10-22T10:00:00.000Z CRITICAL disk full 21
+<3>kernel: oom 22
+just some text without a level 23
+ERROR db down 24
+WARN slow query 25
+INFO started worker 26
+[ERROR] queue stuck 27
+level=warn msg="retry 28"
+2026-10-22T10:00:00.000Z CRITICAL disk full 29
+<3>kernel: oom 30
+just some text without a level 31
+ERROR db down 32
+WARN slow query 33
+INFO started worker 34
+[ERROR] queue stuck 35
+level=warn msg="retry 36"
+2026-10-22T10:00:00.000Z CRITICAL disk full 37
+<3>kernel: oom 38
+just some text without a level 39
+PHP Fatal error:  Uncaught RuntimeException: boom in /var/www/a.php:3
+Stack trace:
+#0 /var/www/a.php(9): fail()
+#1 {main}
+  thrown in /var/www/a.php on line 3
+ERROR Unhandled exception in worker
+Traceback (most recent call last):
+  File "/app/w.py", line 10, in run
+    do()
+ValueError: bad value
+ERROR Request failed
+java.lang.IllegalStateException: boom
+	at com.acme.Svc.run(Svc.java:42)
+Caused by: java.io.IOException: disk
+	at com.acme.Io.read(Io.java:7)
+	... 3 more

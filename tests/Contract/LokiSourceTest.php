@@ -257,6 +257,36 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertFalse($source->lastReadTruncated());
     }
 
+    public function testPlainUnstructuredLinesBecomeOneEventEach(): void
+    {
+        $source = $this->makeSourceWithLines(\Watcher\Tests\Unit\Source\EventAssemblerTest::fixtureLines('plain_mixed.log'));
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 1000)));
+
+        $this->assertCount(43, $events);
+        $this->assertSame(Level::Error, $events[0]->level);
+        $this->assertSame(Level::Warning, $events[1]->level);
+        $this->assertSame(Level::Emergency, $events[40]->level);
+        $this->assertSame(['/var/www/a.php:9'], $events[40]->frames);
+    }
+
+    public function testLevelFromStreamLabelWinsForALineWithoutALevelWord(): void
+    {
+        $body = $this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [
+            ['stream' => ['app' => 'svc', 'level' => 'error'], 'values' => [[$this->ns(self::BASE_NS), 'Connection refused']]],
+        ]]]);
+        $source = $this->source([$body]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertCount(1, $events);
+        $this->assertSame(Level::Error, $events[0]->level);
+        // H5: the server-side filter below only matches level words in the TEXT, so Loki never returns such a line;
+        // see docs/review-2026-10-23.md. This pins the client side so a future query change cannot regress it.
+    }
+
     public function testVersionsRequestAndFixtureMapping(): void
     {
         $source = $this->source([new Response(200, [], $this->fixture('versions_matrix.json'))]);

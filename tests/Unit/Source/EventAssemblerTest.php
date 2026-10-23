@@ -61,11 +61,39 @@ final class EventAssemblerTest extends TestCase
         self::assertSame(["[2026-10-22 10:00:00] x.ERROR: a\n[stacktrace]"], $this->assemble(['[2026-10-22 10:00:00] x.ERROR: a', '[stacktrace]']));
     }
 
+    public function testPlainLinesAreOneEventEachAndTracesStayAttachedToTheirHead(): void
+    {
+        $lines = self::fixtureLines('plain_mixed.log');
+        $records = $this->assemble($lines);
+
+        self::assertCount(56, $lines);
+        self::assertCount(43, $records); // 40 single plain lines + PHP + Python + Java traces
+        self::assertSame('ERROR db down 0', $records[0]);
+        self::assertSame('just some text without a level 7', $records[7]);
+        self::assertSame(
+            "PHP Fatal error:  Uncaught RuntimeException: boom in /var/www/a.php:3\nStack trace:\n#0 /var/www/a.php(9): fail()\n#1 {main}\n  thrown in /var/www/a.php on line 3",
+            $records[40],
+        );
+        self::assertStringStartsWith("ERROR Unhandled exception in worker\nTraceback", $records[41]);
+        self::assertStringEndsWith("\nValueError: bad value", $records[41]);
+        self::assertStringStartsWith("ERROR Request failed\njava.lang.IllegalStateException: boom\n", $records[42]);
+        self::assertStringContainsString("\nCaused by: java.io.IOException: disk\n", $records[42]);
+        self::assertStringEndsWith("\t... 3 more", $records[42]);
+    }
+
+    public function testPlainRecordAfterAStructuredOneStillStartsOnLevelWord(): void
+    {
+        self::assertSame(
+            ["[2026-10-22 10:00:00] x.ERROR: a\n#0 /a.php(1): f()", 'ERROR b', 'WARN c'],
+            $this->assemble(['[2026-10-22 10:00:00] x.ERROR: a', '#0 /a.php(1): f()', 'ERROR b', 'WARN c']),
+        );
+    }
+
     public function testIsLazy(): void
     {
         $pulled = 0;
         $lines = (function () use (&$pulled) {
-            foreach (['[2026-10-22 10:00:00] x.ERROR: a', 'c', '[2026-10-22 10:00:01] x.ERROR: b', '[2026-10-22 10:00:02] x.ERROR: c'] as $l) {
+            foreach (['[2026-10-22 10:00:00] x.ERROR: a', '  c', '[2026-10-22 10:00:01] x.ERROR: b', '[2026-10-22 10:00:02] x.ERROR: c'] as $l) {
                 ++$pulled;
                 yield $l;
             }

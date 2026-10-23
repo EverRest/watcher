@@ -7,8 +7,8 @@ namespace Watcher\Source;
 use Generator;
 
 /**
- * Joins physical lines into records: a `[timestamp]` text line or a JSON-object line starts a record,
- * anything else is a continuation appended with "\n". Lazy: holds one record at a time.
+ * Joins physical lines into records: a `[timestamp]` text line, a JSON-object line or a line with a level prefix
+ * starts a record; a continuation-shaped line (see LineParser::continues) is appended with "\n". Lazy: holds one record at a time.
  */
 final class EventAssembler
 {
@@ -28,7 +28,7 @@ final class EventAssembler
     {
         $open = null;
         foreach ($lines as $line) {
-            if ($open === null || $this->parser->startsRecord($line)) {
+            if ($open === null || !$this->parser->continues($line, $open)) {
                 if ($open !== null) {
                     yield $open;
                 }

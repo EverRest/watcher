@@ -22,14 +22,46 @@ final class LineParser
     public const CLASS_NAME = '/^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*$/D';
     public const CLASS_NAME_MAX = 120;
 
+    /**
+     * How an unstructured line announces its level (only at the start, optionally after an ISO-like timestamp):
+     * a level word (`ERROR x`, `Fatal error: x`, `[error] x`, `<WARN>`), a syslog `<PRI>` or logfmt `level=`/`lvl=`.
+     */
+    private const PLAIN_LEVEL = '/^(?:\d{4}[-\/]\d\d[-\/]\d\d[T ]\d\d:\d\d:\d\d\S*\s+)?(?:PHP\s+)?[\[<(]?(?<w>trace|debug|info|notice|warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal|panic)(?!\w)/i';
+    private const LOGFMT_LEVEL = '/(?:^|\s)(?:level|lvl)="?(?<w>\w+)/i';
+    private const SYSLOG_PRI = '/^<(?<n>\d{1,3})>/';
+    /** A line that can only be the tail of a record: indented, `#0 frame`, `at x`, `Caused by:`, `Stack trace:`, `Traceback`, `...`, a closer, or `Some\FooException: x`. */
+    private const CONTINUATION = '/^(?:$|\s|#\d|at\s|Caused by:|Stack trace:|PHP\s+(?:Stack trace:|\d+\.)|Traceback|\.\.\.|[})\]]|[\w.\\$]+(?:Error|Exception)\b(?::|$))/';
+
     private const LEVEL_KEYS = ['level', 'severity', 'status'];
     private const MESSAGE_KEYS = ['message', 'msg'];
     private const TYPE_KEYS = ['exception.class', 'error.kind'];
     private const TRACE_KEYS = ['exception.trace', 'error.stack'];
     private const TIME_KEYS = ['time', 'timestamp', '@timestamp', 'datetime', 'ts'];
 
-    /** Does this physical line begin a new record (`[timestamp]` text or a JSON object)? */
-    public function startsRecord(string $line): bool
+    /** Incremented per event whose level token was present but unrecognised (it is then Info). */
+    public int $unknownLevels = 0;
+
+    /**
+     * Does `$line` continue the record `$open` (which it would be appended to)?
+     * A `[timestamp]` line or JSON object always starts a record; so does a line with a level prefix.
+     * Under an open Laravel/JSON record everything else continues it (its context and trace may hold any text);
+     * under an open plain record only continuation-shaped lines do, anything else is its own record.
+     */
+    public function continues(string $line, string $open): bool
+    {
+        if ($this->structured($line) || $this->plainLevel($line) !== null) {
+            return false;
+        }
+        $nl = strpos($open, "\n");
+        if ($this->structured($nl === false ? $open : substr($open, 0, $nl))) {
+            return true;
+        }
+
+        return preg_match(self::CONTINUATION, $line) === 1;
+    }
+
+    /** Does this physical line begin a `[timestamp]` text record or a JSON object? */
+    private function structured(string $line): bool
     {
         $trimmed = trim($line);
         if (str_starts_with($trimmed, '{')) {
@@ -74,7 +106,7 @@ final class LineParser
 
             return $this->withException(new LogEvent(
                 $time,
-                Level::parse($m['lvl']),
+                $this->level($m['lvl']),
                 // First physical line only: stack lines can hold call arguments (names, e-mails) and never belong in the message.
                 rtrim(explode("\n", $m['msg'], 2)[0]),
                 null,
@@ -84,7 +116,7 @@ final class LineParser
             ), $rest);
         }
 
-        return $this->withException(new LogEvent($fallback, Level::Info, $head, null, [], [], []), $rest);
+        return $this->withException(new LogEvent($fallback, $this->plainLevel($head) ?? Level::Info, $head, null, [], [], []), $rest);
     }
 
     /**
@@ -98,6 +130,45 @@ final class LineParser
         $data = json_decode($raw, true) ?? json_decode(str_replace("\n", '\\n', $raw), true);
 
         return is_array($data) ? $data : null;
+    }
+
+    /** Level of a token that was present in the line; counts the ones we cannot read. */
+    private function level(string $token): Level
+    {
+        $level = Level::tryParse($token);
+        if ($level === null && trim($token) !== '') {
+            ++$this->unknownLevels;
+        }
+
+        return $level ?? Level::Info;
+    }
+
+    /**
+     * Numbers: pino's scale for `level`; RFC 5424 0-7 only under the `severity` key. Small ints under `level`
+     * are not guessed (they count as unknown).
+     */
+    private function jsonLevel(mixed $value, ?string $key): Level
+    {
+        if (!is_string($value) && !is_int($value) && !is_float($value)) {
+            return Level::Info;
+        }
+        if ($key === 'severity' && is_numeric($value) && ($syslog = Level::fromSyslog((int) $value)) !== null) {
+            return $syslog;
+        }
+
+        return $this->level((string) $value);
+    }
+
+    private function plainLevel(string $line): ?Level
+    {
+        if (preg_match(self::SYSLOG_PRI, $line, $m) === 1) {
+            return Level::fromSyslog((int) $m['n'] % 8);
+        }
+        if (preg_match(self::PLAIN_LEVEL, $line, $m) === 1 || preg_match(self::LOGFMT_LEVEL, $line, $m) === 1) {
+            return Level::tryParse($m['w']);
+        }
+
+        return null;
     }
 
     /** @return ?array<string|int, string> */
@@ -157,7 +228,12 @@ final class LineParser
     private function fromJson(array $data, DateTimeImmutable $fallback): LogEvent
     {
         $used = [];
-        $level = $this->pick($data, self::LEVEL_KEYS, $used);
+        // `{"status":500}` is an HTTP status; `status` is a level only as a Datadog-style word.
+        $keys = isset($data['status']) && (!is_string($data['status']) || is_numeric($data['status']))
+            ? array_values(array_diff(self::LEVEL_KEYS, ['status']))
+            : self::LEVEL_KEYS;
+        $level = $this->pick($data, $keys, $used);
+        $levelKey = $used[0] ?? null;
         $message = $this->pick($data, self::MESSAGE_KEYS, $used);
         $type = $this->pick($data, self::TYPE_KEYS, $used);
         $trace = $this->pick($data, self::TRACE_KEYS, $used);
@@ -171,7 +247,7 @@ final class LineParser
 
         return new LogEvent(
             $this->time($time) ?? $fallback,
-            Level::parse(is_scalar($level) ? (string) $level : ''),
+            $this->jsonLevel($level, $levelKey),
             is_scalar($message) ? (string) $message : '',
             is_scalar($type) ? self::classNameOrNull((string) $type) : null,
             $frames,
@@ -234,19 +310,41 @@ final class LineParser
         return $out;
     }
 
+    /**
+     * ISO string, or an epoch in seconds, milliseconds, microseconds or nanoseconds (int, float or numeric
+     * string; told apart by magnitude). Anything outside 2000-01-01 .. now+1 day is null, never year 55000.
+     */
     private function time(mixed $raw): ?DateTimeImmutable
     {
         try {
             $utc = new DateTimeZone('UTC');
+            if (is_string($raw) && is_numeric($raw)) {
+                $raw = (float) $raw;
+            }
             if (is_int($raw) || is_float($raw)) {
-                return (new DateTimeImmutable('@' . (int) $raw))->setTimezone($utc);
+                $n = (float) $raw;
+                $seconds = $n / match (true) {
+                    abs($n) < 1e11 => 1.0,
+                    abs($n) < 1e14 => 1e3,
+                    abs($n) < 1e17 => 1e6,
+                    default => 1e9,
+                };
+
+                return $this->inRange($seconds) ? (new DateTimeImmutable('@' . (int) floor($seconds)))->setTimezone($utc) : null;
             }
             if (is_string($raw) && $raw !== '') {
-                return (new DateTimeImmutable($raw, $utc))->setTimezone($utc);
+                $t = (new DateTimeImmutable($raw, $utc))->setTimezone($utc);
+
+                return $this->inRange($t->getTimestamp()) ? $t : null;
             }
         } catch (Throwable) {
         }
 
         return null;
+    }
+
+    private function inRange(float|int $seconds): bool
+    {
+        return $seconds >= 946_684_800 && $seconds <= time() + 86_400;
     }
 }
