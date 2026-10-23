@@ -19,6 +19,13 @@ The host triggers the package **at least once an hour**. On each trigger the pac
 
 The first run for a service only records a **baseline** (no model call). Analysis starts with the second window.
 
+**A skipped or failed day is not a new baseline.** After every successful snapshot write the run also writes
+`snap:<service>:last` (the window key, same TTL as `state.retention`). When the snapshot of the exact previous window is
+missing, the run compares with the pointer's snapshot if it is at most 7 days older than this window's end, and the digest
+says `compared with the run of <date>, N days ago` (plus a warning when N > 1). Counts are per window and are **not scaled** for
+the gap, so growth against a 2-day-old snapshot is raw: read it knowing that. Only with no snapshot at all, or one older
+than 7 days, is the run a baseline.
+
 ## Outcomes and exit codes
 
 The command prints one line to stdout, `watcher: outcome=<outcome> [reason="..."] [tokens_in=.. tokens_out=..
@@ -39,6 +46,9 @@ log text).
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
 A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries.
+If triage had already been paid for, its verdicts (noise / known / interesting; never findings, and never noise/known for
+error-level or watch-rule groups) are kept in `triage:<service>:<window-end>` for 6 hours, so the retry in the same window
+makes no second triage call. The record is cleared once the digest is delivered.
 A failed **digest delivery** is only logged (the channel is the one that broke).
 
 ## Deploying
@@ -131,7 +141,7 @@ a directory of hashed file names, so wipe the whole directory.
   to counts, levels, error type, frames and timestamps. Rare problems (fewer events than
   `redaction.min_group_events_for_text`) show no message text by design: use the log link or Grafana for the detail.
 - **Cost.** The footer shows tokens, the model per step, the estimate and today's total against the cap. Alerts at
-  25/50/75/90% come as separate notices. At 100% the run does triage only until the next day. Cost is an estimate from
+  25/50/75/90% come as separate notices. Before each model call the run checks that its worst case (planned input + `max_output_tokens`, at the configured prices) still fits under the daily cap, and skips the step if not (the digest counts what was skipped); at 100% the run does triage only until the next day. Cost is an estimate from
   `analysis.prices`: compare with the provider console from time to time and update prices when they change.
 - **Quiet days.** No message means nothing qualified; to see that the job ran, look at the Job logs (the `outcome=` line).
   A weekly summary line is optional (`heartbeat.weekly_summary`); there is no daily heartbeat message.

@@ -71,12 +71,12 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `analysis.api_key` | required | |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
 | `analysis.prices` | required | `model id => [input, output, cache_read, cache_write]`, **USD per million tokens**, for every model above. Drives the cost line, the daily cap and the alerts: keep it current. |
-| `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input budget; lowest-priority candidates are dropped first, with a note in the digest. Enforced for `triage` (candidates) and `analyze` (dependency context shrinks first). **`escalate` is accepted but not enforced**: an escalation re-sends a subset of the groups already sent to `analyze`, so it never exceeds the analyze input. |
+| `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input budget; lowest-priority candidates are dropped first, with a note in the digest. The estimate (UTF-8 bytes / 3) includes the step's system prompt and the `service_context`, not only the groups. Enforced for `triage` (candidates), `analyze` (dependency context shrinks first) and `escalate`: an escalation sends the one finding's groups plus the dependency context that refers to them; over the limit, dependency context is trimmed first, then the groups' stack frames, and if it still does not fit the escalation is skipped (the first-pass finding is reported as it is; the digest says `N escalation(s) skipped`). |
 | `analysis.max_output_tokens` | triage 1500, analyze 4000, escalate 2000 | A floor, not a ceiling: triage uses `max(configured, 30 * groups + 500)` because the verdict list grows with the groups. |
 | `analysis.confidence_threshold` | `0.6` | Findings of severity error or higher below this are re-analysed once by the strong model; warn/info below it collapse into the "minor" line. `0 < x < 1`. |
 | `analysis.escalation_cap` | `3` | Escalations per run. |
-| `analysis.daily_budget_usd` | `0.50` | Hard daily cap per service (`>= 0`; `0` = triage only). When spent, runs do triage only and send one notice a day. |
-| `analysis.daily_token_limit` | null | Optional daily cap on tokens (input + output + cache). |
+| `analysis.daily_budget_usd` | `0.50` | Hard daily cap per service (`>= 0`). Before every billable step (triage, analysis, each escalation) the run reserves its worst case: planned input tokens (system prompt + context + payload) at the input price, plus `max_output_tokens` at the output price (the larger of the cache-write and plain input price is used). The step runs only if today's recorded spend plus that fits under the cap; otherwise it is skipped and the digest says how many groups were `not triaged` / `not analysed` / escalations skipped. One attempt is reserved: the retry after invalid model output is not, so a run can pass the cap by at most that retry. A budget already spent when the run starts is the **triage-only day** (unchanged): triage runs without a reservation, no analysis, one notice a day. |
+| `analysis.daily_token_limit` | null | Optional daily cap on tokens (input + output + cache), reserved the same way (planned input + `max_output_tokens`). |
 | `analysis.budget_alert_percents` | `[25, 50, 75, 90]` | One notice per threshold and counter per day (the highest newly crossed one). Integers 1-99, ascending. |
 
 ### `redaction`
@@ -84,7 +84,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | Key | Default | Notes |
 |---|---|---|
 | `redaction.min_group_events_for_text` | `3` | A group with fewer events in its cluster sends **no message text** to the model (only level, error type, frames, counts). Raise it for stricter privacy, lower it never below what your DPO accepts. |
-| `redaction.extra_patterns` | `[]` | `NAME => regex`. Matches are replaced with `<NAME>` in everything that leaves the service. `NAME` may not be `N`, `EMAIL`, `URL`, `HOST`, `IP`, `ID`, `TOKEN`, `PAN` or `STR` (reserved). |
+| `redaction.extra_patterns` | `[]` | `NAME => regex`. Matches are replaced with `<NAME>` in everything that leaves the service. `NAME` may not be `N`, `EMAIL`, `URL`, `HOST`, `IP`, `ID`, `TOKEN`, `PAN`, `STR`, `PATH` or `USER` (reserved). |
 
 ### `state`
 
@@ -133,7 +133,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 Besides findings, the digest carries short notices: `truncated: N events read` (`event_cap`), `truncated: N groups dropped (budget)`
 (`max_input_tokens`), `cluster cap hit` (`group_cap`), `N group(s) flagged interesting were not analysed` (triage found them but the
-daily budget was spent, or `top_m` cut them), `N pattern evaluation failures: rules may have been skipped` (a watch rule, mute or
+daily budget was spent or a step's worst case did not fit it, or `top_m` cut them), `N group(s) not triaged: the daily budget would have been exceeded`, `N escalation(s) skipped (daily budget or max_input_tokens.escalate)`, `compared with the run of <date>, N days ago` (the previous window had no snapshot; see `docs/operations.md`), `N pattern evaluation failures: rules may have been skipped` (a watch rule, mute or
 backend-filter regex failed to evaluate, e.g. hit the PCRE backtrack limit; it fails open), `N call target(s) not declared as
 dependencies` and `dependency unavailable: name`. A day with such a notice is sent even when there are no findings, so a missed
 analysis never looks like a quiet day.

@@ -30,7 +30,8 @@ final class CodeLinkBuilder
             return null;
         }
 
-        $path = $this->mapPath($m[1], $map);
+        // A frame the Redactor already rewrote is a repository path (`app/Foo.php`); an absolute one is mapped here.
+        $path = str_starts_with($m[1], '/') || preg_match('~^(?:[A-Za-z]:|…|\.)~u', $m[1]) === 1 ? $this->mapPath($m[1], $map) : $m[1];
         if ($path === null || str_starts_with($path, 'vendor/') || str_contains($path, '/vendor/')) {
             return null;
         }

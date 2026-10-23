@@ -7,6 +7,7 @@ namespace Watcher\Tests\EndToEnd;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
 use Watcher\Analyze\AnalyzerFailed;
+use Watcher\Analyze\Budget;
 use Watcher\Analyze\Spend;
 use Watcher\Analyze\Usage;
 use Watcher\Level;
@@ -19,11 +20,11 @@ use Watcher\Tests\Fakes\InMemoryStateStore;
 /** Quickstart scenarios 12-14 and the daily budget alerts (FR-016..FR-022, FR-046). */
 final class CostTest extends TestCase
 {
-    /** One dollar a day; the analyze model costs $0.50 per 1,000 input tokens, the others are free. */
+    /** One dollar a day; the analyze model costs $0.50 per 100,000 input tokens ($5 per million), the others are free. */
     private const BUDGET = [
         'analysis' => [
             'daily_budget_usd' => 1.0,
-            'prices' => ['m-t' => [0, 0, 0, 0], 'm-a' => [500, 0, 0, 0], 'm-e' => [0, 0, 0, 0]],
+            'prices' => ['m-t' => [0, 0, 0, 0], 'm-a' => [5, 0, 0, 0], 'm-e' => [0, 0, 0, 0]],
         ],
     ];
 
@@ -130,7 +131,7 @@ final class CostTest extends TestCase
 
     public function testScenario13OverBudgetInputDropsTheLowestPriorityGroupsAndSaysSo(): void
     {
-        $h = new Harness(['analysis' => ['max_input_tokens' => ['triage' => 160]]]);
+        $h = new Harness(['analysis' => ['max_input_tokens' => ['triage' => Budget::estimateTokens(Budget::systemPrompt('triage', '')) + 160]]]);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
 
@@ -168,7 +169,7 @@ final class CostTest extends TestCase
         $h = new Harness(self::BUDGET + ['schedule' => ['window' => 'PT1H']]);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->clock->advance('+1 hour');
-        $h->analyzer->inputTokens = 1000; // $0.50 of $1.00
+        $h->analyzer->inputTokens = 100000; // $0.50 of $1.00
 
         $first = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
 
@@ -178,7 +179,7 @@ final class CostTest extends TestCase
         self::assertStringContainsString('today $0.50 of $1.00 (50%)', $h->sentTexts()[count($h->sentTexts()) - 1]);
 
         $h->clock->advance('+1 hour');
-        $h->analyzer->inputTokens = 100; // total $0.55
+        $h->analyzer->inputTokens = 10000; // total $0.55
         $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta'), ...self::group('Gamma')]))->run();
 
         self::assertCount(1, self::notices($h, 'budget'), 'no new threshold, no new alert');
@@ -191,7 +192,7 @@ final class CostTest extends TestCase
         $h = new Harness(self::BUDGET);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
-        $h->analyzer->inputTokens = 1900; // $0.95: 25, 50, 75 and 90 at once
+        $h->analyzer->inputTokens = 190000; // $0.95: 25, 50, 75 and 90 at once
 
         $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
 
@@ -203,7 +204,7 @@ final class CostTest extends TestCase
     public function testTheSameThresholdAnnouncesAgainTheNextDay(): void
     {
         $h = new Harness(self::BUDGET);
-        $h->analyzer->inputTokens = 1000;
+        $h->analyzer->inputTokens = 100000;
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
         $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
@@ -254,7 +255,7 @@ final class CostTest extends TestCase
 
     public function testUsageOfCompletedCallsIsPricedEvenWhenALaterCallFails(): void
     {
-        $h = new Harness(['analysis' => ['prices' => ['m-t' => [1000, 0, 0, 0]]]]);
+        $h = new Harness(['analysis' => ['daily_budget_usd' => 100.0, 'prices' => ['m-t' => [1000, 0, 0, 0]]]]);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
         $h->analyzer->analyzeFailure = new AnalyzerFailed('provider unavailable');
@@ -270,7 +271,7 @@ final class CostTest extends TestCase
 
     public function testASuccessfulRunStillCountsEachCallExactlyOnce(): void
     {
-        $h = new Harness(['analysis' => ['prices' => ['m-t' => [1000, 0, 0, 0], 'm-a' => [1000, 0, 0, 0]]]]);
+        $h = new Harness(['analysis' => ['daily_budget_usd' => 100.0, 'prices' => ['m-t' => [1000, 0, 0, 0], 'm-a' => [1000, 0, 0, 0]]]]);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
 
@@ -288,7 +289,7 @@ final class CostTest extends TestCase
         $h = new Harness(self::BUDGET);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
-        $h->analyzer->inputTokens = 1000; // $0.50 of $1.00: the 50% alert
+        $h->analyzer->inputTokens = 100000; // $0.50 of $1.00: the 50% alert
         $h->notifier->failOnce(new \Watcher\Notify\DeliveryFailed('slack delivery failed: HTTP 500'));
         $log = new \Watcher\Tests\Fakes\SpyLogger();
         $h->hostLog = $log;
@@ -319,7 +320,7 @@ final class CostTest extends TestCase
 
     public function testAFailedCallWithBilledAttemptsIsStillCounted(): void
     {
-        $h = new Harness(['analysis' => ['prices' => ['m-t' => [1000, 0, 0, 0]]]]);
+        $h = new Harness(['analysis' => ['daily_budget_usd' => 100.0, 'prices' => ['m-t' => [1000, 0, 0, 0]]]]);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
         $h->analyzer->failure = new AnalyzerFailed('invalid model output', new Usage('m-t', 1000, 200));
@@ -370,5 +371,131 @@ final class CostTest extends TestCase
         self::assertGreaterThan(0, $today['tokens'], 'the paid calls are recorded even without a price');
         self::assertEqualsWithDelta(0.0, $today['usd'], 1e-9);
         self::assertCount(1, array_filter($logged->lines, static fn (string $l): bool => str_contains($l, 'no price configured')), 'warned once per model, not per call');
+    }
+
+    private function nextHourWithSpent(Harness $h, float $usd): void
+    {
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->clock->advance('+1 hour');
+        self::spendToday($h, $usd);
+    }
+
+    public function testH7RunStartingJustUnderTheCapAnalysesNothingThatCouldOvershootIt(): void
+    {
+        $h = new Harness(['schedule' => ['window' => 'PT1H']]); // $0.50 a day; analysis worst case is about $0.065
+        $this->nextHourWithSpent($h, 0.45);
+
+        $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertCount(1, $h->analyzer->triageRequests, 'triage (worst case about $0.01) still fits');
+        self::assertSame([], $h->analyzer->requests, 'analysis does not');
+        self::assertStringContainsString('2 group(s) flagged interesting were not analysed', implode("\n", $h->sentTexts()));
+        $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
+        self::assertLessThan(0.50, $today['usd']);
+    }
+
+    public function testH7TriageThatCouldOvershootIsSkippedAndTheDigestSaysSo(): void
+    {
+        $h = new Harness(['schedule' => ['window' => 'PT1H']]);
+        $this->nextHourWithSpent($h, 0.499);
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertNotSame(RunOutcome::Failed, $result->outcome);
+        self::assertSame([], $h->analyzer->allRequests(), 'no model call at all');
+        self::assertStringContainsString('2 group(s) not triaged: the daily budget would have been exceeded', implode("\n", $h->sentTexts()), 'not a quiet day');
+    }
+
+    public function testH7TokenLimitIsReservedTheSameWay(): void
+    {
+        $h = new Harness(['schedule' => ['window' => 'PT1H'], 'analysis' => ['daily_token_limit' => 5000]]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->clock->advance('+1 hour');
+
+        $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertCount(1, $h->analyzer->triageRequests, 'triage fits in 5000 tokens');
+        self::assertSame([], $h->analyzer->requests, '1500 tokens used + the analysis worst case (output cap 4000) exceed 5000');
+        self::assertStringContainsString('were not analysed', implode("\n", $h->sentTexts()));
+    }
+
+    public function testH7EscalationIsReservedAndTheFirstPassFindingIsKept(): void
+    {
+        $h = new Harness(['analysis' => ['prices' => ['m-e' => [50, 250, 0, 0]]]]); // an escalation would cost about $0.60
+        $h->analyzer->confidence = 0.3;
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        self::assertSame(['m-a'], array_values(array_unique(array_map(static fn ($r) => $r->model, $h->analyzer->requests))), 'never the escalation model');
+        self::assertStringContainsString('2 escalation(s) skipped', implode("\n", $h->sentTexts()));
+    }
+
+    public function testW3bEscalationOverItsInputLimitIsSkippedAndCounted(): void
+    {
+        $h = new Harness(['analysis' => ['max_input_tokens' => ['escalate' => 100]]]);
+        $h->analyzer->confidence = 0.3;
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+
+        $h->watcher(self::source(self::group('Alpha')))->run();
+
+        self::assertCount(1, $h->analyzer->requests, 'the analysis only');
+        self::assertStringContainsString('1 escalation(s) skipped', implode("\n", $h->sentTexts()));
+    }
+
+    public function testC1TriageTruncationSeesTheSystemPromptNotOnlyTheGroups(): void
+    {
+        // The groups alone are about 150 tokens; the triage prompt is about 540 more.
+        $h = new Harness(['analysis' => ['max_input_tokens' => ['triage' => 600]]]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+
+        $h->watcher(self::source(self::group('Alpha')))->run();
+
+        self::assertSame([], $h->analyzer->triageRequests);
+        self::assertStringContainsString('1 groups dropped (budget)', implode("\n", $h->sentTexts()));
+    }
+
+    public function testR5RetryAfterAFailedAnalysisDoesNotPayForTriageAgain(): void
+    {
+        $h = new Harness();
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $events = [...self::group('Alpha'), ...self::group('Beta')];
+        $h->analyzer->analyzeFailure = new AnalyzerFailed('provider unavailable');
+
+        $first = $h->watcher(self::source($events))->run();
+
+        self::assertSame(RunOutcome::Failed, $first->outcome);
+        self::assertCount(1, $h->analyzer->triageRequests, 'attempt 1 paid for triage');
+
+        $h->analyzer->analyzeFailure = null;
+        $second = $h->watcher(self::source($events))->run();
+
+        self::assertSame(RunOutcome::Reported, $second->outcome);
+        self::assertCount(1, $h->analyzer->triageRequests, 'attempt 2 reused it: zero triage calls');
+        self::assertCount(2, $h->analyzer->requests, 'two analyses (failed, then ok) and no more');
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        self::assertSame([], $h->state->get(Keys::triage('svc', \Watcher\Watcher::windowKey($h->windowEnd()))) ?? [], 'cleared once delivered');
+        self::assertEveryKeyExpires($h);
+    }
+
+    public function testR5TheCheckpointHoldsNoFindingAndOnlyLivesSixHours(): void
+    {
+        $h = new Harness();
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $h->analyzer->analyzeFailure = new AnalyzerFailed('provider unavailable');
+
+        $h->watcher(self::source(self::group('Alpha')))->run();
+
+        $key = Keys::triage('svc', \Watcher\Watcher::windowKey($h->windowEnd()));
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        self::assertSame(6 * 3600, $h->state->ttls()[$key]);
+        self::assertSame(['interesting'], array_values($h->state->get($key) ?? []));
+        self::assertSame([], array_filter(array_keys($h->state->all()), static fn (string $k): bool => str_starts_with($k, Keys::REPORTED . ':') || str_starts_with($k, Keys::VERDICT . ':')), 'no verdict or reported marker from a failed run');
     }
 }

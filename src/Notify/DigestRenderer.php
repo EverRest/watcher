@@ -113,6 +113,9 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ `%s` kept: %d of %d events match mute #%d', substr((string) $fp, 0, 12), $matched, $events, $index)];
         }
 
+        if ($d->comparedWith !== null) {
+            $out = [...$out, ...$this->comparedWith($d, $d->comparedWith)];
+        }
         if ($d->levelAnomalyLine !== null) {
             $out[] = ['kind' => 'notice', 'text' => '📈 ' . $this->esc($d->levelAnomalyLine)];
         }
@@ -130,6 +133,12 @@ final class DigestRenderer
         if ($d->notAnalysed > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) flagged interesting were not analysed (budget exhausted, triage only or top_m cut)', number_format($d->notAnalysed))];
         }
+        if ($d->notTriaged > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) not triaged: the daily budget would have been exceeded', number_format($d->notTriaged))];
+        }
+        if ($d->escalationsSkipped > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s escalation(s) skipped (daily budget or max_input_tokens.escalate): findings shown as first analysed', number_format($d->escalationsSkipped))];
+        }
         if ($d->patternFailures > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
         }
@@ -142,6 +151,24 @@ final class DigestRenderer
         }
 
         $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
+
+        return $out;
+    }
+
+    /**
+     * H6: the previous window had no snapshot, so the comparison base is an older run. Counts are per window and are not scaled for the gap.
+     *
+     * @return list<array{kind: string, text: string}>
+     */
+    private function comparedWith(DigestData $d, DateTimeImmutable $with): array
+    {
+        $seconds = $d->windowEnd->getTimestamp() - $with->getTimestamp();
+        $days = (int) round($seconds / 86400);
+        $ago = $days >= 1 ? sprintf('%d day%s ago', $days, $days === 1 ? '' : 's') : sprintf('%d hour%s ago', max(1, (int) round($seconds / 3600)), round($seconds / 3600) <= 1 ? '' : 's');
+        $out = [['kind' => 'notice', 'text' => sprintf('ℹ️ compared with the run of %s, %s', $with->setTimezone(new DateTimeZone($d->timezone))->format('Y-m-d'), $ago)]];
+        if ($days > 1) {
+            $out[] = ['kind' => 'notice', 'text' => '⚠️ no snapshot for the previous window (skipped or failed run): growth is measured against the older run, counts are per window and not scaled for the gap'];
+        }
 
         return $out;
     }

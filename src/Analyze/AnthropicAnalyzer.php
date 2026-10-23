@@ -42,12 +42,17 @@ final class AnthropicAnalyzer implements Analyzer
             $req->groups,
             $req->serviceContext,
             $req->model,
-            // The verdict list grows with the groups: never below the configured cap, ~30 tokens per verdict (id plus verdict) plus slack.
-            max($req->maxOutputTokens, 30 * count($req->groups) + 500),
+            self::triageOutputCap($req->maxOutputTokens, count($req->groups)),
             fn (array $data): array => $this->validator->triage($data, $allowed),
         );
 
         return new TriageResult($out['verdicts'], $usage);
+    }
+
+    /** The verdict list grows with the groups: never below the configured cap, ~30 tokens per verdict (id plus verdict) plus slack. */
+    public static function triageOutputCap(int $configured, int $groups): int
+    {
+        return max($configured, 30 * $groups + 500);
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -110,8 +115,6 @@ final class AnthropicAnalyzer implements Analyzer
      */
     private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = []): Message
     {
-        $prompt = (string) file_get_contents(__DIR__ . '/prompts/' . ($kind === 'triage' ? 'triage' : 'analyze') . '.md');
-
         try {
             return $this->client->messages->create(
                 maxTokens: $maxTokens,
@@ -122,7 +125,7 @@ final class AnthropicAnalyzer implements Analyzer
                 outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for($kind)]],
                 system: [[
                     'type' => 'text',
-                    'text' => $prompt . "\n## Service context\n\n" . $context,
+                    'text' => Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context),
                     'cacheControl' => ['type' => 'ephemeral'],
                 ]],
             );

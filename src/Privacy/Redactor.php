@@ -20,18 +20,44 @@ final class Redactor
 {
     public const WITHHELD = '[withheld]';
 
-    /** A frame is a bare file path and line; anything else (call arguments, spaces, brackets) is not one. */
-    private const FRAME = '/^[^\s:()\'"@<>]+:\d+$/u';
+    /** A frame is a bare file path (optionally with a drive letter) and line; anything else (call arguments, spaces, brackets) is not one. */
+    private const FRAME = '/^(?:[A-Za-z]:)?[^\s:()\'"@<>]+:\d+$/u';
+
+    /** Directories of frameworks and vendor code: a path without a configured root is kept from the first one of these. */
+    private const KNOWN_DIRS = ['vendor', 'app', 'src'];
+
+    /** Without a configured root, at most this many trailing segments (directories plus the file name) are sent. */
+    private const KEEP_SEGMENTS = 3;
+
+    /** Tokens whose digits are part of a public name, not of an id (matched as a whole word, any case). */
+    private const WELL_KNOWN = 'utf8|md5|sha256|base64|http2|ipv4|ipv6|x86_64|oauth2|s3|ec2|h264';
 
     /** Names of the placeholders the Normalizer itself writes; an extra pattern may not impersonate one. */
-    public const RESERVED = ['N', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR'];
+    public const RESERVED = ['N', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR', 'PATH', 'USER'];
 
-    /** @param array<string, string> $extraPatterns name => PCRE with delimiters */
-    public function __construct(
-        private readonly Normalizer $normalizer,
-        private readonly array $extraPatterns = [],
-    ) {
-        foreach (array_keys($this->extraPatterns) as $name) {
+    private readonly Normalizer $normalizer;
+
+    /** @var array<string, string> container root (no trailing slash, longest first) => repository path with its trailing slash, or '' */
+    private readonly array $pathRoots;
+
+    /**
+     * @param array<string, string> $extraPatterns name => PCRE with delimiters
+     * @param array<string, string> $pathRoots     `repo.path_map` (container root => repository path); a frame is sent only below a root,
+     *                                             as the repository path (`/var/www/html/app/A.php` -> `app/A.php`)
+     */
+    public function __construct(Normalizer $normalizer, array $extraPatterns = [], array $pathRoots = [])
+    {
+        $this->normalizer = $normalizer->withExtraPatterns($extraPatterns);
+        $roots = [];
+        foreach ($pathRoots as $root => $repoPath) {
+            $root = rtrim(str_replace('\\', '/', (string) $root), '/');
+            if ($root !== '') {
+                $roots[$root] = $repoPath === '' ? '' : rtrim($repoPath, '/') . '/';
+            }
+        }
+        uksort($roots, static fn (string $x, string $y): int => strlen($y) <=> strlen($x));
+        $this->pathRoots = $roots;
+        foreach (array_keys($extraPatterns) as $name) {
             if (in_array(strtoupper((string) $name), self::RESERVED, true)) {
                 throw new \InvalidArgumentException("redaction.extra_patterns: name '$name' is reserved for a built-in placeholder.");
             }
@@ -99,52 +125,103 @@ final class Redactor
         if (preg_match('//u', $text) !== 1) {
             throw new NormalizationException('Input is not valid UTF-8.');
         }
-        // Extra patterns first, on the raw text: the Normalizer would turn digits in their match into <N>.
-        foreach ($this->extraPatterns as $name => $pattern) {
-            $out = @preg_replace($pattern, '<' . strtoupper((string) $name) . '>', $text);
-            if ($out === null) {
-                throw new NormalizationException('Extra pattern failed: ' . $name);
-            }
-            $text = $out;
-        }
-
         return ($keepNumbers ? $this->normalizer->keepingNumbers() : $this->normalizer)->scan($text)['text'];
     }
 
     /**
-     * Digits are acceptable only INSIDE an identifier (`Http2Exception`, `v2`): attached to a letter or underscore.
-     * Any other change the scan makes — a masked host or e-mail, an extra pattern, a lone number — replaces the original.
+     * A class name: digit runs are masked (`Tenant_8812Exception` -> `Tenant_<N>Exception`) unless they belong to a
+     * well-known token (`Http2`). Any other change the scan makes — a masked host or e-mail, an extra pattern — replaces the original.
      */
     private function identifier(string $value): ?string
     {
         if (LineParser::classNameOrNull($value) === null) {
             return null;
         }
-        $scanned = $this->redactText($value, false);
-        if ($scanned === null) {
-            return null;
+        foreach (explode('\\', $value) as $part) {
+            if (strlen($part) >= 20 && Normalizer::looksRandom((string) preg_replace('/\d+/', '', $part))) {
+                return null;
+            }
         }
 
-        return $this->onlyIdentifierDigitsChanged($value, $scanned) ? $value : $scanned;
+        return $this->digitMasked($value);
     }
 
-    /** True when the scan changed nothing except digit runs that sit inside identifiers. */
-    private function onlyIdentifierDigitsChanged(string $value, string $scanned): bool
+    /** The value with its digit runs masked (well-known tokens kept), or the scan's own text if it had to change more, or null. */
+    private function digitMasked(string $value): ?string
     {
-        return $scanned === preg_replace('/\d+/', '<N>', $value)
-            && preg_match('/(?<![\p{L}_])\d+(?![\p{L}_])/u', $value) !== 1;
+        $full = (string) preg_replace('/\d+/', '<N>', $value);
+        $scanned = $this->redactText($full, false);
+
+        return $scanned === null ? null : ($scanned === $full ? $this->maskDigits($value) : $scanned);
     }
 
-    /** The path must survive the scan with at most identifier-attached digits; the line number is always digits. */
+    private function maskDigits(string $value): string
+    {
+        return (string) preg_replace('/(?<![a-z])(?i:' . self::WELL_KNOWN . ')(?![a-z\d])(*SKIP)(*F)|\d+/', '<N>', $value);
+    }
+
+    /** A frame is sent only after its path was rewritten (see safePath()) and scanned; the line number is kept. */
     private function frame(string $frame): ?string
     {
         if (preg_match(self::FRAME, $frame) !== 1) {
             return null;
         }
-        $at = strrpos($frame, ':');
-        $path = substr($frame, 0, (int) $at);
-        $scanned = $this->redactText($path, false);
+        $at = (int) strrpos($frame, ':');
+        $path = $this->safePath(str_replace('\\', '/', substr($frame, 0, $at)));
+        if ($path === null) {
+            return null;
+        }
+        [$prefix, $rest] = $path;
 
-        return $scanned !== null && $this->onlyIdentifierDigitsChanged($path, $scanned) ? $frame : null;
+        return $this->digitMasked($rest) === $this->maskDigits($rest) ? $prefix . $this->maskDigits($rest) . substr($frame, $at) : null;
+    }
+
+    /**
+     * @return ?array{string, string} [`…/` or empty, the kept path]; null when no safe part can be named.
+     *                                With roots configured only the part below a root is kept (no root: no frame).
+     *                                Without: from the first known directory on, at most KEEP_SEGMENTS segments.
+     *                                Every kept segment is plain characters and not random-looking, else the frame goes.
+     */
+    private function safePath(string $path): ?array
+    {
+        $prefix = '';
+        if ($this->pathRoots !== []) {
+            $rest = null;
+            foreach ($this->pathRoots as $root => $repoPath) {
+                if (str_starts_with($path, $root . '/')) {
+                    $rest = substr($path, strlen($root) + 1);
+                    $prefix = $repoPath;
+                    break;
+                }
+            }
+            $segments = $rest === null ? [] : array_values(array_filter(explode('/', $rest), static fn (string $x): bool => $x !== ''));
+        } else {
+            $all = array_values(array_filter(explode('/', $path), static fn (string $x): bool => $x !== ''));
+            $from = null;
+            foreach (array_slice($all, 0, -1) as $i => $seg) {
+                if (in_array($seg, self::KNOWN_DIRS, true)) {
+                    $from = $i;
+                    break;
+                }
+            }
+            if ($from === null) {
+                return null;
+            }
+            $segments = array_slice($all, $from);
+            if (count($segments) > self::KEEP_SEGMENTS) {
+                $segments = array_slice($segments, -self::KEEP_SEGMENTS);
+            }
+            $prefix = $from > 0 || count($segments) < count($all) - $from ? '…/' : '';
+        }
+        if ($segments === []) {
+            return null;
+        }
+        foreach ($segments as $seg) {
+            if (!Normalizer::plainSegment($seg)) {
+                return null;
+            }
+        }
+
+        return [$prefix, implode('/', $segments)];
     }
 }

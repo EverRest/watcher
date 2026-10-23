@@ -28,7 +28,7 @@ final class Normalizer
      * host-shaped payload only. Angle brackets in the input are neutralised first (see scan()), so
      * placeholder-looking input text can never hide a value from the rules.
      */
-    private const SKIP = '<(?-i:(?:EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR)(?::[a-z0-9._-]+)?)>(*SKIP)(*F)|';
+    private const SKIP_NAMES = 'EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR|PATH|USER';
 
     /** Private-use stand-ins for '<' and '>' of the input while the rules run. */
     /** Characters kept of any one input; the rest is dropped before the rules run. */
@@ -42,6 +42,9 @@ final class Normalizer
     private const ANG = '<>\x{E000}\x{E001}';
 
     private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|sql|csv|env|lock|rb|jar|gz';
+
+    /** Characters that end a path segment (inside a negated class). */
+    private const SEG = '\s\/\\\\\'"()\[\]{}<>,;:|\x{E000}\x{E001}';
 
     private const H = '[0-9a-f]{1,4}';
 
@@ -62,13 +65,29 @@ final class Normalizer
     /** @var list<string> */
     private array $domains;
 
+    /** @var array<string, string> */
+    private array $extraPatterns;
+
+    private string $skip;
+
+    /** Skips an extra placeholder of an earlier scan (its angle brackets are inert stand-ins by now) before digits are masked. */
+    private string $inertExtra = '';
+
     /**
      * @param list<string> $declaredDependencyHosts declared dependency names; a host is recognised as one when it equals it or sits under a domain
      * @param list<string> $dependencyDomains       suffixes allowed after a declared name and at most one label (`payments.prod.svc.cluster.local`);
      *                                              the name is kept, the suffix never
+     * @param array<string, string> $extraPatterns name => PCRE with delimiters; matched on the raw text BEFORE any rule
+     *                                             (so `/CUST-\d{6}/` still sees its digits) and replaced by `<NAME>`
      */
-    public function __construct(array $declaredDependencyHosts = [], array $dependencyDomains = [], private readonly bool $maskNumbers = true)
+    public function __construct(array $declaredDependencyHosts = [], array $dependencyDomains = [], private readonly bool $maskNumbers = true, array $extraPatterns = [])
     {
+        $this->extraPatterns = $extraPatterns;
+        $names = array_map(static fn ($n): string => preg_quote(strtoupper((string) $n), '#'), array_keys($extraPatterns));
+        $this->skip = '<(?-i:(?:' . self::SKIP_NAMES . ($names === [] ? '' : '|' . implode('|', $names)) . ')(?::[a-z0-9._-]+)?)>(*SKIP)(*F)|';
+        if ($names !== []) {
+            $this->inertExtra = '\x{E000}(?-i:' . implode('|', $names) . ')\x{E001}(*SKIP)(*F)|';
+        }
         $this->dependencyHosts = array_map(strtolower(...), $declaredDependencyHosts);
         $this->domains = array_map(static fn (string $d): string => ltrim(strtolower($d), '.'), $dependencyDomains);
     }
@@ -76,7 +95,13 @@ final class Normalizer
     /** Same table, but plain numbers stay readable (for text written by the model, which never saw personal data). */
     public function keepingNumbers(): self
     {
-        return new self($this->dependencyHosts, $this->domains, false);
+        return new self($this->dependencyHosts, $this->domains, false, $this->extraPatterns);
+    }
+
+    /** @param array<string, string> $extraPatterns */
+    public function withExtraPatterns(array $extraPatterns): self
+    {
+        return new self($this->dependencyHosts, $this->domains, $this->maskNumbers, $extraPatterns);
     }
 
     public function normalize(string $text): string
@@ -104,9 +129,18 @@ final class Normalizer
         $text = strtr($text, ['<' => self::LT, '>' => self::GT]);
 
         $changed = false;
+        foreach ($this->extraPatterns as $name => $pattern) {
+            $placeholder = '<' . strtoupper((string) $name) . '>';
+            $out = @preg_replace_callback($pattern, static fn (): string => $placeholder, $text, -1, $count);
+            if ($out === null) {
+                throw new NormalizationException('Extra pattern failed: ' . $name);
+            }
+            $text = $out;
+            $changed = $changed || $count > 0;
+        }
         foreach ($this->rules() as [$pattern, $replace]) {
             $out = preg_replace_callback(
-                '#' . self::SKIP . '(?:' . $pattern . ')#iu',
+                '#' . $this->skip . '(?:' . $pattern . ')#iu',
                 static function (array $m) use ($replace): string {
                     return is_string($replace) ? $replace : $replace($m);
                 },
@@ -150,6 +184,16 @@ final class Normalizer
                 '\b[a-z][a-z0-9+.-]*://(?:[^\s/?\#\'"' . $ang . ']*@)?(?<host>\[[0-9a-f:.]+\]|[^\s/?\#:\'"' . $ang . '\[\]]+)(?::\d+)?(?:[/?\#][^\s\'"' . $ang . ']*)?',
                 fn (array $m): string => $this->url($m),
             ],
+            // A user directory in an absolute path: the name goes, the root stays (`/root` is no user).
+            [
+                '(?<![\w.\/\\\\<>' . "\x{E000}\x{E001}" . '-])((?:\/home\/|\/Users\/|[a-z]:[\\\\\/]Users[\\\\\/]))[^' . self::SEG . ']++',
+                fn (array $m): string => $m[1] . '<USER>',
+            ],
+            // Any other absolute path of 3+ segments: only the last two (plain) segments are kept.
+            [
+                '(?<![\w.\/\\\\<>~' . "\x{E000}\x{E001}" . '-])(?:[a-z]:)?(?:[\/\\\\]{1,2}+(?:<USER>|[^' . self::SEG . ']++)){3,}+',
+                static fn (array $m): string => self::pathPlaceholder($m[0]),
+            ],
             ['\beyJ[\w-]+\.[\w-]+\.[\w-]+', '<TOKEN>'],
             // Known-prefix secrets (case-sensitive; bodies are never needed for analysis).
             [
@@ -191,10 +235,35 @@ final class Normalizer
                 '(?<![A-Za-z0-9_+/-])[A-Za-z0-9_+/-]{20,}+={0,2}+(?![A-Za-z0-9_+/=-])',
                 static fn (array $m): string => self::cutRun($m[0]),
             ],
-            ...($this->maskNumbers ? [['\d+', '<N>']] : []),
+            ...($this->maskNumbers ? [[$this->inertExtra . '\d+', '<N>']] : []),
             ['"[^"]{33,}"', '<STR>'],
             ['(?<!\w)\'[^\']{33,}\'(?!\w)', '<STR>'],
         ];
+    }
+
+    /** A path segment that may be sent: plain characters, not `.`/`..`, not random-looking (digit runs and the extension do not count). */
+    public static function plainSegment(string $seg): bool
+    {
+        $shape = (string) preg_replace(['/\.[A-Za-z0-9]{1,5}$/', '/\d+/', '/\./'], ['', '0', '_'], $seg);
+
+        return $seg !== '..' && $seg !== '.' && preg_match('/^[A-Za-z0-9_.-]++$/D', $seg) === 1 && !self::looksRandom($shape);
+    }
+
+    private static function pathPlaceholder(string $path): string
+    {
+        $segments = array_values(array_filter(preg_split('#[\\\\/]+#', preg_replace('#^[a-z]:#i', '', $path) ?? $path) ?: [], static fn (string $x): bool => $x !== ''));
+        // A secret split over short segments is no path: judge the whole run as cutRun() does.
+        if (self::looksRandom((string) preg_replace([self::KNOWN, '/\.[A-Za-z0-9]{1,5}$/'], ['ab', ''], str_replace('<USER>', 'user', implode('/', $segments))))) {
+            return '<TOKEN>';
+        }
+        $tail = array_slice($segments, -2);
+        foreach ($tail as $seg) {
+            if ($seg !== '<USER>' && !self::plainSegment($seg)) {
+                return '<PATH>';
+            }
+        }
+
+        return '<PATH>/…/' . implode('/', $tail);
     }
 
     /**
@@ -228,7 +297,7 @@ final class Normalizer
      * At least two of lower / upper / digit, Shannon entropy >= 3.5 bits per char, and not a plain identifier
      * (camelCase or snake / kebab words, at most 3 digits, no run of 6 consonants). Doubt means masked.
      */
-    private static function looksRandom(string $s): bool
+    public static function looksRandom(string $s): bool
     {
         $classes = (preg_match('/[a-z]/', $s) === 1 ? 1 : 0) + (preg_match('/[A-Z]/', $s) === 1 ? 1 : 0) + (preg_match('/\d/', $s) === 1 ? 1 : 0);
         if ($classes < 2) {

@@ -18,6 +18,8 @@ final class RouterSettings
         public readonly float $confidenceThreshold,
         public readonly float $growthFactor,
         public readonly string $serviceContext,
+        /** analysis.max_input_tokens.escalate: an escalation sends at most this many estimated input tokens */
+        public readonly int $escalateMaxInputTokens = PHP_INT_MAX,
     ) {
     }
 }

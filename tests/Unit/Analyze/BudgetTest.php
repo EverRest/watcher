@@ -83,4 +83,22 @@ final class BudgetTest extends TestCase
         self::assertSame([], $r->kept);
         self::assertSame(0, $r->droppedCount);
     }
+
+    public function testSystemPromptCarriesTheStepPromptAndTheServiceContext(): void
+    {
+        $triage = Budget::systemPrompt('triage', 'orders service, PHP 8');
+        $analyze = Budget::systemPrompt('analyze', '');
+
+        self::assertStringContainsString("## Service context\n\norders service, PHP 8", $triage);
+        self::assertNotSame($triage, Budget::systemPrompt('analyze', 'orders service, PHP 8'), 'each step has its own prompt');
+        self::assertGreaterThan(300, Budget::estimateTokens($analyze), 'the analysis prompt alone is hundreds of tokens');
+    }
+
+    public function testTruncateCountsTheFixedPromptOverheadAgainstTheLimit(): void
+    {
+        $cs = [$this->cand(1), $this->cand(2)]; // 20 tokens together
+
+        self::assertSame(0, Budget::truncate($cs, 25, self::ser(...))->droppedCount);
+        self::assertSame(1, Budget::truncate($cs, 25, self::ser(...), 10)->droppedCount, '20 + 10 > 25');
+    }
 }

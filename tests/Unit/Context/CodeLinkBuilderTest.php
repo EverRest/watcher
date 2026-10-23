@@ -47,6 +47,18 @@ final class CodeLinkBuilderTest extends TestCase
         );
     }
 
+    public function testFrameAlreadyMappedByTheRedactorLinksAsIs(): void
+    {
+        $b = $this->b();
+
+        self::assertSame('https://git.example.com/g/app/-/blob/abc123/app/Services/Foo.php#L42', $b->forFrame('app/Services/Foo.php:42'));
+        self::assertNull($b->forFrame('app/vendor/x/Y.php:1'));
+        self::assertNull($b->forFrame('vendor/x/Y.php:1'));
+        self::assertNull($b->forFrame('…/app/Foo.php:1'));
+        self::assertNull($b->forFrame('../etc/passwd:1'));
+        self::assertNull($b->forFrame('C:/Users/x/Foo.php:1'));
+    }
+
     public function testUnmappedVendorAndTraversalGiveNoLink(): void
     {
         $b = $this->b();

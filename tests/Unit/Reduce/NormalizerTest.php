@@ -349,7 +349,7 @@ final class NormalizerTest extends TestCase
             'rooted partial secret next to a masked segment' => ['key /ab12/Xk3q/aB3dE5gH7jK9mN1pQ3sT5vX7/Lm2p bad', 'key <TOKEN> bad'],
             'one slash is judged whole' => ['key ab12cd34ef56gh78/ij90 bad', 'key <TOKEN> bad'],
             'one slash base64 halves' => ['key Zm9vYmFyYmF6/cXV4MTIzNDU2Nzg5MEFi bad', 'key <TOKEN> bad'],
-            'path with one random segment' => ['in /var/www/aB3dE5gH7jK9mN1pQ3sT5vX7/cache now', 'in /var/www/<TOKEN>/cache now'],
+            'path with one random segment' => ['in /var/www/aB3dE5gH7jK9mN1pQ3sT5vX7/cache now', 'in <TOKEN> now'],
             'digest' => ['Authorization: Digest username="bob", realm="x", nonce="n", response="r" tail', 'Authorization: Digest <TOKEN>'],
             'aws4 signature' => ['Authorization: AWS4-HMAC-SHA256 Credential=FAKEID/eu/s3, SignedHeaders=host, Signature=feedface00 tail', 'Authorization: AWS<N>-HMAC-SHA<N> <TOKEN>'],
             'negotiate' => ['Authorization: Negotiate YIIFakeBody tail', 'Authorization: Negotiate <TOKEN>'],
@@ -403,7 +403,6 @@ final class NormalizerTest extends TestCase
             ['unexpected_end_of_stream_while_reading_header'],
             ['Internationalization-failure-in-subsystem'],
             ['internationalization'],
-            ['/var/www/html/app/Http/Controllers/CustomerController.php:42'],
             ['vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel'],
             ['storage/logs/laravel-2026-10-23'],
             ['Basic auth failed'],
@@ -414,9 +413,7 @@ final class NormalizerTest extends TestCase
             ['basic information is missing'],
             ['Basic Authentication failed'],
             ['Token Authentication failed'],
-            ['/var/www/app/Http/Controllers/FooController.php'],
             ['App/Http/Controllers/FooController'],
-            ['/usr/lib/x86_64-linux-gnu/libfoo'],
         ];
     }
 
@@ -462,5 +459,81 @@ final class NormalizerTest extends TestCase
         $t = microtime(true);
         (new Normalizer())->scan($in);
         self::assertLessThan(0.25, microtime(true) - $t);
+    }
+
+    public function testExtraPatternsRunOnTheRawTextBeforeDigitsAreMasked(): void
+    {
+        $n = new Normalizer(extraPatterns: ['cust' => '/CUST-\d{6}/', 'cust2' => '/ACME\d{4}/']);
+
+        self::assertSame('Invoice <CUST> failed after <N> tries for <CUST2>', $n->normalize('Invoice CUST-123456 failed after 3 tries for ACME9911'));
+        self::assertSame('Invoice <CUST> failed 3', $n->keepingNumbers()->normalize('Invoice CUST-123456 failed 3'));
+    }
+
+    public function testExtraPatternPlaceholdersSurviveARepeatedScan(): void
+    {
+        $n = new Normalizer(extraPatterns: ['cust2' => '/CUST-\d{6}/']);
+
+        self::assertSame('x <CUST2> y', $n->normalize($n->normalize('x CUST-123456 y')));
+    }
+
+    public function testBrokenExtraPatternFailsClosed(): void
+    {
+        $this->expectException(NormalizationException::class);
+        (new Normalizer(extraPatterns: ['bad' => '/(unclosed/']))->normalize('anything');
+    }
+
+    public function testDigitsGluedToLettersAreMaskedInMessages(): void
+    {
+        $n = new Normalizer();
+
+        self::assertSame('customer_<N> and user<N> and Tenant_<N>Err', $n->normalize('customer_48213 and user48213 and Tenant_8812Err'));
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function messagePaths(): array
+    {
+        return [
+            'home user alone' => ['open /home/jsmith failed', 'open /home/<USER> failed'],
+            'mac user alone' => ['open /Users/jsmith failed', 'open /Users/<USER> failed'],
+            'windows user alone' => ['open C:\\Users\\jsmith failed', 'open C:\\Users\\<USER> failed'],
+            'root is not a user' => ['open /root/x failed', 'open /root/x failed'],
+            'two segments stay' => ['open /var/www failed', 'open /var/www failed'],
+            'long path keeps the last two segments' => ['in /var/www/acme-corp/app/Http/Kernel.php:88', 'in <PATH>/…/Http/Kernel.php:<N>'],
+            'user next to the file is masked first' => ['read /home/jsmith/a.txt', 'read <PATH>/…/<USER>/a.txt'],
+            'windows long path' => ['read C:\\Users\\jsmith\\proj\\src\\Foo.php', 'read <PATH>/…/src/Foo.php'],
+            'random segment among the last two' => ['read /var/www/app/Qx7Zk9Lm2Pw4Rt8Vb3Nc6Hd/Foo.php', 'read <TOKEN>'],
+            'url paths are the url rule\'s' => ['GET https://api.example.com/v1/users/42 failed', 'GET <URL> failed'],
+            'relative paths stay' => ['src/Billing/Foo.php broke', 'src/Billing/Foo.php broke'],
+            'long camel-case file name' => ['in /var/www/html/app/Http/Controllers/CustomerController.php:42 now', 'in <PATH>/…/Controllers/CustomerController.php:<N> now'],
+            'cpu architecture dir' => ['in /usr/lib/x86_64-linux-gnu/libfoo now', 'in <PATH>/…/x<N>_<N>-linux-gnu/libfoo now'],
+            'path in quotes and parentheses' => ['x ("/srv/a/b/c.log") y', 'x ("<PATH>/…/b/c.log") y'],
+        ];
+    }
+
+    /** @dataProvider messagePaths */
+    public function testAbsolutePathsInMessagesAreMasked(string $in, string $out): void
+    {
+        $n = new Normalizer();
+
+        self::assertSame($out, $n->normalize($in));
+        self::assertSame($out, $n->normalize($out), 'placeholders survive a second scan');
+    }
+
+    public function testPathPlaceholdersAreNotExtraPatternNames(): void
+    {
+        $n = new Normalizer(extraPatterns: ['mine' => '/zzz/']);
+
+        self::assertSame('<PATH>/…/b/c.php <MINE>', $n->normalize('/a/b/c.php zzz'));
+    }
+
+    public function testPathRulesStayLinearOnHostileInput(): void
+    {
+        $n = new Normalizer();
+        $start = microtime(true);
+        $n->normalize(str_repeat('/a', 2000));
+        $n->normalize(str_repeat('/home/', 700));
+        $n->normalize('/' . str_repeat('a/', 1000) . str_repeat('\\', 1000));
+
+        self::assertLessThan(1.0, microtime(true) - $start);
     }
 }

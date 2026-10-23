@@ -49,7 +49,14 @@ credentials, anything from `fields`.
    class and frames.
 4. **Second scan** (`src/Privacy/Redactor.php`): the template, error type and each frame are scanned again with the same
    table plus your `redaction.extra_patterns`. If anything fails to scan, the field is **dropped, never sent raw** (fail
-   closed). Digits are allowed only inside identifiers (`Http2Exception`); a purely numeric path segment drops the frame.
+   closed). Digit runs inside identifiers are masked too (`Tenant_8812Exception` -> `Tenant_<N>Exception`) unless the
+   identifier is a well-known token (`utf8`, `md5`, `sha256`, `base64`, `http2`, `ipv4`, `ipv6`, `x86_64`, `oauth2`,
+   `s3`, `ec2`, `h264`; `Http2ConnectionTimeoutException` stays). **Frame paths are rewritten before they are sent:**
+   with `repo.path_map` configured only the part below a configured container root is kept
+   (`/var/www/html/app/Foo.php:12` -> `app/Foo.php:12`) and a frame outside every root is dropped; without it the path is
+   kept from its first `vendor/`, `app/` or `src/` directory, at most the last three segments, and what was cut becomes
+   `…/` (`/home/jsmith/app/X.php:12` -> `…/app/X.php:12`); no such directory: no frame. A segment that is not plain
+   `[A-Za-z0-9_.-]` or looks random drops the frame; digits are masked. Line numbers and file names are kept.
 5. **Model output scrub:** everything the model writes (title, evidence, cause, action) is scanned the same way before it
    is shown, stored or cached; plain numbers are kept.
 
@@ -83,7 +90,7 @@ Exception objects are not logged, because the SDK's request (including the API k
 
 ## Limits you must know
 
-- **A name that is identical in every event of a cluster is not detectable.** If the same person appears 3 or more times
+- **A name that is identical in every event of a cluster is not detectable, and no code tries to guess proper names by shape.** If the same person appears 3 or more times
   with exactly the same surrounding words, the template can contain the name. Raise `min_group_events_for_text` or add an
   `extra_patterns` entry if your logs contain such a pattern. Free-text names in rare, one-off messages are protected by
   withholding, not by recognising them.
@@ -91,8 +98,20 @@ Exception objects are not logged, because the SDK's request (including the API k
   matches a PHP class-name shape (letters, digits, `_`, `\` separators, at most 120 characters); free text such as
   `declined for Olena Shevchenko` becomes no type. A personal name that is part of a valid class name
   (`AnnaKowalskiNotFoundException`) cannot be told from any other word and is sent.
-- **Directory names in stack-frame paths** that are first names (`/home/anna/...`) are not recognised; dotted forms that
-  look like hosts or emails are dropped. Container paths normally contain no personal data.
+- **Directory names below the kept part of a frame path** (`app/anna-corp/Foo.php`) are plain words and are not
+  recognised; the parts above the first known directory (home dirs, customer dirs under `/var/www`) are cut, and with
+  `repo.path_map` everything above the root is. Dotted forms that look like hosts or emails drop the frame.
+- **Absolute paths written inside a log message** are masked by the Normalizer: the user segment of `/home/<x>`,
+  `/Users/<x>` and `C:\Users\<x>` becomes `<USER>` (`/root` stays), and any absolute path of 3+ segments becomes
+  `<PATH>/…/<last two segments>` (`<PATH>` alone when a kept segment is not plain or looks random; `<TOKEN>` when the whole
+  run looks like a secret split over short segments). `<PATH>` and `<USER>` are reserved placeholder names. Cost: route
+  paths in messages (`/api/v1/users/42`) are masked the same way, and fingerprints of messages with paths merge.
+- **Stack-frame links** use the repository path the Redactor produced (`repo.path_map` root -> its repository path).
+- **`extra_patterns` run on the raw message**, before digits become `<N>` (so `/CUST-\d{6}/` matches), then again on
+  the template and on model output. Name them with letters or `_`; the placeholder `<NAME>` is never re-masked.
+- **JSON `message` values keep their first physical line** (as text records do). The rest is dropped, never promoted to
+  the message; the exception class and frames are still read from the whole text first. The count is
+  `LineParser::$messageTailsDropped`.
 - **Model wording.** The model never sees personal data from masked input, but its text is still free text. The scrub
   catches the patterns above, not arbitrary words.
 - **Field-based rules.** A `field`+`equals` watch rule or mute reads field values inside the process to decide; only the
@@ -106,7 +125,7 @@ Exception objects are not logged, because the SDK's request (including the API k
 ## How this is tested
 
 - `tests/Fixtures/privacy/` holds a corpus of logs seeded with emails, names (Latin and Cyrillic), phones, tokens, IBANs,
-  IPs, personal sub-domains, credentials in URLs and a dependency stream; `seeded-values.php` lists the 68 seeded values.
+  IPs, personal sub-domains, credentials in URLs and a dependency stream; `seeded-values.php` lists the seeded values (usernames and customer names in frame paths, ids glued to letters, digit-based patterns, JSON message tails included).
 - `tests/EndToEnd/PrivacyTest.php` runs the whole pipeline over it and fails if any seeded value appears in **any** request
   to the model (triage, analysis, dependency section, service context), any Slack message (raw, decoded once and twice)
   or any stored value. A control run proves the test sees leaks when the protection is switched off.

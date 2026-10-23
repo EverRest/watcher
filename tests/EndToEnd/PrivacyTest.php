@@ -72,6 +72,32 @@ final class PrivacyTest extends TestCase
         }
     }
 
+    /** P1-P4: frame paths, digits in identifiers, digit-based extra patterns and multi-line JSON messages, end to end. */
+    public function testPathsIdentifierDigitsExtraPatternsAndJsonTailsNeverLeave(): void
+    {
+        /** @var list<string> $seeded */
+        $seeded = require __DIR__ . '/../Fixtures/privacy/seeded-values.php';
+        $events = self::eventsFrom('corpus.log');
+        $h = new Harness(['redaction' => ['extra_patterns' => ['cust' => '/CUST-\d{6}/']]]);
+
+        $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $h->nextWindow();
+        $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+
+        $payload = json_encode([$h->analyzer->allRequests(), array_map(static fn (array $s) => $s['message'], $h->notifier->sent)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        foreach ($seeded as $value) {
+            self::assertStringNotContainsString($value, $payload, "seeded value leaked: $value");
+        }
+        // Controls: the safe parts are present, so the absence above is the rewrite and not an empty payload.
+        self::assertStringContainsString('…/app/Sync.php:12', $payload);
+        self::assertStringContainsString('FkTenant<N>Exception', $payload);
+        self::assertStringContainsString('Invoice <CUST> rejected', $payload);
+        // Paths written inside messages: the same user and customer directory in every event must not reach a template.
+        self::assertStringContainsString('<PATH>/…/Exports/Report.csv', $payload);
+        self::assertStringContainsString('/Users/<USER>', $payload);
+        self::assertStringContainsString('<PATH>/…/<USER>/Desktop', $payload);
+    }
+
     /** @return list<\Watcher\Source\LogEvent> */
     private static function eventsFrom(string $file): array
     {

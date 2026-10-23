@@ -98,3 +98,17 @@
 [2026-10-08T05:17:01+00:00] production.ERROR: [AUTH]: Bad secret fAkEsEcReT/Zz9Yy8/NotARealKeyXxYyZz0011 rejected by vault [] []
 [2026-10-08T05:17:02+00:00] production.ERROR: [AUTH]: Bad secret fAkEsEcReT/Zz9Yy8/NotARealKeyXxYyZz0011 rejected by vault [] []
 [2026-10-08T05:17:03+00:00] production.ERROR: [AUTH]: Bad secret fAkEsEcReT/Zz9Yy8/NotARealKeyXxYyZz0011 rejected by vault [] []
+[2026-10-08T05:20:01+00:00] production.ERROR: RuntimeException: sync failed in /home/fkjsmith/app/Sync.php:12 [] []
+[2026-10-08T05:20:02+00:00] production.ERROR: RuntimeException: billing failed in /var/www/fk-acme-corp/app/Billing.php:7 [] []
+[2026-10-08T05:20:03+00:00] production.ERROR: RuntimeException: export failed in C:\Users\fkwinuser\app\Win.php:3 [] []
+{"timestamp":"2026-10-08T05:21:01+00:00","level":"error","message":"fk_customer_48213 lookup failed","exception.class":"FkTenant48213Exception","exception.trace":"/srv/fk-customer-dir/vendor/laravel/framework/src/Foo.php:30"}
+{"timestamp":"2026-10-08T05:22:01+00:00","level":"error","message":"Export failed\nrecipient fk.export.target@example.org\nFkperson Exporter","exception.class":"ExportException"}
+[2026-10-08T05:23:01+00:00] production.ERROR: [APP]: Invoice CUST-482913 rejected after the third retry of the nightly settlement batch run again for the finance team [] []
+[2026-10-08T05:23:02+00:00] production.ERROR: [APP]: Invoice CUST-482914 rejected after the third retry of the nightly settlement batch run again for the finance team [] []
+[2026-10-08T05:23:03+00:00] production.ERROR: [APP]: Invoice CUST-482915 rejected after the third retry of the nightly settlement batch run again for the finance team [] []
+[2026-10-08T05:31:01+00:00] production.ERROR: Upload failed for /var/www/fk-msg-acme/app/Http/Exports/Report.csv by user dir /home/fkmsguser while the quota of the volume was exceeded for the whole day [] []
+[2026-10-08T05:41:01+00:00] production.ERROR: Sync dir /Users/fkmacuser and C:\Users\fkwinmsg\Desktop are not writable for the nightly mirror job on this runner today and nothing else was changed [] []
+[2026-10-08T05:32:01+00:00] production.ERROR: Upload failed for /var/www/fk-msg-acme/app/Http/Exports/Report.csv by user dir /home/fkmsguser while the quota of the volume was exceeded for the whole day [] []
+[2026-10-08T05:42:01+00:00] production.ERROR: Sync dir /Users/fkmacuser and C:\Users\fkwinmsg\Desktop are not writable for the nightly mirror job on this runner today and nothing else was changed [] []
+[2026-10-08T05:33:01+00:00] production.ERROR: Upload failed for /var/www/fk-msg-acme/app/Http/Exports/Report.csv by user dir /home/fkmsguser while the quota of the volume was exceeded for the whole day [] []
+[2026-10-08T05:43:01+00:00] production.ERROR: Sync dir /Users/fkmacuser and C:\Users\fkwinmsg\Desktop are not writable for the nightly mirror job on this runner today and nothing else was changed [] []

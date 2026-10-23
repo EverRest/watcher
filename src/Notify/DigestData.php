@@ -56,6 +56,12 @@ final class DigestData
         public readonly array $mutePartial = [],
         public readonly int $notAnalysed = 0,
         public readonly int $patternFailures = 0,
+        /** @var int groups never sent to triage because it would not have fit the daily budget */
+        public readonly int $notTriaged = 0,
+        /** @var int escalations skipped (daily budget or analysis.max_input_tokens.escalate); the first-pass finding is shown as it is */
+        public readonly int $escalationsSkipped = 0,
+        /** @var DateTimeImmutable|null window end of the older snapshot used because the previous window's was missing (H6) */
+        public readonly ?DateTimeImmutable $comparedWith = null,
     ) {
     }
 }

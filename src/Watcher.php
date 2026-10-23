@@ -14,11 +14,13 @@ use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\Budget;
 use Watcher\Analyze\BudgetAlerts;
+use Watcher\Analyze\BudgetReservation;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\CostCalculator;
 use Watcher\Analyze\ModelRouter;
 use Watcher\Analyze\RouterSettings;
 use Watcher\Analyze\Spend;
+use Watcher\Analyze\TriageCheckpoint;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\UnknownModelPrice;
@@ -81,6 +83,9 @@ final class Watcher
     private ?BufferedStateStore $pendingWrites = null;
 
     private ?DeployInfo $deployInfo = null;
+
+    /** Window key of the snapshot that dependency totals are compared with. */
+    private string $previousKey = '';
 
     private readonly StateStore $state;
 
@@ -424,8 +429,9 @@ final class Watcher
         }
 
         // Built before any external call so a bad configuration fails at start, not mid-run.
-        $normalizer = new Normalizer(array_map('strval', array_keys($c->dependencies)), $c->dependencyDomains);
-        $redactor = new Redactor($normalizer, $c->redactionPatterns);
+        $normalizer = new Normalizer(array_map('strval', array_keys($c->dependencies)), $c->dependencyDomains, extraPatterns: $c->redactionPatterns);
+        $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
+        $redactor = new Redactor($normalizer, $c->redactionPatterns, $pathMap);
 
         $selector = new StreamSelector($c->source['stream_tags']);
         $readMin = $c->source['read_min_level'];
@@ -433,6 +439,12 @@ final class Watcher
 
         /** @var array{groups?: array<string, int>, totals?: array<string, int>, deploy?: array<string, string|null>}|null $prev */
         $prev = $this->state->get(Keys::snapshot($service, self::windowKey($window->start)));
+        $comparedWith = null;
+        $this->previousKey = self::windowKey($window->start);
+        if ($prev === null) {
+            // H6: the previous window has no snapshot (skipped or failed day): fall back to the last good one, if recent enough.
+            [$prev, $comparedWith, $this->previousKey] = $this->lastGoodSnapshot($window) + [null, null, $this->previousKey];
+        }
         $this->pendingWrites = new BufferedStateStore($this->state);
         $deploy = $this->deployInfo = DeployInfo::resolve($c->deploy, $prev['deploy'] ?? null, $this->source, $window, $selector);
         $anomalies = LevelAnomaly::levels($prev === null ? null : ($prev['totals'] ?? []), $totals, $c->selection['growth_factor'], $readMin);
@@ -569,15 +581,17 @@ final class Watcher
         foreach ($candidates as $cand) {
             $redactedBy[$cand->group->fingerprint] = $redactor->redact($cand->group);
         }
+        $serviceContext = $this->serviceContext($redactor);
         $truncation = Budget::truncate(
             $candidates,
             $c->analysis['max_input_tokens']['triage'],
             static fn (array $cs): string => CompactPayload::encode(array_map(static fn ($cand) => $redactedBy[$cand->group->fingerprint], $cs)),
+            Budget::estimateTokens(Budget::systemPrompt('triage', $serviceContext)),
         );
         $redacted = array_map(static fn ($cand) => $redactedBy[$cand->group->fingerprint], $truncation->kept);
 
         [$dependencies, $failedDependencies, $undeclared] = $this->readDependencies($window, $normalizer, $redactor, array_map(static fn (RedactedGroup $g): ?string => $g->template, $redacted));
-        $dependencies = self::fitDependencies($redacted, $dependencies, $c->analysis['max_input_tokens']['analyze']);
+        $dependencies = Budget::fitDependencies($redacted, $dependencies, $c->analysis['max_input_tokens']['analyze'], Budget::estimateTokens(Budget::systemPrompt('analyze', $serviceContext)));
 
         $tz = new \DateTimeZone($c->schedule['timezone']);
         $spend = new Spend($this->state, $this->clock, $tz, $service);
@@ -587,9 +601,11 @@ final class Watcher
         $buffer = new BufferedStateStore($this->state); // verdicts and reported markers: kept only once the digest is delivered
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
-        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->stats, $c->analysis['models']), new VerdictCache($buffer, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
+        $checkpoint = new TriageCheckpoint($this->state, $service, $endKey);
+        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->stats, $c->analysis['models']), new VerdictCache($buffer, $service, $retention), $this->routerSettings($serviceContext), $checkpoint);
+        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']);
         try {
-            $routed = $router->route($redacted, $triageOnly, $dependencies);
+            $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
         } catch (AnalyzerFailed $e) {
             // The window was read: keep it as the next window's comparison base, but leave no RunRecord so the next trigger retries.
             $this->writeSnapshot($window, $allGroups, $totals);
@@ -642,7 +658,8 @@ final class Watcher
         $findings = $routed->findings; // already scrubbed by the decorator, before the router cached them
         $dropped = $truncation->droppedCount + $routed->droppedByTopM;
 
-        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $patternFailures === 0) {
+        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->notTriaged === 0 && $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize === 0 && $patternFailures === 0) {
+            $checkpoint->clear();
             $buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->writeSnapshot($window, $allGroups, $totals);
             $this->writeRun($runKey, RunOutcome::Quiet, $usage, $started);
@@ -696,6 +713,9 @@ final class Watcher
             $muteResult->partial,
             $routed->notAnalysed,
             $patternFailures,
+            $routed->notTriaged,
+            $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize,
+            $comparedWith,
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
@@ -711,6 +731,7 @@ final class Watcher
                 $buffer->put(Keys::reported($service, $fp), ['lastReportedAt' => $now, 'atCount' => $byFingerprint[$fp]->count ?? 0], $retention);
             }
         }
+        $checkpoint->clear();
         $buffer->flush();
         $this->writeSnapshot($window, $allGroups, $totals);
         $this->writeRun($runKey, RunOutcome::Reported, $usage, $started);
@@ -849,7 +870,7 @@ final class Watcher
         $failed = [];
         foreach ($c->dependencies as $name => $dep) {
             $name = (string) $name;
-            $snap = $this->state->get(Keys::dependencySnapshot($c->service, $name, self::windowKey($window->start)));
+            $snap = $this->state->get(Keys::dependencySnapshot($c->service, $name, $this->previousKey));
             /** @var array<string, int>|null $prevTotals */
             $prevTotals = is_array($snap['totals'] ?? null) ? $snap['totals'] : null;
             $previous[$name] = $prevTotals;
@@ -886,37 +907,6 @@ final class Watcher
         return [array_values(array_filter($contexts, static fn (DependencyContext $d): bool => !$d->unavailable)), array_values(array_unique(array_map('strval', $failed))), $plan->undeclaredHosts];
     }
 
-    /**
-     * The dependency section counts toward the analysis input: when it does not fit, dependency top errors go first
-     * (lowest count), never the candidates.
-     *
-     * @param list<RedactedGroup>     $groups
-     * @param list<DependencyContext> $deps
-     *
-     * @return list<DependencyContext>
-     */
-    private static function fitDependencies(array $groups, array $deps, int $maxInputTokens): array
-    {
-        while ($deps !== [] && Budget::estimateTokens(CompactPayload::encode($groups, $deps)) > $maxInputTokens) {
-            $at = null;
-            foreach ($deps as $i => $d) {
-                foreach ($d->topErrors as $j => $g) {
-                    if ($at === null || $g->count <= $deps[$at[0]]->topErrors[$at[1]]->count) {
-                        $at = [$i, $j];
-                    }
-                }
-            }
-            if ($at === null) {
-                break;
-            }
-            $top = $deps[$at[0]]->topErrors;
-            unset($top[$at[1]]);
-            $deps[$at[0]] = $deps[$at[0]]->withTopErrors(array_values($top));
-        }
-
-        return $deps;
-    }
-
     private function routerSettings(string $serviceContext): RouterSettings
     {
         $a = $this->config->analysis;
@@ -933,6 +923,7 @@ final class Watcher
             $a['confidence_threshold'],
             $this->config->selection['growth_factor'],
             $serviceContext,
+            $a['max_input_tokens']['escalate'],
         );
     }
 
@@ -968,11 +959,30 @@ final class Watcher
             $counts[$g->fingerprint] = $g->count;
         }
         $this->pendingWrites?->flush();
+        $key = self::windowKey($window->end);
         $this->state->put(
-            Keys::snapshot($this->config->service, self::windowKey($window->end)),
+            Keys::snapshot($this->config->service, $key),
             ['groups' => $counts, 'totals' => $totals, 'deploy' => $this->deployInfo?->toSnapshot()],
             $this->config->state['retention'],
         );
+        $this->state->put(Keys::lastSnapshot($this->config->service), ['end' => $key], $this->config->state['retention']);
+    }
+
+    /**
+     * H6: the snapshot the last successful snapshot write points to, if it is older than this window's start but at most 7 days before its end.
+     *
+     * @return array{0: array<mixed>, 1: DateTimeImmutable, 2: string}|array{}
+     */
+    private function lastGoodSnapshot(Window $window): array
+    {
+        $key = $this->state->get(Keys::lastSnapshot($this->config->service))['end'] ?? null;
+        $end = is_string($key) ? DateTimeImmutable::createFromFormat('Y-m-d\TH:i:s\Z', $key, new \DateTimeZone('UTC')) : false;
+        if ($end === false || $end >= $window->end || $window->end->getTimestamp() - $end->getTimestamp() > 7 * 86400) {
+            return [];
+        }
+        $snap = $this->state->get(Keys::snapshot($this->config->service, $key));
+
+        return $snap === null ? [] : [$snap, $end, $key];
     }
 
     private function writeRun(string $key, RunOutcome $outcome, ?Usage $usage, DateTimeImmutable $started): void

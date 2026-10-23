@@ -49,7 +49,7 @@ final class VerdictCache
         $this->put($g->fingerprint, $verdict, $g->count, null, $verdict === 'interesting' ? null : $this->settledTtl);
     }
 
-    private static function mustNotBeSilenced(RedactedGroup $g): bool
+    public static function mustNotBeSilenced(RedactedGroup $g): bool
     {
         return $g->level->value >= Level::Error->value || $g->watchMatches !== [];
     }

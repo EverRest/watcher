@@ -72,7 +72,7 @@ return [
         'max_output_tokens' => ['triage' => 1500, 'analyze' => 4000, 'escalate' => 2000],
         'confidence_threshold' => 0.6,                   // escalate below this for error+ findings; 0 < x < 1
         'escalation_cap' => 3,                           // escalations per run, default 3
-        'daily_budget_usd' => 0.50,                      // hard daily cap per service, default 0.50
+        'daily_budget_usd' => 0.50,                      // hard daily cap per service, default 0.50; each model call is reserved against it first
         'daily_token_limit' => null,                     // optional tokens/day cap (input+output+cache)
         'budget_alert_percents' => [25, 50, 75, 90],     // notices at these shares of the cap; ascending integers 1-99
         // REQUIRED for every model above: model id => [input, output, cache_read, cache_write], USD per million tokens.

@@ -55,6 +55,9 @@ final class LineParser
     /** Incremented per event whose level token was present but unrecognised (it is then Info). */
     public int $unknownLevels = 0;
 
+    /** JSON records whose `message` held more than one physical line: the rest is dropped, never promoted. */
+    public int $messageTailsDropped = 0;
+
     /** Trace-shaped lines dropped because no record was open to carry them (a page or stream that starts mid-trace). */
     public int $orphanTraceLines = 0;
 
@@ -133,7 +136,7 @@ final class LineParser
         if (str_starts_with($trimmed, '{')) {
             $data = json_decode($trimmed, true);
             if (is_array($data)) {
-                return $this->withException($this->fromJson($data, $fallback), '');
+                return $this->cutJsonMessage($this->fromJson($data, $fallback));
             }
         }
 
@@ -166,6 +169,25 @@ final class LineParser
         }
 
         return $this->withException(new LogEvent($fallback, $this->plainLevel($head) ?? Level::Info, $head, null, [], [], []), $rest);
+    }
+
+    /**
+     * A JSON message keeps its first physical line only (as a text record does); the tail can hold call arguments
+     * and names. The exception class and frames are read from the whole text first, then the tail is dropped.
+     */
+    private function cutJsonMessage(LogEvent $e): LogEvent
+    {
+        $nl = strpos($e->message, "\n");
+        if ($nl === false) {
+            return $this->withException($e, '');
+        }
+        $tail = substr($e->message, $nl + 1);
+        if (trim($tail) !== '') {
+            ++$this->messageTailsDropped;
+        }
+        $head = new LogEvent($e->time, $e->level, rtrim(substr($e->message, 0, $nl)), $e->errorType, $e->frames, $e->fields, $e->labels);
+
+        return $this->withException($head, $tail);
     }
 
     /**

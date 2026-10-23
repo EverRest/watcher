@@ -21,6 +21,19 @@ final class ReducerTest extends TestCase
         return new LogEvent(new DateTimeImmutable($time), $l, $msg, null, $frames, [], []);
     }
 
+    public function testDigitBasedExtraPatternsMaskTheTemplateAndMergeTheGroup(): void
+    {
+        $r = new Reducer(new Normalizer(extraPatterns: ['cust' => '/CUST-\d{6}/']), 3);
+        $groups = $r->reduce([
+            $this->ev('Invoice CUST-111111 rejected'),
+            $this->ev('Invoice CUST-222222 rejected'),
+            $this->ev('Invoice CUST-333333 rejected'),
+        ]);
+
+        self::assertCount(1, $groups);
+        self::assertSame('Invoice <CUST> rejected', $groups[0]->template);
+    }
+
     public function testFoldsIntoGroups(): void
     {
         $r = new Reducer(new Normalizer(), 3);

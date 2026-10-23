@@ -246,4 +246,30 @@ final class LineParserTest extends TestCase
         self::assertSame($expected, $e->level);
         self::assertSame($line, $e->message);
     }
+
+    public function testJsonMessageIsCutToItsFirstPhysicalLineAndTheTailIsCounted(): void
+    {
+        $p = $this->parser();
+        $e = $p->parse('{"level":"error","timestamp":"2026-10-07T21:49:49+00:00","message":"Payment failed\\r\\nargs: anna@example.com\\n  at x"}');
+
+        self::assertSame('Payment failed', $e->message);
+        self::assertSame(1, $p->messageTailsDropped);
+        self::assertStringNotContainsString("anna", $e->message);
+
+        $p->parse('{"level":"error","message":"one line only"}');
+        self::assertSame(1, $p->messageTailsDropped);
+        $p->parse('{"level":"error","message":"trailing break\\n"}');
+        self::assertSame(1, $p->messageTailsDropped);
+    }
+
+    public function testJsonMessageTailStillFeedsExceptionClassAndFrames(): void
+    {
+        $p = $this->parser();
+        $e = $p->parse('{"level":"error","message":"App\\\\BoomException: boom in /var/www/app/A.php:5\\n#0 /var/www/app/B.php(9): f(\'anna@example.com\')\\n#1 {main}"}');
+
+        self::assertSame('App\\BoomException', $e->errorType);
+        self::assertSame(['/var/www/app/A.php:5', '/var/www/app/B.php:9'], $e->frames);
+        self::assertSame('App\\BoomException: boom in /var/www/app/A.php:5', $e->message);
+        self::assertSame(1, $p->messageTailsDropped);
+    }
 }

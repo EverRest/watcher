@@ -10,6 +10,7 @@ final class Keys
     public const SNAP = 'snap';
     public const DEP = 'dep';
     public const VERDICT = 'verdict';
+    public const TRIAGE = 'triage';
     public const REPORTED = 'reported';
     public const RUN = 'run';
     public const LOCK = 'lock';
@@ -27,6 +28,18 @@ final class Keys
     public static function snapshot(string $service, string $windowEnd): string
     {
         return self::join(self::SNAP, $service, $windowEnd);
+    }
+
+    /** Pointer to the newest snapshot written: lets a run after a skipped or failed day find its comparison base. */
+    public static function lastSnapshot(string $service): string
+    {
+        return self::join(self::SNAP, $service, 'last');
+    }
+
+    /** Triage verdicts of one window, kept briefly so a retry after a failed analysis does not pay for triage twice. */
+    public static function triage(string $service, string $windowEnd): string
+    {
+        return self::join(self::TRIAGE, $service, $windowEnd);
     }
 
     public static function dependencySnapshot(string $service, string $name, string $windowEnd): string
