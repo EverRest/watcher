@@ -171,6 +171,17 @@ final class DigestRendererTest extends TestCase
         self::assertStringNotContainsString('cluster cap', $this->text((new DigestRenderer())->render($this->data([]), 0.5)));
     }
 
+    public function testNotAnalysedAndPatternFailureNoticesAreCountsOnly(): void
+    {
+        $text = $this->text((new DigestRenderer())->render($this->data([], [], ['notAnalysed' => 12, 'patternFailures' => 3]), 0.5), 'notice');
+
+        self::assertStringContainsString('12 group(s) flagged interesting were not analysed (budget exhausted, triage only or top_m cut)', $text);
+        self::assertStringContainsString('3 pattern evaluation failures: rules may have been skipped', $text);
+        $quiet = $this->text((new DigestRenderer())->render($this->data([]), 0.5));
+        self::assertStringNotContainsString('not analysed', $quiet);
+        self::assertStringNotContainsString('pattern evaluation', $quiet);
+    }
+
     public function testModelTextCannotPingOrInjectLinks(): void
     {
         $f = new Finding([$this->fp(1)], FindingKind::Bug, Severity::Error, 'a <!channel> & @here', 'see <https://evil.example|click> <@U123>', 'x `y`', '@channel now', 0.9);

@@ -13,6 +13,10 @@ use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
 use Watcher\Config\WatchConfig;
 use Watcher\RunOutcome;
+use Watcher\Tests\Fakes\FakeAnalyzer;
+use Watcher\Tests\Fakes\FakeLogSource;
+use Watcher\Tests\Fakes\FakeNotifier;
+use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Watcher;
 
 final class WatcherFromConfigTest extends TestCase
@@ -87,20 +91,48 @@ final class WatcherFromConfigTest extends TestCase
         }
     }
 
-    public function testPdoConnectFailureIsInvalidConfigAndLeaksNothing(): void
+    private const BAD_PDO = ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite:/nonexistent-watcher-dir-7f3a/secret-marker.db', 'username' => 'dbuser', 'password' => 'hunter2-secret']];
+
+    public function testPdoConnectFailureWaitsForTheFirstStateAccessAndLeaksNothing(): void
     {
-        $dsn = 'sqlite:/nonexistent-watcher-dir-7f3a/secret-marker.db';
-        $state = ['driver' => 'pdo', 'pdo' => ['dsn' => $dsn, 'username' => 'dbuser', 'password' => 'hunter2-secret']];
+        $dsn = self::BAD_PDO['pdo']['dsn'];
+        $watcher = Watcher::fromConfig(array_replace(self::valid(), ['state' => self::BAD_PDO])); // builds: nothing connected yet
+        self::assertInstanceOf(Watcher::class, $watcher);
+
+        $store = Factory::state(WatchConfig::fromArray(array_replace(self::valid(), ['state' => self::BAD_PDO])), new FrozenClock(new DateTimeImmutable('2026-10-23T12:00:00Z')));
         try {
-            Watcher::fromConfig(array_replace(self::valid(), ['state' => $state]));
+            $store->get('any');
             self::fail('expected InvalidConfig');
         } catch (InvalidConfig $e) {
             self::assertSame('state.pdo: cannot connect', $e->getMessage());
             self::assertNull($e->getPrevious());
-            $text = (string) $e;
             foreach ([$dsn, 'secret-marker', 'hunter2-secret', 'dbuser'] as $secret) {
-                self::assertStringNotContainsString($secret, $text);
+                self::assertStringNotContainsString($secret, (string) $e);
             }
+        }
+    }
+
+    public function testPdoStateIsNotTouchedOnATriggerOutsideTheRunHour(): void
+    {
+        $watcher = Watcher::fromConfig(array_replace(self::valid(), ['state' => self::BAD_PDO]));
+
+        self::assertSame(RunOutcome::SkippedNotDue, $watcher->run(new DateTimeImmutable('2026-10-23T12:00:00Z'))->outcome);
+    }
+
+    public function testPdoConnectFailureOnADueRunIsAFailedRunWithANotice(): void
+    {
+        $clock = new FrozenClock(new DateTimeImmutable('2026-10-23T06:00:00Z'));
+        $c = WatchConfig::fromArray(array_replace(self::valid(), ['state' => self::BAD_PDO]));
+        $notifier = new FakeNotifier();
+        $watcher = new Watcher($c, new FakeLogSource(), Factory::state($c, $clock), new FakeAnalyzer(), $notifier, $clock);
+
+        $result = $watcher->run();
+
+        self::assertSame(RunOutcome::Failed, $result->outcome);
+        self::assertCount(1, $notifier->sent);
+        foreach (['secret-marker', 'hunter2-secret', 'dbuser'] as $secret) {
+            self::assertStringNotContainsString($secret, (string) $result->failureReason);
+            self::assertStringNotContainsString($secret, $notifier->sent[0]["message"]->text);
         }
     }
 

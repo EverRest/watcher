@@ -42,8 +42,8 @@ final class AnthropicAnalyzer implements Analyzer
             $req->groups,
             $req->serviceContext,
             $req->model,
-            // The verdict list grows with the groups: never below the configured cap, ~15 tokens per verdict plus slack.
-            max($req->maxOutputTokens, 15 * count($req->groups) + 500),
+            // The verdict list grows with the groups: never below the configured cap, ~30 tokens per verdict (id plus verdict) plus slack.
+            max($req->maxOutputTokens, 30 * count($req->groups) + 500),
             fn (array $data): array => $this->validator->triage($data, $allowed),
         );
 
@@ -83,7 +83,11 @@ final class AnthropicAnalyzer implements Analyzer
         $usage = null;
 
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
-            $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext);
+            try {
+                $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext);
+            } catch (AnalyzerFailed $e) {
+                throw $usage === null ? $e : new AnalyzerFailed($e->getMessage(), $usage); // attempt 1 was billed even though attempt 2 failed
+            }
             $u = $this->usage($message, $model);
             $usage = $usage === null ? $u : $usage->plus($u);
 

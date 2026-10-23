@@ -127,6 +127,13 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ cluster cap hit: %s events from distinct messages beyond the first %s were grouped as other', number_format($d->overflowedEvents), number_format($d->groupCap))];
         }
 
+        if ($d->notAnalysed > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) flagged interesting were not analysed (budget exhausted, triage only or top_m cut)', number_format($d->notAnalysed))];
+        }
+        if ($d->patternFailures > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
+        }
+
         if ($d->undeclaredHostCount > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('🔗 %d call target(s) not declared as dependencies', $d->undeclaredHostCount)];
         }

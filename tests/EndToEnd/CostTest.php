@@ -89,6 +89,29 @@ final class CostTest extends TestCase
         self::assertEveryKeyExpires($h);
     }
 
+    public function testTriageOnlyDayStillSaysHowManyInterestingGroupsWereNotAnalysed(): void
+    {
+        $h = new Harness(self::BUDGET + ['schedule' => ['window' => 'PT1H']]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->clock->advance('+1 hour');
+        self::spendToday($h, 5.0);
+
+        $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta'), ...self::group('Gamma')]))->run();
+
+        self::assertStringContainsString('3 group(s) flagged interesting were not analysed', implode("\n", $h->sentTexts()), 'a missed analysis must not look like a quiet day');
+    }
+
+    public function testTopMCutIsReportedAsNotAnalysed(): void
+    {
+        $h = new Harness(['selection' => ['top_m' => 1]]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+
+        $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta'), ...self::group('Gamma')]))->run();
+
+        self::assertStringContainsString('2 group(s) flagged interesting were not analysed', implode("\n", $h->sentTexts()));
+    }
+
     public function testFailedRunMarksNoExhaustedKeyAndSendsNoNotice(): void
     {
         $h = new Harness(self::BUDGET + ['schedule' => ['window' => 'PT1H']]);
@@ -323,7 +346,7 @@ final class CostTest extends TestCase
         self::assertSame(0, $today['tokens']);
     }
 
-    public function testAPaidCallWithAnUnpricedModelIsRecordedAtZeroAndFailsClearly(): void
+    public function testAPaidCallWithAnUnpricedModelIsRecordedAtZeroKeepsItsResultAndWarnsOnce(): void
     {
         $h = new Harness();
         $logged = new class () extends \Psr\Log\AbstractLogger {
@@ -342,11 +365,10 @@ final class CostTest extends TestCase
 
         $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
 
-        self::assertSame(RunOutcome::Failed, $result->outcome);
-        self::assertSame('no price configured for model', $result->failureReason, 'never a generic internal error');
+        self::assertSame(RunOutcome::Reported, $result->outcome, 'the paid result is kept');
         $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
-        self::assertSame(1500, $today['tokens'], 'the paid call is recorded even without a price');
+        self::assertGreaterThan(0, $today['tokens'], 'the paid calls are recorded even without a price');
         self::assertEqualsWithDelta(0.0, $today['usd'], 1e-9);
-        self::assertNotSame([], array_filter($logged->lines, static fn (string $l): bool => str_contains($l, 'no price configured')));
+        self::assertCount(1, array_filter($logged->lines, static fn (string $l): bool => str_contains($l, 'no price configured')), 'warned once per model, not per call');
     }
 }

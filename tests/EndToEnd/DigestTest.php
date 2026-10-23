@@ -210,6 +210,25 @@ final class DigestTest extends TestCase
         self::assertContains(['vip'], array_map(static fn ($g) => $g->watchMatches, $seen));
     }
 
+    public function testRegexEvaluationFailuresAreCountedInTheDigest(): void
+    {
+        $jit = ini_set('pcre.jit', '0');
+        $limit = ini_set('pcre.backtrack_limit', '100');
+        try {
+            $h = new Harness(['mute' => [['field' => 'note', 'matches' => '/^(a+)+$/']]]);
+            $h->watcher(self::source(self::alpha()))->run();
+            $h->nextWindow();
+            $events = array_map(static fn (\Watcher\Source\LogEvent $e) => new \Watcher\Source\LogEvent($e->time, $e->level, $e->message, $e->errorType, [], ['note' => str_repeat('a', 40) . 'b'], []), self::alpha());
+
+            $h->watcher(self::source($events))->run();
+        } finally {
+            ini_set('pcre.jit', (string) $jit);
+            ini_set('pcre.backtrack_limit', (string) $limit);
+        }
+
+        self::assertMatchesRegularExpression('/\d+ pattern evaluation failures: rules may have been skipped/', implode("\n", $h->sentTexts()));
+    }
+
     public function testAFieldMuteNeverHidesTheOverflowGroup(): void
     {
         $h = new Harness(['source' => ['group_cap' => 3], 'selection' => ['top_n' => 100], 'mute' => [['field' => 'tenant', 'equals' => 'noisy']]]);

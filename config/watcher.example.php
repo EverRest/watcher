@@ -29,13 +29,14 @@ return [
             'site' => 'datadoghq.com',                   // e.g. datadoghq.eu
             'api_key' => getenv('WATCHER_DD_API_KEY'),   // required for datadog
             'app_key' => getenv('WATCHER_DD_APP_KEY'),   // required; application key with the logs_read_data scope only
+            'newest_first' => false,                     // true: sort newest first, so an event_cap truncation keeps the NEWEST events. Default false (oldest)
         ],
         'stream_tags' => ['app' => 'orders-api', 'env' => 'prod'], // which logs belong to this service, default []
         'read_min_level' => 'warning',                   // lower levels are only counted in totals, default warning
         'anomaly_cap' => 20000,                          // second-pass event cap for a level whose total grew, default 20000
-        'sample_size' => 3,                              // sample lines kept per group, default 3
         'group_cap' => 5000,                             // max distinct problem groups kept in memory per run; the rest is grouped as "other", default 5000
         'event_cap' => 200000,                           // hard cap on events read per run, default 200000
+        'level_mode' => 'text',                          // how read_min_level is pushed to the backend: text | label | all (loki); datadog: all = no status filter, else status. Default text
     ],
 
     // Explicit matchers that raise a group's priority; only the rule NAME leaves the service.
@@ -120,7 +121,7 @@ return [
         'auth' => ['stream_tags' => ['app' => 'auth']],
     ],
     'dependency_read_cap' => 5000,                       // events read per dependency, default 5000
-    'dependency_domains' => ['svc.cluster.local'],       // hosts kept in templates only if they end with one of these
+    'dependency_domains' => ['svc.cluster.local'],       // a host becomes <URL:name> only if it equals a DECLARED dependency name or is name.<domain> for one of these; [] turns every non-exact dependency host into <URL>
 
     'deploy' => [
         'release' => getenv('WATCHER_RELEASE') ?: null,  // shown next to findings to correlate with deploys

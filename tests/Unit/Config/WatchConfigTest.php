@@ -69,7 +69,7 @@ final class WatchConfigTest extends TestCase
         self::assertSame(50, $c->selection['top_n']);
         self::assertSame(10, $c->selection['top_m']);
         self::assertSame(Level::Warning, $c->source['read_min_level']);
-        self::assertSame(3, $c->source['sample_size']);
+        self::assertSame('text', $c->source['level_mode']);
         self::assertSame(200000, $c->source['event_cap']);
         self::assertSame(20000, $c->source['anomaly_cap']);
         self::assertSame(5000, $c->source['group_cap']);
@@ -84,6 +84,14 @@ final class WatchConfigTest extends TestCase
         self::assertSame([], $c->watchRules);
         self::assertSame([], $c->mute);
         self::assertSame($c->notify['digest'], $c->notify['notice']);
+    }
+
+    public function testZeroBudgetAndEveryLevelModeAreAccepted(): void
+    {
+        foreach (['label', 'text', 'all'] as $mode) {
+            self::assertSame($mode, WatchConfig::fromArray(self::with(['source' => ['level_mode' => $mode]]))->source['level_mode']);
+        }
+        self::assertSame(0.0, WatchConfig::fromArray(self::with(['analysis' => ['daily_budget_usd' => 0]]))->analysis['daily_budget_usd']);
     }
 
     public function testBudgetAlertOverridesAreAccepted(): void
@@ -182,6 +190,35 @@ final class WatchConfigTest extends TestCase
             'min_group_events_for_text string' => [self::with(['redaction' => ['min_group_events_for_text' => '3']]), 'redaction.min_group_events_for_text'],
             'min_group_events_for_text float' => [self::with(['redaction' => ['min_group_events_for_text' => 2.5]]), 'redaction.min_group_events_for_text'],
             'dependency source override' => [self::with(['dependencies' => ['core-api' => ['stream_tags' => ['app' => 'core-api'], 'source' => 'other']]]), 'dependencies.core-api.source'],
+            'unknown schedule key' => [self::with(['schedule' => ['run_att' => '06:00']]), 'schedule.run_att'],
+            'unknown source key' => [self::with(['source' => ['evnt_cap' => 5]]), 'source.evnt_cap'],
+            'sample_size is gone' => [self::with(['source' => ['sample_size' => 3]]), 'source.sample_size'],
+            'unknown loki key' => [self::with(['source' => ['loki' => ['urll' => 'x']]]), 'source.loki.urll'],
+            'unknown loki auth key' => [self::with(['source' => ['loki' => ['auth' => ['type' => 'bearer', 'token' => 't', 'tokn' => 'x']]]]), 'source.loki.auth.tokn'],
+            'unknown datadog key' => [self::with(['source' => ['driver' => 'datadog', 'datadog' => ['api_key' => 'a', 'app_key' => 'b', 'sit' => 'x']]]), 'source.datadog.sit'],
+            'unknown selection key' => [self::with(['selection' => ['min_levl' => 'error']]), 'selection.min_levl'],
+            'unknown analysis key' => [self::with(['analysis' => ['daily_budget' => 1]]), 'analysis.daily_budget'],
+            'unknown analysis models key' => [self::with(['analysis' => ['models' => ['triag' => 'x']]]), 'analysis.models.triag'],
+            'unknown max_input_tokens key' => [self::with(['analysis' => ['max_input_tokens' => ['analyse' => 5]]]), 'analysis.max_input_tokens.analyse'],
+            'unknown max_output_tokens key' => [self::with(['analysis' => ['max_output_tokens' => ['x' => 5]]]), 'analysis.max_output_tokens.x'],
+            'unknown redaction key' => [self::with(['redaction' => ['min_group_event_for_text' => 3]]), 'redaction.min_group_event_for_text'],
+            'unknown state key' => [self::with(['state' => ['retenton' => 5]]), 'state.retenton'],
+            'unknown state file key' => [self::with(['state' => ['file' => ['pth' => 'x']]]), 'state.file.pth'],
+            'unknown state redis key' => [self::with(['state' => ['driver' => 'redis', 'redis' => ['hots' => 'x']]]), 'state.redis.hots'],
+            'unknown state pdo key' => [self::with(['state' => ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:', 'tabel' => 'x']]]), 'state.pdo.tabel'],
+            'unknown notify key' => [self::with(['notify' => ['digets' => []]]), 'notify.digets'],
+            'unknown notify digest key' => [self::with(['notify' => ['digest' => ['webhok' => 'x']]]), 'notify.digest.webhok'],
+            'unknown deploy key' => [self::with(['deploy' => ['relase' => 'x']]), 'deploy.relase'],
+            'unknown links key' => [self::with(['links' => ['grafanna' => []]]), 'links.grafanna'],
+            'unknown links grafana key' => [self::with(['links' => ['grafana' => ['base_ur' => 'x']]]), 'links.grafana.base_ur'],
+            'unknown repo key' => [self::with(['repo' => ['provider' => 'gitlab', 'web_url' => 'https://g', 'pth_map' => []]]), 'repo.pth_map'],
+            'unknown dependency key' => [self::with(['dependencies' => ['core-api' => ['stream_tags' => ['app' => 'x'], 'stream_tag' => []]]]), 'dependencies.core-api.stream_tag'],
+            'unknown watch rule key' => [self::with(['watch_rules' => ['q' => ['template' => '/a/', 'equal' => 'x']]]), 'watch_rules.q.equal'],
+            'unknown mute key' => [self::with(['mute' => [['fingerprint' => 'abc', 'unti' => null]]]), 'mute.0.unti'],
+            'negative daily budget' => [self::with(['analysis' => ['daily_budget_usd' => -1]]), 'analysis.daily_budget_usd'],
+            'non-bool newest_first' => [self::with(['source' => ['driver' => 'datadog', 'datadog' => ['api_key' => 'a', 'app_key' => 'b', 'newest_first' => 'yes']]]), 'source.datadog.newest_first'],
+            'bad level_mode' => [self::with(['source' => ['level_mode' => 'all-of-it']]), 'source.level_mode'],
+            'non-string level_mode' => [self::with(['source' => ['level_mode' => true]]), 'source.level_mode'],
             'service_context too long' => [self::with(['service_context' => str_repeat('a', 1001)]), 'service_context'],
         ];
     }

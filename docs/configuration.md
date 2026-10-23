@@ -8,7 +8,7 @@ One PHP array per service. Plain PHP passes it to `Watcher::fromConfig()` (or re
 
 The configuration is validated once, before any external call. A problem stops the run with exit code 2 and one line
 that names the key (never the value): `invalid config: analysis.prices (no price for models.triage)`. **Unknown
-top-level keys are rejected**, so a typo cannot silently disable a setting. Nested keys are not checked for typos.
+keys are rejected at every level** (`unknown configuration key: selection.min_levl`; the message names the key path, never a value), so a typo cannot silently disable a setting. Free-form maps (`source.stream_tags`, `dependencies.<name>.stream_tags`, `analysis.prices`, `redaction.extra_patterns`, `watch_rules`, `path_map`) accept any names.
 
 Secrets and model ids are never defaults in code: they come from the environment (or your secret store).
 
@@ -28,7 +28,7 @@ settings, `notify.digest.webhook`.
 | `schedule.run_at` | required | `HH:MM`. The run is due from `run_at` for one hour, in `schedule.timezone`. |
 | `schedule.timezone` | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
 | `schedule.window` | `PT24H` | ISO-8601 lookback. The window ends at the local `run_at`. |
-| `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (it is released at the end of every run). |
+| `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (it is released at the end of every run). It is **not renewed** during a run (the state contract has no renew). To keep a second run from starting mid-analysis, one model call (two sequential attempts, SDK retries off) is bounded to `lock_ttl / 4`: the HTTP timeout is `lock_ttl / 8` seconds, within 10..180. A run makes at most `2 + escalation_cap` model calls. |
 
 ### `source`
 
@@ -43,7 +43,8 @@ settings, `notify.digest.webhook`.
 | `source.stream_tags` | `[]` | Labels that select this service's logs, e.g. `['app' => 'orders-api', 'env' => 'prod']`. Loki selector `{app="..",env=".."}`, Datadog query `app:.. env:..`. |
 | `source.read_min_level` | `warning` | Levels below this are only counted in totals (and read in a second pass if their total jumps). |
 | `source.anomaly_cap` | `20000` | Event cap of that second pass. |
-| `source.sample_size` | `3` | Sample lines kept per group while reducing (in memory only). |
+| `source.level_mode` | `text` | How `read_min_level` is pushed to the backend. **Loki:** `text` = LogQL line filter on level words (misses lines whose level lives only in the stream label); `label` = stream matcher on the `level` label, no line filter (with watch rules present it falls back to the unrestricted selector, because LogQL cannot OR a stream matcher with a line filter); `all` = no level restriction. **Datadog:** `all` = no `status:` filter, anything else = status filter. |
+| `source.datadog.newest_first` | `false` | `true` sorts `-timestamp`, so an `event_cap` truncation keeps the newest events instead of the oldest. |
 | `source.group_cap` | `5000` | Hard bound on distinct problem groups held in memory per run. Past it, events with a new message are grouped as one "other" group per level and the digest says "cluster cap hit". Events matching a watch rule keep their own group up to 2 x this value. |
 | `source.event_cap` | `200000` | Hard cap on events read per run; the digest says "truncated" when it is hit. |
 
@@ -70,11 +71,11 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `analysis.api_key` | required | |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
 | `analysis.prices` | required | `model id => [input, output, cache_read, cache_write]`, **USD per million tokens**, for every model above. Drives the cost line, the daily cap and the alerts: keep it current. |
-| `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input budget; lowest-priority candidates are dropped first, with a note in the digest. |
-| `analysis.max_output_tokens` | triage 1500, analyze 4000, escalate 2000 | |
+| `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input budget; lowest-priority candidates are dropped first, with a note in the digest. Enforced for `triage` (candidates) and `analyze` (dependency context shrinks first). **`escalate` is accepted but not enforced**: an escalation re-sends a subset of the groups already sent to `analyze`, so it never exceeds the analyze input. |
+| `analysis.max_output_tokens` | triage 1500, analyze 4000, escalate 2000 | A floor, not a ceiling: triage uses `max(configured, 30 * groups + 500)` because the verdict list grows with the groups. |
 | `analysis.confidence_threshold` | `0.6` | Findings of severity error or higher below this are re-analysed once by the strong model; warn/info below it collapse into the "minor" line. `0 < x < 1`. |
 | `analysis.escalation_cap` | `3` | Escalations per run. |
-| `analysis.daily_budget_usd` | `0.50` | Hard daily cap per service. When spent, runs do triage only and send one notice a day. |
+| `analysis.daily_budget_usd` | `0.50` | Hard daily cap per service (`>= 0`; `0` = triage only). When spent, runs do triage only and send one notice a day. |
 | `analysis.daily_token_limit` | null | Optional daily cap on tokens (input + output + cache). |
 | `analysis.budget_alert_percents` | `[25, 50, 75, 90]` | One notice per threshold and counter per day (the highest newly crossed one). Integers 1-99, ascending. |
 
@@ -109,11 +110,20 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `service_context` | `''` | Up to 1000 characters: what the service does and what is critical. Sent to the model on every request after the redaction scan. Never put personal data in it. |
 | `dependencies` | `[]` | `name => ['stream_tags' => [...]]`. Their error totals are read each run; lines only when a candidate references the host or the dependency's errors grew. A per-dependency `source` override is not available yet (rejected). |
 | `dependency_read_cap` | `5000` | Events read per triggered dependency. |
-| `dependency_domains` | `['svc.cluster.local']` | A host in log text becomes `<URL:name>`/`<HOST:name>` (the declared name only, never a suffix) if it equals a declared dependency name or is `name.<d>` / `name.<one label>.<d>` for one of these domains; every other host is masked as `<URL>`/`<HOST>`. The digest only counts such call targets, it never names them. |
+| `dependency_domains` | `['svc.cluster.local']` | A host in log text becomes `<URL:name>`/`<HOST:name>` (the declared name only, never a suffix) if it equals a declared dependency name or is `name.<d>` / `name.<one label>.<d>` for one of these domains; every other host is masked as `<URL>`/`<HOST>`. The digest only counts such call targets, it never names them. **`[]` turns every dependency host that is not exactly a declared name into `<URL>`/`<HOST>`.** A host is kept only if a dependency is declared for it, so declare the name in `dependencies` as well as the domain here. |
 | `deploy.release`, `deploy.commit` | null | Usually from CI. A new group after a release change is marked "first seen after <release>". |
 | `deploy.version_label` | null | Log label that carries the running version, if your source has one (gives the deploy moment). |
 | `links.grafana.{base_url,datasource_uid}` / `links.datadog.app_url` | none | Builds a log-query link per finding from redacted data only. |
 | `repo.{provider,web_url,path_map}` | none | `provider` is `gitlab` or `github`; `path_map` maps container path prefixes to repository paths for stack-frame links (needs `deploy.commit`). Vendor paths get no link. |
+
+## Digest notices (counts only, never raw content)
+
+Besides findings, the digest carries short notices: `truncated: N events read` (`event_cap`), `truncated: N groups dropped (budget)`
+(`max_input_tokens`), `cluster cap hit` (`group_cap`), `N group(s) flagged interesting were not analysed` (triage found them but the
+daily budget was spent, or `top_m` cut them), `N pattern evaluation failures: rules may have been skipped` (a watch rule, mute or
+backend-filter regex failed to evaluate, e.g. hit the PCRE backtrack limit; it fails open), `N call target(s) not declared as
+dependencies` and `dependency unavailable: name`. A day with such a notice is sent even when there are no findings, so a missed
+analysis never looks like a quiet day.
 
 ## Environment variables used by the shipped configs
 

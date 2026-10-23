@@ -150,7 +150,7 @@ otherwise, change `service` to start a new baseline.
 | Digest says "cluster cap hit" | more distinct messages than `source.group_cap`: usually an unmasked id in a message; the overflow is counted but not analysed. Raise `group_cap` (memory grows with it) or fix the message |
 | Costs higher than expected | many fresh fingerprints (cache cannot help); raise `growth_factor`, lower `top_m`, mute noisy families, check `read_min_level` |
 | `analysis failed: authentication failed` with a valid key | see the Bearer note in [smoke-test.md](smoke-test.md#2-prepare-the-shell) |
-| Dependencies missing in a digest | declare them in `dependencies` (the digest lists undeclared hosts it saw) |
+| Dependencies missing in a digest | declare them in `dependencies` (the digest shows only a count of undeclared call targets, never their names; a host is kept as `<URL:name>` only if it equals a declared name or is `name.<domain>` for a `dependency_domains` entry) |
 | Links point nowhere | `links.*` and `repo.path_map` are config only; the Grafana Explore URL shape is not verified against every Grafana version |
 
 ## Rollback / disabling

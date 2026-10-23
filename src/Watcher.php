@@ -98,7 +98,7 @@ final class Watcher
 
         return new self(
             $c,
-            Factory::source($c, $http),
+            Factory::source($c, $http, $clock),
             Factory::state($c, $clock),
             Factory::analyzer($c),
             Factory::notifier($http),
@@ -252,8 +252,10 @@ final class Watcher
         $ruleHits = [];
         /** @var array<string, array<int, int>> $muteHits fingerprint => [mute entry index => events that matched it] (counts only) */
         $muteHits = [];
+        /** @var list<ReadFilter> kept only to read their patternErrors counters */
+        $filters = [];
         $ruleMatched = false; // set by observe for the event the reducer is processing right now (the stream is sequential)
-        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, &$eventsRead, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits, &$ruleMatched): iterable {
+        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, &$eventsRead, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits, &$ruleMatched, &$filters): iterable {
             // Field VALUES are matched here and dropped: only rule names and mute indexes are kept per fingerprint.
             $observe = static function (\Watcher\Source\LogEvent $e) use ($rules, $muteMatchers, $fingerprinter, &$eventsRead, &$ruleHits, &$muteHits, &$ruleMatched): \Watcher\Source\LogEvent {
                 ++$eventsRead; // counted as they stream, so muted events are included
@@ -276,14 +278,16 @@ final class Watcher
                 return $e;
             };
             foreach ($anomalies as $level) {
-                foreach ($this->source->lines($window, $selector, new ReadFilter($level, [], $this->config->source['anomaly_cap'])) as $e) {
+                $filters[] = $filter = new ReadFilter($level, [], $this->config->source['anomaly_cap']);
+                foreach ($this->source->lines($window, $selector, $filter) as $e) {
                     if ($e->level === $level) {
                         yield $observe($e);
                     }
                 }
                 $truncated = $this->source->lastReadTruncated() || $truncated;
             }
-            foreach ($this->source->lines($window, $selector, new ReadFilter($readMin, $rules->backendPatterns(), $this->config->source['event_cap'])) as $e) {
+            $filters[] = $filter = new ReadFilter($readMin, $rules->backendPatterns(), $this->config->source['event_cap']);
+            foreach ($this->source->lines($window, $selector, $filter) as $e) {
                 yield $observe($e);
             }
             $truncated = $this->source->lastReadTruncated() || $truncated;
@@ -315,6 +319,13 @@ final class Watcher
         );
 
         $groups = $rules->apply($groups, $ruleHits);
+        // Counts only: a regex that failed to evaluate (backtrack limit) fails open, and the operator should hear about it.
+        $patternFailures = $rules->failures() + $mute->failures()
+            + array_sum(array_map(static fn (\Watcher\Select\Matcher $m): int => $m->failures, $muteMatchers))
+            + array_sum(array_map(static fn (ReadFilter $f): int => $f->patternErrors, $filters));
+        if ($patternFailures > 0) {
+            $this->hostLog?->warning('pattern evaluation failures: rules may have been skipped', ['service' => $service, 'count' => $patternFailures]);
+        }
         $environment = $this->environment();
         $renderer = new DigestRenderer();
 
@@ -384,7 +395,11 @@ final class Watcher
         $costUsd = 0.0;
         $models = [];
         foreach ($routed->usageByStep as $step => $u) {
-            $cost = $calculator->cost($u); // already added to Spend per call, see metered()
+            try {
+                $cost = $calculator->cost($u); // already added to Spend per call, see metered()
+            } catch (UnknownModelPrice) {
+                $cost = 0.0; // booked at 0 and warned about in metered()
+            }
             $costUsd += $cost;
             $models[$step] = $c->analysis['models'][$step];
             $priced = new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost);
@@ -419,7 +434,7 @@ final class Watcher
         $findings = $routed->findings; // already scrubbed by the decorator, before the router cached them
         $dropped = $truncation->droppedCount + $routed->droppedByTopM;
 
-        if ($findings === [] && $dropped === 0) {
+        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $patternFailures === 0) {
             $buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->writeSnapshot($window, $allGroups, $totals);
             $this->writeRun($runKey, RunOutcome::Quiet, $usage, $started);
@@ -456,7 +471,7 @@ final class Watcher
             $costUsd,
             $this->anomalyLine($anomalies, $prev['totals'] ?? [], $totals),
             $truncated ? $eventsRead : null,
-            $dropped,
+            $truncation->droppedCount,
             $selection->otherGroups,
             $selection->otherEvents,
             $muteResult->mutedCount,
@@ -471,6 +486,8 @@ final class Watcher
             $reducer->overflowedEvents(),
             $c->source['group_cap'],
             $muteResult->partial,
+            $routed->notAnalysed,
+            $patternFailures,
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
@@ -517,11 +534,14 @@ final class Watcher
 
     /**
      * Each call is priced and added to Spend as it returns, so a later failure in the same run cannot lose what was already paid for.
-     * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 and fails clearly.
+     * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 with one warning.
      */
     private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log): Analyzer
     {
         return new class ($inner, $spend, $calculator, $log) implements Analyzer {
+            /** @var array<string, true> */
+            private array $warned = [];
+
             public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log)
             {
             }
@@ -533,7 +553,7 @@ final class Watcher
                 } catch (AnalyzerFailed $e) {
                     throw $this->bookFailed($e);
                 }
-                $this->book($r->usage) || throw new AnalyzerFailed('no price configured for model');
+                $this->book($r->usage);
 
                 return $r;
             }
@@ -545,7 +565,7 @@ final class Watcher
                 } catch (AnalyzerFailed $e) {
                     throw $this->bookFailed($e);
                 }
-                $this->book($r->usage) || throw new AnalyzerFailed('no price configured for model');
+                $this->book($r->usage);
 
                 return $r;
             }
@@ -559,18 +579,17 @@ final class Watcher
                 return $e;
             }
 
-            /** @return bool false when the model had no price (recorded at cost 0) */
-            private function book(Usage $u): bool
+            /** A paid call whose model has no price is booked at cost 0 (warned once per model); its result is never discarded. */
+            private function book(Usage $u): void
             {
                 try {
                     $this->spend->add($u, $this->calculator->cost($u));
-
-                    return true;
                 } catch (UnknownModelPrice) {
                     $this->spend->add($u, 0.0);
-                    $this->log?->error('paid analyzer call has no price configured; recorded at cost 0', ['model' => $u->model]);
-
-                    return false;
+                    if (!isset($this->warned[$u->model])) {
+                        $this->warned[$u->model] = true;
+                        $this->log?->warning('paid analyzer call has no price configured; recorded at cost 0', ['model' => $u->model]);
+                    }
                 }
             }
         };

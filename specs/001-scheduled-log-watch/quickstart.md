@@ -37,7 +37,7 @@ Each command's exit code must be 0 (read `$?`, not the last output line).
 | 13 | Input over `max_input_tokens` | lowest-priority groups dropped; "truncated" line (FR-021) |
 | 14 | Low-confidence error finding | escalated once; never more than `escalation_cap` per run (FR-016) |
 | 15 | A logs errors to `http://core-api/…`, core-api has a new error group | A's finding names core-api with its counts (FR-039) |
-| 16 | Template references undeclared host `reporting-api` | digest lists "undeclared dependency: reporting-api" |
+| 16 | Template references undeclared host `reporting-api` | digest shows a count only: "1 call target(s) not declared as dependencies" (the host is masked as `<URL>`, never named) |
 | 17 | Release changed since previous window, new group | finding marked "first seen after <release>" (FR-041) |
 | 18 | Any finding | carries a log link without personal data (FR-042) |
 | 19 | Finding with app frames and vendor frames | app frames link to the repo at the commit, vendor frames have no link (FR-043) |

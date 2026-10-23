@@ -17,6 +17,8 @@ final class RouterResult
         public readonly int $reused,
         public readonly int $triaged,
         public readonly int $droppedByTopM,
+        /** @var int interesting groups that triage flagged but no analysis looked at (triage-only day or top_m cut) */
+        public readonly int $notAnalysed = 0,
     ) {
     }
 }

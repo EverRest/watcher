@@ -30,13 +30,14 @@ return [
             'site' => env('WATCHER_DD_SITE', 'datadoghq.com'),
             'api_key' => env('WATCHER_DD_API_KEY'),
             'app_key' => env('WATCHER_DD_APP_KEY'), // logs_read_data scope only
+            'newest_first' => false,
         ],
         'stream_tags' => [],                       // e.g. ['app' => 'my-service', 'env' => 'prod']
         'read_min_level' => 'warning',
         'anomaly_cap' => 20000,
-        'sample_size' => 3,
         'event_cap' => 200000,
         'group_cap' => 5000,
+        'level_mode' => 'text', // text | label | all, see docs/configuration.md
     ],
 
     // Explicit matchers; only the rule name leaves the service. One of

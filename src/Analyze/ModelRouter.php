@@ -60,11 +60,12 @@ final class ModelRouter
         $findings = [];
         $dropped = 0;
         $escalations = 0;
+        $notAnalysed = $triageOnly ? count($interesting) : 0;
         if (!$triageOnly && $interesting !== []) {
             usort($interesting, static fn (RedactedGroup $a, RedactedGroup $b): int => self::priority($b) <=> self::priority($a)
                 ?: $b->count <=> $a->count
                 ?: strcmp($a->fingerprint, $b->fingerprint));
-            $dropped = max(0, count($interesting) - $this->s->topM);
+            $dropped = $notAnalysed = max(0, count($interesting) - $this->s->topM);
             $top = array_slice($interesting, 0, $this->s->topM);
 
             $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $this->s->analyzeMaxTokens, self::remap($dependencyContext, $groups, $top)));
@@ -111,7 +112,7 @@ final class ModelRouter
             }
         }
 
-        return new RouterResult($findings, $usage, $escalations, $reused, count($fresh), $dropped);
+        return new RouterResult($findings, $usage, $escalations, $reused, count($fresh), $dropped, $notAnalysed);
     }
 
     /**

@@ -19,6 +19,8 @@ final class DigestData
      * @param array<string, string>        $afterReleaseFingerprints fingerprint => release a NEW group was first seen after
      * @param int                          $undeclaredHostCount      call targets in templates that no declared dependency covers (never named)
      * @param list<string>                 $failedDependencies       declared dependencies whose source was unavailable
+     * @param int                          $notAnalysed              groups triage flagged interesting that no analysis looked at
+     * @param int                          $patternFailures          regex evaluations that failed (rules may have been skipped)
      * @param int                          $overflowedEvents         events folded into the per-level overflow group (source.group_cap hit)
      * @param array<string, array{log: ?string, code: list<string>}> $links by fingerprint; URLs built from config and redacted data only
      */
@@ -52,6 +54,8 @@ final class DigestData
         public readonly int $groupCap = 0,
         /** @var array<string, array{int, int, int}> kept groups partly matched by a field mute: fingerprint => [matched, events, mute index] */
         public readonly array $mutePartial = [],
+        public readonly int $notAnalysed = 0,
+        public readonly int $patternFailures = 0,
     ) {
     }
 }

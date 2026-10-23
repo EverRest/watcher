@@ -71,6 +71,7 @@ final class WatchConfig
         $service = self::str($config, 'service', 'service');
 
         $sch = self::section($config, 'schedule');
+        self::only($sch, ['run_at', 'timezone', 'window', 'lock_ttl'], 'schedule');
         $runAt = self::str($sch, 'run_at', 'schedule.run_at');
         if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $runAt) !== 1) {
             throw new InvalidConfig('schedule.run_at must be HH:MM');
@@ -98,6 +99,7 @@ final class WatchConfig
         $source = self::source(self::section($config, 'source'));
 
         $selSec = self::section($config, 'selection');
+        self::only($selSec, ['min_level', 'growth_factor', 'top_n', 'top_m'], 'selection');
         $selection = [
             'min_level' => self::level($selSec, 'min_level', 'error', 'selection.min_level'),
             'growth_factor' => self::num($selSec, 'growth_factor', 3.0, 'selection.growth_factor'),
@@ -122,6 +124,7 @@ final class WatchConfig
         }
 
         $redaction = self::section($config, 'redaction');
+        self::only($redaction, ['extra_patterns', 'min_group_events_for_text'], 'redaction');
         $patterns = $redaction['extra_patterns'] ?? [];
         if (!is_array($patterns)) {
             throw new InvalidConfig('redaction.extra_patterns must be a map');
@@ -143,8 +146,8 @@ final class WatchConfig
             self::dependencies($config['dependencies'] ?? []),
             self::posInt($config, 'dependency_read_cap', 5000, 'dependency_read_cap'),
             $domains,
-            self::section($config, 'deploy'),
-            self::section($config, 'links'),
+            self::known(self::section($config, 'deploy'), ['release', 'commit', 'version_label'], 'deploy'),
+            self::links(self::section($config, 'links')),
             self::repo($config['repo'] ?? null),
             $selection,
             self::analysis(self::section($config, 'analysis')),
@@ -161,15 +164,18 @@ final class WatchConfig
      */
     private static function source(array $s): array
     {
+        self::only($s, ['driver', 'loki', 'datadog', 'stream_tags', 'read_min_level', 'anomaly_cap', 'group_cap', 'event_cap', 'level_mode'], 'source');
         $driver = self::str($s, 'driver', 'source.driver');
         if ($driver === 'loki') {
             $loki = self::section($s, 'loki');
+            self::only($loki, ['url', 'auth', 'tenant'], 'source.loki');
             self::str($loki, 'url', 'source.loki.url');
             $auth = $loki['auth'] ?? null;
             if ($auth !== null) {
                 if (!is_array($auth) || !in_array($auth['type'] ?? null, ['bearer', 'basic'], true)) {
                     throw new InvalidConfig('source.loki.auth.type must be bearer or basic');
                 }
+                self::only($auth, ['type', 'token', 'user', 'password'], 'source.loki.auth');
                 $need = $auth['type'] === 'bearer' ? ['token'] : ['user', 'password'];
                 foreach ($need as $k) {
                     self::str($auth, $k, 'source.loki.auth.' . $k);
@@ -177,6 +183,10 @@ final class WatchConfig
             }
         } elseif ($driver === 'datadog') {
             $dd = self::section($s, 'datadog');
+            self::only($dd, ['site', 'api_key', 'app_key', 'newest_first'], 'source.datadog');
+            if (isset($dd['newest_first']) && !is_bool($dd['newest_first'])) {
+                throw new InvalidConfig('source.datadog.newest_first must be true or false');
+            }
             self::str($dd, 'api_key', 'source.datadog.api_key');
             self::str($dd, 'app_key', 'source.datadog.app_key');
             if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i', self::optStr($dd, 'site', 'datadoghq.com', 'source.datadog.site')) !== 1) {
@@ -194,9 +204,9 @@ final class WatchConfig
         return array_merge($s, [
             'read_min_level' => self::level($s, 'read_min_level', 'warning', 'source.read_min_level'),
             'anomaly_cap' => self::posInt($s, 'anomaly_cap', 20000, 'source.anomaly_cap'),
-            'sample_size' => self::posInt($s, 'sample_size', 3, 'source.sample_size'),
             'group_cap' => self::posInt($s, 'group_cap', 5000, 'source.group_cap'),
             'event_cap' => self::posInt($s, 'event_cap', 200000, 'source.event_cap'),
+            'level_mode' => self::levelMode($s),
             'stream_tags' => $tags,
         ]);
     }
@@ -207,8 +217,10 @@ final class WatchConfig
      */
     private static function analysis(array $a): array
     {
+        self::only($a, ['provider', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents'], 'analysis');
         self::str($a, 'api_key', 'analysis.api_key');
         $models = self::section($a, 'models');
+        self::only($models, self::STEPS, 'analysis.models');
         foreach (self::STEPS as $step) {
             self::str($models, $step, 'analysis.models.' . $step);
         }
@@ -219,6 +231,7 @@ final class WatchConfig
         $limits = [];
         foreach (['max_input_tokens' => [20000, 30000, 15000], 'max_output_tokens' => [1500, 4000, 2000]] as $key => $defaults) {
             $given = self::section($a, $key);
+            self::only($given, self::STEPS, 'analysis.' . $key);
             foreach (self::STEPS as $i => $step) {
                 $limits[$key][$step] = self::posInt($given, $step, $defaults[$i], 'analysis.' . $key . '.' . $step);
             }
@@ -239,7 +252,7 @@ final class WatchConfig
             'models' => $models,
             'confidence_threshold' => $conf,
             'escalation_cap' => self::posInt($a, 'escalation_cap', 3, 'analysis.escalation_cap'),
-            'daily_budget_usd' => self::num($a, 'daily_budget_usd', 0.50, 'analysis.daily_budget_usd'),
+            'daily_budget_usd' => self::num($a, 'daily_budget_usd', 0.50, 'analysis.daily_budget_usd', 0.0),
             'prices' => $prices,
             'daily_token_limit' => $tokenLimit,
             'budget_alert_percents' => $percents,
@@ -295,11 +308,12 @@ final class WatchConfig
      */
     private static function state(array $s): array
     {
+        self::only($s, ['driver', 'retention', 'redis', 'pdo', 'file'], 'state');
         $driver = self::str($s, 'driver', 'state.driver');
         match ($driver) {
             'redis' => self::redis(self::section($s, 'redis')),
             'pdo' => self::pdo(self::section($s, 'pdo')),
-            'file' => self::str(self::section($s, 'file'), 'path', 'state.file.path'),
+            'file' => self::str(self::known(self::section($s, 'file'), ['path'], 'state.file'), 'path', 'state.file.path'),
             default => throw new InvalidConfig('state.driver must be redis, pdo or file'),
         };
 
@@ -309,6 +323,7 @@ final class WatchConfig
     /** @param array<string, mixed> $r an injected `instance` wins; otherwise host/port/password/database build one */
     private static function redis(array $r): void
     {
+        self::only($r, ['instance', 'host', 'port', 'password', 'database'], 'state.redis');
         if (array_key_exists('instance', $r)) {
             if (!$r['instance'] instanceof \Redis) {
                 throw new InvalidConfig('state.redis.instance must be a \\Redis instance');
@@ -333,6 +348,7 @@ final class WatchConfig
     /** @param array<string, mixed> $p */
     private static function pdo(array $p): void
     {
+        self::only($p, ['dsn', 'username', 'password', 'table'], 'state.pdo');
         self::str($p, 'dsn', 'state.pdo.dsn');
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', self::optStr($p, 'table', 'watcher_state', 'state.pdo.table')) !== 1) {
             throw new InvalidConfig('state.pdo.table must be a plain identifier');
@@ -350,6 +366,7 @@ final class WatchConfig
      */
     private static function notify(array $n): array
     {
+        self::only($n, ['digest', 'notice'], 'notify');
         $digest = self::destination($n['digest'] ?? null, 'notify.digest');
         $notice = ($n['notice'] ?? null) === null ? $digest : self::destination($n['notice'], 'notify.notice');
 
@@ -362,6 +379,7 @@ final class WatchConfig
         if (!is_array($d)) {
             throw new InvalidConfig($path . '.webhook is required');
         }
+        self::only($d, ['driver', 'webhook'], $path);
         $driver = self::optStr($d, 'driver', 'slack', $path . '.driver');
         if ($driver !== 'slack') {
             throw new InvalidConfig($path . '.driver must be slack');
@@ -416,6 +434,7 @@ final class WatchConfig
             throw new InvalidConfig($path . ' needs exactly one of template, error_type, field' . ($allowFingerprint ? ', fingerprint' : ''));
         }
         $kind = $kinds[0];
+        self::only($m, ['template', 'error_type', 'field', 'equals', 'matches', ...($allowFingerprint ? ['fingerprint', 'until'] : [])], $path);
         if ($kind === 'template' || $kind === 'error_type') {
             self::regex($m[$kind], $path . '.' . $kind);
         } elseif ($kind === 'fingerprint') {
@@ -445,6 +464,7 @@ final class WatchConfig
             if (!is_array($dep) || !is_array($dep['stream_tags'] ?? null)) {
                 throw new InvalidConfig('dependencies.' . $name . '.stream_tags must be a map');
             }
+            self::only($dep, ['stream_tags', 'source'], 'dependencies.' . $name);
             if (($dep['source'] ?? null) !== null) {
                 throw new InvalidConfig('dependencies.' . $name . '.source is not available yet; the service source serves all dependencies');
             }
@@ -462,9 +482,64 @@ final class WatchConfig
         if (!is_array($repo) || !in_array($repo['provider'] ?? null, ['gitlab', 'github'], true)) {
             throw new InvalidConfig('repo.provider must be gitlab or github');
         }
+        self::only($repo, ['provider', 'web_url', 'path_map'], 'repo');
         self::str($repo, 'web_url', 'repo.web_url');
 
         return $repo;
+    }
+
+    /**
+     * @param array<string, mixed> $links
+     * @return array<string, mixed>
+     */
+    private static function links(array $links): array
+    {
+        self::only($links, ['grafana', 'datadog'], 'links');
+        foreach (['grafana' => ['base_url', 'datasource_uid'], 'datadog' => ['app_url']] as $name => $keys) {
+            if (is_array($links[$name] ?? null)) {
+                self::only($links[$name], $keys, 'links.' . $name);
+            }
+        }
+
+        return $links;
+    }
+
+    /** @param array<string, mixed> $s */
+    private static function levelMode(array $s): string
+    {
+        $v = $s['level_mode'] ?? 'text';
+        if (!in_array($v, ['label', 'text', 'all'], true)) {
+            throw new InvalidConfig('source.level_mode must be label, text or all');
+        }
+
+        return $v;
+    }
+
+    /**
+     * Rejects keys outside $allowed, naming the key path and never a value (a typo must not silently disable a setting).
+     *
+     * @param array<array-key, mixed> $section
+     * @param list<string> $allowed
+     */
+    private static function only(array $section, array $allowed, string $path): void
+    {
+        foreach (array_keys($section) as $key) {
+            if (!in_array((string) $key, $allowed, true)) {
+                throw new InvalidConfig('Unknown configuration key: ' . $path . '.' . $key);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $section
+     * @param list<string> $allowed
+     * @return array<string, mixed>
+     */
+    private static function known(array $section, array $allowed, string $path): array
+    {
+        self::only($section, $allowed, $path);
+
+        return $section;
     }
 
     private static function regex(mixed $re, string $path): void
@@ -522,11 +597,14 @@ final class WatchConfig
     }
 
     /** @param array<array-key, mixed> $from */
-    private static function num(array $from, string $key, float $default, string $path): float
+    private static function num(array $from, string $key, float $default, string $path, ?float $min = null): float
     {
         $v = $from[$key] ?? $default;
         if (!is_int($v) && !is_float($v)) {
             throw new InvalidConfig($path . ' must be a number');
+        }
+        if ($min !== null && $v < $min) {
+            throw new InvalidConfig($path . ' must be at least ' . $min);
         }
 
         return (float) $v;

@@ -38,19 +38,48 @@ final class Factory
         return ['timeout' => 30, 'connect_timeout' => 10];
     }
 
-    /** @return array{timeout: int, connect_timeout: int} a long analysis reply can take well over 30 s */
-    public static function analyzerHttpOptions(): array
+    /**
+     * A long analysis reply can take well over 30 s, but a model call (two sequential attempts, no SDK retry) must stay within
+     * a quarter of lock_ttl, so a second run cannot start while this one is still analysing: timeout = lock_ttl / 4 / 2, within 10..180 s.
+     * The lock itself is not renewed (StateStore has no renew); the router makes at most 2 + escalation_cap model calls.
+     *
+     * @return array{timeout: int, connect_timeout: int}
+     */
+    public static function analyzerHttpOptions(int $lockTtl = 900): array
     {
-        return ['timeout' => 180, 'connect_timeout' => 10];
+        return ['timeout' => max(10, min(180, intdiv($lockTtl, 8))), 'connect_timeout' => 10];
     }
 
-    public static function source(WatchConfig $c, Client $http): LogSource
+    /** @return array{maxRetries: int} an SDK retry would multiply the worst case of a call; the next scheduled trigger is the retry */
+    public static function analyzerRequestOptions(): array
+    {
+        return ['maxRetries' => 0];
+    }
+
+    public static function source(WatchConfig $c, Client $http, ?ClockInterface $clock = null): LogSource
+    {
+        try {
+            return self::buildSource($c, $http, $clock);
+        } catch (\InvalidArgumentException) {
+            throw new InvalidConfig('source: invalid settings'); // not chained: the message may carry a URL or key
+        }
+    }
+
+    private static function buildSource(WatchConfig $c, Client $http, ?ClockInterface $clock): LogSource
     {
         if ($c->source['driver'] === 'datadog') {
-            /** @var array<string, string> $dd */
+            /** @var array<string, mixed> $dd */
             $dd = $c->source['datadog'];
 
-            return new DatadogSource($http, $dd['site'] ?? 'datadoghq.com', $dd['api_key'], $dd['app_key']);
+            return new DatadogSource(
+                $http,
+                (string) ($dd['site'] ?? 'datadoghq.com'),
+                (string) $dd['api_key'],
+                (string) $dd['app_key'],
+                clock: $clock,
+                levelMode: $c->source['level_mode'] === 'all' ? 'all' : 'status',
+                newestFirst: ($dd['newest_first'] ?? false) === true,
+            );
         }
         /** @var array<string, mixed> $loki */
         $loki = $c->source['loki'];
@@ -65,6 +94,7 @@ final class Factory
             ($auth['type'] ?? null) === 'basic' ? $auth['user'] : null,
             ($auth['type'] ?? null) === 'basic' ? $auth['password'] : null,
             is_string($tenant) ? $tenant : null,
+            levelMode: (string) $c->source['level_mode'],
         );
     }
 
@@ -76,7 +106,8 @@ final class Factory
         return match ($st['driver']) {
             'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(self::redis(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock)),
             // The table is never created here: run PdoStateStore::createTableSql($driver, $table) once, in a migration.
-            'pdo' => new PdoStateStore(self::pdo($st['pdo']), $clock, (string) ($st['pdo']['table'] ?? 'watcher_state')),
+            // Lazy like Redis: a connect failure on a trigger that is not due must not fail it.
+            'pdo' => self::lazy(static fn (): StateStore => new PdoStateStore(self::pdo($st['pdo']), $clock, (string) ($st['pdo']['table'] ?? 'watcher_state'))),
             default => new FileStateStore((string) $st['file']['path'], $clock),
         };
     }
@@ -162,7 +193,12 @@ final class Factory
             throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
         }
 
-        return new AnthropicAnalyzer((string) $c->analysis['api_key'], new Client(self::analyzerHttpOptions()));
+        return new AnthropicAnalyzer(
+            (string) $c->analysis['api_key'],
+            new Client(self::analyzerHttpOptions($c->schedule['lock_ttl'])),
+            null,
+            self::analyzerRequestOptions(),
+        );
     }
 
     public static function notifier(Client $http): Notifier
