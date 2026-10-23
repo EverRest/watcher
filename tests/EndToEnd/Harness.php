@@ -121,25 +121,51 @@ final class Harness
     }
 }
 
-/** Like FakeAnalyzer, but answers with one finding per fingerprint it receives (they are not known in advance). */
+/** Like FakeAnalyzer, but answers per fingerprint it receives (they are not known in advance). */
 final class EchoAnalyzer implements Analyzer
 {
-    /** @var list<AnalysisRequest> */
+    /** @var list<AnalysisRequest> analyze requests only, as before triage existed */
     public array $requests = [];
+
+    /** @var list<TriageRequest> */
+    public array $triageRequests = [];
+
+    public ?\Watcher\Analyze\AnalyzerFailed $failure = null;
+    public string $verdict = 'interesting';
+    public float $confidence = 0.9;
+    public int $inputTokens = 1200;
+    public int $outputTokens = 300;
+
+    /** @return list<TriageRequest|AnalysisRequest> every request the model would have seen */
+    public function allRequests(): array
+    {
+        return [...$this->triageRequests, ...$this->requests];
+    }
 
     public function triage(TriageRequest $req): TriageResult
     {
-        throw new \LogicException('triage is not used before US3');
+        $this->triageRequests[] = $req;
+        if ($this->failure !== null) {
+            throw $this->failure;
+        }
+        $verdicts = [];
+        foreach ($req->groups as $g) {
+            $verdicts[$g->fingerprint] = $this->verdict;
+        }
+
+        return new TriageResult($verdicts, [], new Usage($req->model, $this->inputTokens, $this->outputTokens));
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
     {
         $this->requests[] = $req;
+        // Escalation (the "m-e" model) is the confident second opinion.
+        $confidence = $req->model === 'm-e' ? 0.95 : $this->confidence;
         $findings = array_map(
-            static fn ($g): Finding => new Finding([$g->fingerprint], FindingKind::Bug, Severity::Error, 'Problem ' . $g->fingerprint, 'seen repeatedly', 'a dependency may be failing', 'inspect the dependency', 0.9),
+            static fn ($g): Finding => new Finding([$g->fingerprint], FindingKind::Bug, Severity::Error, 'Problem ' . $g->fingerprint, 'seen repeatedly', 'a dependency may be failing', 'inspect the dependency', $confidence),
             $req->groups,
         );
 
-        return new AnalysisResult($findings, new Usage($req->model, 1200, 300, 0, 0, 0.01));
+        return new AnalysisResult($findings, new Usage($req->model, $this->inputTokens, $this->outputTokens));
     }
 }

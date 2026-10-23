@@ -174,6 +174,7 @@ final class WatchConfigTest extends TestCase
             'mute bad until' => [self::with(['mute' => [['fingerprint' => 'abc', 'until' => 'soon']]]), 'mute.0.until'],
             'mute no matcher' => [self::with(['mute' => [['until' => null]]]), 'mute.0'],
             'bad redaction regex' => [self::with(['redaction' => ['extra_patterns' => ['x' => $badRegex]]]), 'redaction.extra_patterns.x'],
+            'reserved redaction name' => [self::with(['redaction' => ['extra_patterns' => ['email' => '/x/']]]), 'redaction.extra_patterns'],
             'min_group_events_for_text zero' => [self::with(['redaction' => ['min_group_events_for_text' => 0]]), 'redaction.min_group_events_for_text'],
             'min_group_events_for_text negative' => [self::with(['redaction' => ['min_group_events_for_text' => -2]]), 'redaction.min_group_events_for_text'],
             'min_group_events_for_text string' => [self::with(['redaction' => ['min_group_events_for_text' => '3']]), 'redaction.min_group_events_for_text'],

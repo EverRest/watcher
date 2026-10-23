@@ -33,6 +33,23 @@ final class InMemoryStateStore implements StateStore
         return $out;
     }
 
+    /**
+     * Seconds left per live key, to prove nothing is stored without an expiry.
+     *
+     * @return array<string, int>
+     */
+    public function ttls(): array
+    {
+        $out = [];
+        foreach (array_keys($this->data) as $key) {
+            if (($record = $this->live($key)) !== null) {
+                $out[$key] = $record['expires_at'] - $this->now();
+            }
+        }
+
+        return $out;
+    }
+
     public function get(string $key): ?array
     {
         return $this->live($key)['value'] ?? null;

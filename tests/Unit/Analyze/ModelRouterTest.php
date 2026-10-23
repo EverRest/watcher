@@ -249,4 +249,45 @@ final class ModelRouterTest extends TestCase
 
         self::assertSame($run(), $run());
     }
+
+    public function testInterestingWithoutAnalysisIsNotStoredAsAVerdict(): void
+    {
+        // Triage-only day: the group was judged interesting but never analysed.
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->router()->route([self::group('a')], true);
+
+        self::assertNull($this->cache->get('a'), 'a verdict that was never acted on must not be reusable');
+
+        // The next day, with budget, the same group is triaged and analysed again.
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysis = self::analysis([self::finding('a')]);
+        $r = $this->router()->route([self::group('a', 11)], false);
+
+        self::assertSame(0, $r->reused);
+        self::assertSame(1, $this->fake->analyzeCalls);
+        self::assertCount(1, $r->findings);
+    }
+
+    public function testInterestingDroppedByTopMIsNotStoredAsAVerdict(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
+        $this->fake->analysis = self::analysis([self::finding('a')]);
+
+        $r = $this->router(1)->route([self::group('a', 50), self::group('b', 5)], false);
+
+        self::assertSame(1, $r->droppedByTopM);
+        self::assertNotNull($this->cache->get('a'));
+        self::assertNull($this->cache->get('b'), 'the dropped group was never analysed and must be retried');
+    }
+
+    public function testAnalysedInterestingGroupWithoutAFindingIsStoredSoItIsNotPaidForAgain(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysis = self::analysis([]); // the analysis model found nothing worth reporting
+
+        $this->router()->route([self::group('a')], false);
+
+        self::assertNotNull($this->cache->get('a'));
+        self::assertTrue($this->cache->isReusable(self::group('a', 11), 2.0));
+    }
 }

@@ -23,7 +23,7 @@ final class Redactor
     private const FRAME = '/^[^\s:()\'"@<>]+:\d+$/u';
 
     /** Names of the placeholders the Normalizer itself writes; an extra pattern may not impersonate one. */
-    private const RESERVED = ['N', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR'];
+    public const RESERVED = ['N', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR'];
 
     /** @param array<string, string> $extraPatterns name => PCRE with delimiters */
     public function __construct(

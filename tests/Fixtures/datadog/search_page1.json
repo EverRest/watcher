@@ -1,0 +1,5 @@
+{"data":[
+{"id":"AAA1","type":"log","attributes":{"timestamp":"2026-10-22T10:00:00.000Z","status":"error","service":"orders-api","tags":["app:orders-api","env:stg","pod:a"],"message":"[2026-10-22 10:00:00] production.ERROR: Payment failed {}"}},
+{"id":"AAA2","type":"log","attributes":{"timestamp":"2026-10-22T10:05:00.000Z","status":"critical","service":"orders-api","tags":["app:orders-api","env:stg","pod:b"],"message":"DB down"}},
+{"id":"AAA3","type":"log","attributes":{"timestamp":"2026-10-22T10:06:00.000Z","status":"info","service":"orders-api","tags":["app:orders-api","env:stg"],"message":"all fine"}}
+],"meta":{"page":{"after":"cursor-2"}},"links":{"next":"https://api.datadoghq.com/api/v2/logs/events?page%5Bcursor%5D=cursor-2"}}

@@ -100,4 +100,12 @@ final class SelectorTest extends TestCase
         self::assertSame([], $e->candidates);
         self::assertSame(0, $e->otherGroups);
     }
+
+    public function testWatchMatchedLowLevelGroupIsAWatchRuleCandidate(): void
+    {
+        $t = new DateTimeImmutable('2026-01-01T00:00:00+00:00');
+        $watched = new ProblemGroup('w', 'tpl', Level::Info, null, [], 1, $t, $t, 1, \Watcher\Reduce\GroupStatus::Unchanged, ['rule']);
+        $r = (new Selector())->select([$watched], Level::Error, 0);
+        self::assertSame([R::WatchRule], $this->reasons($r)['w']);
+    }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use Watcher\Analyze\Usage;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
 
@@ -35,6 +36,15 @@ final class RunResultTest extends TestCase
         self::assertSame(RunOutcome::InvalidConfig, $result->outcome);
         self::assertSame('missing log path', $result->failureReason);
         self::assertSame(2, $result->exitCode());
+    }
+
+    public function testUsageIsNullUnlessAModelWasCalled(): void
+    {
+        $usage = new Usage('m', 10, 5, 0, 0, 0.01);
+
+        self::assertNull((new RunResult(RunOutcome::Quiet))->usage);
+        self::assertSame($usage, (new RunResult(RunOutcome::Reported, null, $usage))->usage);
+        self::assertNull(RunResult::invalidConfig('x')->usage);
     }
 
     public function testOutcomeValues(): void

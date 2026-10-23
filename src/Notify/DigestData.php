@@ -35,6 +35,10 @@ final class DigestData
         public readonly int $otherGroups = 0,
         public readonly int $otherEvents = 0,
         public readonly int $muted = 0,
+        public readonly ?float $todayUsd = null,
+        public readonly ?float $dailyBudgetUsd = null,
+        public readonly ?int $todayTokens = null,
+        public readonly ?int $dailyTokenLimit = null,
     ) {
     }
 }

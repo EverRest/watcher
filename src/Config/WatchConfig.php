@@ -127,6 +127,9 @@ final class WatchConfig
             throw new InvalidConfig('redaction.extra_patterns must be a map');
         }
         foreach ($patterns as $name => $re) {
+            if (in_array(strtoupper((string) $name), \Watcher\Privacy\Redactor::RESERVED, true)) {
+                throw new InvalidConfig("redaction.extra_patterns.$name is reserved for a built-in placeholder");
+            }
             self::regex($re, 'redaction.extra_patterns.' . $name);
         }
 

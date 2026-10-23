@@ -15,7 +15,8 @@
         "illuminate/support": "^10.0 || ^11.0",
         "laravel/pint": "^1.13",
         "phpstan/phpstan": "^1.11",
-        "phpunit/phpunit": "^10.5 || ^11.0"
+        "phpunit/phpunit": "^10.5 || ^11.0",
+        "vlucas/phpdotenv": "^5.7"
     },
     "suggest": {
         "ext-redis": "Redis state store",

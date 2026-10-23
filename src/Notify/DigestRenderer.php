@@ -156,6 +156,13 @@ final class DigestRenderer
             $parts[] = $this->esc("$step $model");
         }
         $parts[] = sprintf('≈ $%s', number_format($d->costUsd, 2));
+        if ($d->todayUsd !== null && $d->dailyBudgetUsd !== null && $d->dailyBudgetUsd > 0) {
+            $part = sprintf('today $%s of $%s (%d%%)', number_format($d->todayUsd, 2), number_format($d->dailyBudgetUsd, 2), round($d->todayUsd / $d->dailyBudgetUsd * 100));
+            if ($d->todayTokens !== null && $d->dailyTokenLimit !== null) {
+                $part .= sprintf(' · tokens today %s of %s (%d%%)', $this->k($d->todayTokens), $this->k($d->dailyTokenLimit), round($d->todayTokens / $d->dailyTokenLimit * 100));
+            }
+            $parts[] = $part;
+        }
 
         return '— ' . implode(' · ', $parts);
     }

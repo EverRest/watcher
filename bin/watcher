@@ -1,4 +1,16 @@
 #!/usr/bin/env php
 <?php
-// replaced in T079
-exit(0);
+
+declare(strict_types=1);
+
+foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+exit((new Watcher\Cli\Application(
+    static fn (array $config): callable => Watcher\Watcher::fromConfig($config)->run(...),
+    STDERR,
+))->run($argv));

@@ -48,7 +48,7 @@ final class PrivacyTest extends TestCase
         self::assertNotSame([], $h->analyzer->requests);
         self::assertNotSame([], $h->notifier->sent);
 
-        foreach ($h->analyzer->requests as $req) {
+        foreach ($h->analyzer->allRequests() as $req) {
             foreach ($req->groups as $g) {
                 self::assertSame([], array_diff(array_keys($g->toArray()), self::ALLOWED_KEYS));
             }
@@ -56,7 +56,7 @@ final class PrivacyTest extends TestCase
 
         self::assertInstanceOf(InMemoryStateStore::class, $h->state);
         $payloads = [
-            'analyzer request' => $h->analyzer->requests,
+            'analyzer request' => $h->analyzer->allRequests(),
             'notifier message' => array_map(static fn (array $s) => $s['message'], $h->notifier->sent),
             'state store' => $h->state->all(),
         ];
@@ -93,7 +93,7 @@ final class PrivacyTest extends TestCase
     {
         self::assertInstanceOf(InMemoryStateStore::class, $h->state);
         $payload = [
-            $h->analyzer->requests,
+            $h->analyzer->allRequests(),
             array_map(static fn (array $s) => $s['message'], $h->notifier->sent),
             $h->state->all(),
         ];
@@ -148,7 +148,7 @@ final class LeakyAnalyzer implements Analyzer
 {
     public function triage(TriageRequest $req): TriageResult
     {
-        throw new \LogicException('not used');
+        return new TriageResult(array_fill_keys(array_map(static fn ($g): string => $g->fingerprint, $req->groups), 'interesting'), [], new Usage($req->model, 10, 10));
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult

@@ -1,0 +1,3 @@
+{"data":[
+{"id":"AAA4","type":"log","attributes":{"timestamp":"2026-10-22T11:00:00.000Z","status":"warn","service":"orders-api","tags":["app:orders-api","env:stg"],"message":"slow call"}}
+],"meta":{"page":{}}}

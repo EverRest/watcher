@@ -244,6 +244,28 @@ final class DigestRendererTest extends TestCase
         self::assertSame("🔎 svc · stg · 2026-10-22 06:00 → 2026-10-23 06:00 (Europe/Kyiv)\n1 findings, 1 minor", $m->text);
     }
 
+    public function testFooterShowsTodaysSpendAgainstTheCostLimit(): void
+    {
+        $m = (new DigestRenderer())->render($this->data([], [], ['costUsd' => 0.04, 'todayUsd' => 0.21, 'dailyBudgetUsd' => 0.5]), 0.5);
+
+        self::assertStringContainsString('≈ $0.04 · today $0.21 of $0.50 (42%)', $this->text($m, 'footer'));
+        self::assertStringNotContainsString('tokens today', $this->text($m, 'footer'));
+    }
+
+    public function testFooterAddsTheTokenCounterOnlyWhenALimitIsConfigured(): void
+    {
+        $m = (new DigestRenderer())->render($this->data([], [], ['todayUsd' => 0.1, 'dailyBudgetUsd' => 0.5, 'todayTokens' => 12500, 'dailyTokenLimit' => 50000]), 0.5);
+
+        self::assertStringContainsString('today $0.10 of $0.50 (20%) · tokens today 12.5k of 50k (25%)', $this->text($m, 'footer'));
+    }
+
+    public function testFooterWithoutTodaysSpendIsUnchanged(): void
+    {
+        $m = (new DigestRenderer())->render($this->data([]), 0.5);
+
+        self::assertStringNotContainsString('today', $this->text($m, 'footer'));
+    }
+
     public function testBaselineNotice(): void
     {
         $m = (new DigestRenderer())->renderBaseline('svc', 'stg', 214, 96310);

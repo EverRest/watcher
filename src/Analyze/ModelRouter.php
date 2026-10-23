@@ -46,9 +46,12 @@ final class ModelRouter
             if ($v === null) {
                 continue; // the model skipped it: nothing is stored, it is triaged again next run
             }
-            $this->verdicts->put($g->fingerprint, $v, $g->count, null);
             if ($v === 'interesting') {
+                // Stored only after it was really analysed (below): a triage-only day or a top-M cut must not
+                // turn "interesting but never looked at" into a reusable verdict.
                 $interesting[] = $g;
+            } else {
+                $this->verdicts->put($g->fingerprint, $v, $g->count, null);
             }
         }
 
@@ -88,11 +91,20 @@ final class ModelRouter
             }
             $findings = $out;
 
+            // Every group that was actually analysed is remembered — with its finding, or without one when the
+            // analysis found nothing worth reporting — so it is not paid for again until it grows.
+            $withFinding = [];
             foreach ($findings as $f) {
                 foreach ($f->fingerprints as $fp) {
                     if (isset($byFp[$fp])) {
+                        $withFinding[$fp] = true;
                         $this->verdicts->put($fp, 'interesting', $byFp[$fp]->count, $f);
                     }
+                }
+            }
+            foreach ($byFp as $fp => $g) {
+                if (!isset($withFinding[$fp])) {
+                    $this->verdicts->put($fp, 'interesting', $g->count, null);
                 }
             }
         }

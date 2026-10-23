@@ -1,0 +1,6 @@
+{"meta":{"status":"done"},"data":{"buckets":[
+{"by":{"version":"1.5.0"},"computes":{"c0":[{"time":"2026-10-22T09:00:00.000Z","value":0},{"time":"2026-10-22T10:00:00.000Z","value":4},{"time":"2026-10-22T11:00:00.000Z","value":9}]}},
+{"by":{"version":"1.4.0"},"computes":{"c0":[{"time":"2026-10-22T00:00:00.000Z","value":2},{"time":"2026-10-22T01:00:00.000Z","value":5}]}},
+{"by":{"version":null},"computes":{"c0":[{"time":"2026-10-22T00:00:00.000Z","value":7}]}},
+{"by":{"version":"0.0.1"},"computes":{"c0":[{"time":"2026-10-22T00:00:00.000Z","value":0}]}}
+]}}

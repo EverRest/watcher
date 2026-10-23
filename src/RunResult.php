@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Watcher;
 
+use Watcher\Analyze\Usage;
+
 final class RunResult
 {
     public function __construct(
         public readonly RunOutcome $outcome,
         public readonly ?string $failureReason = null,
+        public readonly ?Usage $usage = null,
     ) {
     }
 

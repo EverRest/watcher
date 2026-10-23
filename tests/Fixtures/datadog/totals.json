@@ -1,0 +1,6 @@
+{"meta":{"status":"done","elapsed":31},"data":{"buckets":[
+{"by":{"status":"error"},"computes":{"c0":12}},
+{"by":{"status":"warn"},"computes":{"c0":20}},
+{"by":{"status":"warning"},"computes":{"c0":15}},
+{"by":{"status":"info"},"computes":{"c0":907}}
+]}}

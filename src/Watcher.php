@@ -9,15 +9,27 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Analyze\AnalysisRequest;
+use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnalyzerFailed;
+use Watcher\Analyze\Budget;
+use Watcher\Analyze\BudgetAlerts;
+use Watcher\Analyze\CompactPayload;
+use Watcher\Analyze\CostCalculator;
+use Watcher\Analyze\ModelRouter;
+use Watcher\Analyze\RouterSettings;
+use Watcher\Analyze\Spend;
+use Watcher\Analyze\TriageRequest;
+use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\Usage;
+use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Notify\Destination;
 use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
+use Watcher\Notify\Message;
 use Watcher\Notify\Notifier;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\GroupStatus;
@@ -129,6 +141,10 @@ final class Watcher
             return new RunResult(RunOutcome::SkippedDone);
         }
 
+        // Built before any external call so a bad configuration fails at start, not mid-run.
+        $normalizer = new Normalizer(array_map('strval', array_keys($c->dependencies)), $c->dependencyDomains);
+        $redactor = new Redactor($normalizer, $c->redactionPatterns);
+
         $selector = new StreamSelector($c->source['stream_tags']);
         $readMin = $c->source['read_min_level'];
         $totals = $this->source->totals($window, $selector);
@@ -150,7 +166,6 @@ final class Watcher
             $truncated = $this->source->lastReadTruncated();
         })();
 
-        $normalizer = new Normalizer(array_map('strval', array_keys($c->dependencies)), $c->dependencyDomains);
         $groups = (new Reducer($normalizer, $c->minGroupEventsForText))->reduce($events);
         $factor = $c->selection['growth_factor'];
         $previousGroups = $prev['groups'] ?? [];
@@ -189,11 +204,64 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
-        $redactor = new Redactor($normalizer, $c->redactionPatterns);
-        $redacted = array_map(static fn ($cand) => $redactor->redact($cand->group), $candidates);
-        $model = $c->analysis['models']['analyze'];
-        $result = $this->analyzer->analyze(new AnalysisRequest($redacted, $c->serviceContext, $model, $c->analysis['max_output_tokens']['analyze']));
-        $findings = array_map($redactor->redactFinding(...), $result->findings);
+        // Truncate by candidate priority first, so the lowest-priority groups are the ones dropped (FR-021).
+        $redactedBy = [];
+        foreach ($candidates as $cand) {
+            $redactedBy[$cand->group->fingerprint] = $redactor->redact($cand->group);
+        }
+        $truncation = Budget::truncate(
+            $candidates,
+            $c->analysis['max_input_tokens']['triage'],
+            static fn (array $cs): string => CompactPayload::encode(array_map(static fn ($cand) => $redactedBy[$cand->group->fingerprint], $cs)),
+        );
+        $redacted = array_map(static fn ($cand) => $redactedBy[$cand->group->fingerprint], $truncation->kept);
+
+        $tz = new \DateTimeZone($c->schedule['timezone']);
+        $spend = new Spend($this->state, $this->clock, $tz, $service);
+        $notice = new Destination($c->notify['notice']['webhook']);
+        $triageOnly = $spend->exhausted($c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']);
+
+        $before = $spend->today();
+        $router = new ModelRouter(self::redacting($this->analyzer, $redactor), new VerdictCache($this->state, $service, $retention), $this->routerSettings());
+        $routed = $router->route($redacted, $triageOnly); // AnalyzerFailed ends the run; US5 adds the user-visible notice
+
+        $calculator = new CostCalculator($c->analysis['prices']);
+        $usage = null;
+        $costUsd = 0.0;
+        $models = [];
+        foreach ($routed->usageByStep as $step => $u) {
+            $cost = $calculator->cost($u);
+            $spend->add($u, $cost);
+            $costUsd += $cost;
+            $models[$step] = $c->analysis['models'][$step];
+            $priced = new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost);
+            $usage = $usage === null ? $priced : $usage->plus($priced);
+        }
+        $after = $spend->today();
+
+        if ($triageOnly && $routed->triaged > 0) {
+            $this->noticeOnce('exhausted:' . rawurlencode($service) . ':' . $spend->day(), 'budget exhausted: triage only today', $notice);
+        }
+        $alert = (new BudgetAlerts($this->state, $this->clock, $tz, $service))->check(
+            $before,
+            $after,
+            $c->analysis['daily_budget_usd'],
+            $c->analysis['daily_token_limit'],
+            $c->analysis['budget_alert_percents'],
+        );
+        if ($alert !== null) {
+            $this->notifier->send(self::plainNotice($alert->noticeText($service)), $notice);
+        }
+
+        $findings = $routed->findings; // already scrubbed by the decorator, before the router cached them
+        $dropped = $truncation->droppedCount + $routed->droppedByTopM;
+
+        if ($findings === [] && $dropped === 0) {
+            $this->writeSnapshot($window, $groups, $totals);
+            $this->writeRun($runKey, RunOutcome::Quiet, $usage, $started);
+
+            return new RunResult(RunOutcome::Quiet, null, $usage);
+        }
 
         $byFingerprint = [];
         foreach ($redacted as $g) {
@@ -208,14 +276,19 @@ final class Watcher
             $findings,
             $byFingerprint,
             null,
-            $result->usage,
-            ['analyze' => $model],
-            $result->usage->costUsd,
+            $usage,
+            $models,
+            $costUsd,
             $this->anomalyLine($anomalies, $prev['totals'] ?? [], $totals),
             $truncated ? array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups)) : null,
-            0,
+            $dropped,
             $selection->otherGroups,
             $selection->otherEvents,
+            0,
+            $after['usd'],
+            $c->analysis['daily_budget_usd'],
+            $after['tokens'],
+            $c->analysis['daily_token_limit'],
         ), $c->analysis['confidence_threshold']);
         $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
 
@@ -226,9 +299,71 @@ final class Watcher
             }
         }
         $this->writeSnapshot($window, $groups, $totals);
-        $this->writeRun($runKey, RunOutcome::Reported, $result->usage, $started);
+        $this->writeRun($runKey, RunOutcome::Reported, $usage, $started);
 
-        return new RunResult(RunOutcome::Reported);
+        return new RunResult(RunOutcome::Reported, null, $usage);
+    }
+
+    /** Model output is scrubbed at the boundary, so neither the verdict cache nor the digest ever sees the raw text (Principle I). */
+    private static function redacting(Analyzer $inner, Redactor $redactor): Analyzer
+    {
+        return new class ($inner, $redactor) implements Analyzer {
+            public function __construct(private readonly Analyzer $inner, private readonly Redactor $redactor)
+            {
+            }
+
+            public function triage(TriageRequest $req): TriageResult
+            {
+                return $this->inner->triage($req);
+            }
+
+            public function analyze(AnalysisRequest $req): AnalysisResult
+            {
+                $r = $this->inner->analyze($req);
+
+                return new AnalysisResult(array_map($this->redactor->redactFinding(...), $r->findings), $r->usage);
+            }
+        };
+    }
+
+    private function routerSettings(): RouterSettings
+    {
+        $a = $this->config->analysis;
+
+        return new RouterSettings(
+            $a['models']['triage'],
+            $a['models']['analyze'],
+            $a['models']['escalate'],
+            $a['max_output_tokens']['triage'],
+            $a['max_output_tokens']['analyze'],
+            $a['max_output_tokens']['escalate'],
+            $this->config->selection['top_m'],
+            $a['escalation_cap'],
+            $a['confidence_threshold'],
+            $this->config->selection['growth_factor'],
+            $this->config->serviceContext,
+        );
+    }
+
+    private static function plainNotice(string $text): Message
+    {
+        return new Message($text, [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    /** Sends once per key (the key lives two days); a failed send gives the key back so the next run retries. */
+    private function noticeOnce(string $key, string $text, Destination $to): void
+    {
+        $owner = bin2hex(random_bytes(8));
+        if (!$this->state->acquire($key, $owner, Keys::ttl(Keys::SPEND, 0, 0))) {
+            return;
+        }
+        try {
+            $this->notifier->send(self::plainNotice($text), $to);
+        } catch (Throwable $e) {
+            $this->state->release($key, $owner);
+
+            throw $e;
+        }
     }
 
     /**

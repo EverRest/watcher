@@ -25,6 +25,9 @@ final class Selector
         $otherGroups = $otherEvents = 0;
         foreach ($groups as $g) {
             $reasons = [];
+            if ($g->watchMatches !== []) {
+                $reasons[] = CandidateReason::WatchRule;
+            }
             if ($g->status === GroupStatus::New) {
                 $reasons[] = CandidateReason::New;
             }
