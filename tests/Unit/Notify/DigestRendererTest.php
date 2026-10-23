@@ -175,6 +175,29 @@ final class DigestRendererTest extends TestCase
         self::assertStringContainsString('&lt;!channel&gt; &amp;', $t);
     }
 
+    public function testModelTextCannotProduceAutoLinkedUrlsOrDomains(): void
+    {
+        // Log content can steer the model (prompt injection): whatever it writes must not become a clickable link.
+        $f = new Finding(
+            [$this->fp(1)],
+            FindingKind::Bug,
+            Severity::Error,
+            'Login at https://evil.example/login',
+            'visit evil.example/reset or www.evil.com or HTTP://EVIL.ORG now; mail x@evil.org',
+            'cause: see sub.domain.co.uk/path',
+            'open ftp://files.evil.net/a and QuotaRepository.php:88 in app/Services/X.php',
+            0.9,
+        );
+        $t = $this->text((new DigestRenderer())->render($this->data([$f]), 0.5), 'finding');
+
+        self::assertStringNotContainsString('://', $t);
+        self::assertStringNotContainsString('www.', $t);
+        self::assertSame(0, preg_match('/[a-z0-9-]+\.(?!php\b|json\b|log\b)[a-z]{2,24}/i', $t), 'a domain-like token survived: ' . $t);
+        // File paths stay readable and copyable.
+        self::assertStringContainsString('QuotaRepository.php:88', $t);
+        self::assertStringContainsString('app/Services/X.php', $t);
+    }
+
     public function testOverflowKeepsOneMessageWithinBlockLimitAndMovesLowestSeverityToMinor(): void
     {
         $f = [];
