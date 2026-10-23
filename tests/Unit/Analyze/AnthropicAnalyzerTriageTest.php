@@ -65,7 +65,8 @@ final class AnthropicAnalyzerTriageTest extends TestCase
 
         $body = $this->body();
         self::assertSame('triage-model-from-request', $body['model']);
-        self::assertSame(321, $body['max_tokens']);
+        self::assertSame(515, $body['max_tokens'], 'max(configured 321, 15 * 1 group + 500)');
+        self::assertSame(['type' => 'disabled'], $body['thinking'], 'no thinking tokens against max_tokens for triage');
         self::assertSame(ProviderSchema::for('triage'), $body['output_config']['format']['schema']);
         self::assertSame('json_schema', $body['output_config']['format']['type']);
         self::assertStringNotContainsString('maxLength', (string) json_encode($body['output_config']));
@@ -83,13 +84,13 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         self::assertSame(CompactPayload::encode($req->groups), is_string($content) ? $content : $content[0]['text']);
     }
 
-    public function testValidResponseMapsVerdictsWhyAndAllUsageFields(): void
+    public function testValidResponseMapsVerdictsAndAllUsageFields(): void
     {
         $r = $this->analyzer([self::json('message-triage-valid.json')])->triage(self::request());
 
         self::assertSame(['fp-aaa' => 'interesting'], $r->verdicts);
-        self::assertSame(['fp-aaa' => 'count rose sharply'], $r->why);
-        self::assertSame('claude-fixture-triage-1', $r->usage->model);
+        self::assertSame('triage-model-from-request', $r->usage->model, 'priced by the requested id');
+        self::assertSame('claude-fixture-triage-1', $r->usage->returnedModel);
         self::assertSame([300, 20, 50, 100], [$r->usage->inputTokens, $r->usage->outputTokens, $r->usage->cacheReadTokens, $r->usage->cacheWriteTokens]);
     }
 
@@ -137,6 +138,53 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         } catch (AnalyzerFailed $e) {
             self::assertSame('provider unavailable', $e->getMessage());
             self::assertNull($e->getPrevious());
+        }
+    }
+
+    public function testMaxTokensNeverBelowConfiguredAndGrowsWithGroups(): void
+    {
+        $groups = array_fill(0, 100, self::request()->groups[0]);
+        try {
+            $this->analyzer([self::json('message-not-json.json'), self::json('message-not-json.json')])->triage(new TriageRequest($groups, 'ctx', 'm', 1500));
+        } catch (AnalyzerFailed) {
+        }
+        self::assertSame(2000, $this->body()['max_tokens'], '15 * 100 + 500');
+
+        $this->history = [];
+        $this->analyzer([self::json('message-triage-valid.json')])->triage(new TriageRequest($groups, 'ctx', 'm', 9000));
+        self::assertSame(9000, $this->body()['max_tokens']);
+    }
+
+    public function testTruncatedResponseRetriesOnceWithDoubledCap(): void
+    {
+        $r = $this->analyzer([self::json('message-triage-truncated.json'), self::json('message-triage-valid.json')])->triage(self::request());
+
+        self::assertCount(2, $this->history);
+        $first = json_decode((string) $this->history[0]['request']->getBody(), true);
+        $second = json_decode((string) $this->history[1]['request']->getBody(), true);
+        self::assertSame(515, $first['max_tokens']);
+        self::assertSame(1030, $second['max_tokens']);
+        self::assertSame(['fp-aaa' => 'interesting'], $r->verdicts);
+    }
+
+    public function testDoubledCapIsBoundedBy8192(): void
+    {
+        $a = $this->analyzer([self::json('message-triage-truncated.json'), self::json('message-triage-valid.json')]);
+        $a->triage(new TriageRequest(self::request()->groups, 'ctx', 'm', 6000));
+
+        $second = json_decode((string) $this->history[1]['request']->getBody(), true);
+        self::assertSame(8192, $second['max_tokens']);
+    }
+
+    public function testFailedAfterTwoPaidAttemptsCarriesTheSummedUsage(): void
+    {
+        try {
+            $this->analyzer([self::json('message-not-json.json'), self::json('message-not-json.json')])->triage(self::request());
+            self::fail('expected AnalyzerFailed');
+        } catch (AnalyzerFailed $e) {
+            self::assertNotNull($e->usage);
+            self::assertSame('triage-model-from-request', $e->usage->model);
+            self::assertSame(200, $e->usage->inputTokens);
         }
     }
 }

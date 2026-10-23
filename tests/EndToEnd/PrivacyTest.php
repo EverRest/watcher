@@ -222,7 +222,7 @@ final class LeakyAnalyzer implements Analyzer
 {
     public function triage(TriageRequest $req): TriageResult
     {
-        return new TriageResult(array_fill_keys(array_map(static fn ($g): string => $g->fingerprint, $req->groups), 'interesting'), [], new Usage($req->model, 10, 10));
+        return new TriageResult(array_fill_keys(array_map(static fn ($g): string => $g->fingerprint, $req->groups), 'interesting'), new Usage($req->model, 10, 10));
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult

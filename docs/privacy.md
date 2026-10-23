@@ -37,8 +37,8 @@ credentials, anything from `fields`.
 ## How a message becomes a template
 
 1. **Pattern masking** (`src/Reduce/Normalizer.php`, one ordered table): emails -> `<EMAIL>`; URLs -> `<URL>` (path,
-   query, credentials and port always removed; the host stays only if it is a single label, a declared dependency or in
-   `dependency_domains`); UUIDs and long hex -> `<ID>`; IP addresses -> `<IP>`; JWT-like strings -> `<TOKEN>`; bare host
+   query, credentials and port always removed; the host stays only if it equals a declared dependency name or starts with `<name>.`; the digest only counts
+   undeclared call targets, never names them). Each message is cut at 4096 characters before these rules run; UUIDs and long hex -> `<ID>`; IP addresses -> `<IP>`; JWT-like strings -> `<TOKEN>`; bare host
    names -> `<HOST>`; card-like numbers -> `<PAN>`; remaining digits -> `<N>`; long quoted strings -> `<STR>`. Placeholder-
    shaped text in the input is neutralised first, so log content cannot hide a value inside `<...>`.
 2. **Variation masking** (`src/Reduce/TemplateMiner.php`): events are clustered by level, error type, length and first
@@ -65,7 +65,7 @@ log lines or stack traces.
 
 ## What is sent to the log backend
 
-Read-only queries: your stream tags, level words, and your watch-rule regexes as search filters. Nothing derived from log
+Read-only queries: your stream tags, level words, and a subset of your watch rules as search filters: `template` rules that are plain literals and `error_type` rules whose regex RE2 can run. The text comes from your config, never from log data. `field` rules and non-literal `template` rules (a template regex applies to the masked template, not to raw lines) are never sent; they are matched in memory on the lines that were read. Nothing derived from log
 content is sent back. Credentials should be read-only (Grafana Viewer role; Datadog application key with
 `logs_read_data` only).
 
@@ -87,6 +87,10 @@ Exception objects are not logged, because the SDK's request (including the API k
   with exactly the same surrounding words, the template can contain the name. Raise `min_group_events_for_text` or add an
   `extra_patterns` entry if your logs contain such a pattern. Free-text names in rare, one-off messages are protected by
   withholding, not by recognising them.
+- **Exception types must look like class names, and names inside them are not detected.** A type is sent only if it
+  matches a PHP class-name shape (letters, digits, `_`, `\` separators, at most 120 characters); free text such as
+  `declined for Olena Shevchenko` becomes no type. A personal name that is part of a valid class name
+  (`AnnaKowalskiNotFoundException`) cannot be told from any other word and is sent.
 - **Directory names in stack-frame paths** that are first names (`/home/anna/...`) are not recognised; dotted forms that
   look like hosts or emails are dropped. Container paths normally contain no personal data.
 - **Model wording.** The model never sees personal data from masked input, but its text is still free text. The scrub

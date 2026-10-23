@@ -42,11 +42,12 @@ final class AnthropicAnalyzer implements Analyzer
             $req->groups,
             $req->serviceContext,
             $req->model,
-            $req->maxOutputTokens,
+            // The verdict list grows with the groups: never below the configured cap, ~15 tokens per verdict plus slack.
+            max($req->maxOutputTokens, 15 * count($req->groups) + 500),
             fn (array $data): array => $this->validator->triage($data, $allowed),
         );
 
-        return new TriageResult($out['verdicts'], $out['why'], $usage);
+        return new TriageResult($out['verdicts'], $usage);
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -67,7 +68,9 @@ final class AnthropicAnalyzer implements Analyzer
     }
 
     /**
-     * One call, validated in code, one retry on bad output (usage of both attempts is summed).
+     * One call, validated in code, one retry on bad output (usage of both attempts is summed and
+     * carried by the AnalyzerFailed when both are bad, because both were billed).
+     * A reply cut off by max_tokens is retried with the cap doubled (at most 8192), not with the same cap.
      *
      * @param list<RedactedGroup>          $groups
      * @param callable(array<mixed>): array<mixed> $validate
@@ -81,7 +84,7 @@ final class AnthropicAnalyzer implements Analyzer
 
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
             $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext);
-            $u = $this->usage($message);
+            $u = $this->usage($message, $model);
             $usage = $usage === null ? $u : $usage->plus($u);
 
             try {
@@ -89,9 +92,12 @@ final class AnthropicAnalyzer implements Analyzer
             } catch (InvalidModelOutput|JsonException) {
                 // retried once, then fails below
             }
+            if ($message->stopReason === 'max_tokens') {
+                $maxTokens = max($maxTokens, min($maxTokens * 2, 8192));
+            }
         }
 
-        throw new AnalyzerFailed('invalid model output');
+        throw new AnalyzerFailed('invalid model output', $usage);
     }
 
     /**
@@ -107,6 +113,8 @@ final class AnthropicAnalyzer implements Analyzer
                 maxTokens: $maxTokens,
                 messages: [['role' => 'user', 'content' => CompactPayload::encode($groups, $dependencyContext)]],
                 model: $model,
+                // Adaptive thinking tokens count against max_tokens and triage needs none.
+                thinking: $kind === 'triage' ? ['type' => 'disabled'] : null,
                 outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for($kind)]],
                 system: [[
                     'type' => 'text',
@@ -136,16 +144,18 @@ final class AnthropicAnalyzer implements Analyzer
         throw new JsonException('no text block');
     }
 
-    private function usage(Message $message): Usage
+    /** Priced by the id that was requested (the key of `analysis.prices`); the echoed id may be a dated form of an alias. */
+    private function usage(Message $message, string $requestedModel): Usage
     {
         $u = $message->usage;
 
         return new Usage(
-            $message->model,
+            $requestedModel,
             $u->inputTokens,
             $u->outputTokens,
             $u->cacheReadInputTokens ?? 0,
             $u->cacheCreationInputTokens ?? 0,
+            returnedModel: $message->model,
         );
     }
 }

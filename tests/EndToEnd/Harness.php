@@ -31,6 +31,7 @@ final class Harness
     public StateStore $state;
     public readonly FakeNotifier $notifier;
     public readonly EchoAnalyzer $analyzer;
+    public ?\Psr\Log\LoggerInterface $hostLog = null;
 
     /** @param array<string, mixed> $configPatch */
     public function __construct(private readonly array $configPatch = [])
@@ -67,7 +68,7 @@ final class Harness
 
     public function watcher(\Watcher\Source\LogSource $source): Watcher
     {
-        return new Watcher(WatchConfig::fromArray($this->config()), $source, $this->state, $this->analyzer, $this->notifier, $this->clock);
+        return new Watcher(WatchConfig::fromArray($this->config()), $source, $this->state, $this->analyzer, $this->notifier, $this->clock, $this->hostLog);
     }
 
     /** Advance one full window (the default PT24H). */
@@ -134,6 +135,8 @@ final class EchoAnalyzer implements Analyzer
     public ?\Watcher\Analyze\AnalyzerFailed $failure = null;
     /** Fails analyze() only, so triage has already completed and been paid for. */
     public ?\Watcher\Analyze\AnalyzerFailed $analyzeFailure = null;
+    /** Simulates a Usage whose model has no configured price. */
+    public ?string $usageModel = null;
     public string $verdict = 'interesting';
     public float $confidence = 0.9;
     public int $inputTokens = 1200;
@@ -156,7 +159,7 @@ final class EchoAnalyzer implements Analyzer
             $verdicts[$g->fingerprint] = $this->verdict;
         }
 
-        return new TriageResult($verdicts, [], new Usage($req->model, $this->inputTokens, $this->outputTokens));
+        return new TriageResult($verdicts, new Usage($this->usageModel ?? $req->model, $this->inputTokens, $this->outputTokens));
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -177,6 +180,6 @@ final class EchoAnalyzer implements Analyzer
             $req->groups,
         );
 
-        return new AnalysisResult($findings, new Usage($req->model, $this->inputTokens, $this->outputTokens));
+        return new AnalysisResult($findings, new Usage($this->usageModel ?? $req->model, $this->inputTokens, $this->outputTokens));
     }
 }

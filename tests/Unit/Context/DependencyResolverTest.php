@@ -16,19 +16,19 @@ final class DependencyResolverTest extends TestCase
         $plan = (new DependencyResolver())->plan(['GET <URL:payments> failed'], ['payments' => self::QUIET], ['payments' => self::QUIET], 3.0);
         self::assertSame(['payments'], $plan->linesFor);
         self::assertSame(['payments' => [0]], $plan->referencedBy);
-        self::assertSame([], $plan->undeclaredHosts);
+        self::assertSame(0, $plan->undeclaredHosts);
     }
 
     public function testReferenceBySuffixButNotPrefixLookalike(): void
     {
         $plan = (new DependencyResolver())->plan(
-            ['x', 'timeout <HOST:payments.svc>', 'timeout <HOST:payments2>'],
+            ['x', 'timeout <HOST:payments.svc>', 'timeout <HOST>'],
             ['payments' => self::QUIET],
             ['payments' => self::QUIET],
             3.0,
         );
         self::assertSame(['payments' => [1]], $plan->referencedBy);
-        self::assertSame(['payments2'], $plan->undeclaredHosts);
+        self::assertSame(1, $plan->undeclaredHosts);
     }
 
     public function testGrowthTriggersLines(): void
@@ -77,7 +77,7 @@ final class DependencyResolverTest extends TestCase
     {
         $plan = (new DependencyResolver())->plan(['calling payments.example.com now', 'payments is down'], ['payments' => self::QUIET], ['payments' => self::QUIET], 3.0);
         self::assertSame([], $plan->linesFor);
-        self::assertSame([], $plan->undeclaredHosts);
+        self::assertSame(0, $plan->undeclaredHosts);
     }
 
     public function testWithheldTemplateSkipped(): void
@@ -86,15 +86,12 @@ final class DependencyResolverTest extends TestCase
         self::assertSame(['db' => [1]], $plan->referencedBy);
     }
 
-    public function testUndeclaredHostsSortedUniqueCapped(): void
+    public function testUndeclaredHostsAreCountedPerDistinctTemplate(): void
     {
-        $templates = [];
-        for ($i = 12; $i >= 1; $i--) {
-            $templates[] = sprintf('<URL:h%02d> <HOST:h%02d>', $i, $i);
-        }
-        $plan = (new DependencyResolver())->plan($templates, [], [], 3.0);
-        self::assertCount(10, $plan->undeclaredHosts);
-        self::assertSame('h01', $plan->undeclaredHosts[0]);
-        self::assertSame('h10', $plan->undeclaredHosts[9]);
+        $templates = ['POST <URL> timed out', 'POST <URL> timed out', 'dns <HOST> and <URL> down', 'plain', null, '<URL:db> ok'];
+        $plan = (new DependencyResolver())->plan($templates, ['db' => self::QUIET], ['db' => self::QUIET], 3.0);
+
+        self::assertSame(3, $plan->undeclaredHosts);
+        self::assertSame(['db' => [5]], $plan->referencedBy);
     }
 }

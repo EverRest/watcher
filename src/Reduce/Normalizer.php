@@ -13,6 +13,12 @@ namespace Watcher\Reduce;
  *  - JWTs run before hex ids, so a hex-looking JWT segment cannot be cut out and leave the rest.
  *
  * Invalid UTF-8 (or a regex failure) throws NormalizationException; never returns raw text.
+ *
+ * Input longer than MAX_CHARS characters is cut at that length before any rule runs (bounded work on hostile
+ * lines; a log message is a few hundred characters, the tail of a longer one is never read or sent).
+ *
+ * A host keeps its name (`<URL:host>`, `<HOST:host>`) only if it equals a DECLARED dependency name or starts
+ * with `<declaredName>.`; every other host, single-label or not, is masked as `<URL>` / `<HOST>`.
  */
 final class Normalizer
 {
@@ -24,6 +30,9 @@ final class Normalizer
     private const SKIP = '<(?-i:(?:EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR)(?::[a-z0-9._-]+)?)>(*SKIP)(*F)|';
 
     /** Private-use stand-ins for '<' and '>' of the input while the rules run. */
+    /** Characters kept of any one input; the rest is dropped before the rules run. */
+    public const MAX_CHARS = 4096;
+
     private const LT = "\u{E000}";
 
     private const GT = "\u{E001}";
@@ -42,8 +51,9 @@ final class Normalizer
     private array $domains;
 
     /**
-     * @param list<string> $declaredDependencyHosts
-     * @param list<string> $dependencyDomains
+     * @param list<string> $declaredDependencyHosts declared dependency names; a host is kept only if it equals one or starts with `<name>.`
+     * @param list<string> $dependencyDomains       suffixes that may follow a declared name (`payments.prod.svc.cluster.local`);
+     *                                              on their own they keep nothing
      */
     public function __construct(array $declaredDependencyHosts = [], array $dependencyDomains = [], private readonly bool $maskNumbers = true)
     {
@@ -70,6 +80,10 @@ final class Normalizer
     {
         if (preg_match('//u', $text) !== 1) {
             throw new NormalizationException('Input is not valid UTF-8.');
+        }
+
+        if (mb_strlen($text, 'UTF-8') > self::MAX_CHARS) {
+            $text = mb_substr($text, 0, self::MAX_CHARS, 'UTF-8');
         }
 
         // Input '<' and '>' (and any stray stand-ins) become inert so only our own placeholders are '<...>'.
@@ -124,14 +138,14 @@ final class Normalizer
                 fn (array $m): string => $this->url($m),
             ],
             ['\beyJ[\w-]+\.[\w-]+\.[\w-]+', '<TOKEN>'],
-            ['[\w.+-]+@[\w-]+(?:\.[\w-]+)+', '<EMAIL>'],
+            ['(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)+', '<EMAIL>'],
             ['\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '<ID>'],
             ['\b(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b', '<ID>'],
             ['\b(?:\d{1,3}\.){3}\d{1,3}\b', '<IP>'],
             ["(?<![\\w:])(?:(?:$h:){7}$h|(?:$h:){1,7}:(?:$h(?::$h){0,6})?|::$h(?::$h){0,6})(?![\\w:])", '<IP>'],
             [
                 // bare FQDN: >= 2 labels, alphabetic 2+ letter last label that is not a file extension
-                '(?<![\w\\\\.-])(?<host>[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.(?!(?:' . self::FILE_EXT . ')(?![a-z]))[a-z]{2,})(?![\w-]|\.\w)',
+                '(?<![\w\\\\.-])(?<host>(?:[a-z0-9][a-z0-9-]*+\.)+(?!(?:' . self::FILE_EXT . ')(?![a-z]))[a-z]{2,})(?![\w-]|\.\w)',
                 fn (array $m): string => $this->hostPlaceholder(strtolower($m['host']), 'HOST'),
             ],
             ['\b(?:\d[ -]?){12,18}\d\b', '<PAN>'],
@@ -154,13 +168,12 @@ final class Normalizer
         return $this->hostPlaceholder($host, 'URL') . $tail;
     }
 
-    /** Keep the name only for single-label, declared dependency or dependency-domain hosts. */
+    /** Keep the name only for a declared dependency (`name` or `name.<anything>`); everything else is masked. */
     private function hostPlaceholder(string $host, string $kind): string
     {
-        $keep = preg_match('/^[a-z0-9-]+$/', $host) === 1
-            || in_array($host, $this->dependencyHosts, true);
-        foreach ($this->domains as $d) {
-            $keep = $keep || $host === $d || str_ends_with($host, '.' . $d);
+        $keep = false;
+        foreach ($this->dependencyHosts as $name) {
+            $keep = $keep || $host === $name || str_starts_with($host, $name . '.');
         }
 
         return $keep ? '<' . $kind . ':' . $host . '>' : '<' . $kind . '>';

@@ -48,7 +48,8 @@ final class Reducer
 
         $out = [];
         foreach ($groups as $fp => $g) {
-            $out[] = new ProblemGroup($fp, $miner->template($g['key']), $g['level'], $g['type'], $g['frames'], $g['count'], $g['first'], $g['last']);
+            // PHP turns all-digit keys into ints; the fingerprint is a string everywhere else.
+            $out[] = new ProblemGroup((string) $fp, $miner->template($g['key']), $g['level'], $g['type'], $g['frames'], $g['count'], $g['first'], $g['last']);
         }
         usort($out, static fn (ProblemGroup $a, ProblemGroup $b): int => [$b->count, $a->fingerprint] <=> [$a->count, $b->fingerprint]);
 

@@ -46,6 +46,18 @@ final class ReducerTest extends TestCase
         self::assertSame(['1', '2', '3', '4', '5'], $b->frames);
     }
 
+    /**
+     * Fingerprint of 'Lockwl timeout for order' is all decimal digits. As an array key PHP turns it into an int,
+     * which strict_types rejects for ProblemGroup's string $fingerprint.
+     */
+    public function testAllDigitFingerprintStaysAString(): void
+    {
+        $groups = (new Reducer(new Normalizer(), 3))->reduce([$this->ev('Lockwl timeout for order')]);
+
+        self::assertCount(1, $groups);
+        self::assertSame('694072486490', $groups[0]->fingerprint);
+    }
+
     public function testWithPrevious(): void
     {
         $g = (new Reducer(new Normalizer(), 1))->reduce([$this->ev('x'), $this->ev('x'), $this->ev('x')])[0];

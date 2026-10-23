@@ -58,7 +58,7 @@ final class DependencyContextReaderTest extends TestCase
      */
     private function plan(array $linesFor = [], array $first = []): DependencyPlan
     {
-        return new DependencyPlan($linesFor, [], [], $first);
+        return new DependencyPlan($linesFor, [], 0, $first);
     }
 
     public function testQuietDayOneTotalsNoLines(): void

@@ -106,7 +106,7 @@ final class ModelRouter
             }
             foreach ($byFp as $fp => $g) {
                 if (!isset($withFinding[$fp])) {
-                    $this->verdicts->put($fp, 'interesting', $g->count, null);
+                    $this->verdicts->put((string) $fp, 'interesting', $g->count, null); // all-digit keys come back as int
                 }
             }
         }

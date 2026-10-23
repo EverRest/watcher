@@ -87,4 +87,60 @@ final class WatchRulesTest extends TestCase
         self::assertArrayNotHasKey('b', $reasons);
         self::assertSame(CandidateReason::WatchRule->weight() * 10 + Level::Warning->value, $res->candidates[0]->priority);
     }
+
+    /**
+     * @param array<string, array<string, mixed>> $rules
+     * @return list<string>
+     */
+    private static function patterns(array $rules): array
+    {
+        return (new WatchRules($rules))->backendPatterns();
+    }
+
+    public function testBackendPatternsPushesALiteralTemplateRule(): void
+    {
+        self::assertSame(['QuotaTracking'], self::patterns(['q' => ['template' => '/QuotaTracking/']]));
+    }
+
+    public function testBackendPatternsMakesACaseInsensitiveLiteralCarryTheInlineFlag(): void
+    {
+        self::assertSame(['(?i)QuotaTracking'], self::patterns(['q' => ['template' => '/QuotaTracking/i']]));
+    }
+
+    public function testBackendPatternsEscapesLiteralPunctuationAndHonoursAnyDelimiter(): void
+    {
+        self::assertSame(['payment failed\\-hard\\#1'], self::patterns(['p' => ['template' => '~payment failed-hard#1~']]));
+    }
+
+    public function testBackendPatternsSkipsATemplateRuleThatIsNotAPlainLiteral(): void
+    {
+        // the regex runs on the MASKED template; the backend sees raw lines, so only literals are safe
+        self::assertSame([], self::patterns(['p' => ['template' => '/payment <\w+> failed/'], 'q' => ['template' => '/^Quota/'], 'r' => ['template' => '/a|b/']]));
+    }
+
+    public function testBackendPatternsSkipsATemplateLiteralWithOtherFlags(): void
+    {
+        self::assertSame([], self::patterns(['p' => ['template' => '/Quota/s']]));
+    }
+
+    public function testBackendPatternsPushesAnRe2SafeErrorTypeRule(): void
+    {
+        self::assertSame(['(?i)\\w+TimeoutException'], self::patterns(['e' => ['error_type' => '/\\w+TimeoutException/i']]));
+        self::assertSame(['Db(Timeout|Refused)Exception'], self::patterns(['e' => ['error_type' => '/Db(Timeout|Refused)Exception/']]));
+    }
+
+    public function testBackendPatternsSkipsAnErrorTypeRuleWithLookahead(): void
+    {
+        self::assertSame([], self::patterns(['e' => ['error_type' => '/Timeout(?!Soft)Exception/']]));
+    }
+
+    public function testBackendPatternsNeverPushesFieldRules(): void
+    {
+        self::assertSame([], self::patterns(['a' => ['field' => 'tenant', 'equals' => 'x'], 'b' => ['field' => 'tenant', 'matches' => '/x/']]));
+    }
+
+    public function testBackendPatternsIsEmptyWithoutRules(): void
+    {
+        self::assertSame([], self::patterns([]));
+    }
 }

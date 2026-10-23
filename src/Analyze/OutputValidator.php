@@ -18,7 +18,7 @@ final class OutputValidator
      * @param array<mixed>      $data
      * @param list<string>|array<string> $allowed fingerprints present in the request
      *
-     * @return array{verdicts: array<string,string>, why: array<string,string>}
+     * @return array{verdicts: array<string,string>}
      *
      * @throws InvalidModelOutput
      */
@@ -26,21 +26,17 @@ final class OutputValidator
     {
         $list = $this->list($data, 'verdicts', 'verdicts');
         $verdicts = [];
-        $why = [];
         foreach ($list as $i => $row) {
             $p = "verdicts[$i]";
-            $row = $this->object($row, $p, ['g', 'v'], ['why']);
+            $row = $this->object($row, $p, ['g', 'v'], []);
             $g = $this->fingerprint($row['g'], $allowed, "$p.g");
             if (!is_string($row['v']) || !in_array($row['v'], TriageResult::VERDICTS, true)) {
                 throw InvalidModelOutput::at("$p.v", 'not an allowed verdict', $row['v']);
             }
             $verdicts[$g] = $row['v'];
-            if (array_key_exists('why', $row)) {
-                $why[$g] = $this->text($row['why'], "$p.why", 100);
-            }
         }
 
-        return ['verdicts' => $verdicts, 'why' => $why];
+        return ['verdicts' => $verdicts];
     }
 
     /**

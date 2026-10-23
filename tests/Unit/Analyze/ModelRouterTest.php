@@ -47,10 +47,10 @@ final class ModelRouterTest extends TestCase
         return new RedactedGroup($fp, 'tpl ' . $fp, $lvl, null, [], $n, null, $st, [], new DateTimeImmutable(), new DateTimeImmutable());
     }
 
-    /** @param array<string,string> $v */
+    /** @param array<array-key,string> $v all-digit fingerprints become int keys */
     private static function triage(array $v, string $model = 'tm'): TriageResult
     {
-        return new TriageResult($v, [], new Usage($model, 10, 1));
+        return new TriageResult($v, new Usage($model, 10, 1));
     }
 
     private static function finding(string $fp, Severity $sev = Severity::Error, float $conf = 0.9): Finding
@@ -97,6 +97,19 @@ final class ModelRouterTest extends TestCase
         // verdicts were stored
         self::assertSame('noise', $this->cache->get('a')['triage'] ?? null);
         self::assertSame('interesting', $this->cache->get('c')['triage'] ?? null);
+    }
+
+    public function testAllDigitFingerprintIsStoredUnderItsStringKey(): void
+    {
+        // 'Lockwl timeout for order' fingerprints to an all-digit id; PHP array keys would make it an int.
+        $fp = '694072486490';
+        $this->fake->triage = self::triage([$fp => 'interesting']);
+        $this->fake->analysis = self::analysis([]);
+
+        $r = $this->router()->route([self::group($fp)], false);
+
+        self::assertSame([], $r->findings);
+        self::assertSame('interesting', $this->cache->get($fp)['triage'] ?? null);
     }
 
     public function testTopMKeepsHighestPriorityAndCountsTheRest(): void

@@ -152,7 +152,7 @@ final class DatadogSourceTest extends LogSourceContractTest
     {
         $source = $this->source([new Response(200, [], $this->fixture('search_page2.json'))]);
 
-        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, ['/timeout/i'], 10)));
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, ['(?i)timeout'], 10)));
 
         $this->assertSame(['slow call'], array_map(static fn (LogEvent $e): string => $e->message, $events));
         $body = $this->body($this->history[0]['request']);
@@ -166,10 +166,19 @@ final class DatadogSourceTest extends LogSourceContractTest
         $page = $this->page([$this->line('INFO', 'timeout 42'), $this->line('INFO', 'quiet')], null);
         $source = $this->source([$page]);
 
-        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['/timeout \d+/'], 10)));
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['timeout \d+'], 10)));
 
         $this->assertSame('app:svc env:stg', $this->body($this->history[0]['request'])['filter']['query']);
         $this->assertSame(['timeout 42'], array_map(static fn (LogEvent $e): string => $e->message, $events));
+    }
+
+    public function testEscapedLiteralWatchPatternIsSentUnescapedAsAQuotedTerm(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('search_page2.json'))]);
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['(?i)a\\.b\\-c "q"'], 10)));
+
+        $this->assertSame('app:svc env:stg AND (status:(error OR critical OR alert OR emergency) OR "a.b-c \\"q\\"")', $this->body($this->history[0]['request'])['filter']['query']);
     }
 
     public function testNoServerFilterWhenEverythingIsWanted(): void

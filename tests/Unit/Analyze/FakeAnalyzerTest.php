@@ -47,7 +47,7 @@ final class FakeAnalyzerTest extends TestCase
 
     public function testRecordsRequestsVerbatimAndCounts(): void
     {
-        $fake = new FakeAnalyzer(new TriageResult(['fp1' => 'noise'], [], new Usage('m', 1, 2)), new AnalysisResult([$this->finding()], new Usage('m', 1, 2)));
+        $fake = new FakeAnalyzer(new TriageResult(['fp1' => 'noise'], new Usage('m', 1, 2)), new AnalysisResult([$this->finding()], new Usage('m', 1, 2)));
         $fake->triage(new TriageRequest([$this->group()], 'svc', 'm', 100));
         $fake->analyze(new AnalysisRequest([$this->group()], 'svc', 'm', 100));
 
@@ -89,7 +89,7 @@ final class FakeAnalyzerTest extends TestCase
     public function testTriageResultRejectsBadVerdict(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        new TriageResult(['fp1' => 'maybe'], [], new Usage('m', 0, 0));
+        new TriageResult(['fp1' => 'maybe'], new Usage('m', 0, 0));
     }
 
     public function testUsagePlus(): void

@@ -143,7 +143,8 @@ final class AnthropicAnalyzerTest extends TestCase
         self::assertSame(0.7, $result->findings[0]->confidence);
 
         $u = $result->usage;
-        self::assertSame('claude-fixture-model-1', $u->model);
+        self::assertSame('model-from-request', $u->model, 'priced by the requested id, not the returned one');
+        self::assertSame('claude-fixture-model-1', $u->returnedModel);
         self::assertSame(1200, $u->inputTokens);
         self::assertSame(150, $u->outputTokens);
         self::assertSame(400, $u->cacheReadTokens);
@@ -172,6 +173,7 @@ final class AnthropicAnalyzerTest extends TestCase
         } catch (AnalyzerFailed $e) {
             self::assertSame('invalid model output', $e->getMessage());
             self::assertStringNotContainsString('prose', $e->getMessage());
+            self::assertSame(200, $e->usage?->inputTokens, 'both billed attempts are carried');
         }
         self::assertCount(2, $this->history);
     }
@@ -198,6 +200,7 @@ final class AnthropicAnalyzerTest extends TestCase
             self::fail('expected AnalyzerFailed');
         } catch (AnalyzerFailed $e) {
             self::assertSame('authentication failed', $e->getMessage());
+            self::assertNull($e->usage, 'nothing was billed');
             self::assertStringNotContainsString(self::KEY, $e->getMessage());
             self::assertCount(1, $this->history, '401 is not retried');
             // The SDK exception carries the request (and its Authorization header): never chain it.
@@ -217,6 +220,7 @@ final class AnthropicAnalyzerTest extends TestCase
             self::fail('expected AnalyzerFailed');
         } catch (AnalyzerFailed $e) {
             self::assertSame('provider unavailable', $e->getMessage());
+            self::assertNull($e->usage);
             self::assertStringNotContainsString(self::KEY, $e->getMessage());
             self::assertCount(3, $this->history);
         }

@@ -46,7 +46,7 @@ final class FakesTest extends TestCase
         );
 
         self::assertSame(['Error:a', 'Critical:b'], $levels($src->lines(self::window(), $sel, new ReadFilter(Level::Error, [], 10))));
-        self::assertSame(['Error:a', 'Info:slow query', 'Critical:b'], $levels($src->lines(self::window(), $sel, new ReadFilter(Level::Error, ['/slow/'], 10))));
+        self::assertSame(['Error:a', 'Info:slow query', 'Critical:b'], $levels($src->lines(self::window(), $sel, new ReadFilter(Level::Error, ['slow'], 10))));
         self::assertSame(['Error:a'], $levels($src->lines(self::window(), $sel, new ReadFilter(Level::Error, [], 1))));
     }
 

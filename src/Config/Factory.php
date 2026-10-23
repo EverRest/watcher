@@ -26,7 +26,19 @@ final class Factory
 {
     public static function http(): Client
     {
-        return new Client(['timeout' => 30, 'connect_timeout' => 10]);
+        return new Client(self::httpOptions());
+    }
+
+    /** @return array{timeout: int, connect_timeout: int} sources and Slack: short calls */
+    public static function httpOptions(): array
+    {
+        return ['timeout' => 30, 'connect_timeout' => 10];
+    }
+
+    /** @return array{timeout: int, connect_timeout: int} a long analysis reply can take well over 30 s */
+    public static function analyzerHttpOptions(): array
+    {
+        return ['timeout' => 180, 'connect_timeout' => 10];
     }
 
     public static function source(WatchConfig $c, Client $http): LogSource
@@ -90,13 +102,13 @@ final class Factory
         return $redis;
     }
 
-    public static function analyzer(WatchConfig $c, Client $http): Analyzer
+    public static function analyzer(WatchConfig $c): Analyzer
     {
         if ($c->analysis['provider'] !== 'anthropic') {
             throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
         }
 
-        return new AnthropicAnalyzer((string) $c->analysis['api_key'], $http);
+        return new AnthropicAnalyzer((string) $c->analysis['api_key'], new Client(self::analyzerHttpOptions()));
     }
 
     public static function notifier(Client $http): Notifier

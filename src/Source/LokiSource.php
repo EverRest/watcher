@@ -227,13 +227,8 @@ final class LokiSource implements LogSource
         if ($event->level->atLeast($filter->minLevel)) {
             return true;
         }
-        foreach ($filter->watchPatterns as $re) {
-            if (@preg_match($re, $event->message) === 1) {
-                return true;
-            }
-        }
 
-        return false;
+        return $filter->matchesWatch($event->message);
     }
 
     private function lineFilter(ReadFilter $filter): string
@@ -249,26 +244,13 @@ final class LokiSource implements LogSource
             $parts[] = '(?:\b(?:' . implode('|', $words) . ')\b)';
         }
         foreach ($filter->watchPatterns as $re) {
-            $parts[] = '(?:' . $this->toRe2($re) . ')';
+            $parts[] = '(?:' . $re . ')';
         }
         if ($parts === []) {
             return '';
         }
 
         return ' |~ ' . $this->quote('(?i)' . implode('|', $parts));
-    }
-
-    /** `/body/flags` -> RE2 body; only the `i` flag is carried over. */
-    private function toRe2(string $re): string
-    {
-        $d = $re[0] ?? '';
-        $end = strrpos($re, $d);
-        if ($d === '' || ctype_alnum($d) || $end === false || $end === 0) {
-            return $re;
-        }
-        $body = substr($re, 1, $end - 1);
-
-        return str_contains(substr($re, $end + 1), 'i') ? '(?i:' . $body . ')' : $body;
     }
 
     private function selector(StreamSelector $selector): string

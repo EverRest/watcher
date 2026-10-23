@@ -54,7 +54,7 @@ settings, `notify.digest.webhook`.
 | `selection.growth_factor` | `3.0` | A group "grew" when its count is at least this many times the previous window's (`> 1`). Also triggers the level-anomaly pass and dependency line reads. |
 | `selection.top_n` | `50` | Candidates kept per run. |
 | `selection.top_m` | `10` | Groups deep-analysed per run (`<= top_n`). |
-| `watch_rules` | `[]` | `name => matcher`. A matching group is a candidate whatever its level. Only the **name** leaves the service. |
+| `watch_rules` | `[]` | `name => matcher`. A matching group is a candidate whatever its level. Only the **name** leaves the service. Plain-literal `template` rules and RE2-safe `error_type` rules are also sent to the backend as search filters so matching lines below `read_min_level` are read; other rules are matched only on lines that were read. |
 | `mute` | `[]` | List of `['fingerprint' => '...']` or a matcher, each with optional `'until' => 'YYYY-MM-DD'` (inclusive, UTC; `null` = forever). Muted groups never reach a model. |
 
 A **matcher** has exactly one of `template` (regex on the masked template), `error_type` (regex), or `field` with exactly
@@ -108,7 +108,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `service_context` | `''` | Up to 1000 characters: what the service does and what is critical. Sent to the model on every request after the redaction scan. Never put personal data in it. |
 | `dependencies` | `[]` | `name => ['stream_tags' => [...]]`. Their error totals are read each run; lines only when a candidate references the host or the dependency's errors grew. A per-dependency `source` override is not available yet (rejected). |
 | `dependency_read_cap` | `5000` | Events read per triggered dependency. |
-| `dependency_domains` | `['svc.cluster.local']` | Hosts in log text are kept (as `<URL:host>`) only if single-label, a declared dependency, or ending in one of these; every other host is masked. |
+| `dependency_domains` | `['svc.cluster.local']` | A host in log text is kept (as `<URL:host>`) only if it equals a declared dependency name or starts with `<name>.`; every other host (single-label, or under one of these suffixes) is masked as `<URL>`/`<HOST>`. The digest only counts such call targets, it never names them. |
 | `deploy.release`, `deploy.commit` | null | Usually from CI. A new group after a release change is marked "first seen after <release>". |
 | `deploy.version_label` | null | Log label that carries the running version, if your source has one (gives the deploy moment). |
 | `links.grafana.{base_url,datasource_uid}` / `links.datadog.app_url` | none | Builds a log-query link per finding from redacted data only. |

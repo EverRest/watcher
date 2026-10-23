@@ -9,8 +9,6 @@ use Watcher\Level;
 /** FR-039: decides, from the masked templates and the dependency totals, which dependencies need a line read. */
 final class DependencyResolver
 {
-    public const MAX_UNDECLARED = 10;
-
     /**
      * @param list<string|null>                $candidateTemplates redacted templates (null = withheld)
      * @param array<string, array<string, int>>      $currentTotals  every declared dep => level totals this run
@@ -20,7 +18,11 @@ final class DependencyResolver
     {
         $names = array_map('strval', array_keys($currentTotals));
         $referencedBy = [];
-        $undeclared = [];
+        $undeclared = 0;
+
+        foreach (array_unique(array_filter($candidateTemplates, 'is_string')) as $template) {
+            $undeclared += preg_match_all('/<(?:URL|HOST)>/', $template);
+        }
 
         foreach ($candidateTemplates as $i => $template) {
             if ($template === null || preg_match_all('/<(?:URL|HOST):([a-z0-9.-]+)>/', $template, $m) < 1) {
@@ -34,9 +36,7 @@ final class DependencyResolver
                         break;
                     }
                 }
-                if ($dep === null) {
-                    $undeclared[$host] = true;
-                } elseif (!in_array($i, $referencedBy[$dep] ?? [], true)) {
+                if ($dep !== null && !in_array($i, $referencedBy[$dep] ?? [], true)) {
                     $referencedBy[$dep][] = $i;
                 }
             }
@@ -58,10 +58,7 @@ final class DependencyResolver
             }
         }
 
-        $hosts = array_map('strval', array_keys($undeclared));
-        sort($hosts);
-
-        return new DependencyPlan($linesFor, $referencedBy, array_slice($hosts, 0, self::MAX_UNDECLARED), $first);
+        return new DependencyPlan($linesFor, $referencedBy, $undeclared, $first);
     }
 
     /**

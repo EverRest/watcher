@@ -7,8 +7,11 @@ namespace Watcher\Tests\Unit\Analyze;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
+use Redis;
 use Watcher\Analyze\Spend;
 use Watcher\Analyze\Usage;
+use Watcher\State\RedisStateStore;
+use Watcher\State\StateStore;
 use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 
@@ -41,6 +44,42 @@ final class SpendTest extends TestCase
 
         $today = $s->today();
         self::assertEqualsWithDelta(0.35, $today['usd'], 1e-9);
+        self::assertSame(182, $today['tokens']);
+    }
+
+    public function testTodayReadsBackWhatAddStored(): void
+    {
+        $this->assertTodayReadsBackWhatAddStored($this->store);
+    }
+
+    public function testTodayReadsBackWhatAddStoredOnRedis(): void
+    {
+        $dsn = getenv('WATCHER_TEST_REDIS');
+        if ($dsn === false || $dsn === '') {
+            self::markTestSkipped('WATCHER_TEST_REDIS (host:port) not set');
+        }
+        [$host, $port] = array_pad(explode(':', $dsn, 2), 2, '6379');
+        $redis = new Redis();
+        $redis->connect($host, (int) $port);
+        $prefix = 'watcher-test:' . bin2hex(random_bytes(6)) . ':';
+
+        try {
+            $this->assertTodayReadsBackWhatAddStored(new RedisStateStore($redis, $this->clock, $prefix));
+        } finally {
+            foreach ($redis->keys($prefix . '*') as $key) {
+                $redis->del($key);
+            }
+        }
+    }
+
+    private function assertTodayReadsBackWhatAddStored(StateStore $store): void
+    {
+        $s = new Spend($store, $this->clock, new DateTimeZone('UTC'), 'svc');
+        $s->add(new Usage('m', 100, 50, 20, 10), 7.5);
+        $s->add(new Usage('m', 1, 1), 2.5);
+
+        $today = $s->today();
+        self::assertEqualsWithDelta(10.0, $today['usd'], 1e-9);
         self::assertSame(182, $today['tokens']);
     }
 

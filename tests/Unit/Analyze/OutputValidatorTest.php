@@ -110,13 +110,11 @@ final class OutputValidatorTest extends TestCase
     public function testTriage(): void
     {
         $r = (new OutputValidator())->triage(
-            ['verdicts' => [['g' => 'fp1', 'v' => 'noise', 'why' => str_repeat('w', 150)], ['g' => 'fp2', 'v' => 'interesting']]],
+            ['verdicts' => [['g' => 'fp1', 'v' => 'noise'], ['g' => 'fp2', 'v' => 'interesting']]],
             ['fp1', 'fp2'],
         );
         self::assertSame(['fp1' => 'noise', 'fp2' => 'interesting'], $r['verdicts']);
-        self::assertSame(100, mb_strlen($r['why']['fp1']));
-        self::assertStringEndsWith('…', $r['why']['fp1']);
-        self::assertArrayNotHasKey('fp2', $r['why']);
+        self::assertSame(['verdicts'], array_keys($r));
     }
 
     /** @return array<string, array{array<string,mixed>}> */
@@ -127,7 +125,7 @@ final class OutputValidatorTest extends TestCase
             'bad verdict' => [['g' => 'fp1', 'v' => 'meh']],
             'missing v' => [['g' => 'fp1']],
             'extra' => [['g' => 'fp1', 'v' => 'noise', 'x' => 1]],
-            'wrong type why' => [['g' => 'fp1', 'v' => 'noise', 'why' => 3]],
+            'why is no longer part of the schema' => [['g' => 'fp1', 'v' => 'noise', 'why' => 'x']],
         ];
     }
 

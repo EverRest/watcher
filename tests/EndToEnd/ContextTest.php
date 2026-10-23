@@ -86,20 +86,23 @@ final class ContextTest extends TestCase
         self::assertStringContainsString('dependency unavailable: core-api', self::digest($h));
     }
 
-    public function testScenario16UndeclaredHostIsListedOnceAndNowhereElse(): void
+    public function testScenario16UndeclaredHostIsCountedAndNeverNamed(): void
     {
         $h = new Harness(['dependencies' => self::DEP]);
         [$s1] = self::source([], []);
         self::go($h, $s1);
         $h->nextWindow();
-        [$s2] = self::source(Harness::events(Level::Error, 'POST http://reporting-api/export timed out', 5));
+        [$s2] = self::source([...Harness::events(Level::Error, 'POST http://reporting-api/export timed out', 3), ...Harness::events(Level::Error, 'GET http://anna-kowalski.svc.cluster.local/api failed', 3)]);
         self::assertSame(RunOutcome::Reported, self::go($h, $s2)->outcome);
 
         $digest = self::digest($h);
-        self::assertSame(1, substr_count($digest, 'reporting-api'));
-        self::assertStringContainsString('undeclared dependency: reporting-api', $digest);
+        self::assertStringContainsString('🔗 2 call target(s) not declared as dependencies', $digest);
         self::assertInstanceOf(InMemoryStateStore::class, $h->state);
-        self::assertStringNotContainsString('reporting-api', json_encode($h->state->all(), JSON_THROW_ON_ERROR));
+        $everywhere = $digest . json_encode($h->state->all(), JSON_THROW_ON_ERROR) . json_encode($h->analyzer->requests, JSON_PARTIAL_OUTPUT_ON_ERROR);
+        self::assertStringContainsString('timed out', $everywhere);
+        foreach (['reporting-api', 'anna-kowalski'] as $name) {
+            self::assertStringNotContainsString($name, $everywhere);
+        }
     }
 
     public function testScenario17FirstSeenAfterReleaseOnlyWhenTheReleaseChanged(): void

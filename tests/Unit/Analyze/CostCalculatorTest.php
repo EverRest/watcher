@@ -31,4 +31,11 @@ final class CostCalculatorTest extends TestCase
         $this->expectException(UnknownModelPrice::class);
         (new CostCalculator(['m' => [1, 2, 3, 4]]))->cost(new Usage('other', 1, 1));
     }
+
+    public function testPricesByTheRequestedIdEvenWhenTheApiReturnsADatedOne(): void
+    {
+        $calc = new CostCalculator(['alias' => [1.0, 0.0, 0.0, 0.0]]);
+
+        self::assertEqualsWithDelta(1.0, $calc->cost(new Usage('alias', 1_000_000, 0, returnedModel: 'alias-20261001')), 1e-9);
+    }
 }

@@ -82,11 +82,39 @@ final class RedactorTest extends TestCase
         self::assertNotFalse(json_encode($r));
     }
 
+    /** @return array<string, array{string}> */
+    public static function notClassNames(): array
+    {
+        return [
+            'free text' => ['declined for Olena Shevchenko'],
+            'colon' => ['Error: boom'],
+            'quote' => ["Foo'Exception"],
+            'newline' => ["Foo\nBar"],
+            'leading digit' => ['1Foo'],
+            'trailing backslash' => ['App\\'],
+            'too long' => [str_repeat('A', 121)],
+        ];
+    }
+
+    /** @dataProvider notClassNames */
+    public function testErrorTypeThatIsNotAClassNameIsDropped(string $type): void
+    {
+        self::assertNull($this->redactor()->redact($this->group('t', $type))->errorType);
+    }
+
+    public function testClassNameShapedTypesStay(): void
+    {
+        $max = str_repeat('Ab\\', 39) . 'Ab';
+        foreach (['App\\Billing\\CardDeclinedException', 'Http2Exception', '_Foo', $max] as $ok) {
+            self::assertSame($ok, $this->redactor()->redact($this->group('t', $ok))->errorType);
+        }
+    }
+
     public function testErrorTypeWithPersonalDataIsScanned(): void
     {
         $r = $this->redactor()->redact($this->group('t', 'Failure for anna@example.com'));
 
-        self::assertSame('Failure for <EMAIL>', $r->errorType);
+        self::assertNull($r->errorType);
         self::assertSame('App\\Http2Exception', $this->redactor()->redact($this->group('t', 'App\\Http2Exception'))->errorType);
     }
 
@@ -148,8 +176,8 @@ final class RedactorTest extends TestCase
         $bad = $mk('X', ['/var/www/tenants/48213/app/X.php:12', '/srv/1234567890/y.php:3', '/var/www/html/app/Z.php:7']);
         self::assertSame(['/var/www/html/app/Z.php:7'], $bad->frames);
 
-        // A purely numeric error type is masked, not kept.
-        self::assertSame('<N>', $mk('1234567890', [])->errorType);
+        // A purely numeric error type is not a class name: dropped.
+        self::assertNull($mk('1234567890', [])->errorType);
     }
 
     public function testExtraPatternNamesCannotImpersonateBuiltInPlaceholders(): void

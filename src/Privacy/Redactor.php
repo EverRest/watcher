@@ -9,6 +9,7 @@ use Watcher\Analyze\Finding;
 use Watcher\Reduce\NormalizationException;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\ProblemGroup;
+use Watcher\Source\LineParser;
 
 /**
  * Principle I, layer 2: allowlist projection, then a second pattern scan (Normalizer table plus the
@@ -116,6 +117,9 @@ final class Redactor
      */
     private function identifier(string $value): ?string
     {
+        if (LineParser::classNameOrNull($value) === null) {
+            return null;
+        }
         $scanned = $this->redactText($value, false);
         if ($scanned === null) {
             return null;

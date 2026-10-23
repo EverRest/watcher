@@ -274,4 +274,60 @@ final class CostTest extends TestCase
         self::assertInstanceOf(InMemoryStateStore::class, $h->state);
         self::assertSame([], array_filter(array_keys($h->state->all()), static fn (string $k): bool => str_starts_with($k, Keys::ALERT . ':')), 'claims released');
     }
+
+    public function testAFailedCallWithBilledAttemptsIsStillCounted(): void
+    {
+        $h = new Harness(['analysis' => ['prices' => ['m-t' => [1000, 0, 0, 0]]]]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $h->analyzer->failure = new AnalyzerFailed('invalid model output', new Usage('m-t', 1000, 200));
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertSame(RunOutcome::Failed, $result->outcome);
+        self::assertSame('invalid model output', $result->failureReason);
+        $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
+        self::assertEqualsWithDelta(1.0, $today['usd'], 1e-9, 'the two paid attempts count against the daily cap');
+        self::assertSame(1200, $today['tokens']);
+    }
+
+    public function testAFailedCallWithoutUsageRecordsNothing(): void
+    {
+        $h = new Harness();
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $h->analyzer->failure = new AnalyzerFailed('provider unavailable');
+
+        $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
+        self::assertSame(0, $today['tokens']);
+    }
+
+    public function testAPaidCallWithAnUnpricedModelIsRecordedAtZeroAndFailsClearly(): void
+    {
+        $h = new Harness();
+        $logged = new class () extends \Psr\Log\AbstractLogger {
+            /** @var list<string> */
+            public array $lines = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->lines[] = (string) $message;
+            }
+        };
+        $h->hostLog = $logged;
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $h->analyzer->usageModel = 'claude-dated-20261001';
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertSame(RunOutcome::Failed, $result->outcome);
+        self::assertSame('no price configured for model', $result->failureReason, 'never a generic internal error');
+        $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
+        self::assertSame(1500, $today['tokens'], 'the paid call is recorded even without a price');
+        self::assertEqualsWithDelta(0.0, $today['usd'], 1e-9);
+        self::assertNotSame([], array_filter($logged->lines, static fn (string $l): bool => str_contains($l, 'no price configured')));
+    }
 }

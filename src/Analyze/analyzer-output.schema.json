@@ -16,8 +16,7 @@
             "required": ["g", "v"],
             "properties": {
               "g": { "type": "string", "description": "fingerprint" },
-              "v": { "enum": ["noise", "known", "interesting"] },
-              "why": { "type": "string", "maxLength": 100 }
+              "v": { "enum": ["noise", "known", "interesting"] }
             }
           }
         }

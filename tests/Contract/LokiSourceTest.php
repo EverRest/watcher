@@ -125,18 +125,37 @@ final class LokiSourceTest extends LogSourceContractTest
     {
         $source = $this->source([new Response(200, [], $this->fixture('empty.json'))]);
 
-        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, ['/timeout \d+/i'], 10)));
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, ['(?i)timeout \d+'], 10)));
 
         $this->assertSame([], $events);
         $this->assertFalse($source->lastReadTruncated());
         $req = $this->history[0]['request'];
         $this->assertSame('/loki/api/v1/query_range', $req->getUri()->getPath());
         $q = $this->query($req);
-        $this->assertStringStartsWith('{app="svc", env="stg"} |~ "(?i)(?:\\\\b(?:warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal)\\\\b)|(?:(?i:timeout \\\\d+))"', $q['query']);
+        $this->assertStringStartsWith('{app="svc", env="stg"} |~ "(?i)(?:\\\\b(?:warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal)\\\\b)|(?:(?i)timeout \\\\d+)"', $q['query']);
         $this->assertSame('5000', $q['limit']);
         $this->assertSame('forward', $q['direction']);
         $this->assertSame($this->ns(self::BASE_NS), $q['start']);
         $this->assertSame($this->ns(self::BASE_NS + 86400), $q['end']);
+    }
+
+    public function testWatchPatternWithEscapedPunctuationIsQuotedForLogQl(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('empty.json'))]);
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, ['a\\.b "q"'], 10)));
+
+        $this->assertStringContainsString('|(?:a\\\\.b \\"q\\")"', $this->query($this->history[0]['request'])['query']);
+    }
+
+    public function testWatchPatternAlsoReadsAnInfoLineThatMatchesItAndDropsOthers(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('empty.json'))]);
+        $filter = new ReadFilter(Level::Error, ['(?i)timeout'], 10);
+
+        $this->assertTrue($filter->matchesWatch('Upstream TIMEOUT after 3s'));
+        $this->assertFalse($filter->matchesWatch('all good'));
+        $this->assertSame([], $this->collect($source->lines($this->window(), $this->selector(), $filter)));
     }
 
     public function testNoLineFilterWhenEverythingIsWanted(): void

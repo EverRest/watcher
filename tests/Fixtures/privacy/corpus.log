@@ -53,3 +53,9 @@
 [2026-10-07T23:42:00+00:00] production.ERROR: [HTTP]: GET http://billing-gateway/v1/charge?owner=Yaroslav+Melnyk&email=yaroslav.melnyk@example.org returned 503 [] []
 [2026-10-07T23:43:00+00:00] production.ERROR: [HTTP]: POST http://reporting-api/export?token=tk_91c2d3e4f5a60718 timed out [] []
 {"timestamp":"2026-10-07T23:44:00+00:00","level":"error","message":"Gateway call https://ivan-bondar.example.net/cb?email=ivan.bondar@example.org failed","context":{"url":"https://ivan-bondar.example.net/cb?sig=sg_0a1b2c3d4e5f6071"}}
+{"timestamp":"2026-10-07T23:45:00+00:00","level":"error","message":"card declined","error":{"kind":"declined for Olena Kravchenko"}}
+[2026-10-07T23:46:00+00:00] production.ERROR: App\Exceptions\LookupFailedException: lookup failed in /var/www/html/app/X.php:12 [] []
+[2026-10-07T23:50:00+00:00] production.ERROR: [HTTP]: GET http://anna-kowalski.svc.cluster.local/api/profile returned 500 [] []
+[2026-10-07T23:51:00+00:00] production.ERROR: [HTTP]: POST http://tenant-48213.svc.cluster.local:8080/sync timed out [] []
+[2026-10-07T23:52:00+00:00] production.ERROR: [HTTP]: GET http://user48213/session returned 502 [] []
+[2026-10-07T23:53:00+00:00] production.ERROR: could not resolve tenant-48213.svc.cluster.local for anna-kowalski.svc.cluster.local [] []

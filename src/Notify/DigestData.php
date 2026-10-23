@@ -17,7 +17,7 @@ final class DigestData
      * @param array<string, RedactedGroup> $groups  by fingerprint (count and trend)
      * @param array<string, string>        $models  step => model id, for the footer
      * @param array<string, string>        $afterReleaseFingerprints fingerprint => release a NEW group was first seen after
-     * @param list<string>                 $undeclaredDependencies   hosts seen in templates that no declared dependency covers
+     * @param int                          $undeclaredHostCount      call targets in templates that no declared dependency covers (never named)
      * @param list<string>                 $failedDependencies       declared dependencies whose source was unavailable
      * @param array<string, array{log: ?string, code: list<string>}> $links by fingerprint; URLs built from config and redacted data only
      */
@@ -44,7 +44,7 @@ final class DigestData
         public readonly ?int $todayTokens = null,
         public readonly ?int $dailyTokenLimit = null,
         public readonly array $afterReleaseFingerprints = [],
-        public readonly array $undeclaredDependencies = [],
+        public readonly int $undeclaredHostCount = 0,
         public readonly array $failedDependencies = [],
         public readonly array $links = [],
     ) {

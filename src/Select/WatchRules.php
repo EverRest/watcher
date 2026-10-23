@@ -21,6 +21,50 @@ final class WatchRules
         }
     }
 
+    /**
+     * Regexes (no delimiters, `(?i)` prefix when case-insensitive) that are safe to hand to the log backend so a
+     * matching line below the read level is still read (FR-036). A template regex runs on the MASKED template while
+     * the backend sees raw lines, so only a plain literal is pushed; an error_type regex only if RE2 can run it;
+     * field rules never (values exist only after parsing). Everything else is still matched locally on what is read.
+     * The text comes from config, not from log data.
+     *
+     * @return list<string>
+     */
+    public function backendPatterns(): array
+    {
+        $out = [];
+        foreach ($this->rules as $m) {
+            $parts = $m->kind === Matcher::FIELD ? null : self::split($m->pattern);
+            if ($parts === null || !in_array($parts[1], ['', 'i'], true) || $parts[0] === '') {
+                continue;
+            }
+            $body = $parts[0];
+            if ($m->kind === Matcher::TEMPLATE) {
+                if (preg_match('/[\\\\.^$|?*+()\[\]{}]/', $body) === 1) {
+                    continue;
+                }
+                $body = preg_quote($body);
+            } elseif (!Re2Compat::supports($body)) {
+                continue;
+            }
+            $out[] = ($parts[1] === 'i' ? '(?i)' : '') . $body;
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    /** @return array{string, string}|null body and flags of `/body/flags` */
+    private static function split(string $re): ?array
+    {
+        $d = $re[0] ?? '';
+        $end = strrpos($re, $d);
+        if ($d === '' || ctype_alnum($d) || $d === '\\' || $end === false || $end === 0) {
+            return null;
+        }
+
+        return [substr($re, 1, $end - 1), substr($re, $end + 1)];
+    }
+
     /** @return list<string> names of template/error_type rules matching the group */
     public function namesMatchingGroup(ProblemGroup $g): array
     {

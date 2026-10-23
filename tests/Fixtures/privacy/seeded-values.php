@@ -72,4 +72,9 @@ return [
     'bohdan-lysenko.example.net',
     'tk_aa11bb22cc33dd44',
     '+380 44 555 01 23',
+    'declined for Olena Kravchenko',
+    'Olena Kravchenko',
+    'anna-kowalski.svc.cluster.local',
+    'tenant-48213.svc.cluster.local',
+    'user48213',
 ];

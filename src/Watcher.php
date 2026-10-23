@@ -21,6 +21,7 @@ use Watcher\Analyze\RouterSettings;
 use Watcher\Analyze\Spend;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
+use Watcher\Analyze\UnknownModelPrice;
 use Watcher\Analyze\Usage;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
@@ -98,7 +99,7 @@ final class Watcher
             $c,
             Factory::source($c, $http),
             Factory::state($c, $clock),
-            Factory::analyzer($c, $http),
+            Factory::analyzer($c),
             Factory::notifier($http),
             $clock,
             $hostLog,
@@ -258,7 +259,7 @@ final class Watcher
                     }
                 }
             }
-            foreach ($this->source->lines($window, $selector, new ReadFilter($readMin, [], $this->config->source['event_cap'])) as $e) {
+            foreach ($this->source->lines($window, $selector, new ReadFilter($readMin, $rules->backendPatterns(), $this->config->source['event_cap'])) as $e) {
                 yield $observe($e);
             }
             $truncated = $this->source->lastReadTruncated();
@@ -331,7 +332,7 @@ final class Watcher
 
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
-        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator), new VerdictCache($this->state, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
+        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog), new VerdictCache($this->state, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
         try {
             $routed = $router->route($redacted, $triageOnly, $dependencies);
         } catch (AnalyzerFailed $e) {
@@ -462,28 +463,63 @@ final class Watcher
         };
     }
 
-    /** Each call is priced and added to Spend as it returns, so a later failure in the same run cannot lose what was already paid for. */
-    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator): Analyzer
+    /**
+     * Each call is priced and added to Spend as it returns, so a later failure in the same run cannot lose what was already paid for.
+     * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 and fails clearly.
+     */
+    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log): Analyzer
     {
-        return new class ($inner, $spend, $calculator) implements Analyzer {
-            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator)
+        return new class ($inner, $spend, $calculator, $log) implements Analyzer {
+            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log)
             {
             }
 
             public function triage(TriageRequest $req): TriageResult
             {
-                $r = $this->inner->triage($req);
-                $this->spend->add($r->usage, $this->calculator->cost($r->usage));
+                try {
+                    $r = $this->inner->triage($req);
+                } catch (AnalyzerFailed $e) {
+                    throw $this->bookFailed($e);
+                }
+                $this->book($r->usage) || throw new AnalyzerFailed('no price configured for model');
 
                 return $r;
             }
 
             public function analyze(AnalysisRequest $req): AnalysisResult
             {
-                $r = $this->inner->analyze($req);
-                $this->spend->add($r->usage, $this->calculator->cost($r->usage));
+                try {
+                    $r = $this->inner->analyze($req);
+                } catch (AnalyzerFailed $e) {
+                    throw $this->bookFailed($e);
+                }
+                $this->book($r->usage) || throw new AnalyzerFailed('no price configured for model');
 
                 return $r;
+            }
+
+            private function bookFailed(AnalyzerFailed $e): AnalyzerFailed
+            {
+                if ($e->usage !== null) {
+                    $this->book($e->usage);
+                }
+
+                return $e;
+            }
+
+            /** @return bool false when the model had no price (recorded at cost 0) */
+            private function book(Usage $u): bool
+            {
+                try {
+                    $this->spend->add($u, $this->calculator->cost($u));
+
+                    return true;
+                } catch (UnknownModelPrice) {
+                    $this->spend->add($u, 0.0);
+                    $this->log?->error('paid analyzer call has no price configured; recorded at cost 0', ['model' => $u->model]);
+
+                    return false;
+                }
             }
         };
     }
@@ -509,7 +545,7 @@ final class Watcher
      *
      * @param list<string|null>|null $templates redacted templates of the candidates
      *
-     * @return array{0: list<DependencyContext>, 1: list<string>, 2: list<string>} contexts, unavailable names, undeclared hosts
+     * @return array{0: list<DependencyContext>, 1: list<string>, 2: int} contexts, unavailable names, count of undeclared call targets
      */
     private function readDependencies(Window $window, Normalizer $normalizer, Redactor $redactor, ?array $templates): array
     {

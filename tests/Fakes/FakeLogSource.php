@@ -59,7 +59,7 @@ final class FakeLogSource implements LogSource
         $this->truncated = false;
         $n = 0;
         foreach ($this->events as $event) {
-            if (!$event->level->atLeast($filter->minLevel) && !$this->matchesWatch($event, $filter)) {
+            if (!$event->level->atLeast($filter->minLevel) && !$filter->matchesWatch($event->message)) {
                 continue;
             }
             if ($n++ >= $filter->eventCap) {
@@ -90,16 +90,5 @@ final class FakeLogSource implements LogSource
         if ($this->failure !== null) {
             throw $this->failure;
         }
-    }
-
-    private function matchesWatch(LogEvent $event, ReadFilter $filter): bool
-    {
-        foreach ($filter->watchPatterns as $re) {
-            if (preg_match($re, $event->message) === 1) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

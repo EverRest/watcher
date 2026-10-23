@@ -118,6 +118,16 @@ abstract class StateStoreContractTest extends TestCase
         self::assertSame(2.25, $this->store->increment('spend', 0.25, 60));
     }
 
+    public function testIncrementIsReadableAsTotal(): void
+    {
+        $this->store->increment('spend', 7.5, 60);
+        // assertEquals: JSON stores round-trip 10.0 as int 10; only the numeric value matters to Spend.
+        self::assertEquals(['total' => 7.5], $this->store->get('spend'));
+
+        $this->store->increment('spend', 2.5, 60);
+        self::assertEquals(['total' => 10.0], $this->store->get('spend'));
+    }
+
     public function testIncrementExpires(): void
     {
         $this->store->increment('spend', 3.0, 10);

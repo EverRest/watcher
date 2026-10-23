@@ -131,4 +131,27 @@ final class LineParserExceptionTest extends TestCase
         self::assertSame('RuntimeException', $ok->errorType);
         self::assertSame(['/var/www/html/app/Foo.php:12'], $ok->frames);
     }
+
+    public function testJsonTypeThatIsFreeTextIsDropped(): void
+    {
+        $p = new LineParser();
+        $e = $p->parse('{"level":"error","message":"card declined","error":{"kind":"declined for Olena Shevchenko"}}');
+        self::assertNull($e->errorType);
+
+        $e = $p->parse('{"level":"error","message":"x","exception.class":"App\\\\Http2Exception"}');
+        self::assertSame('App\\Http2Exception', $e->errorType);
+
+        $e = $p->parse('{"level":"error","message":"x","exception.class":"' . str_repeat('A', 121) . '"}');
+        self::assertNull($e->errorType);
+    }
+
+    public function testMessageFormTypeMustBeAClassName(): void
+    {
+        $line = '[2026-10-07T10:00:00+00:00] production.ERROR: Http2Exception: lookup failed in /var/www/html/app/X.php:12 [] []';
+        $e = (new LineParser())->parse($line);
+        self::assertSame('Http2Exception', $e->errorType);
+
+        $e = (new LineParser())->parse('[2026-10-07T10:00:00+00:00] production.ERROR: ' . str_repeat('A', 121) . 'Exception: x in /var/www/html/app/X.php:12 [] []');
+        self::assertNull($e->errorType);
+    }
 }

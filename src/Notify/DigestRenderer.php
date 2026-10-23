@@ -24,7 +24,6 @@ final class DigestRenderer
     public const MAX_SECTIONS = 40;
     public const MAX_SECTION_CHARS = 2800;
     public const MAX_TEXT_CHARS = 4000;
-    public const MAX_UNDECLARED = 10;
     private const MAX_LINKS_CHARS = 1800;
 
     private const ICONS = ['critical' => '🔴', 'error' => '🟠', 'warn' => '🟡', 'info' => '🔵'];
@@ -120,8 +119,8 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s groups dropped (budget)', number_format($d->droppedGroups))];
         }
 
-        foreach (array_slice($d->undeclaredDependencies, 0, self::MAX_UNDECLARED) as $host) {
-            $out[] = ['kind' => 'notice', 'text' => '🔗 undeclared dependency: ' . $this->esc($host)];
+        if ($d->undeclaredHostCount > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('🔗 %d call target(s) not declared as dependencies', $d->undeclaredHostCount)];
         }
         foreach ($d->failedDependencies as $name) {
             $out[] = ['kind' => 'notice', 'text' => '⚠️ dependency unavailable: ' . $this->esc($name)];

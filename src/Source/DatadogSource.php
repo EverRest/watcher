@@ -166,13 +166,8 @@ final class DatadogSource implements LogSource
         if ($event->level->atLeast($filter->minLevel)) {
             return true;
         }
-        foreach ($filter->watchPatterns as $re) {
-            if (@preg_match($re, $event->message) === 1) {
-                return true;
-            }
-        }
 
-        return false;
+        return $filter->matchesWatch($event->message);
     }
 
     /**
@@ -202,17 +197,14 @@ final class DatadogSource implements LogSource
         return ' AND (' . implode(' OR ', $parts) . ')';
     }
 
-    /** The literal text of `/foo bar/` when the pattern has no regex metacharacters, else null. */
+    /** The literal text of `(?i)foo\\-bar` (escaped punctuation only) when the pattern has no regex syntax, else null. */
     private function literal(string $re): ?string
     {
-        $d = $re[0] ?? '';
-        $end = strrpos($re, $d);
-        if ($d === '' || ctype_alnum($d) || $end === false || $end === 0) {
-            return null;
-        }
-        $body = substr($re, 1, $end - 1);
+        $body = str_starts_with($re, '(?i)') ? substr($re, 4) : $re;
 
-        return $body !== '' && preg_match('/[\\\\.^$|?*+()\[\]{}]/', $body) !== 1 ? $body : null;
+        return $body !== '' && preg_match('/^(?:[^\\\\.^$|?*+()\[\]{}]|\\\\[^A-Za-z0-9])*$/', $body) === 1
+            ? preg_replace('/\\\\(.)/', '$1', $body)
+            : null;
     }
 
     private function tagQuery(StreamSelector $selector): string

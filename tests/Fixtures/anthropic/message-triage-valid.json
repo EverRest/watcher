@@ -6,7 +6,7 @@
   "content": [
     {
       "type": "text",
-      "text": "{\"verdicts\":[{\"g\":\"fp-aaa\",\"v\":\"interesting\",\"why\":\"count rose sharply\"}]}"
+      "text": "{\"verdicts\":[{\"g\":\"fp-aaa\",\"v\":\"interesting\"}]}"
     }
   ],
   "stop_reason": "end_turn",

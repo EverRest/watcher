@@ -309,18 +309,15 @@ final class DigestRendererTest extends TestCase
         self::assertStringNotContainsString('<http', $text);
     }
 
-    public function testUndeclaredAndUnavailableDependencyLinesAreCappedAndEscaped(): void
+    public function testUndeclaredHostsAreACountAndUnavailableDependenciesAreEscaped(): void
     {
-        $hosts = array_map(static fn (int $i): string => "host-$i", range(1, 12));
         $m = (new DigestRenderer())->render($this->data([], [], [
-            'undeclaredDependencies' => $hosts,
+            'undeclaredHostCount' => 3,
             'failedDependencies' => ['core-api', 'a<!channel>'],
         ]), 0.5);
         $text = $this->text($m, 'notice');
 
-        self::assertSame(10, substr_count($text, 'undeclared dependency: host-'));
-        self::assertStringContainsString('undeclared dependency: host-10', $text);
-        self::assertStringNotContainsString('host-11', $text);
+        self::assertStringContainsString('🔗 3 call target(s) not declared as dependencies', $text);
         self::assertStringContainsString('dependency unavailable: core-api', $text);
         self::assertStringNotContainsString('<!channel>', $text);
     }

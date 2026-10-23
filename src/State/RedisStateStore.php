@@ -35,6 +35,10 @@ final class RedisStateStore implements StateStore
         if (! is_string($raw)) {
             return null;
         }
+        // increment() stores a bare number (INCRBYFLOAT); return it in the shape the other stores use.
+        if (is_numeric($raw)) {
+            return ['total' => (float) $raw];
+        }
         try {
             $value = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {

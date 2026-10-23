@@ -86,6 +86,40 @@ final class FlexibilityTest extends TestCase
         self::assertStringNotContainsString('/QuotaTracking/', self::payloads($h));
     }
 
+    public function testScenario6LiteralTemplateRuleReadsAnInfoLineBelowReadMinLevelByNameOnly(): void
+    {
+        $info = Harness::events(Level::Info, 'QuotaTracking drifted again', 4);
+        $h = new Harness(['watch_rules' => ['quota' => ['template' => '/QuotaTracking/']]]);
+        self::baseline($h, $info);
+        $source = self::source($info);
+
+        $result = $h->watcher($source)->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        $groups = $h->analyzer->triageRequests[0]->groups;
+        self::assertCount(1, $groups);
+        self::assertSame(['quota'], $groups[0]->watchMatches);
+        $filters = array_map(static fn (array $a): mixed => $a[2], $source->callsTo('lines'));
+        self::assertContains(['QuotaTracking'], array_map(static fn ($f): array => $f->watchPatterns, $filters));
+        self::assertStringNotContainsString('/QuotaTracking/', self::everything($h));
+    }
+
+    public function testScenario6NonPushableRuleStillMatchesOnLinesThatWereRead(): void
+    {
+        $h = new Harness(['watch_rules' => ['quota' => ['template' => '/Quota\w+ drifted <\w+>/']]]);
+        $events = Harness::events(Level::Warning, 'QuotaTracking drifted 42', 4);
+        self::baseline($h, $events);
+        $source = self::source($events);
+
+        $result = $h->watcher($source)->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        self::assertSame(['quota'], $h->analyzer->triageRequests[0]->groups[0]->watchMatches);
+        foreach ($source->callsTo('lines') as $args) {
+            self::assertSame([], $args[2]->watchPatterns);
+        }
+    }
+
     public function testScenario6WithoutTheRuleTheSameWarningGroupIsNotACandidate(): void
     {
         $h = new Harness(['selection' => ['top_n' => 1, 'top_m' => 1]]);

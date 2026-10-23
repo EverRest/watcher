@@ -18,6 +18,10 @@ final class LineParser
     private const MESSAGE_FORM = '/^(?<t>[A-Za-z_][\w\\\\]*(?:Exception|Error)): .* in (?<f>(?:[A-Za-z]:)?[\\\\\/][\w.\-\\\\\/]*\.[A-Za-z0-9]{1,5}):(?<l>\d+)$/';
     private const TRACE_LINE = '/^#\d+ (?<f>(?:[A-Za-z]:)?[\\\\\/][\w.\-\\\\\/]*\.[A-Za-z0-9]{1,5})\((?<l>\d+)\): /m';
 
+    /** An exception type is a PHP class name (max 120 chars); anything else is free text and never leaves. */
+    public const CLASS_NAME = '/^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*$/D';
+    public const CLASS_NAME_MAX = 120;
+
     private const LEVEL_KEYS = ['level', 'severity', 'status'];
     private const MESSAGE_KEYS = ['message', 'msg'];
     private const TYPE_KEYS = ['exception.class', 'error.kind'];
@@ -135,7 +139,18 @@ final class LineParser
             return $e;
         }
 
+        $type = self::classNameOrNull($type);
+        if ($type === null && $frames === []) {
+            return $e;
+        }
+
         return new LogEvent($e->time, $e->level, $e->message, $type, array_values(array_unique($frames)), $e->fields, $e->labels);
+    }
+
+    /** Names inside a valid class name (`AnnaKowalskiNotFoundException`) cannot be detected; see docs/privacy.md. */
+    public static function classNameOrNull(?string $type): ?string
+    {
+        return $type !== null && strlen($type) <= self::CLASS_NAME_MAX && preg_match(self::CLASS_NAME, $type) === 1 ? $type : null;
     }
 
     /** @param array<mixed> $data */
@@ -158,7 +173,7 @@ final class LineParser
             $this->time($time) ?? $fallback,
             Level::parse(is_scalar($level) ? (string) $level : ''),
             is_scalar($message) ? (string) $message : '',
-            is_scalar($type) && (string) $type !== '' ? (string) $type : null,
+            is_scalar($type) ? self::classNameOrNull((string) $type) : null,
             $frames,
             $this->flatten($data, '', $used),
             [],
