@@ -27,6 +27,12 @@ interface LogSource
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): iterable;
 
     /**
+     * True when the most recent `lines()` stream stopped at `eventCap` while more matching lines remained.
+     * Meaningful only after that generator has been consumed; false before any read.
+     */
+    public function lastReadTruncated(): bool;
+
+    /**
      * Deploy versions seen in the window via a per-line label (FR-041).
      *
      * @return array<string, DateTimeImmutable> version => first seen in window; [] if label absent

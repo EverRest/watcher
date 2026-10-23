@@ -12,6 +12,7 @@
             <directory>tests/Contract</directory>
             <!-- abstract contract bases, run through their concrete subclasses -->
             <exclude>tests/Contract/StateStoreContractTest.php</exclude>
+            <exclude>tests/Contract/LogSourceContractTest.php</exclude>
         </testsuite>
         <testsuite name="EndToEnd"><directory>tests/EndToEnd</directory></testsuite>
     </testsuites>

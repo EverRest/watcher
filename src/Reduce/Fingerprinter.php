@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Watcher\Reduce;
+
+use Watcher\Source\LogEvent;
+
+/**
+ * Stable problem id: 12 hex of sha256(level|errorType|frame0|tokenCount|firstTwoWords) over the
+ * Normalizer-masked message. Deliberately independent of the mined template and of volume, so a
+ * problem keeps its id at 1 event or 5, and when messages differ only by a name after word two.
+ */
+final class Fingerprinter
+{
+    public function __construct(private readonly Normalizer $normalizer)
+    {
+    }
+
+    public function of(LogEvent $event): string
+    {
+        return $this->fingerprint($event, TemplateMiner::tokens($this->normalizer, $event));
+    }
+
+    /** @param list<string> $tokens masked message tokens, from TemplateMiner::tokens() */
+    public function fingerprint(LogEvent $event, array $tokens): string
+    {
+        $firstTwo = mb_strtolower(implode(' ', array_slice($tokens, 0, 2)));
+
+        return substr(hash('sha256', implode('|', [
+            $event->level->value,
+            $event->errorType ?? '',
+            $event->frames[0] ?? '',
+            count($tokens),
+            $firstTwo,
+        ])), 0, 12);
+    }
+}

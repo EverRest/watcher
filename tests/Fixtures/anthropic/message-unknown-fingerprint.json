@@ -1,0 +1,15 @@
+{
+  "id": "msg_01Fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-fixture-model-1",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"findings\":[{\"fingerprints\":[\"fp-zzz\"],\"kind\":\"bug\",\"severity\":\"warn\",\"title\":\"t\",\"evidence\":\"e\",\"suspected_cause\":\"c\",\"suggested_action\":\"a\",\"confidence\":0.5}]}"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": { "input_tokens": 100, "output_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0 }
+}

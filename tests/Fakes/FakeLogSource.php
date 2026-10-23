@@ -17,6 +17,7 @@ final class FakeLogSource implements LogSource
     /** @var list<array{method: string, args: list<mixed>}> */
     public array $calls = [];
     private ?SourceUnavailable $failure = null;
+    private bool $truncated = false;
 
     /**
      * @param array<string, int> $totals
@@ -55,16 +56,24 @@ final class FakeLogSource implements LogSource
     {
         $this->record('lines', [$window, $selector, $filter]);
 
+        $this->truncated = false;
         $n = 0;
         foreach ($this->events as $event) {
             if (!$event->level->atLeast($filter->minLevel) && !$this->matchesWatch($event, $filter)) {
                 continue;
             }
             if ($n++ >= $filter->eventCap) {
+                $this->truncated = true;
+
                 return;
             }
             yield $event;
         }
+    }
+
+    public function lastReadTruncated(): bool
+    {
+        return $this->truncated;
     }
 
     public function versions(Window $window, StreamSelector $selector, string $label): array

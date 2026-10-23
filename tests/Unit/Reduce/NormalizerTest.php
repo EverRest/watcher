@@ -109,6 +109,56 @@ final class NormalizerTest extends TestCase
         self::assertSame('<URL>', (new Normalizer())->normalize('https://api.stripe.com/v1'));
     }
 
+    /** @return array<string, array{string, string}> */
+    public static function placeholderShapedInput(): array
+    {
+        return [
+            'mailto in angle brackets' => ['send failed <mailto:anna.kowalski@example.com> retry', 'send failed <mailto:<EMAIL>> retry'],
+            'hex id after a colon' => ['auth <tok:a1b2c3d4e5f6a7b8> rejected', 'auth <tok:<ID>> rejected'],
+            'lowercase fake url placeholder' => ['see <url:john-smith.example.com> now', 'see <url:<HOST>> now'],
+            'uppercase fake email placeholder' => ['see <EMAIL:john-smith.example.com> now', 'see <EMAIL:<HOST>> now'],
+            'fake host placeholder with a name' => ['see <HOST:anna.kowalski@example.com> now', 'see <HOST:<EMAIL>> now'],
+            'angle brackets around a url' => ['see <http://core-api/x> now', 'see <<URL:core-api>> now'],
+        ];
+    }
+
+    #[DataProvider('placeholderShapedInput')]
+    public function testPlaceholderShapedInputIsNotTrusted(string $in, string $out): void
+    {
+        self::assertSame($out, (new Normalizer())->normalize($in));
+    }
+
+    /** @return array<string, array{string, string, list<string>}> */
+    public static function credentialedUrls(): array
+    {
+        return [
+            'slash in password' => ['connect mysql://svc:pa/ss@db.internal.example.com:3306/app failed', 'connect <URL> failed', ['pa/', 'ss', 'internal']],
+            'colon and hash in password' => ['dsn postgres://admin:p:a#ss@pg.example.com/db down', 'dsn <URL> down', ['p:a', '#ss', 'pg.example']],
+            'question mark in password' => ['url http://bob:se?cret@host.example.org/x', 'url <URL>', ['se?', 'cret', 'host.example']],
+            'at sign in password' => ['url http://bob:p@ss@host.example.org/x', 'url <URL>', ['p@', 'ss@', 'host.example']],
+            'digits-only password' => ['url http://bob:1234@host.example.org/x', 'url <URL>', ['1234', 'host.example']],
+        ];
+    }
+
+    /** @param list<string> $mustNotRemain */
+    #[DataProvider('credentialedUrls')]
+    public function testCredentialedUrlsAreMaskedWholeWhateverThePassword(string $in, string $out, array $mustNotRemain): void
+    {
+        $got = (new Normalizer())->normalize($in);
+        self::assertSame($out, $got);
+        foreach ($mustNotRemain as $fragment) {
+            self::assertStringNotContainsString($fragment, $got);
+        }
+    }
+
+    public function testPortsAndEmailsInQueryDoNotTriggerTheCredentialRule(): void
+    {
+        $n = new Normalizer();
+        self::assertSame('<URL:core-api>', $n->normalize('http://core-api/users?email=x@y.com'));
+        self::assertSame('<URL:core-api>', $n->normalize('http://core-api:8080/x?e=a@b.com'));
+        self::assertSame('<URL:core-api>', $n->normalize('http://core-api:8080'));
+    }
+
     public function testDeterministic(): void
     {
         $n = new Normalizer();

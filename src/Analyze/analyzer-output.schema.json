@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "watcher/analyzer-output",
+  "title": "Watcher model output (FR-023)",
+  "$defs": {
+    "triage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdicts"],
+      "properties": {
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["g", "v"],
+            "properties": {
+              "g": { "type": "string", "description": "fingerprint" },
+              "v": { "enum": ["noise", "known", "interesting"] },
+              "why": { "type": "string", "maxLength": 100 }
+            }
+          }
+        }
+      }
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["findings"],
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fingerprints", "kind", "severity", "title", "evidence", "suspected_cause", "suggested_action", "confidence"],
+            "properties": {
+              "fingerprints": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+              "kind": { "enum": ["bug", "regression", "anomaly", "noise"] },
+              "severity": { "enum": ["info", "warn", "error", "critical"] },
+              "title": { "type": "string", "maxLength": 80 },
+              "evidence": { "type": "string", "maxLength": 240 },
+              "suspected_cause": { "type": "string", "maxLength": 240 },
+              "suggested_action": { "type": "string", "maxLength": 200 },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "description": "Canonical schema used by code validation. Before sending as output_config.format.schema, code strips keywords the provider does not support (maxLength, minimum, maximum) and enforces them after parsing (research R3). Code also rejects any fingerprint not present in the request (Principle IV)."
+}

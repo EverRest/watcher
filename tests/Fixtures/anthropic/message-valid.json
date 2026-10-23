@@ -1,0 +1,20 @@
+{
+  "id": "msg_01Fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-fixture-model-1",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"findings\":[{\"fingerprints\":[\"fp-aaa\"],\"kind\":\"regression\",\"severity\":\"error\",\"title\":\"Payment gateway timeouts\",\"evidence\":\"fp-aaa rose from 3 to 41 occurrences\",\"suspected_cause\":\"Possibly an upstream slowdown (hypothesis)\",\"suggested_action\":\"Check the gateway latency dashboard\",\"confidence\":0.7}]}"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 150,
+    "cache_creation_input_tokens": 800,
+    "cache_read_input_tokens": 400
+  }
+}

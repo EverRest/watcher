@@ -1,0 +1,7 @@
+{"status":"success","data":{"resultType":"streams","result":[
+{"stream":{"app":"orders-api","env":"stg","pod":"a"},"values":[
+["1792627200000000000","[2026-10-22 00:00:00] production.ERROR: Payment failed {\"order\":1}"],
+["1792627202000000000","[2026-10-22 00:00:02] production.INFO: ok {}"]]},
+{"stream":{"app":"orders-api","env":"stg","pod":"b"},"values":[
+["1792627201000000000","{\"level\":\"critical\",\"message\":\"DB down\",\"exception.class\":\"PDOException\"}"]]}
+]}}

@@ -16,8 +16,20 @@ namespace Watcher\Reduce;
  */
 final class Normalizer
 {
-    /** Placeholders already written are skipped by every later rule. */
-    private const SKIP = '<[A-Z]+(?::[^>\s]*)?>(*SKIP)(*F)|';
+    /**
+     * Placeholders THIS class wrote are skipped by every later rule: exact names, case-sensitive,
+     * host-shaped payload only. Angle brackets in the input are neutralised first (see scan()), so
+     * placeholder-looking input text can never hide a value from the rules.
+     */
+    private const SKIP = '<(?-i:(?:EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR)(?::[a-z0-9._-]+)?)>(*SKIP)(*F)|';
+
+    /** Private-use stand-ins for '<' and '>' of the input while the rules run. */
+    private const LT = "\u{E000}";
+
+    private const GT = "\u{E001}";
+
+    /** Character-class members that end a URL token (angle brackets and their stand-ins). */
+    private const ANG = '<>\x{E000}\x{E001}';
 
     private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|md|sql|csv|env|lock|sh|py|rb|go|jar|zip|gz';
 
@@ -54,6 +66,10 @@ final class Normalizer
             throw new NormalizationException('Input is not valid UTF-8.');
         }
 
+        // Input '<' and '>' (and any stray stand-ins) become inert so only our own placeholders are '<...>'.
+        $text = strtr($text, [self::LT => "\u{FFFD}", self::GT => "\u{FFFD}"]);
+        $text = strtr($text, ['<' => self::LT, '>' => self::GT]);
+
         $changed = false;
         foreach ($this->rules() as [$pattern, $replace]) {
             $out = preg_replace_callback(
@@ -77,7 +93,7 @@ final class Normalizer
             throw new NormalizationException('Whitespace collapse failed: ' . preg_last_error_msg());
         }
 
-        return ['text' => trim($text), 'changed' => $changed];
+        return ['text' => strtr(trim($text), [self::LT => '<', self::GT => '>']), 'changed' => $changed];
     }
 
     /** @return list<array{string, string|callable(array<int|string,string>): string}> */
@@ -85,10 +101,20 @@ final class Normalizer
     {
         $h = self::H;
 
+        $ang = self::ANG;
+
         return [
             [
+                // scheme://user:password@... where the password is NOT RFC-encoded and holds a / ? or #.
+                // After 'user:' (a non-port value) a / ? # appears before a later '@': that is a password
+                // swallowing the authority, so the whole token is dropped. RFC-compliant credentials fall
+                // through to the next rule; ports and '@' in a query (http://h:80/x?e=a@b) are not matched.
+                '\b[a-z][a-z0-9+.-]*://[^\s/?\#@\'"' . $ang . ']*:(?!\d+(?:[/?\#]|$|\s))[^\s/?\#\'"' . $ang . ']*[/?\#][^\s\'"' . $ang . ']*@[^\s\'"' . $ang . ']*',
+                '<URL>',
+            ],
+            [
                 // scheme://[creds@]host[:port][/path?query#frag]
-                '\b[a-z][a-z0-9+.-]*://(?:[^\s/?\#\'"<>]*@)?(?<host>\[[0-9a-f:.]+\]|[^\s/?\#:\'"<>\[\]]+)(?::\d+)?(?:[/?\#][^\s\'"<>]*)?',
+                '\b[a-z][a-z0-9+.-]*://(?:[^\s/?\#\'"' . $ang . ']*@)?(?<host>\[[0-9a-f:.]+\]|[^\s/?\#:\'"' . $ang . '\[\]]+)(?::\d+)?(?:[/?\#][^\s\'"' . $ang . ']*)?',
                 fn (array $m): string => $this->url($m),
             ],
             ['\beyJ[\w-]+\.[\w-]+\.[\w-]+', '<TOKEN>'],

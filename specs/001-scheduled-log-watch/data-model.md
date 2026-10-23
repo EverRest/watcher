@@ -35,7 +35,7 @@ Output of the Reducer, input to the Redactor and Selector (FR-005, FR-006).
 
 | Field | Type | Rule |
 |---|---|---|
-| `fingerprint` | `string` | 12-hex prefix of sha256 over `level|errorType|template|frames[0]`; stable across runs |
+| `fingerprint` | `string` | 12-hex prefix of sha256 over `level\|errorType\|frame0\|tokenCount\|firstTwoWords` (firstTwoWords = first two tokens of the Normalizer-masked message, lowercased). Deliberately independent of the mined template and of cluster volume, so the same problem keeps its fingerprint when its daily count drops below `min_group_events_for_text`. ponytail: messages identical in the first two words, token count, error type and top frame share a fingerprint; upgrade path is a persisted template tree |
 | `template` | `string` | normalised message: digits → `<N>`, uuids/hex ids → `<ID>`, emails → `<EMAIL>`, ... |
 | `level` | `Level` | highest level seen in the group |
 | `errorType` | `?string` | |

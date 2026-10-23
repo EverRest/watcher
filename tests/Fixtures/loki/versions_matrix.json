@@ -1,0 +1,5 @@
+{"status":"success","data":{"resultType":"matrix","result":[
+{"metric":{"version":"1.4.0"},"values":[[1792627200,"0"],[1792630800,"4"],[1792634400,"9"]]},
+{"metric":{"version":"1.5.0"},"values":[[1792634400,"2"]]},
+{"metric":{},"values":[[1792627200,"3"]]}
+]}}
