@@ -33,7 +33,7 @@ final class DependencyContextReaderTest extends TestCase
         $this->window = Window::endingAt($end);
         $this->store = new InMemoryStateStore(new FrozenClock($end));
         $normalizer = new Normalizer(['payments']);
-        $this->reader = new DependencyContextReader($normalizer, new Redactor($normalizer), $this->store, 3600);
+        $this->reader = new DependencyContextReader($normalizer, new Redactor($normalizer), $this->store, 3600, 3);
     }
 
     private function event(string $msg, Level $l = Level::Error): LogEvent
@@ -52,6 +52,10 @@ final class DependencyContextReaderTest extends TestCase
         return $out;
     }
 
+    /**
+     * @param list<string> $linesFor
+     * @param array<string, bool> $first
+     */
     private function plan(array $linesFor = [], array $first = []): DependencyPlan
     {
         return new DependencyPlan($linesFor, [], [], $first);
@@ -91,7 +95,11 @@ final class DependencyContextReaderTest extends TestCase
 
     public function testTemplatesComeBackMasked(): void
     {
-        $src = new FakeLogSource(['error' => 2], [$this->event('call https://payments/charge failed for bob@example.org'), $this->event('call https://payments/charge failed for amy@example.org')]);
+        $src = new FakeLogSource(['error' => 3], [
+            $this->event('call https://payments/charge failed for bob@example.org'),
+            $this->event('call https://payments/charge failed for amy@example.org'),
+            $this->event('call https://payments/charge failed for cat@example.org'),
+        ]);
         $res = $this->reader->read('svc', $this->declared('db'), fn () => $src, $this->plan(['db']), $this->window, 5000);
         $t = (string) $res->contexts[0]->topErrors[0]->template;
         self::assertStringContainsString('<URL:payments>', $t);
@@ -175,5 +183,22 @@ final class DependencyContextReaderTest extends TestCase
         foreach ($seeded as $value) {
             self::assertStringNotContainsString($value, (string) $blob, $value);
         }
+    }
+
+    public function testDependencyTextUsesTheServicesMinimumClusterSize(): void
+    {
+        // Two identical events naming a person: a cluster of 2 is below the configured threshold of 3, so the
+        // dependency's message text must be withheld exactly like the service's own.
+        $src = new FakeLogSource(['error' => 2], [
+            $this->event('Billing failed for Anna Kowalski'),
+            $this->event('Billing failed for Anna Kowalski'),
+        ]);
+
+        $res = $this->reader->read('svc', $this->declared('billing'), fn () => $src, $this->plan(['billing']), $this->window, 5000);
+
+        $top = $res->contexts[0]->topErrors;
+        self::assertCount(1, $top);
+        self::assertNull($top[0]->template);
+        self::assertStringNotContainsString('Anna', (string) json_encode($top));
     }
 }
