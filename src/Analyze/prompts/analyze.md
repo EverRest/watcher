@@ -12,7 +12,7 @@ You analyse grouped, already-masked application log summaries and report finding
 
 ## Input
 
-The user message is a compact JSON array of log groups. Keys: `fp` fingerprint, `tpl` normalised message template, `lvl` level, `err` error type, `frames` up to 5 stack frames, `n` occurrences in this window, `prev` occurrences in the previous window (null if unknown), `st` one of new/grown/unchanged, `watch` matched watch rules, `first` and `last` timestamps.
+The user message is compact JSON `{"t": [...], "g": [...]}`. `t` is the list of distinct normalised message templates; `g` is the list of log groups. Group keys: `fp` fingerprint, `t` index into `t` of the group's template (null if none), `lvl` level, `err` error type, `frames` up to 5 stack frames, `n` occurrences in this window, `prev` occurrences in the previous window (null if unknown), `st` one of new/grown/unchanged, `watch` matched watch rules, `first` and `last` timestamps.
 
 ## Output
 

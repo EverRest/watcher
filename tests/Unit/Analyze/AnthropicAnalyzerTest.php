@@ -15,10 +15,10 @@ use Psr\Http\Message\RequestInterface;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\ProviderSchema;
 use Watcher\Analyze\Severity;
-use Watcher\Analyze\TriageRequest;
 use Watcher\Level;
 use Watcher\Privacy\GroupStatusLabel;
 use Watcher\Privacy\RedactedGroup;
@@ -124,9 +124,11 @@ final class AnthropicAnalyzerTest extends TestCase
         self::assertSame('user', $messages[0]['role']);
         $content = $messages[0]['content'];
         $text = (string) (is_string($content) ? $content : $content[0]['text']);
-        self::assertSame(json_encode($req->groups, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $text);
-        $groups = json_decode($text, true);
-        self::assertSame(array_keys($req->groups[0]->toArray()), array_keys($groups[0]));
+        self::assertSame(CompactPayload::encode($req->groups), $text);
+        $payload = json_decode($text, true);
+        self::assertSame(['Gateway timeout after <N> ms'], $payload['t']);
+        self::assertSame(0, $payload['g'][0]['t']);
+        self::assertSame(array_keys(array_diff_key($req->groups[0]->toArray(), ['tpl' => 1])), array_values(array_diff(array_keys($payload['g'][0]), ['t'])));
         self::assertStringNotContainsString("\n", $text);
     }
 
@@ -224,11 +226,5 @@ final class AnthropicAnalyzerTest extends TestCase
     public static function unavailableStatuses(): array
     {
         return ['529 overloaded' => [529, 'error-529.json'], '503 unavailable' => [503, 'error-529.json']];
-    }
-
-    public function testTriageIsNotImplementedYet(): void
-    {
-        $this->expectException(\LogicException::class);
-        $this->analyzer([])->triage(new TriageRequest([], '', 'm', 1));
     }
 }

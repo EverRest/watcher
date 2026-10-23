@@ -18,6 +18,9 @@ final class KeysTest extends TestCase
         self::assertSame('run:api:W', Keys::run('api', 'W'));
         self::assertSame('lock:api:W', Keys::lock('api', 'W'));
         self::assertSame('spend:api:2026-01-01', Keys::spend('api', '2026-01-01'));
+        self::assertSame('spend:api:2026-01-01:usd', Keys::spendUsd('api', '2026-01-01'));
+        self::assertSame('spend:api:2026-01-01:tokens', Keys::spendTokens('api', '2026-01-01'));
+        self::assertSame('alert:api:2026-01-01:cost:75', Keys::alert('api', '2026-01-01', 'cost', 75));
     }
 
     public function testColonsInServiceCannotCollide(): void
@@ -28,6 +31,12 @@ final class KeysTest extends TestCase
         self::assertNotSame(Keys::snapshot('x:dep:y', 'W'), Keys::dependencySnapshot('x', 'y', 'W'));
     }
 
+    public function testSpendAndAlertKeysCannotCollideAcrossServices(): void
+    {
+        self::assertNotSame(Keys::spendUsd('a:2026-01-01', 'x'), Keys::spendTokens('a', '2026-01-01'));
+        self::assertNotSame(Keys::alert('a', 'd', 'cost', 50), Keys::alert('a:d', 'cost', '50', 1));
+    }
+
     public function testTtlSelection(): void
     {
         self::assertSame(2592000, Keys::ttl(Keys::SNAP, 2592000, 900));
@@ -36,6 +45,7 @@ final class KeysTest extends TestCase
         self::assertSame(2592000, Keys::ttl(Keys::REPORTED, 2592000, 900));
         self::assertSame(2592000, Keys::ttl(Keys::RUN, 2592000, 900));
         self::assertSame(172800, Keys::ttl(Keys::SPEND, 2592000, 900));
+        self::assertSame(172800, Keys::ttl(Keys::ALERT, 2592000, 900));
         self::assertSame(900, Keys::ttl(Keys::LOCK, 2592000, 900));
     }
 }

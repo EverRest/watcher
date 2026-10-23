@@ -21,6 +21,12 @@ final class FakeAnalyzer implements Analyzer
 
     public int $analyzeCalls = 0;
 
+    /** @var list<TriageResult> consumed one per triage() call before falling back to $triage */
+    public array $triageScript = [];
+
+    /** @var list<AnalysisResult> consumed one per analyze() call before falling back to $analysis */
+    public array $analysisScript = [];
+
     public function __construct(
         public ?TriageResult $triage = null,
         public ?AnalysisResult $analysis = null,
@@ -33,7 +39,7 @@ final class FakeAnalyzer implements Analyzer
         $this->requests[] = $req;
         $this->triageCalls++;
 
-        return $this->failure !== null ? throw $this->failure : ($this->triage ?? throw new AnalyzerFailed('no canned triage'));
+        return $this->failure !== null ? throw $this->failure : (array_shift($this->triageScript) ?? $this->triage ?? throw new AnalyzerFailed('no canned triage'));
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -41,6 +47,6 @@ final class FakeAnalyzer implements Analyzer
         $this->requests[] = $req;
         $this->analyzeCalls++;
 
-        return $this->failure !== null ? throw $this->failure : ($this->analysis ?? throw new AnalyzerFailed('no canned analysis'));
+        return $this->failure !== null ? throw $this->failure : (array_shift($this->analysisScript) ?? $this->analysis ?? throw new AnalyzerFailed('no canned analysis'));
     }
 }

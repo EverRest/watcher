@@ -14,6 +14,7 @@ final class Keys
     public const RUN = 'run';
     public const LOCK = 'lock';
     public const SPEND = 'spend';
+    public const ALERT = 'alert';
 
     private const SPEND_TTL = 172800;
 
@@ -52,11 +53,27 @@ final class Keys
         return self::join(self::SPEND, $service, $day);
     }
 
+    public static function spendUsd(string $service, string $day): string
+    {
+        return self::join(self::SPEND, $service, $day, 'usd');
+    }
+
+    public static function spendTokens(string $service, string $day): string
+    {
+        return self::join(self::SPEND, $service, $day, 'tokens');
+    }
+
+    /** @param string $counter 'cost' or 'tokens' */
+    public static function alert(string $service, string $day, string $counter, int $percent): string
+    {
+        return self::join(self::ALERT, $service, $day, $counter, (string) $percent);
+    }
+
     /** @param string $kind one of the kind constants */
     public static function ttl(string $kind, int $retention, int $lockTtl): int
     {
         return match ($kind) {
-            self::SPEND => self::SPEND_TTL,
+            self::SPEND, self::ALERT => self::SPEND_TTL,
             self::LOCK => $lockTtl,
             default => $retention,
         };

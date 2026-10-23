@@ -217,14 +217,69 @@ final class WatchConfig
             }
         }
 
+        $prices = self::prices(self::section($a, 'prices'), $models);
+        $percents = $a['budget_alert_percents'] ?? [25, 50, 75, 90];
+        $tokenLimit = $a['daily_token_limit'] ?? null;
+        if ($tokenLimit !== null && (!is_int($tokenLimit) || $tokenLimit < 1)) {
+            throw new InvalidConfig('analysis.daily_token_limit must be null or a positive integer');
+        }
+        if (!is_array($percents) || !array_is_list($percents) || $percents === [] || !self::ascendingPercents($percents)) {
+            throw new InvalidConfig('analysis.budget_alert_percents must be ascending integers from 1 to 99');
+        }
+
         return array_merge($a, $limits, [
             'provider' => self::optStr($a, 'provider', 'anthropic', 'analysis.provider'),
             'models' => $models,
             'confidence_threshold' => $conf,
             'escalation_cap' => self::posInt($a, 'escalation_cap', 3, 'analysis.escalation_cap'),
             'daily_budget_usd' => self::num($a, 'daily_budget_usd', 0.50, 'analysis.daily_budget_usd'),
-            'prices' => self::section($a, 'prices'),
+            'prices' => $prices,
+            'daily_token_limit' => $tokenLimit,
+            'budget_alert_percents' => $percents,
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $prices
+     * @param array<string, mixed> $models
+     * @return array<string, array{float, float, float, float}>
+     */
+    private static function prices(array $prices, array $models): array
+    {
+        foreach (self::STEPS as $step) {
+            if (!isset($prices[$models[$step]])) {
+                throw new InvalidConfig('analysis.prices (no price for models.' . $step . ')');
+            }
+        }
+        $out = [];
+        foreach ($prices as $model => $p) {
+            $path = 'analysis.prices.' . $model;
+            if (!is_array($p) || !array_is_list($p) || count($p) !== 4) {
+                throw new InvalidConfig($path . ' must be 4 non-negative numbers: input, output, cache_read, cache_write');
+            }
+            foreach ($p as $n) {
+                if ((!is_int($n) && !is_float($n)) || $n < 0) {
+                    throw new InvalidConfig($path . ' must be 4 non-negative numbers: input, output, cache_read, cache_write');
+                }
+            }
+            $out[(string) $model] = [(float) $p[0], (float) $p[1], (float) $p[2], (float) $p[3]];
+        }
+
+        return $out;
+    }
+
+    /** @param array<mixed> $percents */
+    private static function ascendingPercents(array $percents): bool
+    {
+        $last = 0;
+        foreach ($percents as $p) {
+            if (!is_int($p) || $p <= $last || $p > 99) {
+                return false;
+            }
+            $last = $p;
+        }
+
+        return true;
     }
 
     /**

@@ -34,23 +34,55 @@ final class AnthropicAnalyzer implements Analyzer
 
     public function triage(TriageRequest $req): TriageResult
     {
-        throw new \LogicException('triage() arrives with the cost-routing work (US3)');
+        $allowed = array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $req->groups);
+
+        [$out, $usage] = $this->attempt(
+            'triage',
+            $req->groups,
+            $req->serviceContext,
+            $req->model,
+            $req->maxOutputTokens,
+            fn (array $data): array => $this->validator->triage($data, $allowed),
+        );
+
+        return new TriageResult($out['verdicts'], $out['why'], $usage);
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
     {
         $allowed = array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $req->groups);
+
+        [$findings, $usage] = $this->attempt(
+            'analysis',
+            $req->groups,
+            $req->serviceContext,
+            $req->model,
+            $req->maxOutputTokens,
+            fn (array $data): array => $this->validator->analysis($data, $allowed),
+        );
+
+        return new AnalysisResult($findings, $usage);
+    }
+
+    /**
+     * One call, validated in code, one retry on bad output (usage of both attempts is summed).
+     *
+     * @param list<RedactedGroup>          $groups
+     * @param callable(array<mixed>): array<mixed> $validate
+     *
+     * @return array{0: array<mixed>, 1: Usage}
+     */
+    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate): array
+    {
         $usage = null;
 
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
-            $message = $this->call($req);
+            $message = $this->call($kind, $groups, $context, $model, $maxTokens);
             $u = $this->usage($message);
             $usage = $usage === null ? $u : $usage->plus($u);
 
             try {
-                $findings = $this->validator->analysis($this->decode($message), $allowed);
-
-                return new AnalysisResult($findings, $usage);
+                return [$validate($this->decode($message)), $usage];
             } catch (InvalidModelOutput|JsonException) {
                 // retried once, then fails below
             }
@@ -59,19 +91,20 @@ final class AnthropicAnalyzer implements Analyzer
         throw new AnalyzerFailed('invalid model output');
     }
 
-    private function call(AnalysisRequest $req): Message
+    /** @param list<RedactedGroup> $groups */
+    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens): Message
     {
-        $prompt = (string) file_get_contents(__DIR__ . '/prompts/analyze.md');
+        $prompt = (string) file_get_contents(__DIR__ . '/prompts/' . ($kind === 'triage' ? 'triage' : 'analyze') . '.md');
 
         try {
             return $this->client->messages->create(
-                maxTokens: $req->maxOutputTokens,
-                messages: [['role' => 'user', 'content' => json_encode($req->groups, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)]],
-                model: $req->model,
-                outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for('analysis')]],
+                maxTokens: $maxTokens,
+                messages: [['role' => 'user', 'content' => CompactPayload::encode($groups)]],
+                model: $model,
+                outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for($kind)]],
                 system: [[
                     'type' => 'text',
-                    'text' => $prompt . "\n## Service context\n\n" . $req->serviceContext,
+                    'text' => $prompt . "\n## Service context\n\n" . $context,
                     'cacheControl' => ['type' => 'ephemeral'],
                 ]],
             );
