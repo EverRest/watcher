@@ -1,16 +1,21 @@
 # watcher — roadmap
 
-Each item is its own spec (specify → clarify → plan → tasks → implement). Order is by value / cost.
+Each item is its own spec (specify -> clarify -> plan -> tasks -> implement). Specs 002-006 were written from the audit's
+feature proposals (`docs/audit-2026-10-23.md`); 007-010 are earlier roadmap items, not yet specified.
 Decisions recorded here were made by the owner on 2026-10-23.
 
 | Spec | Scope | Status | Notes |
 |---|---|---|---|
-| **001 scheduled-log-watch** | Logs (Loki, Datadog) → reduce → redact → select → tiered AI → Slack digest; dedupe, mute, budgets, notices; dependency context, deploy version, service context, log links, code links | Spec, plan, tasks ready | MVP = US1 + US2 |
-| **002 code-aware analysis** | Model reads code fragments for the top frames at the deployed commit: read-only repo token, only referenced functions (≈ ±40 lines), secrets redacted with the same code as PII, never `.env`/config files, own token budget | Approved by owner (sending code fragments to Anthropic is allowed) | Builds on 001 `CodeLinkBuilder` + `DeployInfo` |
-| **003 kubernetes events** | CrashLoopBackOff, OOMKilled, readiness/liveness failures, restarts, HPA errors, image pull errors as a second source; read-only API access | Not started | Closes the pod-level half of `orders-api/docs/context/logs/dev-notes` (WT-01, 03–06, 08, 15); needed for SC-001 |
-| **004 metrics and Sentry** | Prometheus error rate / p95 latency deltas; Sentry issues as an already-grouped source | Not started | Same `LogSource`-style contract per source type |
-| **005 workflow** | Jira ticket draft text in the digest (no creation), linking findings to existing tickets, weekly trend digest, mute via Slack reactions (needs a bot token) | Not started | Read-only toward Jira |
-| **006 API context** | OpenAPI/Swagger operation summaries for endpoints that appear in findings | Not started | Low value per token; only operations referenced by candidates |
+| **001 scheduled-log-watch** | Logs (Loki, Datadog) -> reduce -> redact -> select -> tiered AI -> Slack digest; dedupe, mute, budgets, notices; dependency context, deploy version, service context, log links, code links | Implemented (113 of 114 tasks); T114 needs a live run. Audit P0 fixes applied. | MVP = US1 + US2 |
+| **002 operability-tools** | Heartbeat, `check` doctor, `--dry-run`, `--json` summary, file-store purge | Spec written | Makes first runs safe; replaces most of the manual smoke steps |
+| **003 fleet-and-correlation** | One process for several services (shared state and budget), cross-service correlation | Spec written | Needed for the BFFs, which have no CLI or scheduler |
+| **004 baselines-and-templates** | Rolling and same-weekday baselines, last-good-snapshot pointer, DST-safe windows, similarity-based grouping, optional backend patterns | Spec written | Fixes re-baselining after a missed day or DST change |
+| **005 incident-workflow** | Known-issue links, ticket drafts, Slack threads and buttons, severity routing, more channels, post-release and on-demand runs, weekly report | Spec written | No writes to trackers (Principle II) |
+| **006 log-hygiene** | Privacy-hygiene, log-shape, rule-proposal and cost reports from local measurement | Spec written | Raw values never leave the process |
+| **007 code-aware analysis** | Model reads code fragments for the top frames at the deployed commit (read-only repo token, only referenced functions, secrets redacted, own token budget) | Approved by owner; not specified | Builds on `CodeLinkBuilder` + `DeployInfo` |
+| **008 kubernetes events** | CrashLoopBackOff, OOMKilled, probe failures, restarts, HPA errors as a second source | Not started | Closes the pod-level half of the manual backlog; needed for SC-001 |
+| **009 metrics and Sentry** | Prometheus error rate / p95 deltas; Sentry issues as an already-grouped source | Not started | |
+| **010 API context** | OpenAPI/Swagger summaries for endpoints in findings | Not started | Low value per token |
 
 ## Out of scope until a constitution amendment
 
