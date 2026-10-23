@@ -305,4 +305,108 @@ final class NormalizerTest extends TestCase
         $this->expectException(NormalizationException::class);
         (new Normalizer())->normalize("bad \xB1\x31 bytes");
     }
+
+    /** @return array<string, array{string, string}> */
+    public static function secretCases(): array
+    {
+        $b = str_repeat('Ab3', 12);
+
+        return [
+            'sk-ant' => ["key sk-ant-api03-$b bad", 'key <TOKEN> bad'],
+            'sk plain' => ["key sk-$b bad", 'key <TOKEN> bad'],
+            'ghp' => ["key ghp_$b bad", 'key <TOKEN> bad'],
+            'gho' => ["key gho_$b bad", 'key <TOKEN> bad'],
+            'ghs' => ["key ghs_$b bad", 'key <TOKEN> bad'],
+            'ghu' => ["key ghu_$b bad", 'key <TOKEN> bad'],
+            'github_pat' => ["key github_pat_{$b}_zz bad", 'key <TOKEN> bad'],
+            'aws akia' => ['key AKIA' . str_repeat('A', 16) . ' bad', 'key <TOKEN> bad'],
+            'aws asia' => ['key ASIA' . str_repeat('B', 16) . ' bad', 'key <TOKEN> bad'],
+            'slack' => ['key xoxb-abcdefgh-ijklmnop bad', 'key <TOKEN> bad'],
+            'gitlab' => ['key glpat-abcDEF_xyz-uvw bad', 'key <TOKEN> bad'],
+            'google' => ['key AIza' . str_repeat('x', 35) . ' bad', 'key <TOKEN> bad'],
+            'authorization bearer' => ['Authorization: Bearer abc.def-ghi bad', 'Authorization: Bearer <TOKEN> bad'],
+            'authorization basic' => ['Authorization: Basic dXNlcjpwYXNz bad', 'Authorization: Basic <TOKEN> bad'],
+            'authorization bare value' => ['authorization=secretvalue bad', 'authorization=<TOKEN> bad'],
+            'authorization header in json' => ['{"Authorization":"Bearer abc.def-ghi"}', '{"Authorization":"Bearer <TOKEN>"}'],
+            'standalone bearer' => ['sent Bearer abcdefghijkl ok', 'sent Bearer <TOKEN> ok'],
+            'standalone token with digit' => ['sent Token q1w2e3r4t5 ok', 'sent Token <TOKEN> ok'],
+            'standalone basic with padding' => ['sent Basic dXNlcjpwYXNz= ok', 'sent Basic <TOKEN> ok'],
+            'pem block' => ["k -----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA7x\nabc=\n-----END RSA PRIVATE KEY----- end", 'k <TOKEN> end'],
+            'pem without end' => ['k -----BEGIN PRIVATE KEY----- MIIabc', 'k <TOKEN>'],
+            'ssh public key' => ['ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB ok', '<TOKEN> ok'],
+            'ssh ed25519' => ['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA ok', '<TOKEN> ok'],
+            'base64 padded' => ['cfg Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MA== end', 'cfg <TOKEN> end'],
+            'base64url' => ['tok q7Hx_9Kd-2LmN4pRsT8vWz1Yb end', 'tok <TOKEN> end'],
+            'mixed-case id' => ['id aB3dE5gH7jK9mN1pQ3sT5vX7zA9 x', 'id <TOKEN> x'],
+            'key=value keeps the key' => ['api_key=q7Hx9Kd2LmN4pRsT8vWz1Yb end', 'api_key=<TOKEN> end'],
+            'md5 digits only' => ['sum 12345678901234567890123456789012 x', 'sum <ID> x'],
+            'sha1 digits only' => ['sum 1234567890123456789012345678901234567890 x', 'sum <ID> x'],
+            'sha256 digits only' => ['sum ' . str_repeat('1234567890', 6) . '1234 x', 'sum <ID> x'],
+            'existing placeholder is skipped' => ['id <URL:billing-gateway> x', 'id <URL:billing-gateway> x'],
+        ];
+    }
+
+    #[DataProvider('secretCases')]
+    public function testSecretsAreCut(string $in, string $out): void
+    {
+        self::assertSame($out, (new Normalizer())->normalize($in));
+    }
+
+    /** @return list<array{string}> */
+    public static function identifiers(): array
+    {
+        return [
+            ['CustomerRepositoryInterface'],
+            ['ConnectionTimeoutException'],
+            ['App\Http\Controllers\FooController'],
+            ['Illuminate\Database\QueryException'],
+            ['AbstractDoctrineEntityHydratorFactory'],
+            ['MaximumConcurrentConnectionsExceeded'],
+            ['Http2ConnectionTimeoutException'],
+            ['SymfonyComponentHttpKernelExceptionNotFoundHttpException'],
+            ['process_payment_confirmation_handler'],
+            ['get_user_by_id_v2_handler_config'],
+            ['unexpected_end_of_stream_while_reading_header'],
+            ['Internationalization-failure-in-subsystem'],
+            ['internationalization'],
+            ['/var/www/html/app/Http/Controllers/CustomerController.php:42'],
+            ['vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel'],
+            ['storage/logs/laravel-2026-10-23'],
+            ['Basic auth failed'],
+            ['Bearer token missing'],
+            ['Token expired'],
+        ];
+    }
+
+    #[DataProvider('identifiers')]
+    public function testLongIdentifiersAndPathsAreUntouched(string $in): void
+    {
+        $n = (new Normalizer())->keepingNumbers();
+        self::assertSame('in ' . $in . ' now', $n->normalize('in ' . $in . ' now'));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function secretAdversarial(): array
+    {
+        return [
+            'long run' => [str_repeat('a', 5000)],
+            'long mixed run' => [str_repeat('aB3', 2000)],
+            'slashes' => [str_repeat('aB/', 1400)],
+            'dashes' => [str_repeat('Ab1-', 1000)],
+            'many pem starts' => [str_repeat('-----BEGIN PRIVATE KEY----- ', 150)],
+            'many pem pairs' => [str_repeat('-----BEGIN PRIVATE KEY----- x -----END PRIVATE KEY----- ', 70)],
+            'bearer repeated' => [str_repeat('Bearer ', 600)],
+            'authorization repeated' => [str_repeat('authorization: ', 280)],
+            'padding' => [str_repeat('Ab3=', 1000)],
+            'camel run' => [str_repeat('Ab', 2000)],
+        ];
+    }
+
+    #[DataProvider('secretAdversarial')]
+    public function testSecretRulesScanFast(string $in): void
+    {
+        $t = microtime(true);
+        (new Normalizer())->scan($in);
+        self::assertLessThan(0.25, microtime(true) - $t);
+    }
 }

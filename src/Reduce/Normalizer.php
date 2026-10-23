@@ -140,9 +140,26 @@ final class Normalizer
                 fn (array $m): string => $this->url($m),
             ],
             ['\beyJ[\w-]+\.[\w-]+\.[\w-]+', '<TOKEN>'],
+            // Known-prefix secrets (case-sensitive; bodies are never needed for analysis).
+            [
+                '(?-i:\b(?:sk-(?:ant-)?+[A-Za-z0-9_-]{8,}+|gh[pousr]_[A-Za-z0-9]{8,}+|github_pat_[A-Za-z0-9_]{8,}+|A[KS]IA[0-9A-Z]{12,}+'
+                . '|xox[abprs]-[A-Za-z0-9-]{8,}+|glpat-[A-Za-z0-9_-]{8,}+|AIza[A-Za-z0-9_-]{16,}+))',
+                '<TOKEN>',
+            ],
+            // PEM private key: the whole block; an unterminated one is cut to the end of the (capped) input.
+            ['(?s:-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----.*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|\z))', '<TOKEN>'],
+            ['\b(?:ssh-(?:rsa|dss|ed25519)|ecdsa-sha2-nistp\d++)\s++AAAA[A-Za-z0-9+/=]++', '<TOKEN>'],
+            // Credentials after a scheme word: the word stays, the credential goes.
+            [
+                '(\bauthorization["\']?+\s*+[:=]\s*+["\']?+(?:(?:bearer|basic|token)\s++)?+)(?!<)[^\s"\',;' . $ang . ']{3,}+',
+                fn (array $m): string => $m[1] . '<TOKEN>',
+            ],
+            ['(\bbearer\s++)(?!<)[\w.~+/=-]{8,}+', fn (array $m): string => $m[1] . '<TOKEN>'],
+            ['(\b(?:basic|token)\s++)(?!<)(?=[\w.~+/=-]*[\d+/=])[\w.~+/=-]{8,}+', fn (array $m): string => $m[1] . '<TOKEN>'],
             ['(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)+', '<EMAIL>'],
             ['\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '<ID>'],
             ['\b(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b', '<ID>'],
+            ['\b(?:\d{32}|\d{40}|\d{64})\b', '<ID>'], // md5 / sha1 / sha256 that happen to hold no a-f
             ['\b(?:\d{1,3}\.){3}\d{1,3}\b', '<IP>'],
             ["(?<![\\w:])(?:(?:$h:){7}$h|(?:$h:){1,7}:(?:$h(?::$h){0,6})?|::$h(?::$h){0,6})(?![\\w:])", '<IP>'],
             [
@@ -151,10 +168,51 @@ final class Normalizer
                 fn (array $m): string => $this->hostPlaceholder(strtolower($m['host']), 'HOST'),
             ],
             ['\b(?:\d[ -]?){12,18}\d\b', '<PAN>'],
+            // Any other long random-looking run (base64, base64url, mixed-case ids). Before the digit rule: digits are part of it.
+            [
+                '(?<![A-Za-z0-9_+/-])[A-Za-z0-9_+/-]{20,}+={0,2}+(?![A-Za-z0-9_+/=-])',
+                static fn (array $m): string => self::cutRun($m[0]),
+            ],
             ...($this->maskNumbers ? [['\d+', '<N>']] : []),
             ['"[^"]{33,}"', '<STR>'],
             ['(?<!\w)\'[^\']{33,}\'(?!\w)', '<STR>'],
         ];
+    }
+
+    /** A path (two or more slashes) is judged segment by segment; anything else as one run. */
+    private static function cutRun(string $run): string
+    {
+        $cut = static fn (string $part): string => strlen($part) >= 20 && self::looksRandom($part) ? '<TOKEN>' : $part;
+
+        return substr_count($run, '/') >= 2 ? implode('/', array_map($cut, explode('/', $run))) : $cut($run);
+    }
+
+    /**
+     * At least two of lower / upper / digit, Shannon entropy >= 3.5 bits per char, and not a plain identifier
+     * (camelCase or snake / kebab words, at most 3 digits, no run of 6 consonants). Doubt means masked.
+     */
+    private static function looksRandom(string $s): bool
+    {
+        $classes = (preg_match('/[a-z]/', $s) === 1 ? 1 : 0) + (preg_match('/[A-Z]/', $s) === 1 ? 1 : 0) + (preg_match('/\d/', $s) === 1 ? 1 : 0);
+        if ($classes < 2) {
+            return false;
+        }
+
+        $len = strlen($s);
+        $entropy = 0.0;
+        foreach (array_count_values(str_split($s)) as $n) {
+            $entropy -= ($n / $len) * log($n / $len, 2);
+        }
+        if ($entropy < 3.5) {
+            return false;
+        }
+
+        $words = rtrim($s, '=');
+        $identifier = preg_match('/^(?:[A-Z]?+[a-z]++|\d{1,2}+(?!\d))++(?:[_+\/-](?:[A-Z]?+[a-z]++|\d{1,2}+(?!\d))++)*+$/', $words) === 1
+            && preg_match_all('/\d/', $words) <= 3
+            && preg_match('/[b-df-hj-np-tv-xz]{6}/', $words) !== 1;
+
+        return !$identifier;
     }
 
     /** @param array<int|string,string> $m */
