@@ -80,8 +80,14 @@ return [
     'state' => [
         'driver' => env('WATCHER_STATE', 'redis'), // redis | pdo | file
         'retention' => 2592000,                    // seconds (30 days)
-        'redis' => ['connection' => null],
-        'pdo' => ['dsn' => env('WATCHER_DB_DSN'), 'table' => 'watcher_state'],
+        'redis' => [                               // an injected \Redis ('instance') wins over the connection keys
+            'host' => env('WATCHER_REDIS_HOST', '127.0.0.1'),
+            'port' => (int) env('WATCHER_REDIS_PORT', 6379),
+            'password' => env('WATCHER_REDIS_PASSWORD'),
+            'database' => (int) env('WATCHER_REDIS_DATABASE', 0),
+        ],
+        // The table is never created implicitly: see PdoStateStore::createTableSql().
+        'pdo' => ['dsn' => env('WATCHER_DB_DSN'), 'username' => env('WATCHER_DB_USERNAME'), 'password' => env('WATCHER_DB_PASSWORD'), 'table' => 'watcher_state'],
         'file' => ['path' => env('WATCHER_STATE_PATH', '/var/lib/watcher')], // single runner only
     ],
 
