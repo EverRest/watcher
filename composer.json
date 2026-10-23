@@ -33,7 +33,8 @@
     "scripts": {
         "test": "phpunit",
         "stan": "phpstan analyse --memory-limit=512M",
-        "style": "pint --test"
+        "style": "pint --test",
+        "ci": ["@style", "@stan", "@test"]
     },
     "minimum-stability": "stable"
 }
