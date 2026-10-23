@@ -27,7 +27,7 @@ final class AnthropicAnalyzer implements Analyzer
     {
         $this->client = new SdkClient(
             apiKey: $apiKey,
-            baseUrl: $baseUrl,
+            baseUrl: $baseUrl ?? 'https://api.anthropic.com', // never the SDK's ANTHROPIC_BASE_URL env fallback: key and data stay on Anthropic
             requestOptions: ['transporter' => $http] + $requestOptions,
         );
         $this->validator = new OutputValidator();

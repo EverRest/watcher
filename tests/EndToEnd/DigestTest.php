@@ -164,6 +164,31 @@ final class DigestTest extends TestCase
         self::assertNull($h->state->get(Keys::run('svc', Watcher::windowKey($h->windowEnd()))), 'a failed run leaves no RunRecord');
     }
 
+    public function testTruncationInTheAnomalyPassAloneIsStillReported(): void
+    {
+        $h = new Harness(['source' => ['anomaly_cap' => 100]]);
+        $h->watcher(self::source(self::alpha(), ['error' => 5, 'info' => 1000]))->run();
+        $h->nextWindow();
+
+        $info = Harness::events(Level::Info, 'Cache warmed up again', 150);
+        $result = $h->watcher(self::source([...self::alpha(), ...$info], ['error' => 5, 'info' => 6000]))->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        self::assertStringContainsString('truncated: 100 events read', $h->sentTexts()[1], 'the anomaly pass hit its cap; the main pass did not');
+    }
+
+    public function testEventsReadCountsMutedEventsToo(): void
+    {
+        $delta = Harness::events(Level::Error, 'Delta cache missed again', 5, 'DeltaException');
+        $h = new Harness(['source' => ['event_cap' => 11], 'mute' => [['error_type' => '/BetaException/']]]);
+        $h->watcher(self::source($delta))->run();
+        $h->nextWindow();
+
+        $h->watcher(self::source([...$delta, ...self::beta(20)]))->run();
+
+        self::assertStringContainsString('truncated: 11 events read', $h->sentTexts()[1]);
+    }
+
     public function testEveryStateWriteCarriesATtl(): void
     {
         $h = new Harness();

@@ -73,4 +73,21 @@ final class MuteListTest extends TestCase
         $m = new MuteList([['fingerprint' => 'a', 'until' => null]]);
         self::assertSame(1, $m->filter([$this->g('a', 't')], [], $this->now('2099-01-01'))->mutedCount);
     }
+
+    public function testFailedRegexDoesNotMuteAndIsCounted(): void
+    {
+        $limit = ini_set('pcre.backtrack_limit', '100');
+        $jit = ini_set('pcre.jit', '0');
+        try {
+            $m = new MuteList([['template' => '/(a+)+$/'], ['fingerprint' => 'z']]);
+            $r = $m->filter([$this->g('a', str_repeat('a', 60) . 'b'), $this->g('z', 'x')], [], $this->now());
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+            ini_set('pcre.jit', (string) $jit);
+        }
+
+        self::assertSame(['a'], array_map(static fn ($g) => $g->fingerprint, $r->kept), 'a failed mute stays visible');
+        self::assertSame(1, $r->mutedCount);
+        self::assertSame(1, $m->failures());
+    }
 }

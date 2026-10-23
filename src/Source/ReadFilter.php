@@ -9,6 +9,9 @@ use Watcher\Level;
 
 final class ReadFilter
 {
+    /** Patterns preg could not evaluate (bad pattern, invalid UTF-8): those lines were read, not dropped. */
+    public int $patternErrors = 0;
+
     /**
      * @param list<string> $watchPatterns RE2-compatible regexes without delimiters, `(?i)` prefix when case-insensitive
      */
@@ -26,7 +29,13 @@ final class ReadFilter
     public function matchesWatch(string $message): bool
     {
         foreach ($this->watchPatterns as $re) {
-            if (@preg_match("\x01" . $re . "\x01u", $message) === 1) {
+            $result = @preg_match("\x01" . $re . "\x01u", $message);
+            if ($result === false) {
+                ++$this->patternErrors; // fail open: the line is only a candidate, a dropped one is lost for good
+
+                return true;
+            }
+            if ($result === 1) {
                 return true;
             }
         }

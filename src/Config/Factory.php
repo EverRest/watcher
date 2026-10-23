@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Watcher\Config;
 
+use Closure;
 use GuzzleHttp\Client;
 use PDO;
+use PDOException;
 use Psr\Clock\ClockInterface;
 use Redis;
 use RedisException;
@@ -19,6 +21,7 @@ use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
 use Watcher\State\RedisStateStore;
+use RuntimeException;
 use Watcher\State\StateStore;
 
 /** Builds the real collaborators from a validated config. The pdo table is not created here (see PdoStateStore::createTableSql). */
@@ -71,13 +74,9 @@ final class Factory
         $st = $c->state;
 
         return match ($st['driver']) {
-            'redis' => new RedisStateStore(self::redis(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock),
+            'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(self::redis(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock)),
             // The table is never created here: run PdoStateStore::createTableSql($driver, $table) once, in a migration.
-            'pdo' => new PdoStateStore(
-                new PDO((string) $st['pdo']['dsn'], $st['pdo']['username'] ?? null, $st['pdo']['password'] ?? null),
-                $clock,
-                (string) ($st['pdo']['table'] ?? 'watcher_state'),
-            ),
+            'pdo' => new PdoStateStore(self::pdo($st['pdo']), $clock, (string) ($st['pdo']['table'] ?? 'watcher_state')),
             default => new FileStateStore((string) $st['file']['path'], $clock),
         };
     }
@@ -96,10 +95,65 @@ final class Factory
             }
             $redis->select((int) ($r['database'] ?? 0));
         } catch (RedisException) {
-            throw new InvalidConfig('state.redis: cannot connect or authenticate'); // never echo the driver message (may carry the password)
+            throw new RuntimeException('state.redis: cannot connect or authenticate'); // never echo the driver message (may carry the password)
         }
 
         return $redis;
+    }
+
+    /** @param array<string, mixed> $p */
+    private static function pdo(array $p): PDO
+    {
+        try {
+            return new PDO((string) $p['dsn'], $p['username'] ?? null, $p['password'] ?? null);
+        } catch (PDOException) {
+            throw new InvalidConfig('state.pdo: cannot connect'); // not chained: the driver message can carry the DSN or password
+        }
+    }
+
+    /**
+     * Connects on first use, so a trigger that is not due never reaches Redis (Watcher::run reaches the store only after the RunGate).
+     * A failed connect is retried by the next access.
+     */
+    private static function lazy(Closure $make): StateStore
+    {
+        return new class ($make) implements StateStore {
+            private ?StateStore $store = null;
+
+            public function __construct(private readonly Closure $make)
+            {
+            }
+
+            public function get(string $key): ?array
+            {
+                return $this->store()->get($key);
+            }
+
+            public function put(string $key, array $value, int $ttlSeconds): void
+            {
+                $this->store()->put($key, $value, $ttlSeconds);
+            }
+
+            public function acquire(string $key, string $owner, int $ttlSeconds): bool
+            {
+                return $this->store()->acquire($key, $owner, $ttlSeconds);
+            }
+
+            public function release(string $key, string $owner): void
+            {
+                $this->store()->release($key, $owner);
+            }
+
+            public function increment(string $key, float $by, int $ttlSeconds): float
+            {
+                return $this->store()->increment($key, $by, $ttlSeconds);
+            }
+
+            private function store(): StateStore
+            {
+                return $this->store ??= ($this->make)();
+            }
+        };
     }
 
     public static function analyzer(WatchConfig $c): Analyzer

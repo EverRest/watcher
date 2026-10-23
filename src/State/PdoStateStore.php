@@ -40,7 +40,7 @@ final class PdoStateStore implements StateStore
 
         return match ($driver) {
             'sqlite' => "CREATE TABLE IF NOT EXISTS {$table} (k VARCHAR(191) PRIMARY KEY, value TEXT NOT NULL, expires_at BIGINT NOT NULL)",
-            'mysql' => "CREATE TABLE IF NOT EXISTS {$table} (k VARCHAR(191) NOT NULL PRIMARY KEY, value TEXT NOT NULL, expires_at BIGINT NOT NULL) DEFAULT CHARSET=utf8mb4",
+            'mysql' => "CREATE TABLE IF NOT EXISTS {$table} (k VARCHAR(191) NOT NULL PRIMARY KEY, value MEDIUMTEXT NOT NULL, expires_at BIGINT NOT NULL) DEFAULT CHARSET=utf8mb4",
             'pgsql' => "CREATE TABLE IF NOT EXISTS {$table} (k VARCHAR(191) PRIMARY KEY, value TEXT NOT NULL, expires_at BIGINT NOT NULL)",
             default => throw new InvalidArgumentException("Unsupported driver: {$driver}"),
         };

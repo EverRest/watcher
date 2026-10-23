@@ -53,7 +53,7 @@ final class ModelRouter
                 // turn "interesting but never looked at" into a reusable verdict.
                 $interesting[] = $g;
             } else {
-                $this->verdicts->put($g->fingerprint, $v, $g->count, null);
+                $this->verdicts->storeTriage($g, $v);
             }
         }
 

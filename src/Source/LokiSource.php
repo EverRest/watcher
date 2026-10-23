@@ -8,8 +8,8 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Generator;
 use GuzzleHttp\ClientInterface;
-use GuzzleHttp\Exception\GuzzleException;
 use InvalidArgumentException;
+use Psr\Http\Message\ResponseInterface;
 use Watcher\Level;
 use Watcher\Schedule\Window;
 
@@ -32,6 +32,7 @@ final class LokiSource implements LogSource
     private readonly string $baseUrl;
     /** @var array<string, string> */
     private readonly array $headers;
+    private readonly Retry $retry;
     private bool $truncated = false;
 
     public function __construct(
@@ -41,7 +42,10 @@ final class LokiSource implements LogSource
         ?string $basicUser = null,
         ?string $basicPassword = null,
         ?string $tenant = null,
+        ?callable $sleeper = null,
+        int $retryBudget = 120,
     ) {
+        $this->retry = new Retry($sleeper, $retryBudget);
         $this->baseUrl = rtrim($baseUrl, '/');
         $headers = ['Accept' => 'application/json'];
         if ($bearerToken !== null && $bearerToken !== '') {
@@ -110,6 +114,12 @@ final class LokiSource implements LogSource
 
             // A short page (or one that is all duplicates) means the window is exhausted.
             if (count($entries) < self::PAGE_LIMIT || $fresh === 0) {
+                return;
+            }
+            if ($entries[0][0] === $entries[count($entries) - 1][0]) {
+                // A whole page at one nanosecond: the cursor cannot advance, so the rest of that instant is unreachable.
+                $this->truncated = true;
+
                 return;
             }
             $start = $entries[count($entries) - 1][0];
@@ -309,16 +319,12 @@ final class LokiSource implements LogSource
      */
     private function get(string $path, array $query): array
     {
-        try {
-            // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
-            $response = $this->http->request('GET', $this->baseUrl . $path, [
-                'query' => $query,
-                'headers' => $this->headers,
-                'http_errors' => false,
-            ]);
-        } catch (GuzzleException $e) {
-            throw new SourceUnavailable('loki request failed (' . $e::class . ')', 0, $e);
-        }
+        // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
+        $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('GET', $this->baseUrl . $path, [
+            'query' => $query,
+            'headers' => $this->headers,
+            'http_errors' => false,
+        ]), 'loki', true);
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {

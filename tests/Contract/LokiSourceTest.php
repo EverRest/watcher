@@ -31,8 +31,12 @@ final class LokiSourceTest extends LogSourceContractTest
     /** @var list<array{request: RequestInterface}> */
     private array $history = [];
 
+    /** @var list<int> */
+    private array $slept = [];
+
     protected function setUp(): void
     {
+        $this->slept = [];
         $this->history = [];
     }
 
@@ -89,7 +93,7 @@ final class LokiSourceTest extends LogSourceContractTest
             ? new ConnectException('cannot connect to https://loki.test/?token=' . self::SECRET, new Request('GET', 'https://loki.test/'))
             : new Response($httpStatus, [], $this->fixture('error_unauthorized.json'));
 
-        return $this->source([$response]);
+        return $this->source(array_fill(0, 3, $response));
     }
 
     public function testTotalsRequestAndFixtureMapping(): void
@@ -289,17 +293,132 @@ final class LokiSourceTest extends LogSourceContractTest
         }
     }
 
+    public function testTransientStatusIsRetriedWithBackoff(): void
+    {
+        $source = $this->source([new Response(503), new Response(200, [], $this->fixture('empty.json'))]);
+
+        $source->totals($this->window(), $this->selector());
+
+        $this->assertCount(2, $this->history);
+        $this->assertSame([1], $this->slept);
+    }
+
+    public function testGivesUpAfterThreeAttemptsWithoutLeakingTheToken(): void
+    {
+        $source = $this->source(array_fill(0, 5, new Response(503, [], 'tok=' . self::SECRET)));
+
+        try {
+            $source->totals($this->window(), $this->selector());
+            $this->fail('SourceUnavailable expected');
+        } catch (SourceUnavailable $e) {
+            $this->assertSame('loki 503 Service Unavailable', $e->getMessage());
+        }
+        $this->assertCount(3, $this->history);
+        $this->assertSame([1, 3], $this->slept);
+    }
+
+    public function testServerErrorIsRetriedButUnauthorizedIsNot(): void
+    {
+        $this->source([new Response(500), new Response(200, [], $this->fixture('empty.json'))])->totals($this->window(), $this->selector());
+        $this->assertCount(2, $this->history);
+
+        $this->history = [];
+        try {
+            $this->source([new Response(401), new Response(200, [], $this->fixture('empty.json'))])->totals($this->window(), $this->selector());
+            $this->fail('SourceUnavailable expected');
+        } catch (SourceUnavailable) {
+            $this->assertCount(1, $this->history);
+        }
+    }
+
+    public function testConnectExceptionIsRetried(): void
+    {
+        $source = $this->source([
+            new ConnectException('boom ' . self::SECRET, new Request('GET', 'https://loki.test/')),
+            new Response(200, [], $this->fixture('empty.json')),
+        ]);
+
+        $source->totals($this->window(), $this->selector());
+
+        $this->assertSame([1], $this->slept);
+    }
+
+    public function testRateLimitHonoursRetryAfterCapped(): void
+    {
+        $source = $this->source([
+            new Response(429, ['Retry-After' => '7']),
+            new Response(429, ['Retry-After' => '900']),
+            new Response(200, [], $this->fixture('empty.json')),
+        ]);
+
+        $source->totals($this->window(), $this->selector());
+
+        $this->assertSame([7, 30], $this->slept);
+    }
+
+    public function testRetryWaitBudgetStopsRetrying(): void
+    {
+        $source = $this->source(array_fill(0, 5, new Response(503)), self::SECRET, null, null, null, 3);
+
+        try {
+            $source->totals($this->window(), $this->selector());
+            $this->fail('SourceUnavailable expected');
+        } catch (SourceUnavailable) {
+            $this->assertCount(2, $this->history);
+        }
+        $this->assertSame([1], $this->slept);
+    }
+
+    public function testMoreThanAPageOfEntriesAtOneNanosecondIsReportedTruncated(): void
+    {
+        $values = [];
+        for ($i = 0; $i < self::PAGE; ++$i) {
+            $values[] = [$this->ns(self::BASE_NS), $this->line('ERROR', "same{$i}")];
+        }
+        $source = $this->source([$this->streams($values), $this->streams($values)]);
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 100000)));
+
+        $this->assertCount(self::PAGE, $events);
+        $this->assertTrue($source->lastReadTruncated());
+        $this->assertCount(1, $this->history);
+    }
+
+    public function testUnevaluablePatternFailsOpenAndIsCounted(): void
+    {
+        $filter = new ReadFilter(Level::Error, ['(unclosed'], 10);
+
+        $this->assertSame(0, $filter->patternErrors);
+        $this->assertTrue($filter->matchesWatch('anything'));
+        $this->assertSame(1, $filter->patternErrors);
+
+        $ok = new ReadFilter(Level::Error, ['slow'], 10);
+        $this->assertFalse($ok->matchesWatch('fast'));
+        $this->assertSame(0, $ok->patternErrors);
+    }
+
     // helpers
 
     /**
      * @param list<Response|ConnectException> $responses
      */
-    private function source(array $responses, ?string $bearer = self::SECRET, ?string $user = null, ?string $password = null, ?string $tenant = null): LokiSource
+    private function source(array $responses, ?string $bearer = self::SECRET, ?string $user = null, ?string $password = null, ?string $tenant = null, int $retryBudget = 120): LokiSource
     {
         $stack = HandlerStack::create(new MockHandler($responses));
         $stack->push(Middleware::history($this->history));
 
-        return new LokiSource(new Client(['handler' => $stack]), 'https://loki.test/', $bearer, $user, $password, $tenant);
+        return new LokiSource(
+            new Client(['handler' => $stack]),
+            'https://loki.test/',
+            $bearer,
+            $user,
+            $password,
+            $tenant,
+            function (int $s): void {
+                $this->slept[] = $s;
+            },
+            $retryBudget,
+        );
     }
 
     /** @return array<string, string> */

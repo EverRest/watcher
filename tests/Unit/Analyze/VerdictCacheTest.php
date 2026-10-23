@@ -29,9 +29,10 @@ final class VerdictCacheTest extends TestCase
         $this->store = new InMemoryStateStore($this->clock);
     }
 
-    private static function group(int $count, string $fp = 'fp1'): RedactedGroup
+    /** @param list<string> $watch */
+    private static function group(int $count, string $fp = 'fp1', Level $level = Level::Error, array $watch = []): RedactedGroup
     {
-        return new RedactedGroup($fp, 't', Level::Error, null, [], $count, null, GroupStatusLabel::New, [], new DateTimeImmutable(), new DateTimeImmutable());
+        return new RedactedGroup($fp, 't', $level, null, [], $count, null, GroupStatusLabel::New, $watch, new DateTimeImmutable(), new DateTimeImmutable());
     }
 
     public function testGetMissingIsNull(): void
@@ -65,11 +66,12 @@ final class VerdictCacheTest extends TestCase
         $cache = new VerdictCache($this->store, 'svc', 100);
         $cache->put('fp1', 'known', 10, null);
 
-        self::assertTrue($cache->isReusable(self::group(10), 2.0));
-        self::assertTrue($cache->isReusable(self::group(19), 2.0));
-        self::assertFalse($cache->isReusable(self::group(20), 2.0), 'at the threshold it is re-triaged');
-        self::assertFalse($cache->isReusable(self::group(50), 2.0));
-        self::assertFalse($cache->isReusable(self::group(1, 'other'), 2.0), 'no verdict, not reusable');
+        $w = Level::Warning;
+        self::assertTrue($cache->isReusable(self::group(10, 'fp1', $w), 2.0));
+        self::assertTrue($cache->isReusable(self::group(19, 'fp1', $w), 2.0));
+        self::assertFalse($cache->isReusable(self::group(20, 'fp1', $w), 2.0), 'at the threshold it is re-triaged');
+        self::assertFalse($cache->isReusable(self::group(50, 'fp1', $w), 2.0));
+        self::assertFalse($cache->isReusable(self::group(1, 'other', $w), 2.0), 'no verdict, not reusable');
     }
 
     public function testServicesDoNotShareVerdicts(): void
@@ -77,5 +79,90 @@ final class VerdictCacheTest extends TestCase
         (new VerdictCache($this->store, 'a', 100))->put('fp1', 'noise', 1, null);
 
         self::assertNull((new VerdictCache($this->store, 'b', 100))->get('fp1'));
+    }
+
+    public function testNoiseOfAnErrorGroupIsNeverStored(): void
+    {
+        $cache = new VerdictCache($this->store, 'svc', 1000);
+        foreach (['noise', 'known'] as $v) {
+            $cache->storeTriage(self::group(5, 'fp1', Level::Error), $v);
+            $cache->storeTriage(self::group(5, 'fp2', Level::Critical), $v);
+        }
+
+        self::assertSame([], $this->store->ttls());
+    }
+
+    public function testNoiseOfAWatchRuleGroupIsNeverStored(): void
+    {
+        $cache = new VerdictCache($this->store, 'svc', 1000);
+        $cache->storeTriage(self::group(5, 'fp1', Level::Warning, ['payments']), 'noise');
+
+        self::assertSame([], $this->store->ttls());
+    }
+
+    public function testNoiseOfAWarningGroupIsStoredWithTheShortTtl(): void
+    {
+        $cache = new VerdictCache($this->store, 'svc', 1000, 777);
+        $cache->storeTriage(self::group(5, 'fp1', Level::Warning), 'noise');
+
+        self::assertSame([Keys::verdict('svc', 'fp1') => 777], $this->store->ttls());
+        self::assertSame('noise', $cache->get('fp1')['triage'] ?? null);
+    }
+
+    public function testDefaultShortTtlIsThreeDays(): void
+    {
+        (new VerdictCache($this->store, 'svc', 1000))->storeTriage(self::group(5, 'fp1', Level::Warning), 'known');
+
+        self::assertSame([Keys::verdict('svc', 'fp1') => 3 * 86400], $this->store->ttls());
+    }
+
+    public function testInterestingVerdictsKeepFullRetention(): void
+    {
+        $cache = new VerdictCache($this->store, 'svc', 1000, 777);
+        $cache->put('fp1', 'interesting', 5, new Finding(['fp1'], FindingKind::Bug, Severity::Error, 'T', 'E', 'C', 'A', 0.5));
+        $cache->put('fp2', 'interesting', 5, null);
+
+        self::assertSame([Keys::verdict('svc', 'fp1') => 1000, Keys::verdict('svc', 'fp2') => 1000], $this->store->ttls());
+    }
+
+    public function testAnEarlierStoredNoiseIsNotReusedForAnErrorOrWatchGroup(): void
+    {
+        $cache = new VerdictCache($this->store, 'svc', 1000);
+        $cache->put('fp1', 'noise', 10, null);
+        $cache->put('fp2', 'interesting', 10, null);
+
+        self::assertFalse($cache->isReusable(self::group(10, 'fp1', Level::Error), 2.0));
+        self::assertFalse($cache->isReusable(self::group(10, 'fp1', Level::Warning, ['w']), 2.0));
+        self::assertTrue($cache->isReusable(self::group(10, 'fp1', Level::Warning), 2.0));
+        self::assertTrue($cache->isReusable(self::group(10, 'fp2', Level::Error), 2.0));
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function corrupt(): array
+    {
+        $ok = ['triage' => 'noise', 'atCount' => 5];
+
+        return [
+            'string count' => [['atCount' => '5'] + $ok],
+            'float count' => [['atCount' => 5.5] + $ok],
+            'negative' => [['atCount' => -1] + $ok],
+            'huge' => [['atCount' => 10_000_000] + $ok],
+            'bad verdict' => [['triage' => 'ignore'] + $ok],
+            'verdict not string' => [['triage' => ['noise']] + $ok],
+            'missing count' => [['triage' => 'noise']],
+            'missing verdict' => [['atCount' => 5]],
+            'empty' => [[]],
+        ];
+    }
+
+    /** @param array<mixed> $value */
+    #[\PHPUnit\Framework\Attributes\DataProvider('corrupt')]
+    public function testCorruptStoredValueIsNoVerdict(array $value): void
+    {
+        $this->store->put(Keys::verdict('svc', 'fp1'), $value, 100);
+        $cache = new VerdictCache($this->store, 'svc', 100);
+
+        self::assertNull($cache->get('fp1'));
+        self::assertFalse($cache->isReusable(self::group(1, 'fp1', Level::Warning), 2.0));
     }
 }

@@ -4,48 +4,49 @@ declare(strict_types=1);
 
 namespace Watcher\Source;
 
-use Closure;
 use DateTimeImmutable;
 use DateTimeZone;
 use Generator;
 use GuzzleHttp\ClientInterface;
-use GuzzleHttp\Exception\GuzzleException;
 use InvalidArgumentException;
+use Psr\Clock\ClockInterface;
+use Psr\Http\Message\ResponseInterface;
 use Watcher\Level;
+use Watcher\Schedule\SystemClock;
 use Watcher\Schedule\Window;
 
 /** Reads a window from Datadog Logs (read-only endpoints): aggregate totals, cursor-paged server-filtered lines, version facet. */
 final class DatadogSource implements LogSource
 {
-    private const PAGE_LIMIT = 1000;
-    private const MAX_RETRIES = 3;
-    private const MAX_WAIT = 60;
+    private const PAGE_LIMIT = 5000;
     private const FACET_LIMIT = 50;
     private const VERSION_STEP = 3600;
 
     private readonly string $baseUrl;
     /** @var array<string, string> */
     private readonly array $headers;
-    /** @var Closure(int): void */
-    private readonly Closure $sleeper;
+    private readonly Retry $retry;
+    private readonly ClockInterface $clock;
     private bool $truncated = false;
 
-    /** @param (callable(int): void)|null $sleeper receives whole seconds to wait on a 429; defaults to sleep() */
+    /** @param (callable(int): void)|null $sleeper receives whole seconds to wait between retries; defaults to sleep() */
     public function __construct(
         private readonly ClientInterface $http,
         string $site,
         string $apiKey,
         string $appKey,
         ?callable $sleeper = null,
+        int $retryBudget = 120,
+        private readonly int $pagingBudget = 300,
+        ?ClockInterface $clock = null,
     ) {
         if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i', $site) !== 1) {
             throw new InvalidArgumentException('Invalid Datadog site.');
         }
         $this->baseUrl = 'https://api.' . $site;
         $this->headers = ['DD-API-KEY' => $apiKey, 'DD-APPLICATION-KEY' => $appKey, 'Accept' => 'application/json'];
-        $this->sleeper = $sleeper === null ? static function (int $s): void {
-            sleep($s);
-        } : Closure::fromCallable($sleeper);
+        $this->retry = new Retry($sleeper, $retryBudget);
+        $this->clock = $clock ?? new SystemClock();
     }
 
     public function totals(Window $window, StreamSelector $selector): array
@@ -73,6 +74,7 @@ final class DatadogSource implements LogSource
         $query = $this->tagQuery($selector) . $this->readQuery($filter);
         $cursor = null;
         $kept = 0;
+        $startedAt = $this->clock->now()->getTimestamp();
 
         do {
             $page = ['limit' => self::PAGE_LIMIT] + ($cursor === null ? [] : ['cursor' => $cursor]);
@@ -99,6 +101,11 @@ final class DatadogSource implements LogSource
             }
             $next = $data['meta']['page']['after'] ?? null;
             $cursor = is_string($next) && $next !== '' ? $next : null;
+            if ($cursor !== null && $this->clock->now()->getTimestamp() - $startedAt > $this->pagingBudget) {
+                $this->truncated = true;
+
+                return;
+            }
         } while ($cursor !== null);
     }
 
@@ -142,7 +149,7 @@ final class DatadogSource implements LogSource
     private function event(array $raw): LogEvent
     {
         $attrs = is_array($raw['attributes'] ?? null) ? $raw['attributes'] : [];
-        $time = $this->time(is_string($attrs['timestamp'] ?? null) ? $attrs['timestamp'] : '') ?? new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        $time = $this->time(is_string($attrs['timestamp'] ?? null) ? $attrs['timestamp'] : '') ?? $this->clock->now()->setTimezone(new DateTimeZone('UTC'));
         $labels = [];
         foreach (is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [] as $tag) {
             if (is_string($tag) && str_contains($tag, ':')) {
@@ -262,33 +269,22 @@ final class DatadogSource implements LogSource
      */
     private function post(string $path, array $body): array
     {
-        for ($attempt = 0;; ++$attempt) {
-            try {
-                // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
-                $response = $this->http->request('POST', $this->baseUrl . $path, [
-                    'json' => $body,
-                    'headers' => $this->headers,
-                    'http_errors' => false,
-                ]);
-            } catch (GuzzleException $e) {
-                throw new SourceUnavailable('datadog request failed (' . $e::class . ')', 0, $e);
-            }
+        // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
+        $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('POST', $this->baseUrl . $path, [
+            'json' => $body,
+            'headers' => $this->headers,
+            'http_errors' => false,
+        ]), 'datadog', false);
 
-            $status = $response->getStatusCode();
-            if ($status === 429 && $attempt < self::MAX_RETRIES) {
-                $reset = $response->getHeaderLine('X-RateLimit-Reset');
-                ($this->sleeper)(max(1, min(self::MAX_WAIT, is_numeric($reset) ? (int) $reset : 1)));
-                continue;
-            }
-            if ($status < 200 || $status >= 300) {
-                throw new SourceUnavailable(trim("datadog {$status} " . $response->getReasonPhrase()));
-            }
-            $data = json_decode((string) $response->getBody(), true);
-            if (!is_array($data)) {
-                throw new SourceUnavailable('datadog returned a non-JSON body');
-            }
-
-            return $data;
+        $status = $response->getStatusCode();
+        if ($status < 200 || $status >= 300) {
+            throw new SourceUnavailable(trim("datadog {$status} " . $response->getReasonPhrase()));
         }
+        $data = json_decode((string) $response->getBody(), true);
+        if (!is_array($data)) {
+            throw new SourceUnavailable('datadog returned a non-JSON body');
+        }
+
+        return $data;
     }
 }

@@ -31,6 +31,9 @@ final class PdoStateStoreTest extends StateStoreContractTest
             self::assertStringContainsString('PRIMARY KEY', $sql);
         }
         self::assertStringContainsString('utf8mb4', PdoStateStore::createTableSql('mysql'));
+        self::assertStringContainsString('value MEDIUMTEXT', PdoStateStore::createTableSql('mysql'));
+        self::assertStringContainsString('value TEXT', PdoStateStore::createTableSql('pgsql'));
+        self::assertStringContainsString('value TEXT', PdoStateStore::createTableSql('sqlite'));
     }
 
     public function testCreateTableSqlRejectsUnknownDriverAndBadTable(): void

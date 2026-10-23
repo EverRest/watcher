@@ -219,6 +219,42 @@ final class FailureTest extends TestCase
         }
     }
 
+    public function testAFailedDigestLeavesNothingBehindSoTheRetryInTheSameHourReportsAgain(): void
+    {
+        $h = new Harness();
+        self::baselined($h);
+        $h->notifier->failOnce(new DeliveryFailed('slack delivery failed: HTTP 500'));
+
+        $failed = $h->watcher(self::source(self::alpha(9)))->run();
+
+        self::assertSame(RunOutcome::Failed, $failed->outcome);
+        self::assertSame(1, $failed->exitCode());
+        self::assertNull($h->state->get(self::runKey($h)));
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        $kept = array_filter(array_keys($h->state->all()), static fn (string $k): bool => str_starts_with($k, 'verdict:') || str_starts_with($k, 'reported:'));
+        self::assertSame([], array_values($kept), 'no verdict and no reported marker survives an undelivered digest');
+
+        $again = $h->watcher(self::source(self::alpha(9)))->run();
+
+        self::assertSame(RunOutcome::Reported, $again->outcome);
+        self::assertStringContainsString('Problem', $h->sentTexts()[count($h->sentTexts()) - 1]);
+    }
+
+    public function testAFailedDigestIsAnnouncedOnTheNoticeChannelWhenItDiffers(): void
+    {
+        $h = new Harness(['notify' => ['digest' => ['webhook' => self::DIGEST_HOOK], 'notice' => ['driver' => 'slack', 'webhook' => self::NOTICE_HOOK]]]);
+        self::baselined($h);
+        $h->notifier->failOnce(new DeliveryFailed('slack delivery failed: HTTP 500'));
+
+        $result = $h->watcher(self::source(self::alpha(9)))->run();
+
+        self::assertSame(RunOutcome::Failed, $result->outcome);
+        $last = $h->notifier->sent[count($h->notifier->sent) - 1];
+        self::assertSame(self::NOTICE_HOOK, $last['to']->webhook());
+        self::assertStringContainsString('digest delivery failed: HTTP 500', $last['message']->text);
+        self::assertStringNotContainsString('hooks.slack.test', $last['message']->text);
+    }
+
     private static function logger(): SpyLogger
     {
         return new SpyLogger();

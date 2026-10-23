@@ -19,6 +19,9 @@ final class Matcher
     public const ERROR_TYPE = 'error_type';
     public const FIELD = 'field';
 
+    /** preg errors (backtrack/JIT limit) so far; a failure is a non-match but never a silent one */
+    public int $failures = 0;
+
     public function __construct(
         public readonly string $kind,
         public readonly string $pattern,   // regex, or the `equals` literal for an equals field matcher
@@ -57,6 +60,11 @@ final class Matcher
 
     private function regex(string $subject): bool
     {
-        return @preg_match($this->pattern, $subject) === 1;
+        $r = @preg_match($this->pattern, $subject);
+        if ($r === false) {
+            ++$this->failures;
+        }
+
+        return $r === 1;
     }
 }

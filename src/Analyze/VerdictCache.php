@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher\Analyze;
 
+use Watcher\Level;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\State\Keys;
 use Watcher\State\StateStore;
@@ -11,21 +12,49 @@ use Watcher\State\StateStore;
 /** Per-service triage verdicts so a settled group is not sent to a model again (FR-018). */
 final class VerdictCache
 {
+    private const MAX_AT_COUNT = 10_000_000;
+
     public function __construct(
         private readonly StateStore $store,
         private readonly string $service,
         private readonly int $retention,
+        private readonly int $settledTtl = 3 * 86400,
     ) {
     }
 
     /** @return array{triage: string, atCount: int, finding?: array<string, mixed>}|null */
     public function get(string $fingerprint): ?array
     {
-        /** @var array{triage: string, atCount: int, finding?: array<string, mixed>}|null */
-        return $this->store->get(Keys::verdict($this->service, $fingerprint));
+        $v = $this->store->get(Keys::verdict($this->service, $fingerprint));
+        // The store may be shared: a value of the wrong shape is "no verdict", never trusted or thrown on.
+        if ($v === null
+            || !is_int($v['atCount'] ?? null) || $v['atCount'] < 0 || $v['atCount'] >= self::MAX_AT_COUNT
+            || !in_array($v['triage'] ?? null, ['noise', 'known', 'interesting'], true)) {
+            return null;
+        }
+
+        /** @var array{triage: string, atCount: int, finding?: array<string, mixed>} $v */
+        return $v;
     }
 
-    public function put(string $fingerprint, string $verdict, int $atCount, ?Finding $finding): void
+    /**
+     * A noise/known verdict is attacker-influenced (log text steers the model), so it is never kept for a group
+     * that is error or higher or matched a watch rule, and for the rest only for the short TTL.
+     */
+    public function storeTriage(RedactedGroup $g, string $verdict): void
+    {
+        if ($verdict !== 'interesting' && self::mustNotBeSilenced($g)) {
+            return;
+        }
+        $this->put($g->fingerprint, $verdict, $g->count, null, $verdict === 'interesting' ? null : $this->settledTtl);
+    }
+
+    private static function mustNotBeSilenced(RedactedGroup $g): bool
+    {
+        return $g->level->value >= Level::Error->value || $g->watchMatches !== [];
+    }
+
+    public function put(string $fingerprint, string $verdict, int $atCount, ?Finding $finding, ?int $ttl = null): void
     {
         $value = ['triage' => $verdict, 'atCount' => $atCount];
         if ($finding !== null) {
@@ -41,13 +70,17 @@ final class VerdictCache
                 'escalated' => $finding->escalated,
             ];
         }
-        $this->store->put(Keys::verdict($this->service, $fingerprint), $value, $this->retention);
+        $this->store->put(Keys::verdict($this->service, $fingerprint), $value, $ttl ?? $this->retention);
     }
 
     public function isReusable(RedactedGroup $g, float $growthFactor): bool
     {
         $v = $this->get($g->fingerprint);
 
-        return $v !== null && $g->count < $growthFactor * $v['atCount'];
+        if ($v === null || ($v['triage'] !== 'interesting' && self::mustNotBeSilenced($g))) {
+            return false;
+        }
+
+        return $g->count < $growthFactor * $v['atCount'];
     }
 }

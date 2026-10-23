@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Laravel;
 
 use Illuminate\Support\ServiceProvider;
+use Psr\Log\LoggerInterface;
 use Watcher\Watcher;
 
 final class WatcherServiceProvider extends ServiceProvider
@@ -19,7 +20,11 @@ final class WatcherServiceProvider extends ServiceProvider
         }
         $this->mergeConfigFrom(self::CONFIG, 'watcher');
 
-        $this->app->singleton(Watcher::class, static fn ($app): Watcher => Watcher::fromConfig((array) $app->make('config')->get('watcher')));
+        $this->app->singleton(Watcher::class, static function ($app): Watcher {
+            $logger = $app->bound(LoggerInterface::class) ? $app->make(LoggerInterface::class) : null;
+
+            return Watcher::fromConfig((array) $app->make('config')->get('watcher'), $logger);
+        });
         $this->app->bind(
             RunCommand::class,
             static fn ($app): RunCommand => new RunCommand(static fn (): callable => $app->make(Watcher::class)->run(...)),

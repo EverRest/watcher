@@ -35,12 +35,54 @@ final class RunGate
         $local = $now->setTimezone($this->timezone);
         // yesterday too: a late run_at (23:30) stays due after midnight
         foreach ([0, 1] as $daysBack) {
-            $runAt = $local->modify("-{$daysBack} day")->setTime($this->hour, $this->minute);
-            if ($now >= $runAt && $now < $runAt->modify('+1 hour')) {
-                return Window::endingAt($runAt, $this->window);
+            $runAt = $this->runAtOn($local, -$daysBack);
+            if ($now >= $runAt && $now < $runAt->setTimestamp($runAt->getTimestamp() + 3600)) {
+                return new Window($this->start($runAt), $runAt);
             }
         }
 
         return null;
+    }
+
+    /**
+     * Whole-day windows start at the same local wall-clock time N days earlier, so consecutive windows share
+     * boundaries across DST changes; sub-day windows are end minus duration.
+     */
+    private function start(DateTimeImmutable $end): DateTimeImmutable
+    {
+        $d = is_string($this->window) ? new DateInterval($this->window) : $this->window;
+        $wholeDays = $d->y === 0 && $d->m === 0 && $d->i === 0 && $d->s === 0 && $d->f == 0 && $d->h % 24 === 0
+            ? $d->d + intdiv($d->h, 24) : 0;
+        if ($wholeDays > 0 && $d->invert === 0) {
+            return $this->runAtOn($end->setTimezone($this->timezone), -$wholeDays);
+        }
+
+        return Window::endingAt($end, $d)->start;
+    }
+
+    /**
+     * The run_at instant on the local date `$days` away from `$ref`'s. A time in the spring-forward gap resolves to
+     * the first instant after the gap; an ambiguous (fall-back) time to its first occurrence.
+     */
+    private function runAtOn(DateTimeImmutable $ref, int $days): DateTimeImmutable
+    {
+        $date = $ref->setTimezone($this->timezone)->setDate((int) $ref->format('Y'), (int) $ref->format('n'), (int) $ref->format('j') + $days);
+        $wall = (new DateTimeImmutable('@0'))->setDate((int) $date->format('Y'), (int) $date->format('n'), (int) $date->format('j'))
+            ->setTime($this->hour, $this->minute)->getTimestamp(); // wall-clock digits read as UTC
+        $valid = [];
+        foreach ([$wall - 86400, $wall + 86400] as $probe) { // offsets in force either side of the date
+            $offset = $date->setTimestamp($probe)->getOffset();
+            if ($date->setTimestamp($wall - $offset)->getOffset() === $offset) {
+                $valid[] = $wall - $offset;
+            }
+        }
+        if ($valid !== []) {
+            return $date->setTimestamp(min($valid));
+        }
+        // Nonexistent: the transition itself is the first valid instant.
+        $guess = $wall - $date->setTimestamp($wall - 86400)->getOffset();
+        $transitions = $this->timezone->getTransitions($guess - 86400, $guess);
+
+        return $date->setTimestamp($transitions[array_key_last($transitions)]['ts']);
     }
 }

@@ -79,7 +79,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'noise', 'b' => 'known', 'c' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding('c')]);
 
-        $r = $this->router()->route([self::group('a'), self::group('b'), self::group('c')], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning), self::group('c')], false);
 
         self::assertSame(1, $this->fake->triageCalls);
         self::assertSame(1, $this->fake->analyzeCalls);
@@ -156,7 +156,7 @@ final class ModelRouterTest extends TestCase
         $this->cache->put('old', 'known', 10, null);
         $this->fake->triage = self::triage(['new' => 'noise']);
 
-        $r = $this->router()->route([self::group('old', 19), self::group('new')], false);
+        $r = $this->router()->route([self::group('old', 19, Level::Warning), self::group('new')], false);
 
         self::assertSame(1, $r->reused);
         self::assertSame(1, $r->triaged);
@@ -167,7 +167,7 @@ final class ModelRouterTest extends TestCase
     {
         $this->cache->put('old', 'known', 10, null);
 
-        $r = $this->router()->route([self::group('old', 12)], false);
+        $r = $this->router()->route([self::group('old', 12, Level::Warning)], false);
 
         self::assertSame(0, $this->fake->triageCalls + $this->fake->analyzeCalls);
         self::assertSame(1, $r->reused);
@@ -178,7 +178,7 @@ final class ModelRouterTest extends TestCase
         $this->cache->put('old', 'known', 10, null);
         $this->fake->triage = self::triage(['old' => 'noise']);
 
-        $r = $this->router()->route([self::group('old', 20)], false);
+        $r = $this->router()->route([self::group('old', 20, Level::Warning)], false);
 
         self::assertSame(0, $r->reused);
         self::assertSame(1, $this->fake->triageCalls);
@@ -302,5 +302,14 @@ final class ModelRouterTest extends TestCase
 
         self::assertNotNull($this->cache->get('a'));
         self::assertTrue($this->cache->isReusable(self::group('a', 11), 2.0));
+    }
+
+    public function testNoiseVerdictOfAnErrorGroupIsNeverStoredSoItIsTriagedAgain(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'noise']);
+
+        $this->router()->route([self::group('a', 10, Level::Error)], false);
+
+        self::assertNull($this->cache->get('a'));
     }
 }

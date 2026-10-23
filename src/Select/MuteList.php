@@ -27,6 +27,12 @@ final class MuteList
         }
     }
 
+    /** Regex evaluations that errored: such an entry does not mute, so the group stays visible. */
+    public function failures(): int
+    {
+        return array_sum(array_map(static fn (array $e): int => $e['matcher']->failures ?? 0, $this->entries));
+    }
+
     /**
      * @param list<ProblemGroup>          $groups
      * @param array<string, list<string>> $eventMatches fingerprint => ENTRY INDEXES (as strings, position in the

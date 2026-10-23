@@ -143,4 +143,28 @@ final class WatchRulesTest extends TestCase
     {
         self::assertSame([], self::patterns([]));
     }
+
+    public function testFailedRegexIsCountedAndDoesNotHideOtherRules(): void
+    {
+        $limit = ini_set('pcre.backtrack_limit', '100');
+        $jit = ini_set('pcre.jit', '0');
+        try {
+            $rules = new WatchRules(['bad' => ['template' => '/(a+)+$/'], 'good' => ['template' => '/aaa/']]);
+            $out = $rules->apply([$this->g('x', str_repeat('a', 60) . 'b')], []);
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+            ini_set('pcre.jit', (string) $jit);
+        }
+
+        self::assertSame(['good'], $out[0]->watchMatches);
+        self::assertSame(1, $rules->failures());
+    }
+
+    public function testNoFailuresOnPlainNonMatch(): void
+    {
+        $rules = new WatchRules(['r' => ['template' => '/zzz/']]);
+        $rules->apply([$this->g('x', 'nothing')], []);
+
+        self::assertSame(0, $rules->failures());
+    }
 }

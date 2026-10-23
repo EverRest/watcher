@@ -39,6 +39,7 @@ use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
 use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
+use Watcher\Notify\SlackText;
 use Watcher\Notify\Notifier;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
@@ -59,6 +60,7 @@ use Watcher\Source\LogSource;
 use Watcher\Source\ReadFilter;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
+use Watcher\State\BufferedStateStore;
 use Watcher\State\Keys;
 use Watcher\State\StateStore;
 
@@ -68,8 +70,7 @@ final class Watcher
     private readonly ClockInterface $clock;
 
     /** Dependency snapshots wait here and are written together with the window snapshot, so a failed run leaves none. */
-    /** @var list<array{0: string, 1: array<mixed>, 2: int}> */
-    private array $pendingWrites = [];
+    private ?BufferedStateStore $pendingWrites = null;
 
     private ?DeployInfo $deployInfo = null;
 
@@ -171,6 +172,22 @@ final class Watcher
         return $result;
     }
 
+    /** The digest channel cannot carry its own failure; when the notice channel is another one, it can. */
+    private function announceDigestFailure(DeliveryFailed $e, string $environment): void
+    {
+        $n = $this->config->notify;
+        if ($n['notice']['webhook'] === $n['digest']['webhook']) {
+            return;
+        }
+        $code = preg_match('/HTTP (\d{3})/', $e->getMessage(), $m) === 1 ? ': HTTP ' . $m[1] : '';
+        $text = sprintf('❌ watcher · %s · %s — digest delivery failed%s', SlackText::escape($this->config->service), SlackText::escape($environment), $code);
+        try {
+            $this->notifier->send(self::plainNotice($text), $this->noticeDestination());
+        } catch (Throwable) {
+            // The host log and exit code carry the failure.
+        }
+    }
+
     private function notices(): NoticeRenderer
     {
         $c = $this->config;
@@ -213,11 +230,12 @@ final class Watcher
 
         /** @var array{groups?: array<string, int>, totals?: array<string, int>, deploy?: array<string, string|null>}|null $prev */
         $prev = $this->state->get(Keys::snapshot($service, self::windowKey($window->start)));
-        $this->pendingWrites = [];
+        $this->pendingWrites = new BufferedStateStore($this->state);
         $deploy = $this->deployInfo = DeployInfo::resolve($c->deploy, $prev['deploy'] ?? null, $this->source, $window, $selector);
         $anomalies = LevelAnomaly::levels($prev === null ? null : ($prev['totals'] ?? []), $totals, $c->selection['growth_factor'], $readMin);
 
         $truncated = false;
+        $eventsRead = 0;
         $rules = new WatchRules($c->watchRules);
         $mute = new MuteList($c->mute);
         $muteMatchers = [];
@@ -234,9 +252,10 @@ final class Watcher
         $ruleHits = [];
         /** @var array<string, list<string>> $muteHits mute entry indexes per fingerprint */
         $muteHits = [];
-        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits): iterable {
+        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, &$eventsRead, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits): iterable {
             // Field VALUES are matched here and dropped: only rule names and mute indexes are kept per fingerprint.
-            $observe = static function (\Watcher\Source\LogEvent $e) use ($rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits): \Watcher\Source\LogEvent {
+            $observe = static function (\Watcher\Source\LogEvent $e) use ($rules, $muteMatchers, $fingerprinter, &$eventsRead, &$ruleHits, &$muteHits): \Watcher\Source\LogEvent {
+                ++$eventsRead; // counted as they stream, so muted events are included
                 $names = $rules->namesMatchingEvent($e);
                 $hits = [];
                 foreach ($muteMatchers as $i => $m) {
@@ -258,11 +277,12 @@ final class Watcher
                         yield $observe($e);
                     }
                 }
+                $truncated = $this->source->lastReadTruncated() || $truncated;
             }
             foreach ($this->source->lines($window, $selector, new ReadFilter($readMin, $rules->backendPatterns(), $this->config->source['event_cap'])) as $e) {
                 yield $observe($e);
             }
-            $truncated = $this->source->lastReadTruncated();
+            $truncated = $this->source->lastReadTruncated() || $truncated;
         })();
 
         $groups = (new Reducer($normalizer, $c->minGroupEventsForText))->reduce($events);
@@ -330,9 +350,10 @@ final class Watcher
         $notice = $this->noticeDestination();
         $triageOnly = $spend->exhausted($c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']);
 
+        $buffer = new BufferedStateStore($this->state); // verdicts and reported markers: kept only once the digest is delivered
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
-        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog), new VerdictCache($this->state, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
+        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog), new VerdictCache($buffer, $service, $retention), $this->routerSettings($this->serviceContext($redactor)));
         try {
             $routed = $router->route($redacted, $triageOnly, $dependencies);
         } catch (AnalyzerFailed $e) {
@@ -355,7 +376,11 @@ final class Watcher
         $after = $spend->today();
 
         if ($triageOnly && $routed->triaged > 0) {
-            $this->noticeOnce('exhausted:' . rawurlencode($service) . ':' . $spend->day(), $this->notices()->budgetExhausted($service, $environment), $notice);
+            try {
+                $this->noticeOnce('exhausted:' . rawurlencode($service) . ':' . $spend->day(), $this->notices()->budgetExhausted($service, $environment), $notice);
+            } catch (Throwable $e) {
+                $this->hostLog?->warning('budget notice not delivered: ' . $e->getMessage(), ['service' => $service]);
+            }
         }
         $alerts = new BudgetAlerts($this->state, $this->clock, $tz, $service);
         $alert = $alerts->check(
@@ -370,8 +395,7 @@ final class Watcher
                 $this->notifier->send(self::plainNotice($alert->noticeText($service)), $notice);
             } catch (Throwable $e) {
                 $alerts->release($alert);
-
-                throw $e;
+                $this->hostLog?->warning('budget alert not delivered: ' . $e->getMessage(), ['service' => $service]);
             }
         }
 
@@ -379,6 +403,7 @@ final class Watcher
         $dropped = $truncation->droppedCount + $routed->droppedByTopM;
 
         if ($findings === [] && $dropped === 0) {
+            $buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->writeSnapshot($window, $allGroups, $totals);
             $this->writeRun($runKey, RunOutcome::Quiet, $usage, $started);
 
@@ -413,7 +438,7 @@ final class Watcher
             $models,
             $costUsd,
             $this->anomalyLine($anomalies, $prev['totals'] ?? [], $totals),
-            $truncated ? array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups)) : null,
+            $truncated ? $eventsRead : null,
             $dropped,
             $selection->otherGroups,
             $selection->otherEvents,
@@ -427,14 +452,21 @@ final class Watcher
             $failedDependencies,
             $links,
         ), $c->analysis['confidence_threshold']);
-        $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
+        try {
+            $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
+        } catch (DeliveryFailed $e) {
+            $this->announceDigestFailure($e, $environment);
+
+            throw $e;
+        }
 
         $now = $this->clock->now()->format(DATE_ATOM);
         foreach ($findings as $finding) {
             foreach ($finding->fingerprints as $fp) {
-                $this->state->put(Keys::reported($service, $fp), ['lastReportedAt' => $now, 'atCount' => $byFingerprint[$fp]->count ?? 0], $retention);
+                $buffer->put(Keys::reported($service, $fp), ['lastReportedAt' => $now, 'atCount' => $byFingerprint[$fp]->count ?? 0], $retention);
             }
         }
+        $buffer->flush();
         $this->writeSnapshot($window, $allGroups, $totals);
         $this->writeRun($runKey, RunOutcome::Reported, $usage, $started);
 
@@ -575,39 +607,7 @@ final class Watcher
             : (new DependencyResolver())->plan($templates, $current, $previous, $c->selection['growth_factor']);
         $contexts = [];
         if ($declared !== []) {
-            $sink = function (string $key, array $value, int $ttl): void {
-                $this->pendingWrites[] = [$key, $value, $ttl];
-            };
-            $buffer = new class ($this->state, $sink) implements StateStore {
-                public function __construct(private readonly StateStore $inner, private readonly \Closure $sink)
-                {
-                }
-
-                public function get(string $key): ?array
-                {
-                    return $this->inner->get($key);
-                }
-
-                public function put(string $key, array $value, int $ttlSeconds): void
-                {
-                    ($this->sink)($key, $value, $ttlSeconds);
-                }
-
-                public function acquire(string $key, string $owner, int $ttlSeconds): bool
-                {
-                    return $this->inner->acquire($key, $owner, $ttlSeconds);
-                }
-
-                public function release(string $key, string $owner): void
-                {
-                    $this->inner->release($key, $owner);
-                }
-
-                public function increment(string $key, float $by, int $ttlSeconds): float
-                {
-                    return $this->inner->increment($key, $by, $ttlSeconds);
-                }
-            };
+            $buffer = $this->pendingWrites ?? $this->state;
             try {
                 $reader = new DependencyContextReader($normalizer, $redactor, $buffer, $c->state['retention'], $c->minGroupEventsForText);
                 $contexts = $reader->read($c->service, $declared, fn (string $name): LogSource => $this->source, $plan, $window, $c->dependencyReadCap, $previous, $current)->contexts;
@@ -706,10 +706,7 @@ final class Watcher
         foreach ($groups as $g) {
             $counts[$g->fingerprint] = $g->count;
         }
-        foreach ($this->pendingWrites as [$key, $value, $ttl]) {
-            $this->state->put($key, $value, $ttl);
-        }
-        $this->pendingWrites = [];
+        $this->pendingWrites?->flush();
         $this->state->put(
             Keys::snapshot($this->config->service, self::windowKey($window->end)),
             ['groups' => $counts, 'totals' => $totals, 'deploy' => $this->deployInfo?->toSnapshot()],

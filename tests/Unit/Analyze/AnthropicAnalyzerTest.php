@@ -231,4 +231,17 @@ final class AnthropicAnalyzerTest extends TestCase
     {
         return ['529 overloaded' => [529, 'error-529.json'], '503 unavailable' => [503, 'error-529.json']];
     }
+
+    public function testBaseUrlIgnoresTheEnvironmentAndDefaultsToAnthropic(): void
+    {
+        $old = getenv('ANTHROPIC_BASE_URL');
+        putenv('ANTHROPIC_BASE_URL=https://evil.example');
+        try {
+            $this->analyzer([self::json('message-valid.json')])->analyze(self::request());
+        } finally {
+            $old === false ? putenv('ANTHROPIC_BASE_URL') : putenv('ANTHROPIC_BASE_URL=' . $old);
+        }
+
+        self::assertSame('api.anthropic.com', $this->history[0]['request']->getUri()->getHost());
+    }
 }

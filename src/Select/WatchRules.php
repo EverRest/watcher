@@ -21,6 +21,12 @@ final class WatchRules
         }
     }
 
+    /** Regex evaluations that errored (rule did not match, but may have been wrong to skip). */
+    public function failures(): int
+    {
+        return array_sum(array_map(static fn (Matcher $m): int => $m->failures, $this->rules));
+    }
+
     /**
      * Regexes (no delimiters, `(?i)` prefix when case-insensitive) that are safe to hand to the log backend so a
      * matching line below the read level is still read (FR-036). A template regex runs on the MASKED template while

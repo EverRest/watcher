@@ -216,7 +216,7 @@ final class CostTest extends TestCase
     {
         $h = new Harness();
         $h->analyzer->verdict = 'noise';
-        $events = self::group('Alpha');
+        $events = self::group('Alpha', 5, Level::Warning);
         $h->watcher(self::source($events))->run();
         $h->nextWindow();
         $h->watcher(self::source($events))->run();
@@ -260,19 +260,38 @@ final class CostTest extends TestCase
         self::assertEqualsWithDelta(2.4, $result->usage?->costUsd ?? -1, 1e-9);
     }
 
-    public function testAFailedAlertNoticeGivesTheClaimBackSoTheAlertIsNotLostForTheDay(): void
+    public function testAFailedAlertNoticeGivesTheClaimBackAndNeverAbortsTheDigest(): void
     {
         $h = new Harness(self::BUDGET);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
         $h->analyzer->inputTokens = 1000; // $0.50 of $1.00: the 50% alert
         $h->notifier->failOnce(new \Watcher\Notify\DeliveryFailed('slack delivery failed: HTTP 500'));
+        $log = new \Watcher\Tests\Fakes\SpyLogger();
+        $h->hostLog = $log;
 
         $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
 
-        self::assertSame(RunOutcome::Failed, $result->outcome);
+        self::assertSame(RunOutcome::Reported, $result->outcome, 'the digest still goes out');
         self::assertInstanceOf(InMemoryStateStore::class, $h->state);
         self::assertSame([], array_filter(array_keys($h->state->all()), static fn (string $k): bool => str_starts_with($k, Keys::ALERT . ':')), 'claims released');
+        self::assertCount(1, $log->records);
+        self::assertStringContainsString('slack delivery failed: HTTP 500', $log->records[0][1]);
+    }
+
+    public function testAFailedExhaustedNoticeNeverAbortsTheDigest(): void
+    {
+        $h = new Harness(self::BUDGET + ['schedule' => ['window' => 'PT1H']]);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->clock->advance('+1 hour');
+        self::spendToday($h, 5.0);
+        $h->notifier->failOnce(new \Watcher\Notify\DeliveryFailed('slack delivery failed: HTTP 500'));
+
+        $result = $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertNotSame(RunOutcome::Failed, $result->outcome);
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        self::assertSame([], array_filter(array_keys($h->state->all()), static fn (string $k): bool => str_starts_with($k, 'exhausted:')), 'key given back so a later run retries');
     }
 
     public function testAFailedCallWithBilledAttemptsIsStillCounted(): void

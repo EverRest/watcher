@@ -130,7 +130,15 @@ final class FileStateStore implements StateStore
     private function write(string $key, array $record): void
     {
         $tmp = $this->path($key) . '.' . bin2hex(random_bytes(4)) . '.tmp';
-        file_put_contents($tmp, json_encode($record, JSON_THROW_ON_ERROR));
-        rename($tmp, $this->path($key));
+        $json = json_encode($record, JSON_THROW_ON_ERROR);
+        // A full disk can fail or short-write: never rename a partial file over the good record.
+        if (@file_put_contents($tmp, $json) !== strlen($json)) {
+            @unlink($tmp);
+            throw new RuntimeException('state write failed');
+        }
+        if (! @rename($tmp, $this->path($key))) {
+            @unlink($tmp);
+            throw new RuntimeException('state write failed');
+        }
     }
 }

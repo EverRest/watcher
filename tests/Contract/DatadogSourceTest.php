@@ -12,8 +12,10 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use InvalidArgumentException;
+use Psr\Clock\ClockInterface;
 use Psr\Http\Message\RequestInterface;
 use Watcher\Level;
+use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Source\DatadogSource;
 use Watcher\Source\LogEvent;
 use Watcher\Source\LogSource;
@@ -25,7 +27,7 @@ final class DatadogSourceTest extends LogSourceContractTest
 {
     private const API_KEY = 'dd-api-s3cret';
     private const APP_KEY = 'dd-app-s3cret';
-    private const PAGE = 1000;
+    private const PAGE = 5000;
 
     /** @var list<array{request: RequestInterface}> */
     private array $history = [];
@@ -92,7 +94,7 @@ final class DatadogSourceTest extends LogSourceContractTest
             ? new ConnectException('cannot connect to https://api.datadoghq.com/?k=' . self::API_KEY, new Request('POST', 'https://api.datadoghq.com/'))
             : new Response($httpStatus, [], $this->fixture('error_forbidden.json'));
 
-        return $this->source([$response]);
+        return $this->source(array_fill(0, 3, $response));
     }
 
     public function testTotalsRequestAndFixtureMapping(): void
@@ -158,7 +160,7 @@ final class DatadogSourceTest extends LogSourceContractTest
         $body = $this->body($this->history[0]['request']);
         $this->assertSame('app:svc env:stg AND (status:(warn OR error OR critical OR alert OR emergency) OR "timeout")', $body['filter']['query']);
         $this->assertSame('timestamp', $body['sort']);
-        $this->assertSame(['limit' => 1000], $body['page']);
+        $this->assertSame(['limit' => 5000], $body['page']);
     }
 
     public function testRegexWatchPatternDisablesServerFilterButStillAppliesClientSide(): void
@@ -214,16 +216,16 @@ final class DatadogSourceTest extends LogSourceContractTest
         $this->assertSame(['app' => 'orders-api', 'env' => 'stg', 'pod' => 'a', 'service' => 'orders-api'], $events[0]->labels);
         $this->assertSame('2026-10-22T10:05:00+00:00', $events[1]->time->format('c'));
         $this->assertCount(2, $this->history);
-        $this->assertSame(['limit' => 1000, 'cursor' => 'cursor-2'], $this->body($this->history[1]['request'])['page']);
+        $this->assertSame(['limit' => 5000, 'cursor' => 'cursor-2'], $this->body($this->history[1]['request'])['page']);
     }
 
     public function testEventCapStopsPagingEarly(): void
     {
-        $source = $this->makeSourceWithManyLines(2500);
+        $source = $this->makeSourceWithManyLines(7000);
 
-        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 1500)));
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 5500)));
 
-        $this->assertCount(1500, $events);
+        $this->assertCount(5500, $events);
         $this->assertTrue($source->lastReadTruncated());
         $this->assertCount(2, $this->history);
     }
@@ -265,11 +267,11 @@ final class DatadogSourceTest extends LogSourceContractTest
         $totals = $source->totals($this->window(), $this->selector());
 
         $this->assertSame(907, $totals['info']);
-        $this->assertSame([7, 60], $this->slept); // second wait is capped
+        $this->assertSame([7, 30], $this->slept); // second wait is capped
         $this->assertCount(3, $this->history);
     }
 
-    public function testRateLimitGivesUpAfterThreeRetries(): void
+    public function testRateLimitGivesUpAfterThreeAttempts(): void
     {
         $source = $this->source(array_fill(0, 5, new Response(429, ['X-RateLimit-Reset' => '1'], '{}')));
 
@@ -279,8 +281,8 @@ final class DatadogSourceTest extends LogSourceContractTest
         } catch (SourceUnavailable $e) {
             $this->assertSame('datadog 429 Too Many Requests', $e->getMessage());
         }
-        $this->assertCount(4, $this->history);
-        $this->assertCount(3, $this->slept);
+        $this->assertCount(3, $this->history);
+        $this->assertCount(2, $this->slept);
     }
 
     public function testErrorMessageNamesStatusOnly(): void
@@ -297,7 +299,7 @@ final class DatadogSourceTest extends LogSourceContractTest
 
     public function testAppKeyNeverAppearsInANetworkErrorMessage(): void
     {
-        $source = $this->source([new ConnectException('boom ' . self::APP_KEY, new Request('POST', 'https://api.datadoghq.eu/x'))]);
+        $source = $this->source(array_fill(0, 3, new ConnectException('boom ' . self::APP_KEY, new Request('POST', 'https://api.datadoghq.eu/x'))));
 
         try {
             $source->totals($this->window(), $this->selector());
@@ -308,10 +310,103 @@ final class DatadogSourceTest extends LogSourceContractTest
         }
     }
 
+    public function testTransientStatusIsRetriedWithBackoff(): void
+    {
+        $source = $this->source([new Response(503), new Response(200, [], $this->fixture('totals.json'))]);
+
+        $this->assertSame(907, $source->totals($this->window(), $this->selector())['info']);
+        $this->assertCount(2, $this->history);
+        $this->assertSame([1], $this->slept);
+    }
+
+    public function testBackoffGrowsAndGivesUpAfterThreeAttempts(): void
+    {
+        $source = $this->source(array_fill(0, 5, new Response(503, [], 'k=' . self::API_KEY)));
+
+        try {
+            $source->totals($this->window(), $this->selector());
+            $this->fail('SourceUnavailable expected');
+        } catch (SourceUnavailable $e) {
+            $this->assertSame('datadog 503 Service Unavailable', $e->getMessage());
+        }
+        $this->assertCount(3, $this->history);
+        $this->assertSame([1, 3], $this->slept);
+    }
+
+    public function testClientErrorsAreNotRetriedAndPostIsNotRetriedOn500(): void
+    {
+        foreach ([401, 500] as $status) {
+            $this->history = [];
+            try {
+                $this->source([new Response($status), new Response(200, [], $this->fixture('totals.json'))])->totals($this->window(), $this->selector());
+                $this->fail('SourceUnavailable expected');
+            } catch (SourceUnavailable) {
+                $this->assertCount(1, $this->history);
+            }
+        }
+        $this->assertSame([], $this->slept);
+    }
+
+    public function testConnectExceptionIsRetried(): void
+    {
+        $source = $this->source([
+            new ConnectException('boom ' . self::APP_KEY, new Request('POST', 'https://api.datadoghq.eu/x')),
+            new Response(200, [], $this->fixture('totals.json')),
+        ]);
+
+        $this->assertSame(907, $source->totals($this->window(), $this->selector())['info']);
+        $this->assertSame([1], $this->slept);
+    }
+
+    public function testRetryWaitBudgetStopsRetrying(): void
+    {
+        $source = $this->source(array_fill(0, 5, new Response(503)), 3);
+
+        try {
+            $source->totals($this->window(), $this->selector());
+            $this->fail('SourceUnavailable expected');
+        } catch (SourceUnavailable) {
+            $this->assertCount(2, $this->history); // waits 1 (total 1), then 3 would make 4 > 3
+        }
+        $this->assertSame([1], $this->slept);
+    }
+
+    public function testPagingStopsTruncatedWhenTheWallTimeBudgetIsSpent(): void
+    {
+        $clock = new FrozenClock(new \DateTimeImmutable('2026-10-22T10:00:00Z'));
+        $source = $this->source([
+            $this->page([$this->line('ERROR', 'a')], 'c1'),
+            $this->page([$this->line('ERROR', 'b')], 'c2'),
+            $this->page([$this->line('ERROR', 'c')], null),
+        ], 120, 300, $clock);
+
+        $gen = $source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 100));
+        $events = [];
+        foreach ($gen as $e) {
+            $events[] = $e;
+            $clock->advance('+200 seconds');
+        }
+
+        $this->assertCount(2, $events);
+        $this->assertTrue($source->lastReadTruncated());
+        $this->assertCount(2, $this->history);
+    }
+
+    public function testMissingTimestampFallsBackToTheInjectedClock(): void
+    {
+        $clock = new FrozenClock(new \DateTimeImmutable('2026-01-02T03:04:05Z'));
+        $raw = ['data' => [['attributes' => ['message' => $this->line('ERROR', 'x'), 'tags' => []]]], 'meta' => ['page' => new \stdClass()]];
+        $source = $this->source([$this->json($raw)], 120, 300, $clock);
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 10)));
+
+        $this->assertSame('2026-01-02T03:04:05+00:00', $events[0]->time->format('c'));
+    }
+
     // helpers
 
     /** @param list<Response|ConnectException> $responses */
-    private function source(array $responses): DatadogSource
+    private function source(array $responses, int $retryBudget = 120, int $pagingBudget = 300, ?ClockInterface $clock = null): DatadogSource
     {
         $stack = HandlerStack::create(new MockHandler($responses));
         $stack->push(Middleware::history($this->history));
@@ -324,6 +419,9 @@ final class DatadogSourceTest extends LogSourceContractTest
             function (int $s): void {
                 $this->slept[] = $s;
             },
+            $retryBudget,
+            $pagingBudget,
+            $clock,
         );
     }
 

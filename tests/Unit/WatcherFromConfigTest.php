@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 namespace Watcher\Tests\Unit;
 
+use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Clock\ClockInterface;
+use RuntimeException;
+use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
+use Watcher\Config\WatchConfig;
+use Watcher\RunOutcome;
 use Watcher\Watcher;
 
 final class WatcherFromConfigTest extends TestCase
@@ -79,6 +85,52 @@ final class WatcherFromConfigTest extends TestCase
         } catch (InvalidConfig $e) {
             self::assertStringContainsString($expected, $e->getMessage());
         }
+    }
+
+    public function testPdoConnectFailureIsInvalidConfigAndLeaksNothing(): void
+    {
+        $dsn = 'sqlite:/nonexistent-watcher-dir-7f3a/secret-marker.db';
+        $state = ['driver' => 'pdo', 'pdo' => ['dsn' => $dsn, 'username' => 'dbuser', 'password' => 'hunter2-secret']];
+        try {
+            Watcher::fromConfig(array_replace(self::valid(), ['state' => $state]));
+            self::fail('expected InvalidConfig');
+        } catch (InvalidConfig $e) {
+            self::assertSame('state.pdo: cannot connect', $e->getMessage());
+            self::assertNull($e->getPrevious());
+            $text = (string) $e;
+            foreach ([$dsn, 'secret-marker', 'hunter2-secret', 'dbuser'] as $secret) {
+                self::assertStringNotContainsString($secret, $text);
+            }
+        }
+    }
+
+    public function testRedisConnectFailureWaitsForTheFirstStateAccess(): void
+    {
+        if (!class_exists(\Redis::class)) {
+            self::markTestSkipped('ext-redis missing');
+        }
+        $state = ['driver' => 'redis', 'redis' => ['host' => '127.0.0.1', 'port' => 1]];
+        $clock = new class () implements ClockInterface {
+            public function now(): DateTimeImmutable
+            {
+                return new DateTimeImmutable('2026-10-23T12:00:00Z');
+            }
+        };
+        $store = Factory::state(WatchConfig::fromArray(array_replace(self::valid(), ['state' => $state])), $clock);
+
+        $this->expectException(RuntimeException::class);
+        $store->get('any');
+    }
+
+    public function testRedisStateIsNotTouchedOnATriggerOutsideTheRunHour(): void
+    {
+        if (!class_exists(\Redis::class)) {
+            self::markTestSkipped('ext-redis missing');
+        }
+        $state = ['driver' => 'redis', 'redis' => ['host' => '127.0.0.1', 'port' => 1]];
+        $watcher = Watcher::fromConfig(array_replace(self::valid(), ['state' => $state]));
+
+        self::assertSame(RunOutcome::SkippedNotDue, $watcher->run(new DateTimeImmutable('2026-10-23T12:00:00Z'))->outcome);
     }
 
     public function testInvalidConfigThrowsBeforeAnyBuild(): void
