@@ -195,6 +195,7 @@ final class WatchConfig
             'read_min_level' => self::level($s, 'read_min_level', 'warning', 'source.read_min_level'),
             'anomaly_cap' => self::posInt($s, 'anomaly_cap', 20000, 'source.anomaly_cap'),
             'sample_size' => self::posInt($s, 'sample_size', 3, 'source.sample_size'),
+            'group_cap' => self::posInt($s, 'group_cap', 5000, 'source.group_cap'),
             'event_cap' => self::posInt($s, 'event_cap', 200000, 'source.event_cap'),
             'stream_tags' => $tags,
         ]);

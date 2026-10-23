@@ -252,11 +252,13 @@ final class Watcher
         $ruleHits = [];
         /** @var array<string, list<string>> $muteHits mute entry indexes per fingerprint */
         $muteHits = [];
-        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, &$eventsRead, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits): iterable {
+        $ruleMatched = false; // set by observe for the event the reducer is processing right now (the stream is sequential)
+        $events = (function () use ($window, $selector, $anomalies, $readMin, &$truncated, &$eventsRead, $rules, $muteMatchers, $fingerprinter, &$ruleHits, &$muteHits, &$ruleMatched): iterable {
             // Field VALUES are matched here and dropped: only rule names and mute indexes are kept per fingerprint.
-            $observe = static function (\Watcher\Source\LogEvent $e) use ($rules, $muteMatchers, $fingerprinter, &$eventsRead, &$ruleHits, &$muteHits): \Watcher\Source\LogEvent {
+            $observe = static function (\Watcher\Source\LogEvent $e) use ($rules, $muteMatchers, $fingerprinter, &$eventsRead, &$ruleHits, &$muteHits, &$ruleMatched): \Watcher\Source\LogEvent {
                 ++$eventsRead; // counted as they stream, so muted events are included
                 $names = $rules->namesMatchingEvent($e);
+                $ruleMatched = $names !== [];
                 $hits = [];
                 foreach ($muteMatchers as $i => $m) {
                     if ($m->matchesEvent($e)) {
@@ -285,7 +287,20 @@ final class Watcher
             $truncated = $this->source->lastReadTruncated() || $truncated;
         })();
 
-        $groups = (new Reducer($normalizer, $c->minGroupEventsForText))->reduce($events);
+        // An event folded into the overflow group drops its hits: they would key a fingerprint that has no group, and a mute must never hide the overflow.
+        $reducer = new Reducer(
+            $normalizer,
+            $c->minGroupEventsForText,
+            $c->source['group_cap'],
+            static function () use (&$ruleMatched): bool {
+                return $ruleMatched;
+            },
+            static function (\Watcher\Source\LogEvent $e) use ($fingerprinter, &$ruleHits, &$muteHits): void {
+                $fp = $fingerprinter->of($e);
+                unset($ruleHits[$fp], $muteHits[$fp]);
+            },
+        );
+        $groups = $reducer->reduce($events);
         // Muted groups leave first, so they reach neither a model nor the selector; the snapshot keeps them for growth.
         $allGroups = $groups;
         $muteResult = $mute->filter($groups, $muteHits, $started);
@@ -451,6 +466,8 @@ final class Watcher
             $undeclared,
             $failedDependencies,
             $links,
+            $reducer->overflowedEvents(),
+            $c->source['group_cap'],
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));

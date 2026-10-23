@@ -189,6 +189,45 @@ final class DigestTest extends TestCase
         self::assertStringContainsString('truncated: 11 events read', $h->sentTexts()[1]);
     }
 
+    public function testClusterCapBoundsGroupsAndStillAnalysesWatchedEvents(): void
+    {
+        $h = new Harness(['source' => ['group_cap' => 20], 'selection' => ['top_n' => 100], 'watch_rules' => ['vip' => ['field' => 'tenant', 'equals' => 'tenant-a']]]);
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+
+        $events = self::alpha();
+        $w = static fn (string $a): string => strtr($a, '0123456789', 'abcdefghij');
+        for ($i = 0; $i < 100; ++$i) {
+            $events[] = new \Watcher\Source\LogEvent(new \DateTimeImmutable('2026-10-07T12:00:00Z'), Level::Error, 'noise' . $w((string) $i) . ' other' . $w((string) $i) . ' broke', null, [], [], []);
+        }
+        $events[] = new \Watcher\Source\LogEvent(new \DateTimeImmutable('2026-10-07T12:00:00Z'), Level::Error, 'vipthing late arrival happened', null, [], ['tenant' => 'tenant-a'], []);
+        $result = $h->watcher(self::source($events))->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        self::assertStringContainsString('cluster cap hit: 81 events from distinct messages beyond the first 20 were grouped as other', $h->sentTexts()[1]);
+        $seen = array_merge(...array_map(static fn ($r) => $r->groups, $h->analyzer->triageRequests));
+        self::assertLessThanOrEqual(21 + 1, count($seen));
+        self::assertContains(['vip'], array_map(static fn ($g) => $g->watchMatches, $seen));
+    }
+
+    public function testAFieldMuteNeverHidesTheOverflowGroup(): void
+    {
+        $h = new Harness(['source' => ['group_cap' => 3], 'selection' => ['top_n' => 100], 'mute' => [['field' => 'tenant', 'equals' => 'noisy']]]);
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+
+        $events = self::alpha();
+        $w = static fn (string $a): string => strtr($a, '0123456789', 'abcdefghij');
+        for ($i = 0; $i < 10; ++$i) {
+            $events[] = new \Watcher\Source\LogEvent(new \DateTimeImmutable('2026-10-07T12:00:00Z'), Level::Error, 'noise' . $w((string) $i) . ' other' . $w((string) $i) . ' broke', null, [], ['tenant' => 'noisy'], []);
+        }
+        $h->watcher(self::source($events))->run();
+
+        $seen = array_merge(...array_map(static fn ($r) => $r->groups, $h->analyzer->triageRequests));
+        self::assertContains('<other clusters>', array_map(static fn ($g) => $g->template, $seen));
+        self::assertStringContainsString('cluster cap hit: 8 events', $h->sentTexts()[1]);
+    }
+
     public function testEveryStateWriteCarriesATtl(): void
     {
         $h = new Harness();

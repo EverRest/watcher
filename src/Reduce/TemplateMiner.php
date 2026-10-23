@@ -13,7 +13,7 @@ use Watcher\Source\LogEvent;
  *
  * Known limit: a value IDENTICAL in every event of a cluster (e.g. one name seen >= k times) cannot
  * be told from a constant word and stays in the template.
- * ponytail: one entry per cluster, unbounded in the number of distinct clusters; cap/evict if needed.
+ * ponytail: one entry per cluster; the number of distinct clusters is bounded by the Reducer's group cap (source.group_cap).
  */
 final class TemplateMiner
 {

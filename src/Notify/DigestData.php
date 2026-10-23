@@ -19,6 +19,7 @@ final class DigestData
      * @param array<string, string>        $afterReleaseFingerprints fingerprint => release a NEW group was first seen after
      * @param int                          $undeclaredHostCount      call targets in templates that no declared dependency covers (never named)
      * @param list<string>                 $failedDependencies       declared dependencies whose source was unavailable
+     * @param int                          $overflowedEvents         events folded into the per-level overflow group (source.group_cap hit)
      * @param array<string, array{log: ?string, code: list<string>}> $links by fingerprint; URLs built from config and redacted data only
      */
     public function __construct(
@@ -47,6 +48,8 @@ final class DigestData
         public readonly int $undeclaredHostCount = 0,
         public readonly array $failedDependencies = [],
         public readonly array $links = [],
+        public readonly int $overflowedEvents = 0,
+        public readonly int $groupCap = 0,
     ) {
     }
 }

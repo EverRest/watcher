@@ -119,6 +119,10 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s groups dropped (budget)', number_format($d->droppedGroups))];
         }
 
+        if ($d->overflowedEvents > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ cluster cap hit: %s events from distinct messages beyond the first %s were grouped as other', number_format($d->overflowedEvents), number_format($d->groupCap))];
+        }
+
         if ($d->undeclaredHostCount > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('🔗 %d call target(s) not declared as dependencies', $d->undeclaredHostCount)];
         }

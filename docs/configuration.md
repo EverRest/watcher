@@ -44,6 +44,7 @@ settings, `notify.digest.webhook`.
 | `source.read_min_level` | `warning` | Levels below this are only counted in totals (and read in a second pass if their total jumps). |
 | `source.anomaly_cap` | `20000` | Event cap of that second pass. |
 | `source.sample_size` | `3` | Sample lines kept per group while reducing (in memory only). |
+| `source.group_cap` | `5000` | Hard bound on distinct problem groups held in memory per run. Past it, events with a new message are grouped as one "other" group per level and the digest says "cluster cap hit". Events matching a watch rule keep their own group up to 2 x this value. |
 | `source.event_cap` | `200000` | Hard cap on events read per run; the digest says "truncated" when it is hit. |
 
 ### Selection and noise control

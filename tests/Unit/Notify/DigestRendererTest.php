@@ -163,6 +163,14 @@ final class DigestRendererTest extends TestCase
         self::assertSame('— tokens in 18.2k / out 1.9k / cached 6.1k · triage haiku-x · analyze sonnet-x · ≈ $0.04', $last['text']);
     }
 
+    public function testClusterCapNoticeNamesCountsOnly(): void
+    {
+        $m = (new DigestRenderer())->render($this->data([], [], ['overflowedEvents' => 1234, 'groupCap' => 5000]), 0.5);
+
+        self::assertStringContainsString('cluster cap hit: 1,234 events from distinct messages beyond the first 5,000 were grouped as other', $this->text($m, 'notice'));
+        self::assertStringNotContainsString('cluster cap', $this->text((new DigestRenderer())->render($this->data([]), 0.5)));
+    }
+
     public function testModelTextCannotPingOrInjectLinks(): void
     {
         $f = new Finding([$this->fp(1)], FindingKind::Bug, Severity::Error, 'a <!channel> & @here', 'see <https://evil.example|click> <@U123>', 'x `y`', '@channel now', 0.9);

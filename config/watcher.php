@@ -36,6 +36,7 @@ return [
         'anomaly_cap' => 20000,
         'sample_size' => 3,
         'event_cap' => 200000,
+        'group_cap' => 5000,
     ],
 
     // Explicit matchers; only the rule name leaves the service. One of

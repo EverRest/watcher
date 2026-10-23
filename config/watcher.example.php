@@ -34,6 +34,7 @@ return [
         'read_min_level' => 'warning',                   // lower levels are only counted in totals, default warning
         'anomaly_cap' => 20000,                          // second-pass event cap for a level whose total grew, default 20000
         'sample_size' => 3,                              // sample lines kept per group, default 3
+        'group_cap' => 5000,                             // max distinct problem groups kept in memory per run; the rest is grouped as "other", default 5000
         'event_cap' => 200000,                           // hard cap on events read per run, default 200000
     ],
 

@@ -166,6 +166,8 @@ fingerprint, evidence, a hypothesis (always labelled as such) and a suggested ne
 - The Grafana Explore URL shape and the Datadog response shapes are not verified against live systems; sources are
   tested against recorded fixtures only.
 - The `Authorization` header and request format the Anthropic SDK sends were not verified against the live API.
+- At most `source.group_cap` (5000) distinct problem groups are held per run; on a day with more distinct messages the rest
+  is grouped as one "other" group per level and the digest says so. Watch-rule matches are exempt up to twice the cap.
 - Cluster templates are coarse; two different problems with a similar message shape can share a fingerprint.
 - Field values never leave the service, so `field` matchers can match but cannot be explained to the model.
 - Dependencies are read with the service's own log source: `dependencies.<name>.source` (a different backend per

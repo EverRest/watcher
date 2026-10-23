@@ -72,6 +72,7 @@ final class WatchConfigTest extends TestCase
         self::assertSame(3, $c->source['sample_size']);
         self::assertSame(200000, $c->source['event_cap']);
         self::assertSame(20000, $c->source['anomaly_cap']);
+        self::assertSame(5000, $c->source['group_cap']);
         self::assertSame(0.6, $c->analysis['confidence_threshold']);
         self::assertSame(3, $c->analysis['escalation_cap']);
         self::assertNull($c->analysis['daily_token_limit']);
@@ -158,6 +159,7 @@ final class WatchConfigTest extends TestCase
             'top_m > top_n' => [self::with(['selection' => ['top_n' => 5, 'top_m' => 6]]), 'selection.top_m'],
             'zero top_n' => [self::with(['selection' => ['top_n' => 0]]), 'selection.top_n'],
             'negative retention' => [self::with(['state' => ['retention' => -1]]), 'state.retention'],
+            'zero group_cap' => [self::with(['source' => ['group_cap' => 0]]), 'source.group_cap'],
             'string event_cap' => [self::with(['source' => ['event_cap' => '10']]), 'source.event_cap'],
             'bad run_at' => [self::with(['schedule' => ['run_at' => '25:00']]), 'schedule.run_at'],
             'bad timezone' => [self::with(['schedule' => ['timezone' => 'Mars/Base']]), 'schedule.timezone'],
