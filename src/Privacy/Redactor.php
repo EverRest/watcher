@@ -22,14 +22,19 @@ final class Redactor
     /** A frame is a bare file path and line; anything else (call arguments, spaces, brackets) is not one. */
     private const FRAME = '/^[^\s:()\'"@<>]+:\d+$/u';
 
-    /** Any placeholder except `<N>` (digits alone are not personal data in a path or class name). */
-    private const MASKED = '/<(?!N>)/';
+    /** Names of the placeholders the Normalizer itself writes; an extra pattern may not impersonate one. */
+    private const RESERVED = ['N', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR'];
 
     /** @param array<string, string> $extraPatterns name => PCRE with delimiters */
     public function __construct(
         private readonly Normalizer $normalizer,
         private readonly array $extraPatterns = [],
     ) {
+        foreach (array_keys($this->extraPatterns) as $name) {
+            if (in_array(strtoupper((string) $name), self::RESERVED, true)) {
+                throw new \InvalidArgumentException("redaction.extra_patterns: name '$name' is reserved for a built-in placeholder.");
+            }
+        }
     }
 
     public function redact(ProblemGroup $g): RedactedGroup
@@ -105,21 +110,37 @@ final class Redactor
         return ($keepNumbers ? $this->normalizer->keepingNumbers() : $this->normalizer)->scan($text)['text'];
     }
 
-    /** Class names keep their digits (Http2Exception); only a masked result replaces the original. */
+    /**
+     * Digits are acceptable only INSIDE an identifier (`Http2Exception`, `v2`): attached to a letter or underscore.
+     * Any other change the scan makes — a masked host or e-mail, an extra pattern, a lone number — replaces the original.
+     */
     private function identifier(string $value): ?string
     {
         $scanned = $this->redactText($value, false);
+        if ($scanned === null) {
+            return null;
+        }
 
-        return $scanned !== null && preg_match(self::MASKED, $scanned) === 1 ? $scanned : ($scanned === null ? null : $value);
+        return $this->onlyIdentifierDigitsChanged($value, $scanned) ? $value : $scanned;
     }
 
+    /** True when the scan changed nothing except digit runs that sit inside identifiers. */
+    private function onlyIdentifierDigitsChanged(string $value, string $scanned): bool
+    {
+        return $scanned === preg_replace('/\d+/', '<N>', $value)
+            && preg_match('/(?<![\p{L}_])\d+(?![\p{L}_])/u', $value) !== 1;
+    }
+
+    /** The path must survive the scan with at most identifier-attached digits; the line number is always digits. */
     private function frame(string $frame): ?string
     {
         if (preg_match(self::FRAME, $frame) !== 1) {
             return null;
         }
-        $scanned = $this->redactText($frame, false);
+        $at = strrpos($frame, ':');
+        $path = substr($frame, 0, (int) $at);
+        $scanned = $this->redactText($path, false);
 
-        return $scanned === null || preg_match(self::MASKED, $scanned) === 1 ? null : $frame;
+        return $scanned !== null && $this->onlyIdentifierDigitsChanged($path, $scanned) ? $frame : null;
     }
 }

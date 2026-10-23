@@ -10,6 +10,7 @@ use Watcher\Analyze\Finding;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
 use Watcher\Level;
+use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\ProblemGroup;
@@ -131,5 +132,35 @@ final class RedactorTest extends TestCase
 
         self::assertSame('412 errors for <EMAIL> since 06:00', $r->redactText('412 errors for a@b.com since 06:00'));
         self::assertSame('<TOKEN>', $r->redactText('eyJhbGciOi.eyJzdWIiOi.SflKxwRJSM'));
+    }
+
+    public function testDigitsSurviveOnlyInsideIdentifiers(): void
+    {
+        $r = $this->redactor();
+        $mk = fn (?string $type, array $frames): RedactedGroup => $r->redact($this->group('Lock wait', $type, $frames));
+
+        // Digits attached to letters are part of a name: kept.
+        $ok = $mk('App\\Http2Exception', ['/var/www/html/app/v2/Http2Handler.php:12']);
+        self::assertSame('App\\Http2Exception', $ok->errorType);
+        self::assertSame(['/var/www/html/app/v2/Http2Handler.php:12'], $ok->frames);
+
+        // A purely numeric path segment (a tenant or customer id) is personal-data-shaped: the frame is dropped.
+        $bad = $mk('X', ['/var/www/tenants/48213/app/X.php:12', '/srv/1234567890/y.php:3', '/var/www/html/app/Z.php:7']);
+        self::assertSame(['/var/www/html/app/Z.php:7'], $bad->frames);
+
+        // A purely numeric error type is masked, not kept.
+        self::assertSame('<N>', $mk('1234567890', [])->errorType);
+    }
+
+    public function testExtraPatternNamesCannotImpersonateBuiltInPlaceholders(): void
+    {
+        foreach (['N', 'n', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR'] as $name) {
+            try {
+                $this->redactor([$name => '/x/']);
+                self::fail("pattern name '$name' should be rejected");
+            } catch (\InvalidArgumentException $e) {
+                self::assertStringContainsString('reserved', $e->getMessage());
+            }
+        }
     }
 }
