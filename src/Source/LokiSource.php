@@ -34,6 +34,7 @@ final class LokiSource implements LogSource
     private readonly array $headers;
     private readonly Retry $retry;
     private bool $truncated = false;
+    private LineParser $parser;
 
     public function __construct(
         private readonly ClientInterface $http,
@@ -57,6 +58,7 @@ final class LokiSource implements LogSource
             $headers['X-Scope-OrgID'] = $tenant;
         }
         $this->headers = $headers;
+        $this->parser = new LineParser();
     }
 
     public function totals(Window $window, StreamSelector $selector): array
@@ -80,6 +82,7 @@ final class LokiSource implements LogSource
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): Generator
     {
         $this->truncated = false;
+        $this->parser = new LineParser();
         $query = $this->selector($selector) . $this->lineFilter($filter);
         $start = $this->nsInt($window->start);
         $end = $this->ns($window->end);
@@ -130,6 +133,12 @@ final class LokiSource implements LogSource
                 }
             }
         }
+    }
+
+    /** Bare stack-frame lines dropped by the last lines() call because no record was open for their stream. */
+    public function orphanTraceLines(): int
+    {
+        return $this->parser->orphanTraceLines;
     }
 
     public function lastReadTruncated(): bool
@@ -205,12 +214,12 @@ final class LokiSource implements LogSource
      */
     private function records(array $entries): array
     {
-        $parser = new LineParser();
+        $parser = $this->parser;
         $out = [];
         $open = []; // stream key => index into $out
         foreach ($entries as [$ts, $line, $labels]) {
             $stream = json_encode($labels);
-            if (!isset($open[$stream]) && $parser->isOrphanTrace($line)) {
+            if (!isset($open[$stream]) && $parser->isOrphanTrace($line, isset($labels['level']))) {
                 continue;
             }
             if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1])) {

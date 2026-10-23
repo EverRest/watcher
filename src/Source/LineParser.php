@@ -35,8 +35,16 @@ final class LineParser
      * `pkg.func(0x..)`, `created by x`, `exit status N`, Rust `stack backtrace:`.
      */
     private const CONTINUATION = '/^(?:$|\s|#\d|at\s|Caused by:|Stack trace:|PHP\s+(?:Stack trace:|\d+\.)|Traceback|\.\.\.|[})\]]|[\w.\\$]*(?:Error|Exception)\b(?::|$)|[a-z_]\w*(?:\.\w+)*\.[A-Z]\w*: |goroutine \d+ \[|[\w.\/*()-]+\((?:0x[0-9a-f]+|\.\.\.)|created by |exit status \d|stack backtrace:)/';
-    /** A head that announces a crash: everything up to the next record is its trace, whatever shape the frames take. */
-    private const TRACE_HEAD = '/(?:^|\W)(?:Traceback|panic:|goroutine \d+|Fatal error|PHP Fatal error|Exception in thread|thread \'[^\']*\' panicked|Stack trace:|Caused by:|fatal error:)/';
+    /**
+     * A head that announces a crash: everything up to the next record is its trace, whatever shape the frames take.
+     * Anchored to the START of the message (after an optional timestamp, `PHP ` and level prefix), so crash words
+     * inside user-controlled text (`ERROR payment failed: panic: x`) never open trace mode.
+     */
+    private const TRACE_HEAD = '/^(?:\d{4}[-\/]\d\d[-\/]\d\d[T ]\d\d:\d\d:\d\d\S*\s+)?(?:PHP\s+)?(?:[\[<(]?(?i:trace|debug|info|notice|warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal|panic)(?!\w)[\]>)]?[:\s-]*)?(?:Traceback|panic:|goroutine \d+|(?:PHP )?Fatal error|fatal error:|Exception in thread|thread \'[^\']*\' panicked|Stack trace:|Caused by:)/';
+    /** Lines that carry nothing beyond a stack frame: dropped (and counted) when no record is open to hold them. */
+    private const FRAME_ONLY = '/^(?:#\d+ |\s+at\s|\s+\/\S*:\d+|\s+\d+: |goroutine \d+ \[|[\w.\/*-]+(?:\([^)]*\))?\((?:0x[0-9a-f]+|\.\.\.))/';
+    /** Lines a trace may absorb beyond its head when they match no known frame shape. */
+    private const TRACE_ABSORB_CAP = 200;
 
     private const LEVEL_KEYS = ['level', 'severity', 'status'];
     private const MESSAGE_KEYS = ['message', 'msg'];
@@ -50,10 +58,17 @@ final class LineParser
     /** Trace-shaped lines dropped because no record was open to carry them (a page or stream that starts mid-trace). */
     public int $orphanTraceLines = 0;
 
-    /** Is `$line`, arriving with no open record, the middle of a stack trace? Then it is dropped (and counted), never an event. */
-    public function isOrphanTrace(string $line): bool
+    /** Unrecognised lines refused by the per-record absorb cap (the next one starts a new record). */
+    public int $traceLinesCapped = 0;
+
+    /**
+     * Is `$line`, arriving with no open record, a bare stack frame? Then it is dropped (and counted), never an event.
+     * Exception headers (`FooException: msg`) and lines of a stream with a level label (`$labelled`) carry information
+     * and are never dropped.
+     */
+    public function isOrphanTrace(string $line, bool $labelled = false): bool
     {
-        if (trim($line) === '' || $this->structured($line) || $this->plainLevel($line) !== null || preg_match(self::CONTINUATION, $line) !== 1) {
+        if ($labelled || trim($line) === '' || $this->structured($line) || $this->plainLevel($line) !== null || preg_match(self::FRAME_ONLY, $line) !== 1) {
             return false;
         }
         ++$this->orphanTraceLines;
@@ -65,7 +80,7 @@ final class LineParser
      * Does `$line` continue the record `$open` (which it would be appended to)?
      * A `[timestamp]` line or JSON object always starts a record; so does a line with a level prefix.
      * Under an open Laravel/JSON record everything else continues it (its context and trace may hold any text);
-     * under an open plain record continuation-shaped lines do, and so does anything once the record is in trace mode.
+     * under an open plain record frame-shaped lines do, and so does anything (capped) once the record is a head-anchored trace.
      */
     public function continues(string $line, string $open): bool
     {
@@ -81,9 +96,17 @@ final class LineParser
             return true;
         }
 
-        // Trace mode: a crash head, or a record that already holds a non-blank tail, takes every line up to the next record.
-        return preg_match(self::TRACE_HEAD, $nl === false ? $open : substr($open, 0, $nl)) === 1
-            || ($nl !== false && strspn($open, " \t\r\n", $nl) < strlen($open) - $nl);
+        // Trace mode: only a record whose first line is a crash head takes unrecognised lines, up to the cap.
+        if (preg_match(self::TRACE_HEAD, $nl === false ? $open : substr($open, 0, $nl)) !== 1) {
+            return false;
+        }
+        if (substr_count($open, "\n") >= self::TRACE_ABSORB_CAP) {
+            ++$this->traceLinesCapped;
+
+            return false;
+        }
+
+        return true;
     }
 
     /** Does this physical line begin a `[timestamp]` text record or a JSON object? */

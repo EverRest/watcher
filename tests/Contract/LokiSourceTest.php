@@ -282,6 +282,45 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertSame('ERROR real', $events[0]->message);
     }
 
+    public function testOrphanCounterIsExposedAndResetPerLinesCall(): void
+    {
+        $values = [[$this->ns(self::BASE_NS), '#0 /a.php(1): f()'], [$this->ns(self::BASE_NS + 1), "\tat x.y(Z.java:1)"], [$this->ns(self::BASE_NS + 2), 'ERROR real']];
+        $source = $this->source([$this->streams($values), $this->streams($values)]);
+        $filter = new ReadFilter(Level::Debug, [], 100);
+
+        $this->assertSame(0, $source->orphanTraceLines());
+        $this->collect($source->lines($this->window(), $this->selector(), $filter));
+        $this->assertSame(2, $source->orphanTraceLines());
+        $this->collect($source->lines($this->window(), $this->selector(), $filter));
+        $this->assertSame(2, $source->orphanTraceLines());
+    }
+
+    public function testExceptionHeaderOrphanBecomesAnEvent(): void
+    {
+        $source = $this->makeSourceWithLines(['App\\FooException: db down', 'ERROR real']);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 100)));
+
+        $this->assertCount(2, $events);
+        $this->assertSame('App\\FooException: db down', $events[0]->message);
+    }
+
+    public function testOrphanFrameLineInALevelLabelledStreamBecomesAnEvent(): void
+    {
+        $body = $this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [
+            ['stream' => ['app' => 'svc', 'level' => 'error'], 'values' => [[$this->ns(self::BASE_NS), '#0 /a.php(1): f()']]],
+        ]]]);
+        $source = $this->source([$body]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertCount(1, $events);
+        $this->assertSame(Level::Error, $events[0]->level);
+        $this->assertSame(0, $source->orphanTraceLines());
+    }
+
     public function testLevelFromStreamLabelWinsForALineWithoutALevelWord(): void
     {
         $body = $this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [

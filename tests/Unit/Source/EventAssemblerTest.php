@@ -93,9 +93,65 @@ final class EventAssemblerTest extends TestCase
     public function testTraceModeSurvivesUnrecognisedFramesUntilANewRecord(): void
     {
         self::assertSame(
-            ["ERROR boom\n#0 /a.php(1): f()\nweird frame shape x\n\nanother weird one", 'ERROR next'],
-            $this->assemble(['ERROR boom', '#0 /a.php(1): f()', 'weird frame shape x', '', 'another weird one', 'ERROR next']),
+            ["panic: boom\n#0 /a.php(1): f()\nweird frame shape x\n\nanother weird one", 'ERROR next'],
+            $this->assemble(['panic: boom', '#0 /a.php(1): f()', 'weird frame shape x', '', 'another weird one', 'ERROR next']),
         );
+    }
+
+    public function testUnrecognisedLineAfterAFrameOutsideATraceHeadStartsARecord(): void
+    {
+        self::assertSame(
+            ["ERROR boom\n#0 /a.php(1): f()", 'user text', 'more text'],
+            $this->assemble(['ERROR boom', '#0 /a.php(1): f()', 'user text', 'more text']),
+        );
+    }
+
+    public function testTraceHeadInsideUserTextDoesNotSwallowFollowingPlainLines(): void
+    {
+        self::assertSame(
+            ['ERROR payment failed: panic: oops', 'plain one', 'plain two'],
+            $this->assemble(['ERROR payment failed: panic: oops', 'plain one', 'plain two']),
+        );
+        self::assertSame(
+            ['INFO saw Traceback and goroutine 5', 'next'],
+            $this->assemble(['INFO saw Traceback and goroutine 5', 'next']),
+        );
+    }
+
+    public function testTimestampAndLevelPrefixedHeadsStillEnterTraceMode(): void
+    {
+        self::assertSame(
+            ["2026-10-22T10:00:00Z ERROR panic: x\nfree text", 'INFO n'],
+            $this->assemble(['2026-10-22T10:00:00Z ERROR panic: x', 'free text', 'INFO n']),
+        );
+    }
+
+    public function testTraceModeAbsorbsAtMost200LinesThenCountsTheCap(): void
+    {
+        $parser = new LineParser();
+        $lines = ['panic: big'];
+        for ($i = 0; $i < 205; ++$i) {
+            $lines[] = 'free ' . $i;
+        }
+        $records = iterator_to_array((new EventAssembler($parser))->assemble($lines), false);
+
+        self::assertCount(1 + 205 - 200, $records);
+        self::assertCount(201, explode("\n", $records[0]));
+        self::assertSame('free 200', $records[1]);
+        self::assertSame(1, $parser->traceLinesCapped);
+    }
+
+    public function testFrameOnlyOrphansAreDroppedButHeadersAndLabelledOnesAreKept(): void
+    {
+        $parser = new LineParser();
+
+        self::assertTrue($parser->isOrphanTrace('   3: core::fmt'));
+        self::assertTrue($parser->isOrphanTrace("\t/app/main.go:42 +0x1d"));
+        self::assertFalse($parser->isOrphanTrace('FooException: msg'));
+        self::assertFalse($parser->isOrphanTrace('module.Class: msg'));
+        self::assertFalse($parser->isOrphanTrace('Error: x'));
+        self::assertFalse($parser->isOrphanTrace('#0 /a.php(1): f()', true));
+        self::assertSame(2, $parser->orphanTraceLines);
     }
 
     public function testBlankLineAloneDoesNotEnterTraceMode(): void
