@@ -11,6 +11,7 @@ foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php
 }
 
 exit((new Watcher\Cli\Application(
-    static fn (array $config): callable => Watcher\Watcher::fromConfig($config)->run(...),
+    static fn (array $config): callable => Watcher\Watcher::fromConfig($config, new Watcher\Cli\StderrLogger(STDERR))->run(...),
     STDERR,
+    STDOUT,
 ))->run($argv));

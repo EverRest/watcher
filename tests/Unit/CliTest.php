@@ -15,6 +15,8 @@ final class CliTest extends TestCase
 {
     private string $cfg;
 
+    private string $stdout = '';
+
     protected function setUp(): void
     {
         $this->cfg = sys_get_temp_dir() . '/watcher-cli-' . bin2hex(random_bytes(4)) . '.php';
@@ -45,9 +47,13 @@ final class CliTest extends TestCase
             };
         };
         $err = fopen('php://memory', 'w+');
+        $out = fopen('php://memory', 'w+');
         self::assertIsResource($err);
-        $code = (new Application($factory, $err))->run(['watcher', ...$args]);
+        self::assertIsResource($out);
+        $code = (new Application($factory, $err, $out))->run(['watcher', ...$args]);
         rewind($err);
+        rewind($out);
+        $this->stdout = (string) stream_get_contents($out);
 
         return [$code, (string) stream_get_contents($err), $calls];
     }
@@ -103,5 +109,21 @@ final class CliTest extends TestCase
         [$code, $err] = $this->exec(['run', '--config=' . $this->cfg], new RunResult(RunOutcome::Quiet));
         self::assertSame(2, $code);
         self::assertStringContainsString('invalid config:', $err);
+    }
+
+    public function testPrintsOneSummaryLineToStdoutForEveryOutcome(): void
+    {
+        $this->exec(['run', '--config=' . $this->cfg], new RunResult(RunOutcome::Quiet));
+        self::assertSame("watcher: outcome=quiet\n", $this->stdout);
+
+        $this->exec(['run', '--config=' . $this->cfg], new RunResult(RunOutcome::Failed, 'source failed: loki 401 Unauthorized'));
+        self::assertSame("watcher: outcome=failed reason=\"source failed: loki 401 Unauthorized\"\n", $this->stdout);
+    }
+
+    public function testNothingIsPrintedToStdoutWhenTheConfigIsInvalid(): void
+    {
+        $this->exec(['run', '--config=' . $this->cfg], new InvalidConfig('service is required'));
+
+        self::assertSame('', $this->stdout);
     }
 }

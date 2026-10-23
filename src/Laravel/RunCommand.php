@@ -34,7 +34,10 @@ final class RunCommand extends Command
         }
 
         try {
-            return ($this->factory)()($now)->exitCode();
+            $result = ($this->factory)()($now);
+            $this->line('watcher: ' . $result->summary());
+
+            return $result->exitCode();
         } catch (InvalidConfig $e) {
             $this->error('invalid config: ' . $e->getMessage());
 

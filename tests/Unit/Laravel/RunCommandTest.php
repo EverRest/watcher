@@ -62,6 +62,14 @@ final class RunCommandTest extends TestCase
         }
     }
 
+    public function testPrintsTheSummaryLine(): void
+    {
+        [$code, $out] = $this->exec(static fn (): callable => static fn (): RunResult => new RunResult(RunOutcome::Failed, 'source failed: loki 401 Unauthorized'));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('watcher: outcome=failed reason="source failed: loki 401 Unauthorized"', $out);
+    }
+
     public function testNowOptionIsPassedThrough(): void
     {
         $seen = 'unset';

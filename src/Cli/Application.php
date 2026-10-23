@@ -17,8 +17,9 @@ final class Application
     /**
      * @param Closure(array<string, mixed>): (callable(?DateTimeImmutable): RunResult) $factory throws InvalidConfig before any external call
      * @param resource $err
+     * @param resource|null $out receives one summary line per run (outcome, reason, tokens, cost)
      */
-    public function __construct(private readonly Closure $factory, private $err)
+    public function __construct(private readonly Closure $factory, private $err, private $out = null)
     {
     }
 
@@ -67,6 +68,10 @@ final class Application
             fwrite($this->err, 'invalid config: ' . $e->getMessage() . "\n");
 
             return 2;
+        }
+
+        if ($this->out !== null) {
+            fwrite($this->out, 'watcher: ' . $result->summary() . "\n");
         }
 
         return $result->exitCode();

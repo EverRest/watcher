@@ -54,4 +54,27 @@ final class RunResultTest extends TestCase
             array_map(static fn (RunOutcome $o): string => $o->value, RunOutcome::cases()),
         );
     }
+
+    public function testSummaryIsOneLineWithOutcomeReasonAndCost(): void
+    {
+        self::assertSame('outcome=quiet', (new RunResult(RunOutcome::Quiet))->summary());
+        self::assertSame(
+            'outcome=failed reason="source failed: loki 401 Unauthorized"',
+            (new RunResult(RunOutcome::Failed, 'source failed: loki 401 Unauthorized'))->summary(),
+        );
+
+        $usage = new \Watcher\Analyze\Usage('m', 1200, 340, 100, 0, 0.0412);
+        self::assertSame(
+            'outcome=reported tokens_in=1200 tokens_out=340 tokens_cached=100 cost_usd=0.0412',
+            (new RunResult(RunOutcome::Reported, null, $usage))->summary(),
+        );
+    }
+
+    public function testSummaryNeverContainsLineBreaksOrQuotesFromTheReason(): void
+    {
+        $line = (new RunResult(RunOutcome::Failed, "bad\nreason \"x\""))->summary();
+
+        self::assertStringNotContainsString("\n", $line);
+        self::assertSame('outcome=failed reason="bad reason \'x\'"', $line);
+    }
 }
