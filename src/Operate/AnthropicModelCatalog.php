@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Watcher\Operate;
 
 use GuzzleHttp\ClientInterface;
-use GuzzleHttp\Exception\ConnectException;
 use JsonException;
+use Psr\Http\Client\NetworkExceptionInterface;
 use Throwable;
 
 /** GET /v1/models (free, no tokens) with both auth schemes. Reasons carry a status or a fixed word, never a body, URL or key. */
@@ -67,7 +67,7 @@ final class AnthropicModelCatalog implements ModelCatalog
                     'connect_timeout' => self::TIMEOUT,
                     'http_errors' => false,
                 ]);
-            } catch (ConnectException) {
+            } catch (NetworkExceptionInterface) { // Guzzle 7: ConnectException; Guzzle 8: NetworkException (a read timeout is no longer a ConnectException)
                 return ['timeout', []];
             } catch (Throwable) {
                 return ['error', []];

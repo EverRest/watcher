@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Guzzle 8 is accepted next to 7 (`^7.15.2 || ^8.3`). `Retry` no longer calls `RequestException::hasResponse()` (removed in 8) and the Anthropic model catalog reports any PSR network failure as `timeout` (8 splits a read timeout out of `ConnectException`). CI's lowest leg covers Guzzle 7.15.2, the locked leg 7.16, the highest leg 8.3.
+
 ## 0.1.2 — 2026-10-24 — Security release
 
 Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fail-closed model use, availability guards, input hardening and the regression fixes found by the review of this very release.

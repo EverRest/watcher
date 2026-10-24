@@ -6,7 +6,6 @@ namespace Watcher\Source;
 
 use Closure;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
 use Psr\Http\Message\ResponseInterface;
 
 /**
@@ -42,7 +41,7 @@ final class Retry
             try {
                 $response = $send();
             } catch (GuzzleException $e) {
-                if ($attempt >= self::ATTEMPTS || ($e instanceof RequestException && $e->hasResponse()) || !$this->wait($attempt, null)) {
+                if ($attempt >= self::ATTEMPTS || $this->carriesResponse($e) || !$this->wait($attempt, null)) {
                     throw new SourceUnavailable($name . ' request failed (' . $e::class . ')'); // not chained: Guzzle's message carries the URL (a bot token, a query)
                 }
                 continue;
@@ -53,6 +52,16 @@ final class Retry
                 return $response;
             }
         }
+    }
+
+    /**
+     * A failure the server answered (a response exists): retrying it repeats what the server already decided.
+     * Guzzle 7 asks RequestException::hasResponse(); Guzzle 8 removed it and keeps getResponse() on ResponseException only,
+     * so ask whichever exists. ponytail: two majors supported; when 7 is dropped this is `$e instanceof ResponseException`.
+     */
+    private function carriesResponse(GuzzleException $e): bool
+    {
+        return method_exists($e, 'getResponse') && $e->getResponse() !== null;
     }
 
     /**
