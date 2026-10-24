@@ -73,6 +73,7 @@ final class SlackTextTest extends TestCase
         yield 'forged link' => ['<http://evil.com|click>', "&lt;http:{$z}//evil.{$z}com|click&gt;"];
         yield 'forged mention' => ['<@123>', "&lt;@{$z}123&gt;"];
         yield 'markdown' => ['**x** [y](z)', "\u{2217}\u{2217}x\u{2217}\u{2217} [y](z)"];
+        yield 'lone star kept' => ['glob *.log or 2 x 3', 'glob *.log or 2 x 3'];
         yield 'bold' => ['a *b* c', "a \u{2217}b\u{2217} c"];
         yield 'italic' => ['an _italic_ word', "an \u{FF3F}italic\u{FF3F} word"];
         yield 'strike' => ['a ~gone~ b', "a \u{223C}gone\u{223C} b"];
@@ -86,6 +87,14 @@ final class SlackTextTest extends TestCase
         yield 'email' => ['a@b.com', "a@{$z}b.{$z}com"];
         yield 'ampersand entity' => ['&amp;', '&amp;amp;'];
         yield 'mixed' => ["x <y> & `z` @q://w", "x &lt;y&gt; &amp; 'z' @{$z}q:{$z}//w"];
+    }
+
+    public function testTldListHasNoDuplicates(): void
+    {
+        $tlds = (new \ReflectionClassConstant(SlackText::class, 'TLDS'))->getValue();
+        $all = explode('|', $tlds);
+
+        self::assertSame(array_values(array_unique($all)), $all);
     }
 
     public function testPlainRestoresMrkdwnLookalikes(): void
