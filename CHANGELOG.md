@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Own Anthropic client (lane H), step 1: the analyzer now talks to a `MessagesClient`; the SDK call moved unchanged into `SdkMessagesClient`. No behaviour change. Product release label **v0.1.60** (`VERSION`).
 - Notices and digests (Lane D review leftovers): model text can no longer format (`*`, `_`, `~`) or spoof `:emoji:` on any channel; IDN, IDNA-dot and `xn--` hosts are defanged while code identifiers such as `Mailer.send` stay copyable; failure notices mask every configured credential (`WatchConfig::secrets()`) and Authorization-like values; the digest gets a "read quality" line (unknown levels, orphan trace lines, cut multi-line messages) from the optional `ReadDiagnostics` interface (Loki, Datadog); `Retry` no longer chains Guzzle exceptions (their message carries the URL). Product release label **v0.1.1** (`VERSION`).
 
 ### Security

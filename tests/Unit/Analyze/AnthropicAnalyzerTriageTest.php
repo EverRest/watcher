@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\ProviderSchema;
 use Watcher\Analyze\TriageRequest;
@@ -39,7 +40,7 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         $stack = HandlerStack::create(new MockHandler($responses));
         $stack->push(Middleware::history($this->history));
 
-        return new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]);
+        return new AnthropicAnalyzer(new SdkMessagesClient(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]));
     }
 
     private static function request(): TriageRequest

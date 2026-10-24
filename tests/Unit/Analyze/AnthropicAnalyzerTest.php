@@ -15,6 +15,7 @@ use Psr\Http\Message\RequestInterface;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\ProviderSchema;
@@ -47,7 +48,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $stack->push(Middleware::history($this->history));
 
         // zero retry delay keeps the SDK's own retries instant
-        return new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]);
+        return new AnthropicAnalyzer(new SdkMessagesClient(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]));
     }
 
     private static function request(): AnalysisRequest
@@ -108,7 +109,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $this->history = [];
         $stack = HandlerStack::create(new MockHandler([self::json('message-valid.json')]));
         $stack->push(Middleware::history($this->history));
-        (new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0], false))->analyze(self::request());
+        (new AnthropicAnalyzer(new SdkMessagesClient(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]), false))->analyze(self::request());
         $off = $this->body();
         self::assertStringNotContainsString('how_to_check', (string) json_encode($off));
         self::assertStringNotContainsString('related_checks', (string) json_encode($off));
