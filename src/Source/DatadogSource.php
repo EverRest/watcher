@@ -25,7 +25,7 @@ use Watcher\Schedule\Window;
  * `*term*` wildcards (plain full-text terms match whole tokens, `timeout` would miss `ConnectTimeout`); a literal
  * with punctuation or spaces cannot be a wildcard, so it is client-only: the server filter is dropped.
  */
-final class DatadogSource implements LogSource
+final class DatadogSource implements LogSource, ReadDiagnostics
 {
     private const PAGE_LIMIT = 5000;
     private const FACET_LIMIT = 50;
@@ -37,6 +37,7 @@ final class DatadogSource implements LogSource
     private readonly Retry $retry;
     private readonly ClockInterface $clock;
     private bool $truncated = false;
+    private LineParser $parser;
 
     /** @param (callable(int): void)|null $sleeper receives whole seconds to wait between retries; defaults to sleep() */
     public function __construct(
@@ -61,6 +62,7 @@ final class DatadogSource implements LogSource
         $this->headers = ['DD-API-KEY' => $apiKey, 'DD-APPLICATION-KEY' => $appKey, 'Accept' => 'application/json'];
         $this->retry = new Retry($sleeper, $retryBudget);
         $this->clock = $clock ?? new SystemClock();
+        $this->parser = new LineParser();
     }
 
     public function totals(Window $window, StreamSelector $selector): array
@@ -85,6 +87,7 @@ final class DatadogSource implements LogSource
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): Generator
     {
         $this->truncated = false;
+        $this->parser = new LineParser();
         $query = $this->tagQuery($selector) . $this->readQuery($filter);
         $cursor = null;
         $kept = 0;
@@ -129,6 +132,11 @@ final class DatadogSource implements LogSource
             }
         } while ($cursor !== null);
         yield from array_reverse($buffer);
+    }
+
+    public function readDiagnostics(): array
+    {
+        return $this->parser->diagnostics();
     }
 
     public function lastReadTruncated(): bool
@@ -183,7 +191,7 @@ final class DatadogSource implements LogSource
             $labels['service'] = $attrs['service'];
         }
 
-        $parsed = (new LineParser())->parse(is_string($attrs['message'] ?? null) ? $attrs['message'] : '', $time);
+        $parsed = $this->parser->parse(is_string($attrs['message'] ?? null) ? $attrs['message'] : '', $time);
         $level = $parsed->level === Level::Info && is_string($attrs['status'] ?? null) ? Level::parse($attrs['status']) : $parsed->level;
 
         return new LogEvent($time, $level, $parsed->message, $parsed->errorType, $parsed->frames, $parsed->fields, $labels);

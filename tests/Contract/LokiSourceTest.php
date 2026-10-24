@@ -295,6 +295,18 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertSame(2, $source->orphanTraceLines());
     }
 
+    public function testReadDiagnosticsDescribeTheLastLinesCallOnly(): void
+    {
+        $values = [[$this->ns(self::BASE_NS), '#0 /a.php(1): f()'], [$this->ns(self::BASE_NS + 1), "\tat x.y(Z.java:1)"], [$this->ns(self::BASE_NS + 2), '{"level":"banana","message":"m"}']];
+        $source = $this->source([$this->streams($values), $this->streams($values)]);
+        $filter = new ReadFilter(Level::Debug, [], 100);
+
+        $this->assertSame(['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0], $source->readDiagnostics());
+        $this->collect($source->lines($this->window(), $this->selector(), $filter));
+        $this->collect($source->lines($this->window(), $this->selector(), $filter));
+        $this->assertSame(['unknown_levels' => 1, 'orphan_trace_lines' => 2, 'message_tails_dropped' => 0], $source->readDiagnostics());
+    }
+
     public function testExceptionHeaderOrphanBecomesAnEvent(): void
     {
         $source = $this->makeSourceWithLines(['App\\FooException: db down', 'ERROR real']);

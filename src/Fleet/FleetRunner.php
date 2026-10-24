@@ -262,7 +262,7 @@ final class FleetRunner
         }
         $secrets = [];
         foreach ($this->config->services as $e) {
-            $secrets = [...$secrets, (string) $e->config->analysis['api_key'], ...$e->config->notifySecrets()];
+            $secrets = [...$secrets, ...$e->config->secrets()];
         }
         $now = $this->clock->now();
         (new Heartbeat(

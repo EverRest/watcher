@@ -68,6 +68,7 @@ use Watcher\Select\MuteList;
 use Watcher\Select\WatchRules;
 use Watcher\Select\Selector;
 use Watcher\Source\LogSource;
+use Watcher\Source\ReadDiagnostics;
 use Watcher\Source\ReadFilter;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
@@ -371,7 +372,7 @@ final class Watcher
     private function fail(string $reason, string $code): RunResult
     {
         $this->code = $code;
-        foreach ([$this->config->analysis['api_key'], ...$this->config->notifySecrets()] as $secret) {
+        foreach ($this->config->secrets() as $secret) {
             if (strlen((string) $secret) >= 8) {
                 $reason = str_replace((string) $secret, '[redacted]', $reason); // a provider error can echo a credential
             }
@@ -416,7 +417,7 @@ final class Watcher
     {
         $c = $this->config;
 
-        return new NoticeRenderer([$c->analysis['api_key'], ...$c->notifySecrets()]);
+        return new NoticeRenderer($c->secrets());
     }
 
     private function noticeDestination(): Destination
@@ -759,6 +760,7 @@ final class Watcher
             $annotations,
             $comparison,
             $reducer->mining(),
+            $this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : [],
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, $c->destination('digest'));

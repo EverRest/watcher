@@ -64,6 +64,12 @@ final class LineParser
     /** Unrecognised lines refused by the per-record absorb cap (the next one starts a new record). */
     public int $traceLinesCapped = 0;
 
+    /** @return array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int} */
+    public function diagnostics(): array
+    {
+        return ['unknown_levels' => $this->unknownLevels, 'orphan_trace_lines' => $this->orphanTraceLines, 'message_tails_dropped' => $this->messageTailsDropped];
+    }
+
     /**
      * Is `$line`, arriving with no open record, a bare stack frame? Then it is dropped (and counted), never an event.
      * Exception headers (`FooException: msg`) and lines of a stream with a level label (`$labelled`) carry information

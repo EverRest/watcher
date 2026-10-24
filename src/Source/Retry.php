@@ -43,7 +43,7 @@ final class Retry
                 $response = $send();
             } catch (GuzzleException $e) {
                 if ($attempt >= self::ATTEMPTS || ($e instanceof RequestException && $e->hasResponse()) || !$this->wait($attempt, null)) {
-                    throw new SourceUnavailable($name . ' request failed (' . $e::class . ')', 0, $e);
+                    throw new SourceUnavailable($name . ' request failed (' . $e::class . ')'); // not chained: Guzzle's message carries the URL (a bot token, a query)
                 }
                 continue;
             }
@@ -70,7 +70,7 @@ final class Retry
             try {
                 $response = $send();
             } catch (GuzzleException $e) {
-                throw new SourceUnavailable($name . ' request failed (' . $e::class . ')', 0, $e);
+                throw new SourceUnavailable($name . ' request failed (' . $e::class . ')'); // not chained: Guzzle's message carries the URL (a bot token, a query)
             }
             if ($response->getStatusCode() !== 429 || $attempt >= self::ATTEMPTS) {
                 return $response;

@@ -255,6 +255,7 @@ otherwise, change `service` to start a new baseline.
 | Digest is empty-ish or all `<*>` | clusters below `min_group_events_for_text` send no text; a rare problem can only show error type and frames |
 | `skipped_locked` every time | a crashed run left a lock (it expires after `lock_ttl`, 15 min) or two schedulers are running |
 | Digest says "cluster cap hit" | more distinct messages than `source.group_cap`: usually an unmasked id in a message; the overflow is counted but not analysed. Raise `group_cap` (memory grows with it) or fix the message |
+| Digest says "read quality: …" | the source's parser guessed or dropped something: events whose level word it could not read (taken as info), stack-frame lines that arrived with no open record (a page or stream starting mid-trace), multi-line JSON messages cut to their first line. Counts only; Loki and Datadog report it. A large number means the log format is not what the parser expects: check the `level` field spelling or the line shape |
 | Costs higher than expected | many fresh fingerprints (cache cannot help); raise `growth_factor`, lower `top_m`, mute noisy families, check `read_min_level` |
 | `analysis failed: authentication failed` with a valid key | see the Bearer note in [smoke-test.md](smoke-test.md#2-prepare-the-shell) |
 | Dependencies missing in a digest | declare them in `dependencies` (the digest shows only a count of undeclared call targets, never their names; a host is kept as `<URL:name>` only if it equals a declared name or is `name.<domain>` for a `dependency_domains` entry) |

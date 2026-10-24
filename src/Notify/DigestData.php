@@ -70,6 +70,8 @@ final class DigestData
         public readonly ?Comparison $comparison = null,
         /** @var MiningStats|null what the template miner gave up (spec 004 FR-010); counts only */
         public readonly ?MiningStats $mining = null,
+        /** @var array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int} what the source's parser guessed or dropped (counts); empty = the source does not say */
+        public readonly array $readDiagnostics = [],
     ) {
     }
 }

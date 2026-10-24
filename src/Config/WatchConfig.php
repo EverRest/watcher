@@ -662,6 +662,29 @@ final class WatchConfig
         return $out;
     }
 
+    /**
+     * Every credential in the config (model key, notifier tokens and webhooks, source auth, state passwords): what no
+     * error text may carry out. Strings only; the connection `instance` is not a value to match.
+     *
+     * @return list<string>
+     */
+    public function secrets(): array
+    {
+        $candidates = [
+            $this->analysis['api_key'],
+            ...$this->notifySecrets(),
+            $this->source['loki']['auth']['token'] ?? null,
+            $this->source['loki']['auth']['password'] ?? null,
+            $this->source['datadog']['api_key'] ?? null,
+            $this->source['datadog']['app_key'] ?? null,
+            $this->state['redis']['password'] ?? null,
+            $this->state['pdo']['password'] ?? null,
+            $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
+        ];
+
+        return array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+    }
+
     /** @return array<string, array<string, mixed>> */
     private static function watchRules(mixed $rules): array
     {

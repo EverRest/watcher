@@ -14,7 +14,7 @@ use Watcher\Level;
 use Watcher\Schedule\Window;
 
 /** Reads a window from Loki: server-side totals, server-filtered forward-paged lines, version labels. */
-final class LokiSource implements LogSource
+final class LokiSource implements LogSource, ReadDiagnostics
 {
     private const PAGE_LIMIT = 5000;
     private const VERSION_STEP = 3600;
@@ -155,6 +155,11 @@ final class LokiSource implements LogSource
         return $this->parser->orphanTraceLines;
     }
 
+    public function readDiagnostics(): array
+    {
+        return $this->parser->diagnostics();
+    }
+
     public function lastReadTruncated(): bool
     {
         return $this->truncated;
@@ -251,7 +256,7 @@ final class LokiSource implements LogSource
     private function event(int $ts, string $line, array $labels): LogEvent
     {
         $time = (new DateTimeImmutable('@' . intdiv($ts, 1_000_000_000)))->setTimezone(new DateTimeZone('UTC'));
-        $parsed = (new LineParser())->parse($line, $time);
+        $parsed = $this->parser->parse($line, $time);
         $level = $parsed->level === Level::Info && isset($labels['level']) ? Level::parse($labels['level']) : $parsed->level;
 
         return new LogEvent($parsed->time, $level, $parsed->message, $parsed->errorType, $parsed->frames, $parsed->fields, $labels);

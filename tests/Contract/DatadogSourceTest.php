@@ -116,6 +116,26 @@ final class DatadogSourceTest extends LogSourceContractTest
         ], $this->body($req));
     }
 
+    public function testReadDiagnosticsCountWhatTheParserGuessed(): void
+    {
+        $source = $this->source([$this->page(['{"level":"banana","message":"m"}', '{"level":"error","message":"a\\nb"}', 'plain'], null)]);
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertSame(['unknown_levels' => 1, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 1], $source->readDiagnostics());
+    }
+
+    public function testReadDiagnosticsDescribeTheLastLinesCallOnly(): void
+    {
+        $source = $this->source([$this->page(['{"level":"banana","message":"m"}'], null), $this->page(['plain'], null)]);
+        $filter = new ReadFilter(Level::Debug, [], 10);
+
+        $this->collect($source->lines($this->window(), $this->selector(), $filter));
+        $this->collect($source->lines($this->window(), $this->selector(), $filter));
+
+        $this->assertSame(['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0], $source->readDiagnostics());
+    }
+
     public function testOnlyReadEndpointsArePosted(): void
     {
         $source = $this->source([new Response(200, [], $this->fixture('totals.json')), new Response(200, [], $this->fixture('search_page2.json'))]);

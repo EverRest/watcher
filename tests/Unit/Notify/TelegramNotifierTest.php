@@ -90,9 +90,9 @@ final class TelegramNotifierTest extends TestCase
     public function testSectionlessMessageUsesDefangedPlainText(): void
     {
         $n = $this->notifier([self::fixture('ok')]);
-        $n->send(new Message('test <b> http://a.example'), self::dest());
+        $n->send(new Message('test <b> http://a.com'), self::dest());
 
-        self::assertSame("test &lt;b&gt; http:\u{200B}//a.\u{200B}example", $this->body()['text']);
+        self::assertSame("test &lt;b&gt; http:\u{200B}//a.\u{200B}com", $this->body()['text']);
     }
 
     public function testLongDigestIsSplitAndNumbered(): void
@@ -205,7 +205,7 @@ final class TelegramNotifierTest extends TestCase
     public function testRedirectsAreNotFollowed(): void
     {
         // a 302 must surface as a failure, not be followed
-        $n = $this->notifier([new Response(302, ['Location' => 'https://evil.example/']), self::fixture('ok')]);
+        $n = $this->notifier([new Response(302, ['Location' => 'https://evil.com/']), self::fixture('ok')]);
         try {
             $n->send(self::msg('x'), self::dest());
             self::fail('expected DeliveryFailed');
