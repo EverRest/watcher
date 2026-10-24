@@ -28,7 +28,7 @@ final class LokiSourceTest extends LogSourceContractTest
     private const BASE_NS = 1792627200; // 2026-10-22T00:00:00Z
     private const PAGE = 5000;
 
-    /** @var list<array{request: RequestInterface}> */
+    /** @var list<array{request: RequestInterface, options: array<string, mixed>}> */
     private array $history = [];
 
     /** @var list<int> */
