@@ -11,9 +11,17 @@ final class FatalGuardWiringTest extends TestCase
 {
     public function testAMemoryFatalReleasesTheRunLockAndIsLogged(): void
     {
-        $p = proc_open([PHP_BINARY, '-d', 'memory_limit=48M', '-d', 'display_errors=0', dirname(__DIR__) . '/Fixtures/fatal_child.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $root = dirname(__DIR__, 2);
+        $script = __DIR__ . '/../Fixtures/fatal_child.php';
+        $p = proc_open(
+            [PHP_BINARY, '-n', '-d', 'memory_limit=48M', '-d', 'display_errors=0', $script],
+            [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+            $pipes,
+            $root,
+        );
         self::assertIsResource($p);
         $out = (string) stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
         proc_close($p);
 
         self::assertStringContainsString('LOG watcher run aborted by a PHP fatal error (E_ERROR)', $out);

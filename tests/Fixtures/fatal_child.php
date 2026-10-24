@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 // Child process of FatalGuardWiringTest: a run whose source exhausts memory. Prints the host-log line and whether the lock was freed.
 use Psr\Log\AbstractLogger;
+use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\Window;
 use Watcher\Source\LogSource;
 use Watcher\Source\ReadFilter;
@@ -36,10 +37,9 @@ $source = new class ($h) implements LogSource {
         register_shutdown_function(static function () use ($h): void {
             echo 'LOCK ', $h->state->acquire($h->lockKey(), 'probe', 60) ? 'released' : 'held', "\n";
         });
-        $x = [];
-        while (true) {
-            $x[] = str_repeat('x', 1_000_000);
-        }
+        $limit = RunGuard::bytes((string) ini_get('memory_limit'));
+        $chunk = $limit > 0 ? max(1, $limit - memory_get_usage(true) + 1) : 50 * 1024 * 1024;
+        str_repeat('x', $chunk);
         yield;
     }
 
