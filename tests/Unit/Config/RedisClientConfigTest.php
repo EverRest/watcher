@@ -164,4 +164,15 @@ final class RedisClientConfigTest extends TestCase
             self::assertStringNotContainsString($password, $args);
         }
     }
+
+    public function testTheLazyRedisStoreReportsTheUnreadableEntriesOfTheStoreBehindIt(): void
+    {
+        $c = WatchConfig::fromArray(self::base(['instance' => $server = new FakeRedisServer(new FrozenClock(new DateTimeImmutable()))]));
+        $store = Factory::state($c, new FrozenClock(new DateTimeImmutable()));
+        self::assertInstanceOf(\Watcher\State\UnreadableCounter::class, $store);
+        self::assertSame(0, $store->unreadableEntries());
+        $server->plant('watcher:corrupt', 'z1:not zlib');
+        $store->get('corrupt');
+        self::assertSame(1, $store->unreadableEntries());
+    }
 }

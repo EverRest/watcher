@@ -19,6 +19,9 @@ final class RunStats
 
     public int $oversizedLines = 0;
 
+    /** State entries that could not be decoded and were read as missing (Redis store). */
+    public int $stateUnreadable = 0;
+
     public int $candidates = 0;
 
     public int $findings = 0;

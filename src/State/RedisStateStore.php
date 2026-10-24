@@ -19,7 +19,7 @@ use Watcher\State\Redis\RedisClient;
  * (write()) takes a positive TTL, the counter script sets PEXPIRE in the same script as INCRBYFLOAT, and a TTL
  * of zero or less is refused (the key kind is named in the message, never the key).
  */
-final class RedisStateStore implements StateStore, RenewableLock
+final class RedisStateStore implements StateStore, RenewableLock, UnreadableCounter
 {
     public const RELEASE = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0";
 
@@ -44,6 +44,11 @@ final class RedisStateStore implements StateStore, RenewableLock
     ) {
         unset($clock); // Redis enforces expiry; parameter kept for the common store signature
         $this->client = $redis instanceof Redis ? new PhpRedisClient($redis) : $redis;
+    }
+
+    public function unreadableEntries(): int
+    {
+        return $this->unreadable;
     }
 
     public function get(string $key): ?array

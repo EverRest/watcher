@@ -79,6 +79,7 @@ use Watcher\State\Keys;
 use Watcher\State\Purgeable;
 use Watcher\State\RenewableLock;
 use Watcher\State\StateStore;
+use Watcher\State\UnreadableCounter;
 
 /** Single entry point (FR-033). US1 pipeline: no run_at gate, triage, budgets, watch rules, dependencies or deploy info yet. */
 final class Watcher
@@ -381,6 +382,7 @@ final class Watcher
         $stats = $skipped ? null : $this->stats;
         $took = (float) $this->clock->now()->format('U.u') - (float) $this->startedAt->format('U.u');
         $this->stats->durationMs = max(0, (int) round($took * 1000));
+        $this->stats->stateUnreadable = $this->realState instanceof UnreadableCounter ? $this->realState->unreadableEntries() : 0;
         $this->record($outcome);
         if ($this->estimator !== null) {
             $this->printEstimate($this->estimator);

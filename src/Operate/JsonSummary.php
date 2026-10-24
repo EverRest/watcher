@@ -43,6 +43,7 @@ final class JsonSummary
             'release' => $d->release,
             'version' => self::packageVersion(self::PACKAGE),
             'dry_run' => $d->dryRun,
+            ...(($s?->stateUnreadable ?? 0) > 0 ? ['state_unreadable' => $s->stateUnreadable] : []), // only when non-zero: the line stays as it was
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
     }
 
