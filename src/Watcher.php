@@ -209,7 +209,7 @@ final class Watcher
         return new self(
             $c,
             Factory::source($c, $http, $clock),
-            Factory::state($c, $clock),
+            Factory::state($c, $clock, $hostLog),
             Factory::analyzer($c),
             Factory::notifier($http, $c->schedule['lock_ttl']),
             $clock,

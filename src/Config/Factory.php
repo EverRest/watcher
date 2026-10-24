@@ -113,13 +113,19 @@ final class Factory
         );
     }
 
-    public static function state(WatchConfig $c, ClockInterface $clock): StateStore
+    public static function state(WatchConfig $c, ClockInterface $clock, ?LoggerInterface $log = null): StateStore
     {
         /** @var array<string, mixed> $st */
         $st = $c->state;
 
         return match ($st['driver']) {
-            'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(self::redisClient(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock)),
+            'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(
+                self::redisClient(is_array($st['redis'] ?? null) ? $st['redis'] : []),
+                $clock,
+                'watcher:',
+                is_int($st['redis']['compress_min_bytes'] ?? null) ? $st['redis']['compress_min_bytes'] : 512,
+                $log,
+            )),
             // The table is never created here: run PdoStateStore::createTableSql($driver, $table) once, in a migration.
             // Lazy like Redis: a connect failure on a trigger that is not due must not fail it.
             'pdo' => self::lazy(static fn (): StateStore => new PdoStateStore(self::pdo($st['pdo']), $clock, (string) ($st['pdo']['table'] ?? 'watcher_state'))),

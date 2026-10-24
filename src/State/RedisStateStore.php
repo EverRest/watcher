@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Watcher\State;
 
 use InvalidArgumentException;
-use JsonException;
 use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
 use Redis;
 use RuntimeException;
+use UnexpectedValueException;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\RedisClient;
 
@@ -29,12 +30,17 @@ final class RedisStateStore implements StateStore, RenewableLock
     public const INCREMENT = "local v = redis.call('INCRBYFLOAT', KEYS[1], ARGV[1]) "
         . "if redis.call('PTTL', KEYS[1]) < 0 then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return v";
 
+    /** Entries that were present but could not be decoded (corrupt, over the size cap, or compressed without ext-zlib), read as missing. */
+    public int $unreadable = 0;
+
     private readonly RedisClient $client;
 
     public function __construct(
         Redis|RedisClient $redis,
         ClockInterface $clock,
         private readonly string $prefix = 'watcher:',
+        private readonly int $compressMinBytes = 512,
+        private readonly ?LoggerInterface $log = null,
     ) {
         unset($clock); // Redis enforces expiry; parameter kept for the common store signature
         $this->client = $redis instanceof Redis ? new PhpRedisClient($redis) : $redis;
@@ -51,17 +57,19 @@ final class RedisStateStore implements StateStore, RenewableLock
             return ['total' => (float) $raw];
         }
         try {
-            $value = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
+            return StateCodec::decode($raw, function_exists('gzuncompress'));
+        } catch (UnexpectedValueException) {
+            // Missing, not an error: the next run rebuilds it. Only the key kind is logged (the key carries the service name).
+            $this->unreadable++;
+            $this->log?->warning('redis state entry unreadable, treated as missing', ['kind' => self::kind($key)]);
+
             return null;
         }
-
-        return is_array($value) ? $value : null;
     }
 
     public function put(string $key, array $value, int $ttlSeconds): void
     {
-        $this->write($key, json_encode($value, JSON_THROW_ON_ERROR), $ttlSeconds, false);
+        $this->write($key, StateCodec::encode($value, $this->compressMinBytes, function_exists('gzcompress')), $ttlSeconds, false);
     }
 
     public function acquire(string $key, string $owner, int $ttlSeconds): bool

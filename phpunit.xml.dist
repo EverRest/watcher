@@ -16,6 +16,7 @@
             <exclude>tests/Contract/LogSourceContractTest.php</exclude>
         </testsuite>
         <testsuite name="EndToEnd"><directory>tests/EndToEnd</directory></testsuite>
+        <testsuite name="Perf"><directory>tests/Perf</directory></testsuite><!-- group perf: excluded below, run with the group option -->
     </testsuites>
     <groups><exclude><group>perf</group></exclude></groups>
     <php><ini name="memory_limit" value="1G"/></php>
