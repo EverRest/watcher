@@ -218,7 +218,20 @@ final class Normalizer
             ['(\b(?:basic|token)\s++)(?-i:(?=[\w.~+/=-]*[a-z])(?=[\w.~+/=-]+[A-Z]))[\w.~+/=-]{12,}+', fn (array $m): string => $m[1] . '<TOKEN>'],
             // `basic` is followed by base64 by definition: any 8+ base64 run that is not one plain word.
             ['(\bbasic\s++)(?!(?-i:[a-z]++|[A-Z][a-z]++|[A-Z]++)(?![A-Za-z0-9+/=_-]))[A-Za-z0-9+/]{8,}+={0,2}+', fn (array $m): string => $m[1] . '<TOKEN>'],
-            ['(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)+', '<EMAIL>'],
+            // Credentials by KEY name, any value length or case: `password=x`, `"secret":"x"`, `X-Amz-Security-Token: x`,
+            // `?token=x&sig=x`. The key stays, the value (quoted: up to the closing quote; else up to space , ; & " ' } ]) goes.
+            [
+                '((?<![\w-])(?:[\w-]{0,30}?(?:pass(?:word|wd|phrase)?+|pwd|secret|api[_-]?key|access[_-]?key|private[_-]?key|credentials?+|token|signature)[\w-]{0,30}'
+                . '|(?:x|dd|ocp|proxy)-[\w-]{0,30}?(?:key|sig)[\w-]{0,30}|(?<=[?&])(?:key|sig|auth))'
+                . '["\']?+\s*+(?:=>|[:=])\s*+)(?:(["\'])((?:\\\\.|(?!\\2)[^\r\n])*+)(?:\\2|$)|(?!<|(?:bearer|basic|token|digest)\s++<)[^\s,;&"\'}\]]++)',
+                static fn (array $m): string => $m[1] . (($m[2] ?? '') !== '' ? $m[2] . '<TOKEN>' . $m[2] : '<TOKEN>'),
+            ],
+            // A relative request line's query string: the keys stay, every value goes.
+            [
+                '(?<=[\w\/.-])(\?)([\w.%\[\]-]++=[^\s\'"\#' . $ang . ']*+(?:&[\w.%\[\]-]++=[^\s\'"\#' . $ang . ']*+)*+)',
+                static fn (array $m): string => $m[1] . (string) preg_replace('/=[^&]*+/', '=<STR>', $m[2]),
+            ],
+            ['(?<![\w.+-])(?:"[^"\r\n@]{1,64}"|[\w.+-]++)@[\w-]++(?:\.[\w-]++)*+', '<EMAIL>'],
             ['\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '<ID>'],
             ['\b(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b', '<ID>'],
             ['\b(?:\d{32}|\d{40}|\d{64})\b', '<ID>'], // md5 / sha1 / sha256 that happen to hold no a-f
