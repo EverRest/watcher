@@ -356,4 +356,129 @@ final class FileStateStoreTest extends StateStoreContractTest
             unlink($target);
         }
     }
+
+    private function victim(string $content = 'precious'): string
+    {
+        $victim = $this->dir . '-victim.txt';
+        file_put_contents($victim, $content);
+
+        return $victim;
+    }
+
+    public function testASymlinkSwappedInAfterTheCheckIsReplacedNotWrittenThrough(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $victim = $this->victim();
+        $record = $this->stateFile('k');
+        // The clock is read after the sidecar lock, right before the record is written: plant the link there.
+        $clock = new class ($this->clock, $record, $victim) implements ClockInterface {
+            public function __construct(private ClockInterface $inner, private string $link, private string $victim)
+            {
+            }
+
+            public function now(): \DateTimeImmutable
+            {
+                if (! is_link($this->link)) {
+                    symlink($this->victim, $this->link);
+                }
+
+                return $this->inner->now();
+            }
+        };
+        try {
+            (new FileStateStore($this->dir, $clock, 900))->put('k', ['v' => 1], 60);
+
+            self::assertSame('precious', file_get_contents($victim));
+            self::assertFalse(is_link($record));
+            self::assertSame(0600, fileperms($record) & 0777);
+        } finally {
+            unlink($victim);
+        }
+    }
+
+    public function testADanglingSymlinkSidecarIsRefusedAndNothingIsCreated(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $target = $this->dir . '-dangling.txt';
+        symlink($target, $this->stateFile('k') . '.lock');
+        try {
+            $this->store->put('k', ['v' => 1], 60);
+            self::fail('expected a refusal');
+        } catch (RuntimeException $e) {
+            self::assertSame('state path is a symlink', $e->getMessage());
+        } finally {
+            unlink($this->stateFile('k') . '.lock');
+        }
+        self::assertFileDoesNotExist($target);
+    }
+
+    public function testASymlinkSidecarToAnExistingFileLeavesItUntouched(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $victim = $this->victim();
+        symlink($victim, $this->stateFile('k') . '.lock');
+        try {
+            try {
+                $this->store->get('k');
+                self::fail('expected a refusal');
+            } catch (RuntimeException $e) {
+                self::assertSame('state path is a symlink', $e->getMessage());
+            }
+            self::assertSame('precious', file_get_contents($victim));
+        } finally {
+            unlink($this->stateFile('k') . '.lock');
+            unlink($victim);
+        }
+    }
+
+    public function testAHardLinkedSidecarIsRefused(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $victim = $this->victim();
+        link($victim, $this->stateFile('k') . '.lock');
+        try {
+            try {
+                $this->store->put('k', ['v' => 1], 60);
+                self::fail('expected a refusal');
+            } catch (RuntimeException $e) {
+                self::assertSame('state path is a symlink', $e->getMessage());
+            }
+            self::assertSame('precious', file_get_contents($victim));
+        } finally {
+            unlink($this->stateFile('k') . '.lock');
+            unlink($victim);
+        }
+    }
+
+    public function testPurgeNeverFollowsOrRemovesLinkedSidecars(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $victim = $this->victim();
+        $sym = $this->dir . '/' . str_repeat('d', 64) . '.json.lock';
+        $hard = $this->dir . '/' . str_repeat('e', 64) . '.json.lock';
+        symlink($victim, $sym);
+        link($victim, $hard);
+        $this->age($hard, 5000);
+        try {
+            $this->purgeable()->purge();
+
+            self::assertTrue(is_link($sym));
+            self::assertFileExists($hard);
+            self::assertSame('precious', file_get_contents($victim));
+        } finally {
+            unlink($sym);
+            unlink($hard);
+            unlink($victim);
+        }
+    }
+
+    public function testThePurgeMarkerIsWrittenByRenameWithMode0600(): void
+    {
+        $this->store->put('a', ['v' => 1], 10);
+        $this->advance(11);
+        $this->purgeable()->purge();
+
+        self::assertSame(0600, fileperms($this->dir . '/.purge') & 0777);
+        self::assertSame([], glob($this->dir . '/.purge.*') ?: []);
+    }
 }
