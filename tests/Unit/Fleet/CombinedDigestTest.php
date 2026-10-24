@@ -96,4 +96,20 @@ final class CombinedDigestTest extends TestCase
         self::assertLessThanOrEqual(50, count($m->sections));
         self::assertStringContainsString('more services: see their digests', implode("\n", array_column($m->sections, 'text')));
     }
+
+    /** Not reproducible as an endless loop: with every item merged the message is 3 blocks, so the loop always ends under the limit. */
+    public function testManyLargeServicesTerminateWithinTheLimit(): void
+    {
+        $digests = [];
+        foreach (range(1, 300) as $i) {
+            $digests["svc$i"] = self::digest("svc$i", 40);
+        }
+        $quiet = array_map(static fn (int $i): string => "quiet$i", range(1, 200));
+
+        $m = (new CombinedDigest())->build('fleet', $digests, $quiet);
+
+        self::assertNotNull($m);
+        self::assertLessThanOrEqual(50, count($m->sections));
+        self::assertStringContainsString('more services: see their digests', implode("\n", array_column($m->sections, 'text')));
+    }
 }
