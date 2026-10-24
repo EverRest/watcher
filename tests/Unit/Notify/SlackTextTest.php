@@ -19,6 +19,13 @@ final class SlackTextTest extends TestCase
         self::assertSame('@' . self::Z . 'everyone', SlackText::defang('@everyone'));
     }
 
+    public function testDefangBreaksInternationalTlds(): void
+    {
+        self::assertSame('пример.' . self::Z . 'рф', SlackText::defang('пример.рф'));
+        self::assertSame('example.' . self::Z . '中国', SlackText::defang('example.中国'));
+        self::assertSame('a.' . self::Z . 'xn--p1ai', SlackText::defang('a.xn--p1ai'));
+    }
+
     public function testDefangKeepsFileNames(): void
     {
         self::assertSame('Foo.php:88 in a.json', SlackText::defang('Foo.php:88 in a.json'));

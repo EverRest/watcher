@@ -38,7 +38,7 @@ final class SlackText
         $s = str_replace(['@', '://'], ["@\u{200B}", ":\u{200B}//"], $s);
         $s = (string) preg_replace('/\bwww\./i', "www\u{200B}.", $s);
 
-        return (string) preg_replace('/([a-z0-9-]\.)(?!(?:' . self::FILE_EXT . ')\b)(?=[a-z]{2,24}\b)/i', "$1\u{200B}", $s);
+        return (string) preg_replace('/([\p{L}\p{N}-]\.)(?!(?:' . self::FILE_EXT . ')\b)(?=[\p{L}]{2,24}\b|xn--[a-z0-9-]{2,}\b)/iu', "$1\u{200B}", $s);
     }
 
     /** Undoes {@see escape()} for the plain-text fallback of a message. */
