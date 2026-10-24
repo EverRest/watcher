@@ -13,10 +13,9 @@ O1). No dependency is added.
 ## Technical Context
 
 **Language**: PHP ^8.1, no framework in the core; `ext-json` only. `ext-intl` stays optional (as in `docs/privacy.md`).
-**New dependencies**: none (FR-005). JSON Schema validation in tests reuses `opis/json-schema` if 013 added it to
-`require-dev` (013 R11), else a 40-line walker over the few keywords used (type, enum, pattern, required,
+**New dependencies**: none (FR-005). JSON Schema validation in tests is a 40-line walker over the few keywords used (type, enum, pattern, required,
 additionalProperties, min/max); decided in T001.
-**Testing**: PHPUnit; no network (the Guzzle `MockHandler` and fakes of 002/013); the server is driven through
+**Testing**: PHPUnit; no network (the Guzzle `MockHandler` and fakes of 002); the server is driven through
 in-memory streams (`php://memory`), never a real process, except one smoke test in T032 that starts `bin/watcher mcp`
 with `proc_open` and a fake config.
 **Target**: any host that runs `bin/watcher`; the Laravel adapter exposes `watcher:mcp`.
@@ -31,7 +30,7 @@ with `proc_open` and a fake config.
 | III Test-first | pass | Every task starts red. Mandatory suites: injection corpus, privacy corpus, read-only (throwing store), dry-run refusal table, shared state-store contract (read-only variant). No network. |
 | IV Code decides, model judges | pass | The server calls no model except inside a confirmed dry run; what it shows is chosen by code (allowlist, caps, limit). The mute suggestion is code-built. |
 | V Cost discipline | pass | Default tools make zero model calls. The cost-bearing tool is off by default, needs a strict confirmation, checks the daily limit with the estimate's upper bound and an in-process counter (R5). |
-| VI Configuration and contracts | pass | One setting (`mcp.dry_run`), validated at start, naming the key. One seam (`HygieneSource`) because the spec names two states. Nothing consumer-specific. |
+| VI Configuration and contracts | pass | One setting (`mcp.allow_dry_run`), validated at start, naming the key. One seam (`HygieneSource`) because the spec names two states. Nothing consumer-specific. |
 | VII Failures loud | pass | Every failure is a typed error code or a JSON-RPC error; "no report" (`available:false`) is distinct from "failed". Store errors are `state_unavailable`, never an empty success. |
 | VIII Simplicity | pass | No SDK, no transport abstraction, no resources/prompts. `Tool` is a contract because six implementations exist. The command filter is extracted and shared (T017), not copied. |
 
@@ -55,11 +54,11 @@ docs/privacy.md docs/configuration.md README.md CHANGELOG.md docs/roadmap.md   (
 
 ## Shared files and ordering
 
-Spec 013 edits `src/Watcher.php`, `src/State/Keys.php`, `src/Operate/Doctor.php`, `src/Config/*`, `src/Notify/*` and
+Specs 013 and 014 and Lanes A, C, B, G edit `src/Watcher.php`, `src/State/Keys.php`, `src/Operate/Doctor.php`, `src/Config/*`, `src/Notify/*` and
 `src/Cli/*`. Spec 014 touches the schedule path of `Watcher`. 015's edits to those files are small and come **after**
 013's T014/T016/T017 (and 014 if merged first), each rebased on the then-current file with the file re-read first.
-Everything under `src/Mcp/` is new and owned by this spec. The last-report record can be fed by 013's `RunObservation`
-once it exists (T021 notes the choice); until then it is built from the same values the digest uses.
+Everything under `src/Mcp/` is new and owned by this spec. The `src/Watcher.php` hunk (T021) is the latest task and is marked SEQ after Lanes A (decompose), C, B and G; the
+last-report record is built from the values the digest uses and does not depend on spec 013 (owner decision O1).
 
 ## Risks
 
@@ -71,7 +70,7 @@ once it exists (T021 notes the choice); until then it is built from the same val
 4. **MCP revision drift**: the client may require a newer revision for features not used here; mitigated by R1 (fixed
    list, answer with a supported version).
 5. **Injection is not solved by filters** (R2c): documented as a limit, with the profile advice in T031.
-6. **006/013 are Draft**: tools depend on them only through `HygieneSource` and the optional `RunObservation` feed.
+6. **006 is Draft**: tools depend on 006 only through `HygieneSource`; nothing depends on 013.
 
 ## Ordering of work
 

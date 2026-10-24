@@ -14,8 +14,8 @@ turns it green. No test touches the network or a real model; the server is drive
 dependency, safe to run in parallel with other `[P]` tasks of the same phase.
 
 **SHARED FILES, SEQUENTIAL** (spec 013, 014 and other agents edit these; run these tasks one at a time, in this order,
-each rebased on the then-current file; re-read the file before editing; start only after 013 T014/T016/T017 are merged,
-or rebase on them):
+each rebased on the then-current file; re-read the file before editing; T021 is **SEQ after Lanes A, C, B and G** have
+merged into the base it is rebased on; other tasks rebase on whatever 013/014 have merged by then):
 
 | Order | Task | Shared file(s) touched |
 |---|---|---|
@@ -36,9 +36,8 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 
 ## Phase 0: Gate and decisions
 
-- [ ] T001 Run the gate command on the current tree and record the exit codes. Re-read the shared files above. Confirm the
-  owner's answers to O1-O5 (spec.md); T020-T021 and T016 depend on O1/O2/O3. Decide the schema-validation helper for
-  tests (reuse `opis/json-schema` if 013 added it, else the small walker of plan.md). Create `tests/Unit/Mcp/` and
+- [ ] T001 Run the gate command on the current tree and record the exit codes. Re-read the shared files above. Owner decisions O1-O5 are recorded in spec.md (2026-10-24); no open question remains. Decide the schema-validation helper for
+  tests (the small walker of plan.md; no dependency). Create `tests/Unit/Mcp/` and
   `tests/Fixtures/mcp/`. (FR-005)
 - [ ] T002 Read the published MCP specification pages for `initialize` and the stdio transport; record in
   `research.md` R1 the revisions checked, their dates and the final `PROTOCOL_VERSIONS` list. Docs-only. (O5, FR-003)
@@ -53,7 +52,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   stdout receives only protocol lines (a stray `echo` in a tool is caught by an output-buffer assertion); EOF ends the
   loop with 0. Then `src/Mcp/{JsonRpc,Server}.php`. (FR-001..FR-005, US4 AC2-AC4)
 - [ ] T004 [P] [US4] `tests/Unit/Mcp/ToolRegistryTest.php` and `ToolSchemaDriftTest.php` (red): the registry lists exactly the
-  tools of `contracts/tools.schema.json` (5, or 6 with `mcp.dry_run`), each with `readOnlyHint: true` and a static
+  tools of `contracts/tools.schema.json` (5, or 6 with `mcp.allow_dry_run`), each with `readOnlyHint: true` and a static
   description; argument validation (unknown property, wrong type, `limit` 0 and 21, `fp` malformed) -> `-32602` naming the
   property and never echoing the value; the allowlists in code equal the schema's properties per tool (drift test, FR-021);
   every schema string is either typed (pattern/enum) or `x-text` with `maxLength`. Then `src/Mcp/{Tool,ToolRegistry}.php`. (FR-014, FR-021, FR-041)
@@ -88,19 +87,19 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   validator calls. Extract the span-replacing logic into a small class and call it from both places (no second copy).
   Re-run T005. (FR-022, plan risk 3)
 - [ ] T018 [US1] **Touches `src/Config/WatchConfig.php`, `Factory.php`.** `tests/Unit/Config/McpConfigTest.php` (red):
-  `mcp.dry_run` default false; strict boolean naming `mcp.dry_run`; `WATCHER_MCP_DRY_RUN` via `Env`; any other `mcp` key
+  `mcp.allow_dry_run` default false; strict boolean naming `mcp.allow_dry_run`; `WATCHER_MCP_ALLOW_DRY_RUN` via `Env`; any other `mcp` key
   rejected naming `mcp.<key>`; no secret in the section. Then the config and the factory path that builds the read-only
   store, `Spend`, `VerdictCache`, `Doctor` for the server. Rebase on the current files first. (FR-040)
 - [ ] T020 [US2] **Touches `src/State/Keys.php`.** Test in the key-expiry table (red): `Keys::LASTREPORT` has the
   `state.retention` expiry and key `lastrep:{key}`; the shared state-store contract suite round-trips a record on every
   driver. Then the constant and builder. Re-read `Keys.php` first. (FR-050)
 - [ ] T021 [US2] **Touches `src/Watcher.php`.** `tests/EndToEnd/LastReportTest.php` (red, before any edit): a real run that
-  reports 3 findings stores one record with the window, outcome, counts, figures and 3 finding refs in digest order
-  (`title` scrubbed, <= 80); a quiet run stores counts and no findings; a failed run stores outcome `failed`; a dry run
+  reports 3 findings stores one record with the window, outcome, window, outcome, counts and 3 finding refs (`fp`, `severity`, `title`) in digest order
+  (`title` scrubbed, <= 80; no token or cost figure, no kind or status); a quiet run stores counts and no findings; a failed run stores outcome `failed`; a dry run
   writes only to the buffer and the real store is untouched; the record contains no template, line, value, frame, path
   (privacy corpus: seeded values absent from the stored JSON); an unwritable store does not change the outcome (existing
   rule: state faults are logged, run result unchanged). Then `Watcher` builds the record from the values the digest uses
-  (or from 013's `RunObservation` when merged), writes it with one `put` on a real run and, in a dry run, returns it on the
+  (not from spec 013; owner decision O1), **SEQ after Lanes A, C, B and G**, writes it with one `put` on a real run and, in a dry run, returns it on the
   run result without writing; `EstimatingAnalyzer` gets a read accessor for the per-step figures that `printEstimate` prints
   (test: the accessor equals the printed table). (FR-050, FR-036, O1)
 - [ ] T022 [US1] **Touches `src/Operate/Doctor.php`.** Additions to the doctor tests (red): with `readOnly: true` the
@@ -144,7 +143,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   of T008 and in `estimate_only`; one confirmed run returns the report shape with `dry_run: true` and `estimate_usd`, no
   rendered digest text, nothing posted (fake notifier), the real store byte-identical; the second call is refused when
   the first consumed the remaining budget; the tool is absent from `tools/list` and `-32602` on call when
-  `mcp.dry_run` is false. Also: stdout holds only protocol lines across a dry run and an estimate (the `Watcher` output callable is a discarding closure; assert with a captured `STDOUT` stand-in), and the structured result comes from the run result, never from printed text. Then `Tools/DryRunTool.php` calling `Watcher` with `RunOptions::dryRun()`. If the pipeline
+  `mcp.allow_dry_run` is false. Also: stdout holds only protocol lines across a dry run and an estimate (the `Watcher` output callable is a discarding closure; assert with a captured `STDOUT` stand-in), and the structured result comes from the run result, never from printed text. Then `Tools/DryRunTool.php` calling `Watcher` with `RunOptions::dryRun()`. If the pipeline
   writes through the real store, stop and report: it is a spec 002 defect (plan risk 1). (FR-035, FR-036, US5, SC-004)
 - [ ] T023 [US6] Wire `HygieneTool` into the registry and add the contract entry once spec 006 defines its report
   (`tools.schema.json`, `tools.md`). Until then `available: false` only (T009). (FR-034)
@@ -153,7 +152,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 
 - [ ] T030 [P] Docs: `docs/privacy.md` gets a section "MCP server (spec 015)": what is returned, what never is (template,
   lines, values, frames), the envelope, caps, `[withheld]`, read-only guarantee, last-report record (key, expiry, content)
-  in "What is stored", the injection limit (R2a, R2c) under "Limits you must know". `docs/configuration.md`: `mcp.dry_run`
+  in "What is stored", the injection limit (R2a, R2c) under "Limits you must know". `docs/configuration.md`: `mcp.allow_dry_run`
   row and env. `README.md`: spec table row 015, command list. `docs/roadmap.md`: row 015. `CHANGELOG.md`: entry under
   Unreleased. (Principle I: a change touching what leaves the service extends the privacy docs)
 - [ ] T031 [P] `docs/mcp.md` from `quickstart.md`: setup, one entry per service, store hardening, assistant profile advice

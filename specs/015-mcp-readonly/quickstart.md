@@ -45,7 +45,7 @@ One entry per service. Ask: "Is watcher healthy?", "What did the last run find?"
 ## 5. Optional: the dry run (costs money)
 
 ```php
-'mcp' => ['dry_run' => true],     // or WATCHER_MCP_DRY_RUN=true
+'mcp' => ['allow_dry_run' => true],     // or WATCHER_MCP_ALLOW_DRY_RUN=true
 ```
 
 Restart the assistant. `watcher_dry_run` now appears. Calling it without `confirm_cost: true` is refused. With it, the

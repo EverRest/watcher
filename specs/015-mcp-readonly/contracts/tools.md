@@ -10,7 +10,7 @@ two in step with the code (T004).
 | `initialize` | Result: `protocolVersion` (R1), `capabilities: {"tools": {"listChanged": false}}`, `serverInfo: {"name": "watcher", "version": <VERSION>}`. No `instructions` text from state. |
 | `notifications/initialized` | Accepted, no response. |
 | `ping` | `{}`. |
-| `tools/list` | The registry: 5 tools, or 6 with `mcp.dry_run`. Each has `name`, static `description`, `inputSchema`, `annotations: {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}` (`watcher_check` and `watcher_dry_run` set `openWorldHint: true`: they call the log source / model provider). |
+| `tools/list` | The registry: 5 tools, or 6 with `mcp.allow_dry_run`. Each has `name`, static `description`, `inputSchema`, `annotations: {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}` (`watcher_check` and `watcher_dry_run` set `openWorldHint: true`: they call the log source / model provider). |
 | `tools/call` | `params: {name, arguments}`. Unknown tool or invalid arguments -> JSON-RPC `-32602` naming the property. Otherwise a tool result. |
 | anything else | `-32601`. Notifications get no response. |
 | JSON-RPC errors | `-32700` parse, `-32600` invalid request (batch, oversize line, wrong shape, `not_initialized`), `-32601` method, `-32602` params, `-32603` internal (fixed message `internal_error`). The `message` is a fixed string; the offending value is never echoed. |
@@ -69,8 +69,8 @@ Input: `limit` (integer 1..20, default 10). Output `data`:
 | `window_start`, `window_end`, `at` | typed | ISO-8601 UTC `Z` |
 | `outcome` | typed | `reported`, `quiet`, `baselined`, `failed` |
 | `counts` | typed | `events`, `groups`, `candidates`, `findings` (ints) |
-| `tokens`, `cost_usd` | typed | `{in,out,cached}` ints; float |
-| `findings[]` | list | `fp`, `severity`, `kind`, `status` (`new`/`grown`/`unchanged`/`expected`) typed; `title` **text** (80) |
+| `tokens`, `cost_usd` | typed | `{in,out,cached}` ints; float; only from `watcher_dry_run` (the stored record has no figures) |
+| `findings[]` | list | `fp`, `severity` typed; `title` **text** (80). Kind and status come from `watcher_finding`. |
 | `truncated` | typed | bool, only when set |
 | `dry_run` | typed | bool, only from `watcher_dry_run` |
 
@@ -86,7 +86,7 @@ Input: none. Output `data`: `available` (bool, `reason` when false); when true t
 (call-site identifiers, fingerprints, categories, levels, counts, shares, report time), every string in it passed
 through the same text/typed rules; 006's contract replaces this paragraph with its field table when 006 is planned.
 
-## watcher_dry_run (only with `mcp.dry_run: true`)
+## watcher_dry_run (only with `mcp.allow_dry_run: true`)
 
 Input: `confirm_cost` (boolean; must be `true` for a run that calls a model), `estimate_only` (boolean, default false).
 Description (static): "Runs the full pipeline once without posting or storing anything. Makes real, billed model calls

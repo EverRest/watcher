@@ -12,7 +12,7 @@ This page lists the objects behind them.
 | `Server` | service | Line reader (64 KB cap), JSON-RPC decode, routing of the five methods, error codes, `initialize` state. Writes one line per response to the output stream; never throws out of `serve()` for client input. |
 | `JsonRpc` | pure | Encode/decode, error constructors, id validation (string, int or null; never echoed unless valid). |
 | `Tool` | contract (6 implementations) | `name()`, `description()` (static), `inputSchema()`, `call(array $args): array` returning the `data` array. Exists because the spec names six tools with one registry. |
-| `ToolRegistry` | service | Fixed list; omits `watcher_dry_run` unless `mcp.dry_run`; validates arguments against the tool's schema (unknown property, type, range). |
+| `ToolRegistry` | service | Fixed list; omits `watcher_dry_run` unless `mcp.allow_dry_run`; validates arguments against the tool's schema (unknown property, type, range). |
 | `Envelope` | pure | Builds `schema`, `untrusted_data`, `notice`, `service`, `tool`, `now`, `data` or `error`; enforces the 16 KB cap (drops findings from the end, sets `truncated`). |
 | `OutputGuard` | pure | The text pipeline of FR-022: format-char strip -> `Redactor` second scan -> command filter -> URL/host/e-mail filter -> cap. And the typed validators of FR-023. Reuses the digest's command filter (extracted to a shared function, T017) - not a second copy. |
 | `ReadOnlyStateStore` | decorator of `StateStore` | `get` passes through; `put`, `increment`, `acquire`, `release` throw `ReadOnlyViolation`; not `Purgeable`. |
@@ -27,7 +27,7 @@ implementations, `DryRunStateStore` (already swallows every write in a dry run),
 
 | Key (`Keys::` kind) | Value | TTL | Used for |
 |---|---|---|---|
-| `lastrep:{key}` (`LASTREPORT`) | `{v:1, windowStart, windowEnd, outcome, at, counts{events,groups,candidates,findings}, tokens{in,out,cached}, costUsd, findings:[{fp, severity, kind, status, title}]}` (at most `top_m` findings, `title` <= 80 after the output scrub) | `state.retention` (as run records) | `watcher_latest_report` |
+| `lastrep:{key}` (`LASTREPORT`) | `{v:1, windowStart, windowEnd, outcome, at, counts{events,groups,candidates,findings}, findings:[{fp, severity, title}]}` (at most `top_m` findings, `title` <= 80 after the output scrub) | `state.retention` (as run records) | `watcher_latest_report` |
 
 Dry run: the pipeline's `DryRunStateStore` swallows writes, so the last-report record is built in memory by `Watcher` and
 returned on the run result (T021); the server never reads it back from a store.
@@ -35,8 +35,8 @@ returned on the run result (T021); the server never reads it back from a store.
 Read by the server: `lastrep:*`, `verdict:{key}:{fp}`, `reported:{key}:{fp}`, `hb:{key}`, `trig:{key}`, spend counters
 (`spend*`), and (via `Doctor`) one heartbeat read. Written by the server: nothing.
 
-The record holds only fields that already appear in the digest (fingerprint, severity, kind, status, scrubbed title,
-counts, figures). No raw line, no template, no field value. On older records without the key the tool answers
+The record holds only fields that already appear in the digest (fingerprint, severity, scrubbed title,
+counts). No raw line, no template, no field value. On older records without the key the tool answers
 `available: false` / `no_report`.
 
 ## Finding fields returned (from `verdict:` and `reported:`)

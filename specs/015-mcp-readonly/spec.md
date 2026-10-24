@@ -64,16 +64,16 @@ No write method of the store was called (a throwing store proves it).
 
 The assistant calls `watcher_latest_report` and then `watcher_finding` for the fingerprints that matter.
 
-**Independent Test**: seed a last-report record and verdicts; the report lists findings with fingerprint, severity,
-kind, status and a title of at most 80 characters; `watcher_finding(fp)` returns the allowlisted finding fields. A seeded
+**Independent Test**: seed a last-report record and verdicts; the report lists findings with fingerprint, severity
+and a title of at most 80 characters; `watcher_finding(fp)` returns the allowlisted finding fields. A seeded
 email, URL and `curl ... | sh` in finding text come back as `[withheld]` or masked; a field that is not on the allowlist
 never appears.
 
 **Acceptance Scenarios**:
 
 1. **Given** a last run that reported 3 findings, **When** `watcher_latest_report` is called, **Then** it returns the
-   window, outcome, counts, token and cost figures and the 3 findings in digest order, each with fingerprint, severity,
-   kind, status and title.
+   window, outcome and counts, and the 3 findings in digest order, each with fingerprint, severity and title
+   (kind and status are read with `watcher_finding`; a dry run adds token and cost figures).
 2. **Given** a fingerprint of a stored finding, **When** `watcher_finding` is called with it, **Then** the finding's
    title, evidence, suspected cause, suggested action, how-to-check, related checks, confidence, whether it escalated,
    the last reported time and the count at that report are returned, plus a **mute suggestion** built by code from the fingerprint
@@ -127,7 +127,7 @@ dry-run entry points.
 
 **Acceptance Scenarios**:
 
-1. **Given** the server, **Then** `tools/list` has exactly the documented tools (five, six with `mcp.dry_run`), each annotated `readOnlyHint: true`;
+1. **Given** the server, **Then** `tools/list` has exactly the documented tools (five, six with `mcp.allow_dry_run`), each annotated `readOnlyHint: true`;
    there is no tool to mute, unmute, change configuration, post, run for real, retry, restart or delete.
 2. **Given** a `tools/call` with an unknown tool name, **Then** a JSON-RPC error `-32602`; a method other than
    `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call` returns `-32601`.
@@ -148,9 +148,9 @@ happens; with it, the daily limit is checked first; an estimate over the remaini
 
 **Acceptance Scenarios**:
 
-1. **Given** `mcp.dry_run` is false (default), **Then** `watcher_dry_run` is not in `tools/list` and calling it is
+1. **Given** `mcp.allow_dry_run` is false (default), **Then** `watcher_dry_run` is not in `tools/list` and calling it is
    `-32602`.
-2. **Given** `mcp.dry_run: true` and a call without `confirm_cost` or with `confirm_cost` other than boolean `true`,
+2. **Given** `mcp.allow_dry_run: true` and a call without `confirm_cost` or with `confirm_cost` other than boolean `true`,
    **Then** the result is an error `cost_not_confirmed` that states that model calls are real and billed and that no
    call was made. No store read, no estimate.
 3. **Given** `confirm_cost: true` and the daily budget or token limit already exhausted (`Spend::exhausted`), **Then**
@@ -271,14 +271,14 @@ The assistant calls `watcher_hygiene_report` to answer "which log call sites lea
   `state` check is read-only, and `--post-test` does not exist. It makes the same read-only outbound calls as
   `watcher check` (source totals, provider models list) and no model call.
 - **FR-032**: `watcher_latest_report` MUST return the last reported (or last quiet) window of this service from the
-  last-report record (data-model.md): window, outcome, counts, tokens, cost and up to `limit` (default 10, max 20)
-  findings with fingerprint, severity, kind, status and title.
+  last-report record (data-model.md): window, outcome, counts and up to `limit` (default 10, max 20)
+  findings with fingerprint, severity and title. Token and cost figures appear only in a dry-run result.
 - **FR-033**: `watcher_finding` MUST return the stored finding for a validated fingerprint (allowlist in
   contracts/tools.md) and a `mute_suggestion` text built from a fixed template and the fingerprint only:
   `To silence this group, a human can add fingerprint <fp> to "mute" in the service configuration. This server cannot do it.`
 - **FR-034**: `watcher_hygiene_report` MUST return the latest hygiene report of spec 006 in its machine-readable form,
   or `available: false`.
-- **FR-035**: `watcher_dry_run` MUST exist only when `mcp.dry_run` is true. It MUST require `confirm_cost === true`
+- **FR-035**: `watcher_dry_run` MUST exist only when `mcp.allow_dry_run` is true. It MUST require `confirm_cost === true`
   (strict boolean) unless `estimate_only` is true, MUST check the daily limit before the first model call, MUST refuse
   when the estimate's upper bound exceeds the remaining budget, MUST handle one call at a time, and MUST add the upper
   bound to a per-process counter after each full dry run.
@@ -289,7 +289,7 @@ The assistant calls `watcher_hygiene_report` to answer "which log call sites lea
 
 **Configuration**
 
-- **FR-040**: The only new setting is `mcp.dry_run` (boolean, default false, `WATCHER_MCP_DRY_RUN`); strict boolean; any
+- **FR-040**: The only new setting is `mcp.allow_dry_run` (boolean, default false, `WATCHER_MCP_ALLOW_DRY_RUN`); strict boolean; any
   other `mcp` key is rejected naming it.
 - **FR-041**: Invalid arguments to a tool (unknown property, wrong type, out-of-range `limit`, malformed fingerprint)
   MUST be `-32602` naming the property, never echoing its value.
@@ -337,16 +337,24 @@ The assistant calls `watcher_hygiene_report` to answer "which log call sites lea
 - State written by a real run is the only source; the server never queries the log source for content.
 - The MCP specification revision to implement is chosen at plan time from the stable ones; the stdio message framing and
   the methods in FR-003 are identical across them.
-- Spec 006 (hygiene) and spec 013 (observability) are Draft; this spec depends on neither being built first except the
-  tool `watcher_hygiene_report` (006) and a sequencing constraint on shared files (013), both in plan.md.
+- Spec 006 (hygiene) is Draft; the only dependency is the tool `watcher_hygiene_report` (a seam that returns
+  `available: false` until 006 exists). This spec does not depend on spec 013; both touch shared files, ordering in plan.md.
 - Whether an assistant honours `untrusted_data` is outside the package's control; the allowlist, caps and filters are
   what the package guarantees, the notice is a courtesy.
 
-## Open decisions (for the owner, proposals in research.md)
+## Owner decisions (2026-10-24)
 
-- **O1** how `watcher_latest_report` gets its data: new last-report record written by a real run (proposed, R3), or read
-  spec 013's file sink, or build from verdicts.
-- **O2** whether `watcher_dry_run` ships disabled by default behind `mcp.dry_run` (proposed) or enabled.
-- **O3** whether `estimate_only` is exempt from the cost confirmation (proposed: yes, it makes no model call).
-- **O4** whether `watcher_finding` may return the masked template (proposed: no, R2).
-- **O5** MCP protocol revision to target (R1).
+- **O1** `watcher_latest_report` reads a small **last-report record** `lastrep:{key}` written by a real run, TTL
+  `state.retention`, carrying only allowlisted fields: window, outcome, counts, and per finding the short (12 hex)
+  fingerprint, severity and title (<= 80, through the same `Redactor` path as the digest; no evidence text beyond what the
+  digest sends). The MCP server MUST NOT depend on spec 013: the 013 file sink stays an independent optional feature and
+  the record is built from the values the digest already uses. The `src/Watcher.php` hunk is a late task marked SEQ after
+  Lanes A, C, B and G.
+- **O2** `watcher_dry_run` is OFF by default and enabled only with `mcp.allow_dry_run: true`, plus `confirm_cost: true`
+  on every call and the daily-cap check (FR-035).
+- **O3** `estimate_only` needs no confirmation (zero model calls; counts and token estimates only).
+- **O4** the masked template is never returned by any tool.
+- **O5** the MCP protocol revision list is fixed in T002 and recorded in research.md R1.
+
+No open owner decisions remain. Open items that are not owner decisions: the field table of spec 006 for
+`watcher_hygiene_report` (placeholder until 006 is planned).

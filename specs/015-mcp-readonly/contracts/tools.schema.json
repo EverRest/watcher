@@ -13,12 +13,10 @@
     "text": { "type": "string", "x-text": true },
     "finding_ref": {
       "type": "object", "additionalProperties": false,
-      "required": ["fp", "severity", "kind", "status", "title"],
+      "required": ["fp", "severity", "title"],
       "properties": {
         "fp": { "$ref": "#/$defs/fingerprint" },
         "severity": { "$ref": "#/$defs/severity" },
-        "kind": { "$ref": "#/$defs/kind" },
-        "status": { "$ref": "#/$defs/status" },
         "title": { "type": ["string", "null"], "x-text": true, "maxLength": 80 }
       }
     },

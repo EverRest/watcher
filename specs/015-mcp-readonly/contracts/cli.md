@@ -25,7 +25,7 @@ Added to `WatchConfig` (T018); documented in `docs/configuration.md` (T030).
 
 | Key | Default | Env | Meaning |
 |---|---|---|---|
-| `mcp.dry_run` | `false` | `WATCHER_MCP_DRY_RUN` | When true, `watcher_dry_run` is listed and callable. Model calls it makes are real and billed. |
+| `mcp.allow_dry_run` | `false` | `WATCHER_MCP_ALLOW_DRY_RUN` | When true, `watcher_dry_run` is listed and callable. Model calls it makes are real and billed. |
 
 Strict boolean (`"true"`/`"false"`/`1`/`0` from the environment as elsewhere). `mcp.enabled` does not exist: running the
 command is the opt-in. Any other key under `mcp` is rejected naming `mcp.<key>`. The `mcp` section holds no secret.
