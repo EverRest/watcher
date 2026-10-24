@@ -27,7 +27,7 @@ final class DisabledCommandsTest extends TestCase
             'service' => 'svc',
             'enabled' => $enabled,
             'schedule' => ['run_at' => '06:00'],
-            'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']],
             'analysis' => [
                 'api_key' => 'k',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],

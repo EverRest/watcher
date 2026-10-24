@@ -22,7 +22,7 @@ final class WatchConfigTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => [
                 'driver' => 'loki',
-                'loki' => ['url' => 'http://loki', 'auth' => ['type' => 'bearer', 'token' => 'tok-secret']],
+                'loki' => ['url' => 'https://loki', 'auth' => ['type' => 'bearer', 'token' => 'tok-secret']],
             ],
             'analysis' => [
                 'api_key' => 'sk-secret-key',

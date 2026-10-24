@@ -365,8 +365,14 @@ final class WatchConfig
         $driver = self::str($s, 'driver', 'source.driver');
         if ($driver === 'loki') {
             $loki = self::section($s, 'loki');
-            self::only($loki, ['url', 'auth', 'tenant'], 'source.loki');
-            self::str($loki, 'url', 'source.loki.url');
+            self::only($loki, ['url', 'auth', 'tenant', 'allow_insecure'], 'source.loki');
+            $url = self::str($loki, 'url', 'source.loki.url');
+            if (isset($loki['allow_insecure']) && !is_bool($loki['allow_insecure'])) {
+                throw new InvalidConfig('source.loki.allow_insecure must be true or false');
+            }
+            if (($problem = SecureUrl::problem($url, ($loki['allow_insecure'] ?? false) === true)) !== null) {
+                throw new InvalidConfig('source.loki.url ' . $problem);
+            }
             $auth = $loki['auth'] ?? null;
             if ($auth !== null) {
                 if (!is_array($auth) || !in_array($auth['type'] ?? null, ['bearer', 'basic'], true)) {
@@ -520,7 +526,7 @@ final class WatchConfig
     /** @param array<string, mixed> $r an injected `instance` wins; otherwise host/port/password/database build one */
     private static function redis(array $r): void
     {
-        self::only($r, ['instance', 'host', 'port', 'password', 'database'], 'state.redis');
+        self::only($r, ['instance', 'host', 'port', 'username', 'password', 'database'], 'state.redis');
         if (array_key_exists('instance', $r)) {
             if (!$r['instance'] instanceof \Redis) {
                 throw new InvalidConfig('state.redis.instance must be a \\Redis instance');
@@ -539,6 +545,9 @@ final class WatchConfig
         }
         if (isset($r['password']) && !is_string($r['password'])) {
             throw new InvalidConfig('state.redis.password must be a string');
+        }
+        if (isset($r['username']) && (!is_string($r['username']) || $r['username'] === '')) {
+            throw new InvalidConfig('state.redis.username must be a non-empty string');
         }
     }
 
@@ -589,7 +598,7 @@ final class WatchConfig
      */
     public static function notifyEntry(mixed $d, string $path): array
     {
-        $keys = ['slack' => ['webhook'], 'telegram' => ['bot_token', 'chat_id', 'thread_id'], 'discord' => ['webhook']];
+        $keys = ['slack' => ['webhook', 'allow_insecure'], 'telegram' => ['bot_token', 'chat_id', 'thread_id'], 'discord' => ['webhook']];
         if (!is_array($d)) {
             throw new InvalidConfig($path . '.webhook is required');
         }
@@ -610,7 +619,15 @@ final class WatchConfig
             throw new InvalidConfig('Unknown configuration key: ' . $path . '.' . $key);
         }
         if ($driver !== 'telegram') {
-            return ['driver' => $driver, 'webhook' => self::str($d, 'webhook', $path . '.webhook')];
+            $out = ['driver' => $driver, 'webhook' => self::str($d, 'webhook', $path . '.webhook')];
+            if (isset($d['allow_insecure'])) {
+                if (!is_bool($d['allow_insecure'])) {
+                    throw new InvalidConfig($path . '.allow_insecure must be true or false');
+                }
+                $out['allow_insecure'] = $d['allow_insecure'];
+            }
+
+            return $out;
         }
         $out = ['driver' => $driver, 'bot_token' => self::str($d, 'bot_token', $path . '.bot_token')];
         $chat = $d['chat_id'] ?? null;
@@ -637,7 +654,7 @@ final class WatchConfig
         return match ($entry['driver']) {
             'telegram' => Destination::telegram($entry['bot_token'], $entry['chat_id'], $entry['thread_id'] ?? null),
             'discord' => Destination::discord($entry['webhook']),
-            default => Destination::slack($entry['webhook']),
+            default => Destination::slack($entry['webhook'], ($entry['allow_insecure'] ?? false) === true),
         };
     }
 

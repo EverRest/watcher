@@ -48,14 +48,18 @@ final class LokiSource implements LogSource, ReadDiagnostics
     public function __construct(
         private readonly ClientInterface $http,
         string $baseUrl,
-        ?string $bearerToken = null,
+        #[\SensitiveParameter] ?string $bearerToken = null,
         ?string $basicUser = null,
-        ?string $basicPassword = null,
-        ?string $tenant = null,
+        #[\SensitiveParameter] ?string $basicPassword = null,
+        #[\SensitiveParameter] ?string $tenant = null,
         ?callable $sleeper = null,
         int $retryBudget = 120,
         private readonly string $levelMode = 'text',
+        bool $allowInsecure = false,
     ) {
+        if (($problem = \Watcher\Config\SecureUrl::problem($baseUrl, $allowInsecure)) !== null) {
+            throw new InvalidArgumentException('Loki url ' . $problem . '.'); // never the URL itself
+        }
         if (!in_array($levelMode, ['text', 'label', 'all'], true)) {
             throw new InvalidArgumentException("Invalid Loki level_mode '{$levelMode}' (text, label or all).");
         }
@@ -375,6 +379,8 @@ final class LokiSource implements LogSource, ReadDiagnostics
             'query' => $query,
             'headers' => $this->headers,
             'http_errors' => false,
+            'allow_redirects' => false, // X-Scope-OrgID would follow a redirect; a 3xx is an error here
+            'verify' => true,
         ]), 'loki', true);
 
         $status = $response->getStatusCode();

@@ -17,7 +17,7 @@ final class FeatureFlagsConfigTest extends TestCase
         return [
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
-            'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki']],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki']],
             'analysis' => [
                 'api_key' => 'k',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
@@ -219,7 +219,7 @@ final class FeatureFlagsConfigTest extends TestCase
     public function testThePublishableConfigIsSwitchedByEnvironmentVariables(): void
     {
         $base = [
-            'WATCHER_SERVICE' => 'svc', 'WATCHER_RUN_AT' => '06:00', 'WATCHER_LOKI_URL' => 'http://loki', 'WATCHER_ANTHROPIC_KEY' => 'k',
+            'WATCHER_SERVICE' => 'svc', 'WATCHER_RUN_AT' => '06:00', 'WATCHER_LOKI_URL' => 'https://loki', 'WATCHER_ANTHROPIC_KEY' => 'k',
             'WATCHER_MODEL_TRIAGE' => 'm1', 'WATCHER_MODEL_ANALYZE' => 'm2', 'WATCHER_MODEL_ESCALATE' => 'm3', 'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example/x',
             'WATCHER_STATE' => 'file', 'WATCHER_LOKI_TOKEN' => 't', 'WATCHER_REPO_URL' => 'https://git.example.com/g/p',
         ];

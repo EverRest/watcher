@@ -22,7 +22,7 @@ final class FleetConfigTest extends TestCase
             'service' => $name,
             'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
-            'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid'], 'stream_tags' => ['app' => $name]],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid'], 'stream_tags' => ['app' => $name]],
             'analysis' => [
                 'api_key' => self::SECRET,
                 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'],

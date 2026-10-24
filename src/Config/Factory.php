@@ -105,6 +105,7 @@ final class Factory
             ($auth['type'] ?? null) === 'basic' ? $auth['password'] : null,
             is_string($tenant) ? $tenant : null,
             levelMode: (string) $c->source['level_mode'],
+            allowInsecure: ($loki['allow_insecure'] ?? false) === true,
         );
     }
 
@@ -132,7 +133,8 @@ final class Factory
         try {
             $redis->connect((string) ($r['host'] ?? '127.0.0.1'), (int) ($r['port'] ?? 6379), 5.0);
             if (isset($r['password'])) {
-                $redis->auth((string) $r['password']);
+                // Redis 6 ACL: with a username the pair is sent; use a `tls://` host for TLS.
+                $redis->auth(isset($r['username']) ? [(string) $r['username'], (string) $r['password']] : (string) $r['password']);
             }
             $redis->select((int) ($r['database'] ?? 0));
         } catch (RedisException) {

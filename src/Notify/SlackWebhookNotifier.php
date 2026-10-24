@@ -30,7 +30,7 @@ final class SlackWebhookNotifier implements Notifier
         }
 
         try {
-            $status = $this->http->request('POST', $to->webhook(), ['json' => $body, 'http_errors' => false])->getStatusCode();
+            $status = $this->http->request('POST', $to->webhook(), ['json' => $body, 'http_errors' => false, 'allow_redirects' => false, 'verify' => true])->getStatusCode();
         } catch (GuzzleException|\InvalidArgumentException) {
             // Deliberately not chained: Guzzle messages embed the request URL.
             throw new DeliveryFailed('slack delivery failed: transport error');

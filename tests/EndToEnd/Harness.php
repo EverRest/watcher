@@ -53,7 +53,7 @@ final class Harness
             'schedule' => ['run_at' => $this->clock->now()->format('H:i')],
             'source' => [
                 'driver' => 'loki',
-                'loki' => ['url' => 'http://loki.invalid'],
+                'loki' => ['url' => 'https://loki.invalid'],
                 'stream_tags' => ['app' => 'svc', 'env' => 'stg'],
                 'anomaly_cap' => 100,
             ],

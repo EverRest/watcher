@@ -257,6 +257,18 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertFalse($source->lastReadTruncated());
     }
 
+    public function testRequestsNeverFollowRedirectsAndPinTlsVerification(): void
+    {
+        $source = $this->makeSourceWithLines([$this->line('ERROR', 'x')]);
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertNotSame([], $this->history);
+        foreach ($this->history as $h) {
+            $this->assertFalse($h['options']['allow_redirects']);
+            $this->assertTrue($h['options']['verify']);
+        }
+    }
+
     public function testPlainLinesAfterAJsonRecordAreNotSwallowedByIt(): void
     {
         $source = $this->makeSourceWithLines([

@@ -24,7 +24,7 @@ final class NotifyConfigTest extends TestCase
         return [
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
-            'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki']],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki']],
             'analysis' => [
                 'api_key' => 'sk-secret-key',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
@@ -63,7 +63,7 @@ final class NotifyConfigTest extends TestCase
     public function testSecretsCoverEveryCredentialInTheConfig(): void
     {
         $raw = self::config(['digest' => ['webhook' => self::HOOK]]);
-        $raw['source'] = ['driver' => 'loki', 'loki' => ['url' => 'http://loki', 'auth' => ['type' => 'basic', 'user' => 'bob', 'password' => 'loki-pass-1']]];
+        $raw['source'] = ['driver' => 'loki', 'loki' => ['url' => 'https://loki', 'auth' => ['type' => 'basic', 'user' => 'bob', 'password' => 'loki-pass-1']]];
         $raw['state'] = ['driver' => 'pdo', 'pdo' => ['dsn' => 'pgsql:host=db', 'username' => 'u', 'password' => 'pdo-pass-1']];
         $c = WatchConfig::fromArray($raw);
 

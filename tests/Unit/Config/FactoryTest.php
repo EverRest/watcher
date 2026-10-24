@@ -84,7 +84,7 @@ final class FactoryTest extends TestCase
 
     public function testLokiLevelModeReachesTheSource(): void
     {
-        $seen = self::read(['driver' => 'loki', 'level_mode' => 'label', 'loki' => ['url' => 'http://loki.invalid']], '{"status":"success","data":{"resultType":"streams","result":[]}}');
+        $seen = self::read(['driver' => 'loki', 'level_mode' => 'label', 'loki' => ['url' => 'https://loki.invalid']], '{"status":"success","data":{"resultType":"streams","result":[]}}');
 
         parse_str($seen[0]->getUri()->getQuery(), $q);
         self::assertStringContainsString('level=~', is_string($q['query'] ?? null) ? $q['query'] : '');
@@ -101,7 +101,7 @@ final class FactoryTest extends TestCase
 
     public function testModelCatalogExistsOnlyForAnthropic(): void
     {
-        $c = WatchConfig::fromArray(self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]));
+        $c = WatchConfig::fromArray(self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]));
 
         self::assertInstanceOf(\Watcher\Operate\AnthropicModelCatalog::class, Factory::modelCatalog($c, new Client()));
     }
@@ -109,7 +109,7 @@ final class FactoryTest extends TestCase
     public function testDoctorIsBuiltFromConfigWithoutAnyCall(): void
     {
         $handler = new MockHandler([]);
-        $doctor = Factory::doctor(self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]), new Client(['handler' => HandlerStack::create($handler)]));
+        $doctor = Factory::doctor(self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]), new Client(['handler' => HandlerStack::create($handler)]));
 
         self::assertInstanceOf(\Watcher\Operate\Doctor::class, $doctor);
         self::assertCount(0, $handler);
@@ -125,7 +125,7 @@ final class FactoryTest extends TestCase
     public function testHeartbeatStatusReadsTheConfiguredStore(): void
     {
         $dir = sys_get_temp_dir() . '/watcher-hb-' . bin2hex(random_bytes(4));
-        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]);
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
         $config['state'] = ['driver' => 'file', 'file' => ['path' => $dir]];
         $clock = new FrozenClock(new \DateTimeImmutable('2026-10-08T06:00:00Z'));
 
@@ -142,7 +142,7 @@ final class FactoryTest extends TestCase
     {
         $dir = sys_get_temp_dir() . '/watcher-lt-' . bin2hex(random_bytes(4));
         mkdir($dir);
-        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid']]);
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
         $config['state'] = ['driver' => 'file', 'file' => ['path' => $dir]];
         $config['schedule'] = ['run_at' => '06:00', 'lock_ttl' => 60];
         $sidecar = $dir . '/' . str_repeat('a', 64) . '.json.lock';

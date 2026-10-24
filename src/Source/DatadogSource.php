@@ -43,8 +43,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     public function __construct(
         private readonly ClientInterface $http,
         string $site,
-        string $apiKey,
-        string $appKey,
+        #[\SensitiveParameter] string $apiKey,
+        #[\SensitiveParameter] string $appKey,
         ?callable $sleeper = null,
         int $retryBudget = 120,
         private readonly int $pagingBudget = 300,
@@ -302,6 +302,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             'json' => $body,
             'headers' => $this->headers,
             'http_errors' => false,
+            'allow_redirects' => false, // DD-API-KEY would follow a redirect; a 3xx is an error here
+            'verify' => true,
         ]), 'datadog', false);
 
         $status = $response->getStatusCode();
