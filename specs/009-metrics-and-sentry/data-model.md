@@ -9,12 +9,12 @@ says otherwise. All numbers are finite floats/ints; all text is `Normalizer`-mas
 |---|---|---|---|
 | `Metrics\MetricDefinition` | `name` (`^[a-z][a-z0-9_]{0,39}$`), `query` (private, <= 2,000 chars), `aggregate` (`sum\|max\|avg\|last\|null`), `threshold` (`relative` float > 0, `floor` float >= 0, or null), `unit` (`^[A-Za-z%/ ]{0,8}$`), `mode` (`instant\|range`) | built by `WatchConfig`; never `__toString`s the query | no (config) |
 | `Metrics\MetricResult` | `values` list<float> (finite only), `series` int, `allowedLabelValues` list<string> (<= 5, raw), `timestamps` list<int> (range only) | empty `values` = no data; `series` counts returned series before filtering | no |
-| `Metrics\MetricReading` | `name`, `unit`, `current` ?float, `baseline` ?float, `state` (`ok\|no_data\|no_baseline\|ambiguous`), `series` int, `labels` list<string> (masked, <= 5) | `relativeChange()` null unless both numbers and `baseline > 0`; `absoluteChange()` null unless both | no |
+| `Metrics\MetricReading` | `name`, `unit`, `current` ?float, `baseline` ?float, `state` (`ok\|no_data\|no_baseline\|ambiguous`), `series` int, `labels` list<string> (allowlisted names only, <= 5; Normalizer-masked and dropped if the Normalizer changed it, then `Redactor::redactText`, null drops) | `relativeChange()` null unless both numbers and `baseline > 0`; `absoluteChange()` null unless both | no |
 | `Metrics\MetricsContext` | `readings` list<MetricReading>, `unavailable` bool | `names()`, `pairs()` for the compact payload; `line()` for the digest | no |
 | `Issues\IssueRecord` | `id` (digits), `title` (<= 300), `culprit` (<= 120), `level` (`Level`), `firstSeen`, `lastSeen`, `countInWindow` int >= 0, `isRegression` bool | exactly the allowlist (research R7); constructor rejects anything else by having no other parameter | no |
 | `Context\TraceIdCollector` | map fingerprint => `{id, time}` | one entry per fingerprint, earliest by event time; id matches `^[0-9a-f]{16,32}$` (stored lower-case) | **never** |
 | `Analyze\PayloadExtras` (shared with 010) | `metrics` ?MetricsContext, `endpoints` map fp => string | immutable; null/empty = no change to the payload | no |
-| `Notify\DigestExtras` (shared with 010) | `metricsLine` ?string, `metricsNote` ?string, `unavailable` map<`metrics\|sentry\|api_context`, failure token>, `endpointLines` map fp => string, `endpointsSkipped` int | all strings already masked; counts only otherwise | no |
+| `Notify\DigestExtras` (shared with 010) | `metricsLine` ?string, `metricsNote` ?string, `unavailable` map<`metrics\|sentry\|api_context`, failure token>, `sentryDropped` int, `endpointLines` map fp => string, `endpointsSkipped` int | all strings already masked; counts only otherwise | no |
 
 ## Synthetic problem groups
 

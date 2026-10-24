@@ -34,7 +34,7 @@ without them behaves exactly as today (Principle VI, VIII). A trace link builder
 
 ### User Story 1 - Metric deltas next to a log finding (Priority: P1)
 
-For each candidate group that maps to a declared service scope, the digest shows one context line with the error-rate and
+For each service with declared metrics (once per service, not per candidate group), the digest shows one context line with the error-rate and
 p95 latency for the window against the baseline window (for example "error rate 0.4% (was 0.1%), p95 820 ms (was 310 ms)"),
 read from the metrics backend by queries the Operator declared. The model receives the same numbers as part of its compact
 input.
@@ -48,14 +48,15 @@ model input contain the expected values, and a fake returning labelled series le
 
 1. **Given** a service with `metrics` queries declared, **When** a run has at least one log candidate, **Then** the digest
    shows one metrics line per service (not per group) with value, baseline value and relative change for each declared
-   metric, and the analyzer input carries the same numbers.
+   metric (all of them), and the analyzer input carries the same numbers for up to 3 metrics (the configuration allows 6;
+   the model input is capped at 3 by SC-002, the digest line is not).
 2. **Given** a query template with named placeholders (`{service}`, `{window}`, `{start}`, `{end}`, `{baseline_start}`,
    `{baseline_end}`), **When** it is executed, **Then** placeholders are replaced from configuration and the window only;
    no log content, template text or event field is ever substituted into a query.
 3. **Given** the backend returns a vector or matrix with labels, **When** the result is read, **Then** only the numeric
    sample values are kept; label names and values are discarded unless the Operator listed that label name in
    `metrics.label_allowlist`, in which case at most 5 distinct values per metric are kept, each passed through the
-   Normalizer.
+   Normalizer (dropped if the Normalizer changed it) and then the Redactor (dropped on null).
 4. **Given** the metrics backend is unreachable, rejects the credential or times out, **When** the run continues, **Then**
    the digest says "metrics unavailable" in one visible line, log findings are unaffected, and the exit status follows the
    existing failure rules for optional context.
@@ -68,8 +69,8 @@ model input contain the expected values, and a fake returning labelled series le
 
 ### User Story 2 - Metric anomalies that no log finding explains (Priority: P1)
 
-When a declared metric moved beyond its threshold versus the baseline and no log candidate of the same service in the same
-window is at level Error or above, the run produces a stand-alone "metric anomaly" candidate, so a silent latency
+When a declared metric moved beyond its threshold versus the baseline and no candidate (log or Sentry) of the same service
+in the same window is at level Error or above, the run produces a stand-alone "metric anomaly" candidate, so a silent latency
 regression is reported instead of dropped.
 
 **Why this priority**: it covers the case the logs cannot, which is the reason to read metrics at all.
@@ -83,7 +84,7 @@ the same metrics with an explaining error group produce none.
    exceeds baseline by the relative change and is above the floor, **Then** a candidate with reason `metric_anomaly` is
    created, its identity is the service plus the metric name (stable fingerprint), and it is selected by code, not by
    the model.
-2. **Given** a log candidate at Error or above exists for the same service and window, **When** selection runs, **Then**
+2. **Given** a candidate at Error or above (log or Sentry) exists for the same service and window, **When** selection runs, **Then**
    no stand-alone anomaly is created; the metric appears only as the context line (Story 1).
 3. **Given** an anomaly was reported yesterday and persists, **When** it recurs, **Then** the existing verdict-cache and
    grown/new rules apply to its fingerprint, so it is not re-analysed unless its numbers grew by the configured factor.
@@ -110,8 +111,8 @@ payload.
 **Acceptance Scenarios**:
 
 1. **Given** an issue list for the project and window, **When** it is read, **Then** per issue only these fields are
-   kept: Sentry issue id (for a link), the group fingerprint or hash, the title, culprit (function or module, masked), level,
-   event count in the window, first seen, last seen, status, and an `is_regression` flag; every other field is dropped at
+   kept: Sentry issue id (for a link), the group fingerprint (`sentry:{id}`), the title, culprit (function or module, masked), level,
+   event count in the window (sum of the `stats` buckets that overlap the window), first seen, last seen, status, and an `is_regression` flag; every other field is dropped at
    the boundary.
 2. **Given** a title, **When** it is converted to a group, **Then** it goes through the Normalizer and Redactor exactly as a
    log message does, including the same per-cluster withholding rule, and the Sentry fingerprint becomes the group
@@ -155,8 +156,8 @@ proves a trace id never reaches the model input.
 ### Edge Cases
 
 - A query returns NaN, Inf, or an empty vector: treated as "no data", never as zero.
-- A query returns more than one series: the declared `aggregate` (default `sum` for rates, `max` for latency) is applied
-  in code; if undeclared and more than one series returns, the metric is reported as "ambiguous" and skipped.
+- A query returns more than one series: the declared `aggregate` is applied in code. There is no implicit default; if
+  undeclared and more than one series returns, the metric is reported as "ambiguous" and skipped.
 - A range query would return more than `metrics.max_points` samples (default 500): the call is refused client-side by step
   selection; the response is never larger than that.
 - The query text itself contains a secret or customer label: query text is configuration; it is validated at start but is
@@ -164,6 +165,10 @@ proves a trace id never reaches the model input.
 - Prometheus is reached through the Grafana datasource proxy: the same queries run through the proxy path with the
   Grafana token; nothing else about behaviour changes.
 - Sentry returns a title longer than the line cap: it is cut to the cap before masking (same rule as log lines).
+- The window ends outside the Sentry stats period (24h hourly buckets, 14d daily buckets, relative to now): windowed counts
+  would be wrong, so the source is unavailable (`window_too_old`) and the digest says "Sentry unavailable (window_too_old)".
+- A Sentry issue with missing or malformed `stats`, or an unparseable title, is dropped, never guessed; the digest states
+  "N Sentry issues dropped".
 - Sentry marks an issue ignored or resolved: resolved and ignored issues are not candidates.
 - Two metrics fire for one service in the same run: they form two candidates (distinct fingerprints), subject to
   `max_anomalies`.
@@ -186,13 +191,14 @@ proves a trace id never reaches the model input.
   output MAY be substituted into a query.
 - **FR-004**: A metric result MUST be reduced to a single number per window by the declared `aggregate` (`sum`, `max`,
   `avg`, `last`); label names and values MUST be discarded, except labels named in `metrics.label_allowlist` (at most 5
-  distinct values per metric, each Normalizer-masked).
+  distinct values per metric, each Normalizer-masked and then Redactor-checked; a value the Normalizer changed or the
+  Redactor nulls is dropped).
 - **FR-005**: For each declared metric the package MUST compute current value, baseline value, absolute and relative
   change; a missing baseline yields "no baseline" and no relative change.
 - **FR-006**: The digest MUST show at most one metrics line per service, and the analyzer input MUST carry the same numbers
   in the compact form (a single array of numbers per metric, names sent once).
 - **FR-007**: A metric whose relative change and absolute floor are both exceeded MUST become a `metric_anomaly` candidate
-  when no log candidate of the same service at Error or above exists in the window; selection MUST be by code only.
+  when no candidate (log or Sentry) of the same service at Error or above exists in the window; selection MUST be by code only.
 - **FR-008**: A `metric_anomaly` candidate MUST have a stable fingerprint derived from the service and metric name, use the
   existing verdict cache, and be capped by `metrics.max_anomalies` (default 3) with the truncation stated.
 - **FR-009**: Metrics failure (unreachable, auth, timeout, malformed response) MUST produce a visible line in the digest and
@@ -208,11 +214,13 @@ proves a trace id never reaches the model input.
   assignee.
 - **FR-012**: A Sentry title and culprit MUST pass through the Normalizer and the Redactor with the same rules and the same
   per-cluster withholding as log messages; any error or unparseable value MUST be dropped (Principle I).
-- **FR-013**: The group fingerprint MUST be `sentry:` plus Sentry's own group hash or id, and MUST NOT be recomputed from
+- **FR-013**: The group fingerprint MUST be `sentry:` plus Sentry's own group id (`sentry:{id}`), and MUST NOT be recomputed from
   the title; the package MUST NOT merge Sentry groups with log groups.
 - **FR-014**: Sentry groups MUST enter the existing selector, so new, grown and level rules, top-N, mute list and budgets
   apply unchanged; resolved and ignored issues MUST be excluded.
-- **FR-015**: Sentry unavailability MUST produce a visible notice and MUST NOT fail the log path.
+- **FR-015**: Sentry unavailability MUST produce a visible notice and MUST NOT fail the log path. Issues dropped for missing
+  or malformed data MUST be counted in a digest note ("N Sentry issues dropped"). A window outside the stats period is
+  `window_too_old`.
 
 **Trace links**
 
@@ -220,8 +228,9 @@ proves a trace id never reaches the model input.
   tags, the window and, when present, a trace id; it MUST NOT call the tracing backend.
 - **FR-017**: A trace id MUST be accepted only if it matches `^[0-9a-f]{16,32}$` (case-insensitive) and MUST be kept at most
   once per group, in memory, for link building only.
-- **FR-018**: A trace id MUST NOT appear in any model input, in any persisted state, or in any notifier payload except as a
-  part of the link URL.
+- **FR-018**: A validated trace id MAY leave the service ONLY inside the link URL of the digest (owner decision D5); it
+  comes from the raw `LogEvent::$fields` and MUST NOT appear in any model input, persisted state, `--json` output, log or
+  notice, or in any other part of a notifier payload.
 
 **Cross-cutting**
 
@@ -251,7 +260,8 @@ proves a trace id never reaches the model input.
   user, tag and breadcrumb fields; trace ids), 0 seeded values appear in any model input, notifier payload, persisted state
   or `--json` output, other than inside a trace link URL for a valid trace id.
 - **SC-002**: With metrics configured, a run adds at most 2 queries per declared metric (current and baseline, or one range
-  query), and the metric context adds at most 60 input tokens per service and 0 output tokens when no anomaly exists.
+  query), and the metric context adds at most 60 input tokens per service (up to 3 metrics reach the model, 20 tokens each) and 0 output
+  tokens when no anomaly exists.
 - **SC-003**: A synthetic latency regression with an empty error log window produces exactly one metric-anomaly entry; the
   same data with an explaining error group produces none (selection table test).
 - **SC-004**: With Sentry enabled, a run adds at most 1 issue-list request per page and at most `sentry.max_issues` (default
@@ -300,4 +310,15 @@ proves a trace id never reaches the model input.
 
 ## Owner decisions (2026-10-24)
 
-The new field classes (metric numbers, masked Sentry titles) are additions to the allowlist, not an amendment: each passes the Normalizer and the caps and gets a privacy-corpus test. Defaults confirmed: Sentry issues and log groups stay separate entries; no shipped metric queries; baseline is the previous window until spec 004 modes apply; a metric anomaly only when no Error-or-above log candidate exists, at most 3 per run.
+The new field classes (metric numbers, masked Sentry titles) are additions to the allowlist, not an amendment: each passes the Normalizer and the caps and gets a privacy-corpus test. Defaults confirmed: Sentry issues and log groups stay separate entries; no shipped metric queries; baseline is the previous window until spec 004 modes apply; a metric anomaly only when no Error-or-above candidate (log or Sentry) exists, at most 3 per run.
+
+**D5 (trace id egress, resolved at planning by the owner's delegate: approved)**: a validated trace id may leave the service only inside the link URL of the digest; it is read from raw `LogEvent::$fields` and appears nowhere else (Principle I).
+
+## Amended 2026-10-24 (planning review)
+
+- US1 intro, AC1, AC3: metrics line once per service; model input carries up to 3 metrics; label values pass Normalizer and Redactor.
+- US2 intro, AC2, FR-007: explaining candidate is "at Error or above (log or Sentry)".
+- US3 AC1: `sentry:{id}`, windowed count wording (buckets overlapping the window).
+- Edge cases: no implicit aggregate default; `window_too_old`; dropped Sentry issues are counted and stated.
+- FR-004: two label layers. FR-015: dropped-issues note, `window_too_old`. FR-018: D5 wording.
+- SC-002: up to 3 metrics reach the model.

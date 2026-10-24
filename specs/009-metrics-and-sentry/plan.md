@@ -44,8 +44,8 @@ and recorded Guzzle fixtures under `tests/Fixtures/prometheus/`, `tests/Fixtures
 
 | Principle | Gate | Result |
 |---|---|---|
-| I. Privacy fails closed | New field classes are allowlisted additions (owner decision 2026-10-24): metric numbers (floats), Sentry masked title/culprit/level/counts/times. Prometheus labels dropped at the adapter boundary unless allowlisted (max 5 values, Normalizer-masked). Sentry reader picks 9 named keys and discards the rest. Sentry text goes through `Normalizer` + `Redactor` (two layers, same withholding rule). Trace id kept in memory only, validated by regex. Privacy corpus extended **before** any renderer or payload change (T006; trace cases T040). Any parse/type error drops the value. | Pass |
-| II. Read-only | Prometheus: `GET`/form-`POST` to `/api/v1/query` and `/api/v1/query_range` only. Sentry: `GET` of the project issue list only. Trace links never called. Architecture tests pin the endpoint allowlists (T008, T027, T041). | Pass |
+| I. Privacy fails closed | New field classes are allowlisted additions (owner decision 2026-10-24): metric numbers (floats), Sentry masked title/culprit/level/counts/times. Prometheus labels dropped at the adapter boundary unless allowlisted (max 5 values, Normalizer-masked). Sentry reader picks 10 named keys and discards the rest. Sentry text goes through `Normalizer` + `Redactor` (two layers, same withholding rule). Trace id kept in memory only, validated by regex; it leaves the service only inside the digest link URL (owner decision D5), read from raw `LogEvent::$fields`. Metric label values pass two layers (Normalizer unchanged, then `Redactor::redactText`). Privacy corpus extended **before** any renderer or payload change (T006; trace cases T040). Any parse/type error drops the value. | Pass |
+| II. Read-only | Prometheus: `GET`/form-`POST` to `/api/v1/query` and `/api/v1/query_range` only. Sentry: `GET` of the project issue list only. Trace links never called. Architecture tests pin the endpoint allowlists (T008, T027). | Pass |
 | III. Test-first | Each implementation task is preceded by a red test task; HTTP faked. Selection table test (SC-003), privacy corpus (SC-001), token-budget fixture (SC-002/4/5), failure e2e (SC-006), golden URLs (SC-007). | Pass |
 | IV. Code decides | Anomaly selection, thresholds, aggregation, Sentry new/grown/level and link building are code. Model sees numbers/masked text only; its causes stay hypotheses. Prompt addendum states metric numbers are measurements, not causes. | Pass |
 | V. Token discipline | Metric context <= 60 input tokens per service (cut to fit), 0 output tokens without anomaly; <= 3 extra candidates; Sentry groups share top-N and budget; links 0 tokens. Increase stated in Token Budget Impact and pinned by fixtures (T048). Metric context is dropped first when the step budget would be exceeded. | Pass |
@@ -54,15 +54,16 @@ and recorded Guzzle fixtures under `tests/Fixtures/prometheus/`, `tests/Fixtures
 | VIII. Simplicity | Two optional interfaces each with a real second reason (Prometheus vs Grafana-proxied is one class with a path prefix; the interfaces exist because the spec names them as extension points and tests need fakes). `TraceLinkBuilder` is a concrete class. No new dependency. Range mode is the only speculative corner and is single-series only (R3). | Pass |
 
 **Four-contract principle**: unchanged. `MetricSource` and `IssueSource` are optional siblings found through
-`Factory` (null when the section is absent) and passed to `Watcher` as nullable constructor arguments, like `ModelCatalog`.
+`Factory` (null when the section is absent) and passed to `Watcher` as nullable constructor arguments (`Watcher::__construct` has no `ModelCatalog` parameter to copy; `Watcher::fromConfig` builds them through `Factory`).
 
 **Spec drift / ambiguity recorded**
-1. Spec edge case says default aggregate `sum` for rates and `max` for latency, but the metric definition has no
-   "kind". Resolved in R3: no implicit default; `aggregate` omitted + more than one series = `ambiguous` (the same outcome
+1. Spec edge case said default aggregate `sum` for rates and `max` for latency, but the metric definition has no
+   "kind" (spec amended). Resolved in R3: no implicit default; `aggregate` omitted + more than one series = `ambiguous` (the same outcome
    the edge case describes), examples in docs show `sum` and `max` explicitly.
 2. Spec US3 calls for "the group fingerprint or hash"; the issue-list endpoint returns the group **id** and no hash.
    Fingerprint is `sentry:{id}` (FR-013 allows "hash or id"). See R7.
 3. Spec asks for the event count "in the window"; the issue list's `count` is lifetime. See R7 and owner decision D1.
+4. Spec once said "group hash" for the Sentry fingerprint (now `sentry:{id}`) and "log candidate" for the anomaly explainer (now "candidate at Error or above, log or Sentry"); spec amended inline.
 
 ## Project Structure
 
@@ -99,7 +100,9 @@ src/
 ├── Analyze/Budget.php                   # fitMetrics (drop metric context first); prompts/ (1 sentence)
 ├── Notify/DigestData.php, DigestRenderer.php   # [shared hot] one trailing `?DigestExtras`; metrics line, Sentry/trace links
 ├── Notify/DigestExtras.php (new; shared with spec 010)
-├── Operate/Doctor.php                   # [shared hot] + metrics, sentry checks
+├── Operate/Doctor.php                   # [shared hot] + metrics, sentry checks (also `Doctor::NAMES` and `CheckReport` consumers)
+├── Fleet/FleetRunner.php                # builds `new Watcher(...)` positionally (line 72): pass MetricSource/IssueSource so fleet runs get metrics, Sentry, trace links
+├── Fleet/FleetCheck.php                 # builds `new Doctor(...)` (line 37): pass the sources so fleet `check` rows include metrics/sentry
 ├── Operate/RunStats.php, JsonSummary.php        # + counts
 ├── State/Keys.php                       # unchanged (no new kind)
 ├── Config/WatchConfig.php               # [shared hot] metrics, sentry sections; links.tempo, links.datadog_apm
@@ -116,7 +119,7 @@ tests/
 
 **Structure Decision**: same single library. `src/Watcher.php`, `src/Config/Factory.php`, `src/Config/WatchConfig.php`,
 `src/Notify/DigestData.php|DigestRenderer.php`, `src/Operate/Doctor.php`, `src/Analyze/CompactPayload.php` are hot files
-shared by stories and by spec 010; tasks serialise them with the `[W] [F] [C] [D] [K] [P]` markers.
+shared by stories and by spec 010; tasks serialise them with the `[W] [F] [C] [D] [K] [B] [R]` markers (`[R]` = `RunStats`/`JsonSummary`/`PayloadExtras`).
 
 ## Wiring in `Watcher::attempt()` (the three insertion points)
 
@@ -124,7 +127,7 @@ shared by stories and by spec 010; tasks serialise them with the `[W] [F] [C] [D
 |---|---|---|
 | after `$groups = $reducer->reduce($events)` | `Watcher.php:548` | append `IssueGroupBuilder` groups (when `IssueSource` set) before the `$allGroups = $groups` copy; read Sentry before this point, inside try/catch -> `unavailable` |
 | after `$selection = (new Selector())->select(...)` | `Watcher.php:595` | read metrics; `MetricAnomalies` adds candidates to the list **before** the `reported` filter loop; add anomaly groups to `$allGroups` for the snapshot |
-| `$links[$g->fingerprint] = [...]` loop | `Watcher.php:714` | add `'trace'` and `'sentry'` link entries; pass `DigestExtras` as the last `DigestData` argument |
+| `$links[$g->fingerprint] = [...]` loop | `Watcher.php:719` | add `'trace'` and `'sentry'` link entries; pass `DigestExtras` as the last `DigestData` argument |
 
 First run (`$comparison->isBaseline()`): Sentry groups are in `$allGroups` (so they are in the snapshot); no metrics read,
 no anomaly (nothing to compare with).
