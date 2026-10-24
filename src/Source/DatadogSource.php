@@ -37,7 +37,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     private readonly Retry $retry;
     private readonly ClockInterface $clock;
     private bool $truncated = false;
-    private readonly LineParser $parser;
+    private LineParser $parser;
 
     /** @param (callable(int): void)|null $sleeper receives whole seconds to wait between retries; defaults to sleep() */
     public function __construct(
@@ -87,6 +87,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): Generator
     {
         $this->truncated = false;
+        $this->parser = new LineParser();
         $query = $this->tagQuery($selector) . $this->readQuery($filter);
         $cursor = null;
         $kept = 0;

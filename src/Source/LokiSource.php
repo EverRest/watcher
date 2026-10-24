@@ -37,8 +37,6 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private readonly Retry $retry;
     private bool $truncated = false;
     private LineParser $parser;
-    /** @var array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int} counts of the parsers `lines()` has already replaced */
-    private array $folded = ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0];
 
     /**
      * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words (misses
@@ -97,7 +95,6 @@ final class LokiSource implements LogSource, ReadDiagnostics
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): Generator
     {
         $this->truncated = false;
-        $this->folded = $this->readDiagnostics();
         $this->parser = new LineParser();
         $labelled = $this->levelMode === 'label' && $filter->watchPatterns === [];
         $query = $this->selector($selector, $labelled ? $this->levelMatcher($filter) : '') . $this->lineFilter($filter);
@@ -160,13 +157,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
 
     public function readDiagnostics(): array
     {
-        $now = $this->parser->diagnostics();
-
-        return [
-            'unknown_levels' => $this->folded['unknown_levels'] + $now['unknown_levels'],
-            'orphan_trace_lines' => $this->folded['orphan_trace_lines'] + $now['orphan_trace_lines'],
-            'message_tails_dropped' => $this->folded['message_tails_dropped'] + $now['message_tails_dropped'],
-        ];
+        return $this->parser->diagnostics();
     }
 
     public function lastReadTruncated(): bool
