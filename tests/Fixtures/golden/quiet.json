@@ -1,0 +1,155 @@
+{
+    "result": {
+        "outcome": "quiet",
+        "failureReason": null,
+        "usage": null,
+        "summary": {
+            "@Watcher\\Operate\\RunSummaryData": {
+                "outcome": "quiet",
+                "service": "svc",
+                "reason": null,
+                "windowStart": "2026-10-08T06:00:00+00:00",
+                "windowEnd": "2026-10-09T06:00:00+00:00",
+                "stats": {
+                    "@Watcher\\Operate\\RunStats": {
+                        "eventsRead": 0,
+                        "groups": 0,
+                        "candidates": 0,
+                        "findings": 0,
+                        "calls": {
+                            "triage": 0,
+                            "analyze": 0,
+                            "escalate": 0
+                        },
+                        "tokensIn": 0,
+                        "tokensOut": 0,
+                        "tokensCached": 0,
+                        "costUsd": 0,
+                        "durationMs": 0,
+                        "pages": null
+                    }
+                },
+                "todayUsd": null,
+                "release": null,
+                "dryRun": false,
+                "environment": null
+            }
+        },
+        "summaryLine": "outcome=quiet",
+        "exitCode": 0
+    },
+    "sent": [
+        {
+            "text": "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.",
+            "sections": [
+                {
+                    "kind": "notice",
+                    "text": "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run."
+                }
+            ],
+            "to": {
+                "driver": "slack",
+                "secrets": "[redacted]"
+            }
+        }
+    ],
+    "attempts": 1,
+    "printed": "",
+    "writes": [
+        [
+            "acquire",
+            "lock:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "snap:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "snap:svc:last"
+        ],
+        [
+            "put",
+            "run:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "release",
+            "lock:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "hb:svc"
+        ],
+        [
+            "increment",
+            "hbweek:svc:2026-W41:quiet"
+        ]
+    ],
+    "state": {
+        "snap:svc:2026-10-08T06%3A00%3A00Z": {
+            "groups": {
+                "3ba2fceef742": 5
+            },
+            "totals": {
+                "error": 5
+            },
+            "deploy": {
+                "release": null,
+                "commit": null
+            },
+            "start": "2026-10-07T06:00:00Z"
+        },
+        "snap:svc:last": {
+            "end": "2026-10-09T06:00:00Z"
+        },
+        "run:svc:2026-10-08T06%3A00%3A00Z": {
+            "outcome": "baselined",
+            "usage": null,
+            "startedAt": "2026-10-08T06:00:00+00:00",
+            "finishedAt": "2026-10-08T06:00:00+00:00"
+        },
+        "hb:svc": {
+            "v": 1,
+            "service": "svc",
+            "finishedAt": "2026-10-09T06:00:00+00:00",
+            "outcome": "quiet",
+            "reason": null,
+            "windowStart": "2026-10-08T06:00:00+00:00",
+            "windowEnd": "2026-10-09T06:00:00+00:00",
+            "durationSeconds": 0,
+            "costUsd": 0,
+            "lastOkAt": "2026-10-09T06:00:00+00:00"
+        },
+        "hbweek:svc:2026-W41:baselined": {
+            "total": 1
+        },
+        "snap:svc:2026-10-09T06%3A00%3A00Z": {
+            "groups": [],
+            "totals": [],
+            "deploy": {
+                "release": null,
+                "commit": null
+            },
+            "start": "2026-10-08T06:00:00Z"
+        },
+        "run:svc:2026-10-09T06%3A00%3A00Z": {
+            "outcome": "quiet",
+            "usage": null,
+            "startedAt": "2026-10-09T06:00:00+00:00",
+            "finishedAt": "2026-10-09T06:00:00+00:00"
+        },
+        "hbweek:svc:2026-W41:quiet": {
+            "total": 1
+        }
+    },
+    "ttls": {
+        "snap:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "snap:svc:last": 2592000,
+        "run:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "hb:svc": 7776000,
+        "hbweek:svc:2026-W41:baselined": 1123200,
+        "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
+        "run:svc:2026-10-09T06%3A00%3A00Z": 2592000,
+        "hbweek:svc:2026-W41:quiet": 1209600
+    }
+}
