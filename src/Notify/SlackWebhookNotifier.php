@@ -26,7 +26,7 @@ final class SlackWebhookNotifier implements Notifier
 
         // Checked here too (not only by `watcher check`): a malformed URL must never reach the client, whose messages echo it.
         if ($to->invalidKey() !== null) {
-            throw new DeliveryFailed('slack delivery failed: invalid webhook URL (https, a host and no credentials are required)');
+            throw new DeliveryFailed('slack delivery failed: invalid destination URL (https, a host and no credentials are required)');
         }
 
         try {
