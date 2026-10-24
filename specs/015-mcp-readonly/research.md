@@ -88,7 +88,7 @@ record lists the findings of a run**, and nothing indexes verdicts by run. The d
 ## R4. Enforcing "read-only"
 
 Principle II forbids writes other than "posting to the notifier and writing its own state"; this server does neither.
-Options: (a) code review; (b) a `ReadOnlyStateStore` decorator whose mutators throw; (c) open the backing store read-only
+Options: (a) code review; (b) a `ReadOnlyStateStore` decorator whose mutators (`put`, `increment`, `acquire`, `release`) throw; (c) open the backing store read-only
 at the driver (Redis ACL, SQL `SELECT` role, read-only mount).
 
 - **Decision**: (b) as the guarantee in code, tested with a store whose mutators throw; (c) as documented hardening in the
@@ -96,19 +96,19 @@ at the driver (Redis ACL, SQL `SELECT` role, read-only mount).
 - **File driver**: it writes lazily and purges on write; the decorator sits above it and a read of an expired file must
   not delete it. T015 runs the shared state-store contract suite against the read-only variant; a driver that cannot read
   without side effects is refused at start (FR-012).
-- **Dry run and the lock.** Spec 002 says a dry run leaves no lock and writes no state, reading real state. The dry run
-  runs on `BufferedStateStore` over the read-only store: writes land in memory and vanish. T016 proves a dry run completes
-  when the underlying store throws on write. If the pipeline `acquire`s through the real store, that is a defect in 002
+- **Dry run and the lock.** Spec 002 says a dry run leaves no lock and writes no state, reading real state. A dry run
+  already wraps the store in `DryRunStateStore`, which swallows every write, lock and counter; the read-only store sits
+  under it. T016 proves a dry run completes when the underlying store throws on write. If the pipeline `acquire`s through the real store, that is a defect in 002
   to fix first (plan.md risks).
 
 ## R5. Dry run and money
 
 Facts (spec 002): a dry run makes **real, billed** model calls and **does not record spend**; `--estimate` makes none and
-prints per-step estimates, the analyze step an upper bound (all top-M). A check against stored spend alone cannot stop
+prints per-step estimates, the analyze step an upper bound (all top-M) and the escalation step **not estimated** ("up to N groups"). A check against stored spend alone cannot stop
 repeated calls, because each dry run leaves the store unchanged.
 
 - **Decision**: `confirm_cost: true` is mandatory for a run that calls a model. Then, in order: (1) `Spend::exhausted` ->
-  refuse; (2) run the estimate path (no model call); (3) refuse if the upper bound exceeds `daily_budget_usd` minus stored
+  refuse; (2) run the estimate path (no model call); (3) add an escalation allowance (`escalation_cap` groups at the escalation model's worst-case price, from the configured prices and `max_output_tokens`; unknown price -> refuse) and refuse if the upper bound exceeds `daily_budget_usd` minus stored
   spend minus the **in-process counter**; (4) run; (5) add the upper bound (the actual cost is unknown to the guard and can
   only be lower) to the counter. The counter resets when the assistant restarts the server: the same bound as a human
   re-running `watcher run --dry-run`, and it is stated as such. `daily_token_limit` is checked the same way.
@@ -132,6 +132,18 @@ stores aggregated counters. The tool reads that record through a small `HygieneS
 implementation returns `available: false` (`hygiene_not_enabled`); the tool and contract are stable and 006 fills it in.
 This avoids blocking 015 on 006 and avoids a stub that pretends. The seam exists because the spec names two states (006
 present, absent), not for flexibility.
+
+## R5a. A dry run prints to stdout
+
+`Watcher` writes the dry-run digest and the estimate table through an injectable output callable that defaults to
+`fwrite(STDOUT)` (`src/Watcher.php`, constructor). In the MCP server stdout is the protocol channel, so one stray digest
+would corrupt it. The server passes a discarding closure; T016 asserts stdout holds only protocol lines across a dry run.
+Structured results come from the run result (summary, last-report record, estimate figures), not from the printed text.
+
+## R5b. Master switch
+
+Spec 012: with `enabled` false `run` does nothing and `status` reports `disabled`. The server follows the same rule
+(FR-007) so a disabled install is not probed through a side door.
 
 ## R8. In-process classes, not subprocesses
 

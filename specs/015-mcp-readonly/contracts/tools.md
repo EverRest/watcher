@@ -34,7 +34,7 @@ two in step with the code (T004).
 Errors: `data` is replaced by `"error": "<code>"` and `"message": "<fixed sentence>"`. Closed set of codes:
 `state_unavailable`, `cost_not_confirmed`, `daily_limit_reached`, `would_exceed_daily_limit`, `busy`, `internal_error`.
 Absence of data is not an error: `data.available: false` with `reason` in
-`no_report`, `hygiene_not_enabled` (and `found: false` for `watcher_finding`).
+`no_report`, `hygiene_not_enabled`, `disabled` (and `found: false` for `watcher_finding`).
 
 Field classes: **typed** (validated; null on mismatch) and **text** (`x-text`: scanned, filtered, capped; see FR-022).
 `"truncated": true` appears in `data` when findings were dropped for size.
@@ -45,7 +45,7 @@ Input: none. Output `data`:
 
 | Field | Class | Form |
 |---|---|---|
-| `state` | typed | `ok`, `stale`, `failed`, `unknown` (as `watcher status`) |
+| `state` | typed | `ok`, `stale`, `failed`, `unknown`, `disabled` (as `watcher status`) |
 | `last_run` | object or null | `outcome` (enum), `at`, `duration_seconds` (int), `cost_usd` (float), `reason` (**text**, cap 200, the masked heartbeat warning) |
 | `last_ok_at`, `last_trigger_at`, `now` | typed | ISO-8601 UTC `Z` or null |
 | `age_seconds`, `limit_seconds` | typed | int or null |
@@ -93,9 +93,8 @@ Description (static): "Runs the full pipeline once without posting or storing an
 unless estimate_only is true. Requires confirm_cost=true and is refused when it would exceed the daily limit."
 
 Order of checks (each refusal makes zero model calls, SC-004): arguments valid -> `busy` -> (full run only)
-`confirm_cost === true` else `cost_not_confirmed` -> `daily_limit_reached` -> estimate -> `would_exceed_daily_limit`
+`confirm_cost === true` else `cost_not_confirmed` -> `daily_limit_reached` -> estimate + escalation allowance -> `would_exceed_daily_limit`
 -> run. Refusals carry `spend_today` and, for `would_exceed_daily_limit`, `estimate_usd` and `remaining_usd`.
 
 Output `data` (estimate only): `estimate`: per step `{step, groups, tokens_in, tokens_out_max, cost_usd}` and `total_usd`.
-Output `data` (full run): the `watcher_latest_report` shape with `dry_run: true`, plus `estimate_usd` (the upper bound
-added to the session counter). The rendered digest text is not returned.
+Output `data` (full run): the `watcher_latest_report` shape with `dry_run: true`, plus `estimate_usd` (the upper bound including the escalation allowance, added to the session counter). The rendered digest text is not returned.

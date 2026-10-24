@@ -22,9 +22,9 @@ or rebase on them):
 | 1 | T017 | `src/Analyze/OutputValidator.php` (extract the command filter) |
 | 2 | T018 | `src/Config/WatchConfig.php`, `src/Config/Factory.php` |
 | 3 | T020 | `src/State/Keys.php` |
-| 4 | T021 | `src/Watcher.php` |
+| 4 | T021 | `src/Watcher.php`, `src/Operate/EstimatingAnalyzer.php` (accessor for the figures) |
 | 5 | T022 | `src/Operate/Doctor.php` |
-| 6 | T019 | `src/Cli/Application.php` (+ Laravel adapter command) |
+| 6 | T019 | `src/Cli/Application.php`, `src/Laravel/McpCommand.php`, `src/Laravel/WatcherServiceProvider.php` |
 
 Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by this spec.
 
@@ -70,11 +70,11 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   a string and the decoded structure equals the typed array); 16 KB cap drops findings from the end and sets
   `truncated`, never cuts inside a string; errors use only the closed codes and fixed messages. Then `src/Mcp/Envelope.php`. (FR-020, FR-025, FR-026)
 - [ ] T007 [P] [US4] `tests/Unit/Mcp/ReadOnlyStateStoreTest.php` (red): `get` passes through; `put`, `increment`, `acquire`,
-  `release`, `delete`, purge each throw `ReadOnlyViolation`; the exception message holds no key or value. Then
+  `release` each throw `ReadOnlyViolation` (the interface has no others) and the class is not `Purgeable`; the exception message holds no key or value. Then
   `src/Mcp/ReadOnlyStateStore.php`. (FR-010)
 - [ ] T008 [P] [US5] `tests/Unit/Mcp/DryRunGuardTest.php` (red), a table: no confirm / `confirm_cost` as string `"true"`, `1`,
   `null` -> `cost_not_confirmed`; exhausted spend -> `daily_limit_reached`; estimate above remaining ->
-  `would_exceed_daily_limit`; estimate within remaining -> allowed and the counter grows by the upper bound;
+  `would_exceed_daily_limit`; the escalation allowance is added (a fixture where triage+analyze fit but escalation does not -> refused); an escalation model without a price -> refused; estimate within remaining -> allowed and the counter grows by the upper bound;
   N allowed runs never exceed the starting remaining (SC-005); token limit handled the same way; `busy` while running
   and cleared after an exception; `estimate_only` needs no confirmation and does not touch the counter. Fake `Spend` and
   estimator. Then `src/Mcp/DryRunGuard.php`. (FR-035, SC-004, SC-005)
@@ -100,7 +100,9 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   writes only to the buffer and the real store is untouched; the record contains no template, line, value, frame, path
   (privacy corpus: seeded values absent from the stored JSON); an unwritable store does not change the outcome (existing
   rule: state faults are logged, run result unchanged). Then `Watcher` builds the record from the values the digest uses
-  (or from 013's `RunObservation` when merged) and writes it with one `put`. (FR-050, O1)
+  (or from 013's `RunObservation` when merged), writes it with one `put` on a real run and, in a dry run, returns it on the
+  run result without writing; `EstimatingAnalyzer` gets a read accessor for the per-step figures that `printEstimate` prints
+  (test: the accessor equals the printed table). (FR-050, FR-036, O1)
 - [ ] T022 [US1] **Touches `src/Operate/Doctor.php`.** Additions to the doctor tests (red): with `readOnly: true` the
   `state` check performs no `put`, `increment`, `acquire` (a throwing store passes) and reports `read-only probe`, an
   unreadable store `unreadable`; with `readOnly: false` behaviour is byte-identical to today; no `--post-test` path is
@@ -108,12 +110,12 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 - [ ] T019 [US1] **Touches `src/Cli/Application.php` and the Laravel adapter.** `tests/Unit/Cli/McpCommandTest.php` (red):
   `mcp` accepts `--config` only (every other option exit 2); invalid config exits 2 with a stderr line naming the setting
   and an empty stdout (SC-007); a `fleet` config is a usage error; the file state driver that cannot be opened read-only
-  is refused with a message (FR-012); stdin EOF exits 0; the adapter registers `watcher:mcp`. Then `src/Mcp/McpCommand.php`
+  is refused with a message (FR-012); stdin EOF exits 0; the adapter registers `watcher:mcp` (`src/Laravel/McpCommand.php`, provider). Then `src/Mcp/McpCommand.php`
   and the wiring. (FR-006, FR-012)
 
 ## Phase 3: Tools and end-to-end
 
-- [ ] T010 [US1] `tests/Unit/Mcp/StatusToolTest.php` (red): healthy, stale, failed and unknown heartbeats map to the
+- [ ] T010 [US1] `tests/Unit/Mcp/StatusToolTest.php` (red): master switch off and `heartbeat.enabled` off -> `disabled` with a spy store seeing no call, other tools `available:false / disabled` (FR-007); healthy, stale, failed and unknown heartbeats map to the
   `state` values and exit semantics of `watcher status`; spend and remaining figures; `last_run.reason` is a text field
   (hostile reason -> filtered, capped at 200); an unreadable store -> `state_unavailable`. Then `Tools/StatusTool.php`. (FR-030, US1 AC1-AC2)
 - [ ] T011 [US1] `tests/Unit/Mcp/CheckToolTest.php` (red; depends on T022): the seven checks in order; a fake notifier is
@@ -142,7 +144,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   of T008 and in `estimate_only`; one confirmed run returns the report shape with `dry_run: true` and `estimate_usd`, no
   rendered digest text, nothing posted (fake notifier), the real store byte-identical; the second call is refused when
   the first consumed the remaining budget; the tool is absent from `tools/list` and `-32602` on call when
-  `mcp.dry_run` is false. Then `Tools/DryRunTool.php` calling `Watcher` with `RunOptions(dryRun: true)`. If the pipeline
+  `mcp.dry_run` is false. Also: stdout holds only protocol lines across a dry run and an estimate (the `Watcher` output callable is a discarding closure; assert with a captured `STDOUT` stand-in), and the structured result comes from the run result, never from printed text. Then `Tools/DryRunTool.php` calling `Watcher` with `RunOptions::dryRun()`. If the pipeline
   writes through the real store, stop and report: it is a spec 002 defect (plan risk 1). (FR-035, FR-036, US5, SC-004)
 - [ ] T023 [US6] Wire `HygieneTool` into the registry and add the contract entry once spec 006 defines its report
   (`tools.schema.json`, `tools.md`). Until then `available: false` only (T009). (FR-034)

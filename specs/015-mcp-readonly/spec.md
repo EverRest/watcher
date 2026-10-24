@@ -48,7 +48,10 @@ No write method of the store was called (a throwing store proves it).
 1. **Given** a heartbeat from 3 hours ago and a 36 hour limit, **When** `watcher_status` is called, **Then** it returns
    `state: ok`, the last outcome, duration, cost, `age_seconds`, `limit_seconds`, the last trigger time and today's spend
    with the configured daily budget and remaining amount.
-2. **Given** no heartbeat record, **Then** `state: unknown` and no error (same vocabulary as `watcher status`).
+2. **Given** the master switch `enabled` is false (spec 012), **Then** `watcher_status` reports `state: disabled` and every
+   other tool returns `available: false, reason: disabled`, with no state, source or provider access; with
+   `heartbeat.enabled` false `watcher_status` also reports `disabled` (as `watcher status` does).
+2b. **Given** no heartbeat record, **Then** `state: unknown` and no error (same vocabulary as `watcher status`).
 3. **Given** `watcher_check` is called, **Then** the doctor checks run in the same order and vocabulary as
    `watcher check`, the `state` check proves reads only (no probe key is written), nothing is posted, and no model call
    is made.
@@ -73,7 +76,7 @@ never appears.
    kind, status and title.
 2. **Given** a fingerprint of a stored finding, **When** `watcher_finding` is called with it, **Then** the finding's
    title, evidence, suspected cause, suggested action, how-to-check, related checks, confidence, whether it escalated,
-   first and last reported times and counts are returned, plus a **mute suggestion** built by code from the fingerprint
+   the last reported time and the count at that report are returned, plus a **mute suggestion** built by code from the fingerprint
    (text only, never applied).
 3. **Given** a fingerprint that is malformed (not 12 lowercase hex characters), **Then** the call fails with an
    invalid-params error before any store access.
@@ -153,7 +156,9 @@ happens; with it, the daily limit is checked first; an estimate over the remaini
 3. **Given** `confirm_cost: true` and the daily budget or token limit already exhausted (`Spend::exhausted`), **Then**
    the result is `daily_limit_reached` with today's figures, and no model call is made.
 4. **Given** `confirm_cost: true`, **When** the estimate's upper-bound cost exceeds the remaining daily budget (after
-   subtracting what dry runs in this process have already been allowed), **Then** `would_exceed_daily_limit` with the
+   subtracting what dry runs in this process have already been allowed); the upper bound includes the escalation step
+   (the estimate leaves it out: `escalation_cap` groups at the escalation model's worst-case price), and a step whose
+   price cannot be bounded makes the run refused (`would_exceed_daily_limit`), **Then** `would_exceed_daily_limit` with the
    figures, no model call.
 5. **Given** all checks pass, **Then** the full pipeline runs as `watcher run --dry-run` does today (real model calls,
    nothing posted, nothing persisted, due gate ignored), and the result has the findings, counts, tokens and cost in the
@@ -223,8 +228,8 @@ The assistant calls `watcher_hygiene_report` to answer "which log call sites lea
 
 **Read-only guarantees**
 
-- **FR-010**: The server MUST build its state store behind a read-only decorator whose `put`, `increment`, `acquire`,
-  `release`, `delete` and purge methods throw. Any attempted write is a bug and MUST surface as `internal_error` and a
+- **FR-010**: The server MUST build its state store behind a read-only decorator whose `put`, `increment`, `acquire`
+  and `release` methods throw (the `StateStore` interface has no others); the decorator does not implement `Purgeable`. Any attempted write is a bug and MUST surface as `internal_error` and a
   stderr line, never as a silent success.
 - **FR-011**: The server MUST NOT construct or call a notifier. `watcher_check` MUST NOT post a test message.
 - **FR-012**: The server MUST NOT write, create or delete any file, including state files (the file state driver is
@@ -248,7 +253,7 @@ The assistant calls `watcher_hygiene_report` to answer "which log call sites lea
   second scan, passed through the digest's command filter and a URL/host/e-mail filter (matches become `[withheld]`),
   stripped of format characters, and cut at the field's cap with `…`. A scan failure MUST drop the field (null).
 - **FR-023**: Typed fields (fingerprint 12 hex, severity/kind/status/state enumerations, integers, floats, ISO-8601
-  timestamps) MUST be validated against their pattern or enumeration; a value that fails MUST become null, never be
+  timestamps, which are re-formatted to UTC `...Z` from the stored `DATE_ATOM` form) MUST be validated against their pattern or enumeration; a value that fails MUST become null, never be
   passed as text.
 - **FR-024**: The raw masked group template, log lines, field values, labels, sample lines, state keys, file paths and
   error stack frames MUST NOT appear in any output.
@@ -278,7 +283,8 @@ The assistant calls `watcher_hygiene_report` to answer "which log call sites lea
   when the estimate's upper bound exceeds the remaining budget, MUST handle one call at a time, and MUST add the upper
   bound to a per-process counter after each full dry run.
 - **FR-036**: `watcher_dry_run` MUST run the pipeline exactly as `watcher run --dry-run` (nothing posted, no state
-  written, no lock left, due gate ignored) and MUST NOT return the rendered digest text; it returns the structured
+  written, no lock left, due gate ignored) with its output callable set to a discarding closure, so that nothing the
+  pipeline prints (digest text, estimate table) reaches stdout and MUST NOT return the rendered digest text; it returns the structured
   result of FR-032 with `dry_run: true`.
 
 **Configuration**
@@ -290,9 +296,11 @@ The assistant calls `watcher_hygiene_report` to answer "which log call sites lea
 
 **State written by the run (the one change outside the server)**
 
+- **FR-007**: With the master switch `enabled` false the server MUST behave as spec 012 prescribes for `status`: report
+  `disabled`, touch no state, source or provider.
 - **FR-050**: A real run MUST store a small **last-report record** at its end (data-model.md) with the same expiry as
   other run records, so that `watcher_latest_report` has something to read. This record contains only fields that
-  already leave the process in the digest. A dry run writes it to its in-memory buffer only.
+  already leave the process in the digest. A dry run does not write it; the record built for it is handed to the caller on the run result.
 
 ### Key Entities
 

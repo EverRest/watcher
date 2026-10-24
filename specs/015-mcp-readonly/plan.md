@@ -44,10 +44,11 @@ specs/015-mcp-readonly/   spec.md plan.md research.md data-model.md quickstart.m
 src/Mcp/                  McpCommand Server JsonRpc Tool ToolRegistry Envelope OutputGuard ReadOnlyStateStore
                           LastReport HygieneSource DryRunGuard Tools/{Status,Check,LatestReport,Finding,Hygiene,DryRun}Tool
 src/State/Keys.php        + LASTREPORT                       (shared file)
-src/Watcher.php           + write the last-report record     (shared file)
+src/Watcher.php           + build/write the last-report record, expose it and the estimate figures on the run result (shared file)
 src/Operate/Doctor.php    + readOnly flag for the state check (shared file)
 src/Config/WatchConfig.php, Factory.php   + mcp section       (shared files)
 src/Cli/Application.php   + 'mcp' command                     (shared file)
+src/Laravel/McpCommand.php + registration in WatcherServiceProvider (beside CheckCommand, StatusCommand)
 tests/Unit/Mcp/, tests/EndToEnd/McpTest.php, tests/Fixtures/mcp/hostile-strings.php
 docs/privacy.md docs/configuration.md README.md CHANGELOG.md docs/roadmap.md   (docs tasks)
 ```
@@ -62,9 +63,10 @@ once it exists (T021 notes the choice); until then it is built from the same val
 
 ## Risks
 
-1. **Dry run writes through the real store** (lock, run record). R4/T016. If true: fix in spec 002's code first.
+1. **Dry run writes through the real store** (lock, run record). R4/T016. `DryRunStateStore` should prevent it; the test proves it. If it does not: fix in spec 002's code first.
+1a. **Dry run prints to stdout**: solved by the output callable (R5a), pinned by T016.
 2. **File state driver side effects on read** (purge on read). T015; fallback: refuse to start with that driver.
-3. **Command filter location**: the digest's denylist lives inside the analysis path; T017 extracts it with its tests
+3. **Command filter location**: the denylist and the `[withheld]` replacement live in `src/Analyze/OutputValidator.php` (private, applied to three fields by `text($v,$path,$max,advice)`); T017 extracts it with its tests
    unchanged. If it is entangled with severity logic, extract only the pure span-replacing function.
 4. **MCP revision drift**: the client may require a newer revision for features not used here; mitigated by R1 (fixed
    list, answer with a supported version).

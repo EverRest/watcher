@@ -7,7 +7,7 @@
     "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
     "timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
     "severity": { "enum": ["info", "warn", "error", "critical"] },
-    "kind": { "type": "string", "pattern": "^[a-z_]{1,24}$", "description": "one of the FindingKind values; the list lives in code and is checked by the drift test" },
+    "kind": { "enum": ["bug", "regression", "anomaly", "noise"] },
     "status": { "enum": ["new", "grown", "unchanged", "expected"] },
     "outcome": { "enum": ["reported", "quiet", "baselined", "failed"] },
     "text": { "type": "string", "x-text": true },
@@ -27,7 +27,7 @@
       "required": ["available"],
       "properties": {
         "available": { "type": "boolean" },
-        "reason": { "enum": ["no_report"] },
+        "reason": { "enum": ["no_report", "disabled"] },
         "window_start": { "$ref": "#/$defs/timestamp" },
         "window_end": { "$ref": "#/$defs/timestamp" },
         "at": { "$ref": "#/$defs/timestamp" },
@@ -58,11 +58,11 @@
         "type": "object", "additionalProperties": false,
         "required": ["state", "now"],
         "properties": {
-          "state": { "enum": ["ok", "stale", "failed", "unknown"] },
+          "state": { "enum": ["ok", "stale", "failed", "unknown", "disabled"] },
           "last_run": {
             "type": ["object", "null"], "additionalProperties": false,
             "properties": {
-              "outcome": { "type": "string", "pattern": "^[a-z_]{1,24}$" },
+              "outcome": { "$ref": "#/$defs/outcome" },
               "at": { "$ref": "#/$defs/timestamp" },
               "duration_seconds": { "type": "integer", "minimum": 0 },
               "cost_usd": { "type": "number", "minimum": 0 },
@@ -121,6 +121,7 @@
       "data": {
         "type": "object", "additionalProperties": false, "required": ["found"],
         "properties": {
+          "reason": { "enum": ["disabled"] },
           "found": { "type": "boolean" },
           "fp": { "$ref": "#/$defs/fingerprint" },
           "severity": { "$ref": "#/$defs/severity" },
@@ -133,10 +134,8 @@
           "suggested_action": { "type": ["string", "null"], "x-text": true, "maxLength": 200 },
           "how_to_check": { "type": ["string", "null"], "x-text": true, "maxLength": 200 },
           "related_checks": { "type": "array", "maxItems": 3, "items": { "type": "string", "pattern": "^([0-9a-f]{12}|[A-Za-z0-9_.-]{1,60})$" } },
-          "first_reported_at": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
           "last_reported_at": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
           "count": { "type": "integer", "minimum": 0 },
-          "previous_count": { "type": "integer", "minimum": 0 },
           "mute_suggestion": { "type": "string", "x-text": true, "maxLength": 200, "description": "built by code from a fixed sentence and the fingerprint; never contains model text" }
         }
       }
@@ -147,7 +146,7 @@
         "type": "object", "required": ["available"],
         "properties": {
           "available": { "type": "boolean" },
-          "reason": { "enum": ["hygiene_not_enabled", "no_report"] },
+          "reason": { "enum": ["hygiene_not_enabled", "no_report", "disabled"] },
           "report": { "type": "object", "description": "the machine-readable report of spec 006; its field table replaces this entry when 006 is planned" }
         }
       }
