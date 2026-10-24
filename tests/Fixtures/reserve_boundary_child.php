@@ -10,6 +10,10 @@ use Watcher\Analyze\Usage;
 use Watcher\State\RedisStateStore;
 use Watcher\Tests\Fakes\FrozenClock;
 
+// The parent reads this process's stdout as data: old dependencies (lowest resolution on a new PHP) print deprecation notices there.
+error_reporting(E_ALL & ~E_DEPRECATED);
+ini_set('display_errors', '0');
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 [, $dsn, $prefix, $goAt, $attempts, $service] = $argv;
