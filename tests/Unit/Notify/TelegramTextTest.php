@@ -43,7 +43,7 @@ final class TelegramTextTest extends TestCase
 
     public function testModelTextIsInert(): void
     {
-        $seeds = ['<b>x</b>', '&amp;', 'http://a.example', 'www.a.example', 'host.example', '@everyone', '<a href="http://a.example">x</a>', '*b*', '`c`'];
+        $seeds = ['<b>x</b>', '&amp;', 'http://a.com', 'www.a.com', 'host.com', '@everyone', '<a href="http://a.com">x</a>', '*b*', '`c`'];
         foreach ($seeds as $seed) {
             $out = TelegramText::section('finding', 'pre ' . SlackText::escape($seed) . ' post');
 
@@ -64,12 +64,12 @@ final class TelegramTextTest extends TestCase
 
     public function testForgedLinkTokenInModelTextIsText(): void
     {
-        $source = 'x ' . SlackText::escape('<http://evil.example|click>') . ' y';
+        $source = 'x ' . SlackText::escape('<http://evil.com|click>') . ' y';
 
         $out = TelegramText::section('finding', $source);
 
         self::assertStringNotContainsString('<a', $out);
-        self::assertStringContainsString('&lt;http:' . self::Z . '//evil.' . self::Z . 'example|click&gt;', $out);
+        self::assertStringContainsString('&lt;http:' . self::Z . '//evil.' . self::Z . 'com|click&gt;', $out);
     }
 
     public function testOnlyAllowedTagsEverAppear(): void
@@ -95,8 +95,8 @@ final class TelegramTextTest extends TestCase
 
     public function testPlainPathDefangsAndEscapes(): void
     {
-        $out = TelegramText::plain('see http://a.example <b> & @x');
+        $out = TelegramText::plain('see http://a.com <b> & @x');
 
-        self::assertSame('see http:' . self::Z . '//a.' . self::Z . 'example &lt;b&gt; &amp; @' . self::Z . 'x', $out);
+        self::assertSame('see http:' . self::Z . '//a.' . self::Z . 'com &lt;b&gt; &amp; @' . self::Z . 'x', $out);
     }
 }

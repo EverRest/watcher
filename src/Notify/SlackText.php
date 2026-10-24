@@ -10,6 +10,17 @@ final class SlackText
     /** Extensions that look like a domain label but are file names: kept readable and copyable. */
     private const FILE_EXT = 'php|json|log|txt|yml|yaml|xml|js|ts|css|html|sql|csv|env|lock|rb|jar|gz';
 
+    /**
+     * Top-level domains of three or more ASCII letters that Slack links (two-letter ones are all treated as TLDs;
+     * non-ASCII and `xn--` ones are matched separately). A code identifier such as `Mailer.send` is not a host and
+     * stays copyable. ponytail: a hand-kept list, a rare gTLD missing here is not defanged; refresh from the IANA list if one matters.
+     */
+    private const TLDS = 'com|net|org|edu|gov|mil|int|info|biz|name|pro|mobi|asia|tel|xxx|jobs|travel|museum|aero|coop|cat|post'
+        . '|app|dev|cloud|online|site|tech|store|shop|blog|news|live|link|click|top|club|space|website|email|page|xyz|icu|vip'
+        . '|work|world|today|agency|network|systems|solutions|services|digital|media|group|company|center|life|art|design'
+        . '|zip|mov|run|one|fun|host|press|buzz|rocks|ninja|guru|fyi|wiki|social|chat|lol|best|support|download|review|party'
+        . '|win|bid|stream|science|trade|date|men|loan|racing|rest|bar|cyou|monster|sbs|cfd|quest|bond|mom|shop|sale|cool';
+
     /** mrkdwn delimiters and the look-alikes that stand in for them: a look-alike cannot open or close formatting. */
     private const LOOKALIKE = ['*' => "\u{2217}", '_' => "\u{FF3F}", '~' => "\u{223C}"];
 
@@ -35,10 +46,15 @@ final class SlackText
     /** The zero-width-space half of {@see escape()}, for text that is not Slack-escaped (other channels' plain path). */
     public static function defang(string $s): string
     {
+        $dot = '[.\x{3002}\x{FF0E}\x{FF61}]'; // the full stop and the IDNA dots a browser treats as one
         $s = str_replace(['@', '://'], ["@\u{200B}", ":\u{200B}//"], $s);
-        $s = (string) preg_replace('/\bwww\./i', "www\u{200B}.", $s);
+        $s = (string) preg_replace("/\\bwww($dot)/iu", "www\u{200B}$1", $s);
 
-        return (string) preg_replace('/([\p{L}\p{N}-]\.)(?!(?:' . self::FILE_EXT . ')\b)(?=[\p{L}]{2,24}\b|xn--[a-z0-9-]{2,}\b)/iu', "$1\u{200B}", $s);
+        return (string) preg_replace(
+            "/([\\p{L}\\p{M}\\p{N}-]$dot)(?!(?:" . self::FILE_EXT . ")\\b)(?=(?:[a-z]{2}|" . self::TLDS . ")\\b|[\\p{L}\\p{M}]*[^\\x00-\\x7F][\\p{L}\\p{M}]*\\b|xn--[a-z0-9-]{2,}\\b)/iu",
+            "$1\u{200B}",
+            $s,
+        );
     }
 
     /** Undoes {@see escape()} for the plain-text fallback of a message. */

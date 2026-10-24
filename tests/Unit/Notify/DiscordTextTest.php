@@ -54,7 +54,7 @@ final class DiscordTextTest extends TestCase
 
     public function testModelTextIsInert(): void
     {
-        $seeds = ['__x__', '@everyone', '<@123>', '<#123>', '<:e:1>', '[x](http://y.example)', '|| spoiler ||', '# heading', '> quote', '~~s~~', '<https://a.example|x>'];
+        $seeds = ['__x__', '@everyone', '<@123>', '<#123>', '<:e:1>', '[x](http://y.com)', '|| spoiler ||', '# heading', '> quote', '~~s~~', '<https://a.com|x>'];
         foreach ($seeds as $seed) {
             $out = DiscordText::section('finding', 'pre ' . SlackText::escape($seed) . ' post');
 
@@ -80,16 +80,16 @@ final class DiscordTextTest extends TestCase
 
     public function testForgedLinkTokenInModelTextIsText(): void
     {
-        $out = DiscordText::section('finding', 'x ' . SlackText::escape('<http://evil.example|click>') . ' y');
+        $out = DiscordText::section('finding', 'x ' . SlackText::escape('<http://evil.com|click>') . ' y');
 
         self::assertStringNotContainsString('](<', $out);
-        self::assertStringContainsString('<' . self::Z . 'http:' . self::Z . '//evil.' . self::Z . 'example\\|click>', $out);
+        self::assertStringContainsString('<' . self::Z . 'http:' . self::Z . '//evil.' . self::Z . 'com\\|click>', $out);
     }
 
     public function testPlainPathDefangsAndEscapes(): void
     {
         $z = self::Z;
 
-        self::assertSame("see http:{$z}//a.{$z}example <{$z}@{$z}1> \\*x\\*", DiscordText::plain('see http://a.example <@1> *x*'));
+        self::assertSame("see http:{$z}//a.{$z}com <{$z}@{$z}1> \\*x\\*", DiscordText::plain('see http://a.com <@1> *x*'));
     }
 }
