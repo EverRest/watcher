@@ -128,6 +128,43 @@ final class RedisStateStoreCompressionTest extends TestCase
         self::assertSame(1, $store->unreadable);
     }
 
+    public function testTheCapIsFourMegabytes(): void
+    {
+        self::assertSame(4 * 1024 * 1024, StateCodec::MAX_BYTES);
+    }
+
+    public function testJustOverTheCapAndANumericArrayBombAreMissingNeverOom(): void
+    {
+        $over = gzcompress('{"x":"' . str_repeat('0', StateCodec::MAX_BYTES) . '"}', 6); // 4 MB + 9 bytes
+        $bomb = gzcompress('[' . str_repeat('0,', 8 * 1024 * 1024 - 1) . '0]', 6); // 16 MB of ints: ~8M array slots
+        self::assertLessThan(100000, strlen((string) $bomb));
+        $this->server->plant('p:over', 'z1:' . $over);
+        $this->server->plant('p:bomb', 'z1:' . $bomb);
+        $this->server->plant('p:plain', '[' . str_repeat('0,', 8 * 1024 * 1024 - 1) . '0]'); // uncompressed, same size
+        $store = $this->store();
+
+        self::assertNull($store->get('over'));
+        self::assertNull($store->get('bomb'));
+        self::assertNull($store->get('plain'));
+        self::assertSame(2, $store->unreadable); // the plain oversize value is null as any plain non-JSON is
+    }
+
+    public function testTheInflateLengthArgumentBoundsMemoryBeforeTheSizeCheck(): void
+    {
+        // A 400 MB zero payload (~400 KB compressed) in a process limited to 64 MB: only gzuncompress's own length
+        // argument keeps it from being inflated whole; the post-check alone would die with a fatal error.
+        $script = sys_get_temp_dir() . '/watcher-bomb-' . getmypid() . '.php';
+        file_put_contents($script . '.z', (string) gzcompress(str_repeat('0', 400 * 1024 * 1024), 1));
+        file_put_contents($script, '<?php require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true) . ';'
+            . '$z = "z1:" . file_get_contents(' . var_export($script . '.z', true) . ');'
+            . 'try { Watcher\State\StateCodec::decode($z); echo "decoded"; } catch (UnexpectedValueException) { echo "refused"; }');
+        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d memory_limit=64M ' . escapeshellarg($script) . ' 2>&1');
+        @unlink($script);
+        @unlink($script . '.z');
+
+        self::assertSame('refused', $out);
+    }
+
     public function testEncodeSkipsCompressionWithoutZlibAndDecodeRefusesZ1(): void
     {
         self::assertStringStartsWith('{', StateCodec::encode(self::big(), 512, false));

@@ -15,8 +15,14 @@ final class StateCodec
 {
     public const PREFIX = 'z1:';
 
-    /** Hard cap on what a compressed entry may inflate to: a corrupt or hostile value must not exhaust memory. */
-    public const MAX_BYTES = 16 * 1024 * 1024;
+    /**
+     * Hard cap on the JSON a value may hold, inflated or plain: a corrupt or hostile value must not exhaust memory
+     * (a `0,0,0,...` array costs ~16 PHP bytes per 2 JSON bytes, so the cap bounds json_decode too). A real snapshot is
+     * ~150 KB at group_cap; 4 MB leaves a wide margin. Raise it only together with the memory_limit of the workers.
+     */
+    public const MAX_BYTES = 4 * 1024 * 1024;
+
+    private const DEPTH = 64;
 
     private const LEVEL = 6;
 
@@ -62,8 +68,11 @@ final class StateCodec
     /** @return array<mixed>|null */
     private static function json(string $json, bool $strict): ?array
     {
+        if (strlen($json) > self::MAX_BYTES) { // before json_decode: its allocation is not catchable
+            return $strict ? throw new UnexpectedValueException('compressed state entry is too large') : null;
+        }
         try {
-            $value = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+            $value = json_decode($json, true, self::DEPTH, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             return $strict ? throw new UnexpectedValueException('compressed state entry is not JSON') : null;
         }
