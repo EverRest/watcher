@@ -29,6 +29,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
 {
     private const PAGE_LIMIT = 5000;
     private const MIN_PAGE_LIMIT = 100;
+    /** Most pages the newest-share read may take (A4-03). */
+    private const TAIL_PAGES = 20;
     private const FACET_LIMIT = 50;
     private const VERSION_STEP = 3600;
 
@@ -99,6 +101,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         $cursor = null;
         $kept = 0;
         $buffer = [];
+        $lastRaw = $window->start->modify('-1 millisecond'); // backend timestamp of the last event kept, the newest-share read starts after it
+        $cap = $this->newestFirst ? $filter->eventCap : $filter->headCap();
         $startedAt = $this->clock->now()->getTimestamp();
 
         do {
@@ -136,14 +140,14 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                 if (!$this->wanted($event, $filter)) {
                     continue;
                 }
-                if ($kept >= $filter->eventCap) {
-                    $this->truncated = true;
-                    $filter->truncationReason ??= 'cap';
+                if ($kept >= $cap) {
                     yield from array_reverse($buffer);
+                    yield from $this->newest($window, $query, $lastRaw, $filter, 'cap');
 
                     return;
                 }
                 ++$kept;
+                $lastRaw = $this->time(is_string($raw['attributes']['timestamp'] ?? null) ? $raw['attributes']['timestamp'] : '') ?? $lastRaw;
                 if ($this->newestFirst) {
                     $buffer[] = $event;
                 } else {
@@ -158,14 +162,64 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             $next = $data['meta']['page']['after'] ?? null;
             $cursor = is_string($next) && $next !== '' ? $next : null;
             if ($cursor !== null && $this->clock->now()->getTimestamp() - $startedAt > $this->pagingBudget) {
-                $this->truncated = true;
-                $filter->truncationReason ??= 'time';
                 yield from array_reverse($buffer);
+                yield from $this->newest($window, $query, $lastRaw, $filter, 'time');
 
                 return;
             }
         } while ($cursor !== null);
         yield from array_reverse($buffer);
+    }
+
+    /**
+     * The read was cut short after $after: read the newest part of the window (sort -timestamp), up to the reserved
+     * share of the cap, and yield it oldest to newest. When that reaches back to $after nothing was lost and the read is
+     * not reported as truncated (A4-03). Not used with newest_first, which already keeps the newest.
+     *
+     * @return Generator<int, LogEvent>
+     */
+    private function newest(Window $window, string $query, DateTimeImmutable $after, ReadFilter $filter, string $reason): Generator
+    {
+        // After a spent time or page budget only two pages more are read: the budget is gone, the share is a courtesy.
+        $maxPages = $reason === 'cap' ? self::TAIL_PAGES : 2;
+        $want = $this->newestFirst ? 0 : $filter->tailCap();
+        $events = [];
+        $cursor = null;
+        $complete = false;
+        $limit = self::PAGE_LIMIT;
+        // ponytail: Datadog times are milliseconds, so an unread event in the same millisecond as the last kept one is skipped.
+        $from = $after->modify('+1 millisecond') < $window->end ? new Window($after->modify('+1 millisecond'), $window->end) : null;
+        for ($i = 0; $from !== null && $want > 0 && $i < $maxPages && !$filter->shouldStop(); ++$i) {
+            $data = $this->post('/api/v2/logs/events/search', [
+                'filter' => $this->filter($from, $query),
+                'sort' => '-timestamp',
+                'page' => ['limit' => $limit] + ($cursor === null ? [] : ['cursor' => $cursor]),
+            ]);
+            foreach ($data['data'] ?? [] as $raw) {
+                if (!is_array($raw) || $filter->oversized(is_string($raw['attributes']['message'] ?? null) ? $raw['attributes']['message'] : '')) {
+                    continue;
+                }
+                $event = $this->event($raw);
+                if ($this->wanted($event, $filter)) {
+                    $events[] = $event;
+                }
+            }
+            $next = $data['meta']['page']['after'] ?? null;
+            $cursor = is_string($next) && $next !== '' ? $next : null;
+            if ($cursor === null) {
+                $complete = true;
+                break;
+            }
+            if (count($events) >= $want) {
+                break;
+            }
+        }
+        if (!$complete || count($events) > $want) {
+            $this->truncated = true;
+            $filter->truncationReason ??= $reason;
+        }
+
+        yield from array_reverse(array_slice($events, 0, $want));
     }
 
     public function readDiagnostics(): array

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — residual availability (lane J, planned 0.2.1; temporary block, the integrator moves it)
+
+- Added: a capped read keeps a newest share (A4-03). One fifth of `source.event_cap` (`ReadFilter::tailCap()`, 0 below a cap of 5) is reserved: the oldest-first read stops at 80%, then Loki (`direction=backward`) and Datadog (`sort=-timestamp`) read the newest events after the last one kept and yield them oldest to newest. Also after a spent `pages`/`time` budget (two more pages at most). If the backward read reaches back to where the forward read stopped, nothing was lost and the read is not reported as truncated.
+
 ## 0.1.3 — 2026-10-24 — Redis state and own Anthropic client
 
 Product release label **v0.1.3** (`VERSION`). Redis becomes the primary state store, the Anthropic client is built in, the SSRF host classifier is shared, PHPStan moves to 2.x and Guzzle 8 is accepted.

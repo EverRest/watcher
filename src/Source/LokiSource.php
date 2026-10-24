@@ -20,6 +20,8 @@ final class LokiSource implements LogSource, ReadDiagnostics
 {
     private const PAGE_LIMIT = 5000;
     private const MIN_PAGE_LIMIT = 100;
+    /** Most backward pages the newest-share read may take (A4-03). */
+    private const TAIL_PAGES = 20;
     private const VERSION_STEP = 3600;
     private const LEVEL_WORDS = [
         'debug' => ['debug'],
@@ -121,6 +123,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         $end = $this->ns($window->end);
         $seenAtStart = []; // entries already yielded or dropped at exactly $start (Loki's start is inclusive)
         $kept = 0;
+        $lastTs = $start;
         $pages = 0;
         $startedAt = $this->clock->now()->getTimestamp();
 
@@ -133,6 +136,11 @@ final class LokiSource implements LogSource, ReadDiagnostics
                 default => null,
             };
             if ($stop !== null) {
+                if (in_array($stop, ['pages', 'time'], true)) {
+                    yield from $this->newest($query, $start, $end, $filter, $stop);
+
+                    return;
+                }
                 $this->truncated = true;
                 $filter->truncationReason ??= $stop;
 
@@ -158,13 +166,13 @@ final class LokiSource implements LogSource, ReadDiagnostics
                 if (!$this->wanted($event, $filter)) {
                     continue;
                 }
-                if ($kept >= $filter->eventCap) {
-                    $this->truncated = true;
-                    $filter->truncationReason ??= 'cap';
+                if ($kept >= $filter->headCap()) {
+                    yield from $this->newest($query, $lastTs, $end, $filter, 'cap');
 
                     return;
                 }
                 ++$kept;
+                $lastTs = $ts;
                 yield $event;
                 if ($filter->shouldStop()) {
                     $this->truncated = true;
@@ -192,6 +200,52 @@ final class LokiSource implements LogSource, ReadDiagnostics
                 }
             }
         }
+    }
+
+    /**
+     * The read was cut short after $after (ns): read the newest part of the window backwards, up to the reserved share
+     * of the cap, and yield it oldest to newest. When that reaches back to $after nothing was lost and the read is not
+     * reported as truncated (A4-03).
+     *
+     * @return Generator<int, LogEvent>
+     */
+    private function newest(string $query, int $after, string $end, ReadFilter $filter, string $reason): Generator
+    {
+        // After a spent time or page budget only two pages more are read: the budget is gone, the share is a courtesy.
+        $maxPages = $reason === 'cap' ? self::TAIL_PAGES : 2;
+        $want = $filter->tailCap();
+        $batches = [];
+        $have = 0;
+        $complete = false;
+        $to = $end;
+        for ($i = 0; $want > 0 && $i < $maxPages && !$filter->shouldStop(); ++$i) {
+            // ponytail: Loki's end is exclusive, so entries sharing the page's oldest nanosecond beyond the limit are skipped.
+            $entries = $this->page($query, (string) ($after + 1), $to, 'backward');
+            $fresh = array_values(array_filter($entries, fn (array $e): bool => !$filter->oversized($e[1])));
+            $batch = [];
+            foreach ($this->records($fresh) as [$ts, $line, $labels]) {
+                $event = $this->event($ts, $line, $labels);
+                if ($this->wanted($event, $filter)) {
+                    $batch[] = $event;
+                }
+            }
+            $batches[] = $batch;
+            $have += count($batch);
+            if (count($entries) < $this->pageLimit) {
+                $complete = true;
+                break;
+            }
+            if ($have >= $want || $entries[0][0] === $entries[count($entries) - 1][0]) {
+                break;
+            }
+            $to = (string) $entries[0][0];
+        }
+        $all = $batches === [] ? [] : array_merge(...array_reverse($batches));
+        if (!$complete || count($all) > $want) {
+            $this->truncated = true;
+            $filter->truncationReason ??= $reason;
+        }
+        yield from $want > 0 ? array_slice($all, -$want) : [];
     }
 
     /** Bare stack-frame lines dropped by the last lines() call because no record was open for their stream. */
@@ -242,11 +296,11 @@ final class LokiSource implements LogSource, ReadDiagnostics
     }
 
     /**
-     * One forward page, merged across streams and ordered by timestamp.
+     * One page (forward = oldest first, backward = the newest of the range), merged across streams and ordered by timestamp.
      *
      * @return list<array{int, string, array<string, string>}>
      */
-    private function page(string $query, string $start, string $end): array
+    private function page(string $query, string $start, string $end, string $direction = 'forward'): array
     {
         $data = [];
         while (true) {
@@ -256,7 +310,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
                     'start' => $start,
                     'end' => $end,
                     'limit' => (string) $this->pageLimit,
-                    'direction' => 'forward',
+                    'direction' => $direction,
                 ]);
                 break;
             } catch (SourceUnavailable $e) {

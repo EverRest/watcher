@@ -70,7 +70,7 @@ final class SourceGuardsTest extends TestCase
             $pages[] = $this->page($this->infoPage($p * 5000));
         }
         $src = $this->loki($pages, maxPages: 3);
-        $f = $this->filter();
+        $f = $this->filter(4);
 
         $this->assertSame([], iterator_to_array($src->lines($this->window(), new StreamSelector(['app' => 's']), $f), false));
         $this->assertTrue($src->lastReadTruncated());
@@ -88,7 +88,7 @@ final class SourceGuardsTest extends TestCase
             return \GuzzleHttp\Promise\Create::promiseFor($this->page($this->infoPage($calls * 5000)));
         })]);
         $src = new LokiSource($slow, 'https://loki.test', 't', clock: $clock2, pagingBudget: 300);
-        $f = $this->filter();
+        $f = $this->filter(4);
         iterator_to_array($src->lines($this->window(), new StreamSelector(['app' => 's']), $f), false);
         $this->assertSame(1, $calls);
         $this->assertSame('time', $f->truncationReason);
