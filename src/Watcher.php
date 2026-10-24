@@ -371,7 +371,7 @@ final class Watcher
     private function fail(string $reason, string $code): RunResult
     {
         $this->code = $code;
-        foreach ([$this->config->analysis['api_key'], ...$this->config->notifySecrets()] as $secret) {
+        foreach ($this->config->secrets() as $secret) {
             if (strlen((string) $secret) >= 8) {
                 $reason = str_replace((string) $secret, '[redacted]', $reason); // a provider error can echo a credential
             }
@@ -416,7 +416,7 @@ final class Watcher
     {
         $c = $this->config;
 
-        return new NoticeRenderer([$c->analysis['api_key'], ...$c->notifySecrets()]);
+        return new NoticeRenderer($c->secrets());
     }
 
     private function noticeDestination(): Destination

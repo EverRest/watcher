@@ -236,7 +236,7 @@ final class Factory
             new \DateTimeZone($c->schedule['timezone']),
             $c->state['retention'],
             $log,
-            [(string) $c->analysis['api_key'], ...$c->notifySecrets()],
+            $c->secrets(),
         );
     }
 

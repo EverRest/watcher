@@ -10,7 +10,7 @@ final class NoticeRenderer
     private const MAX_REASON = 200;
     private const MIN_SECRET = 8;
 
-    /** @param list<string> $secrets exact values (API keys, webhooks) to mask on top of the generic scrubbing */
+    /** @param list<string> $secrets exact values ({@see \Watcher\Config\WatchConfig::secrets()}) to mask on top of the generic scrubbing */
     public function __construct(private readonly array $secrets = [])
     {
     }
@@ -58,6 +58,9 @@ final class NoticeRenderer
                 $reason = str_replace($secret, '[redacted]', $reason);
             }
         }
+        // A credential in a header or query shape, whether or not it is one of the configured values.
+        $reason = (string) preg_replace('/\b((?:proxy-)?authorization|x-api-key|api[-_]?key|app[-_]?key|access[-_]?token|token|passw(?:or)?d|secret)\b(["\']?\s*[:=]\s*["\']?)(?:(?:bearer|basic)\s+)?[^\s"\',;}]+/i', '$1$2[redacted]', $reason);
+        $reason = (string) preg_replace('/\bbearer\s+[\w.~+\/=-]{6,}/i', 'bearer [redacted]', $reason);
         $reason = (string) preg_replace('~\b[a-z][a-z0-9+.-]*://\S+~i', '[url]', $reason);
         $reason = (string) preg_replace('/[\w-]{24,}/', '[redacted]', $reason);
         $reason = SlackText::escape($reason);

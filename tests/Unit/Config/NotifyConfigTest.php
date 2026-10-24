@@ -60,6 +60,20 @@ final class NotifyConfigTest extends TestCase
         self::assertSame(self::HOOK, $c->destination('notice')->webhook());
     }
 
+    public function testSecretsCoverEveryCredentialInTheConfig(): void
+    {
+        $raw = self::config(['digest' => ['webhook' => self::HOOK]]);
+        $raw['source'] = ['driver' => 'loki', 'loki' => ['url' => 'http://loki', 'auth' => ['type' => 'basic', 'user' => 'bob', 'password' => 'loki-pass-1']]];
+        $raw['state'] = ['driver' => 'pdo', 'pdo' => ['dsn' => 'pgsql:host=db', 'username' => 'u', 'password' => 'pdo-pass-1']];
+        $c = WatchConfig::fromArray($raw);
+
+        self::assertEqualsCanonicalizing(['sk-secret-key', self::HOOK, 'loki-pass-1', 'pdo-pass-1'], $c->secrets());
+
+        $raw['source'] = ['driver' => 'datadog', 'datadog' => ['api_key' => 'dd-api-1', 'app_key' => 'dd-app-1']];
+        $raw['state'] = ['driver' => 'redis', 'redis' => ['password' => 'redis-pass-1']];
+        self::assertEqualsCanonicalizing(['sk-secret-key', self::HOOK, 'dd-api-1', 'dd-app-1', 'redis-pass-1'], WatchConfig::fromArray($raw)->secrets());
+    }
+
     public function testNoticeFallsBackToDigest(): void
     {
         $c = WatchConfig::fromArray(self::config(['digest' => ['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '@my_channel']]));

@@ -83,6 +83,33 @@ final class NoticeRendererTest extends TestCase
         }
     }
 
+    public function testAuthorizationLikeValuesAreMaskedWithoutAConfiguredSecret(): void
+    {
+        $reasons = [
+            'GET failed: Authorization: Bearer abc.def-ghi_jkl',
+            'sent authorization=Basic dXNlcjpwYXNz rejected',
+            'header {"X-Api-Key": "k-12345"} refused',
+            'retry with api_key=abc123 failed',
+            'bad password: hunter2 for user',
+            'got Bearer tok_123.456 back',
+        ];
+        foreach ($reasons as $reason) {
+            $text = (new NoticeRenderer())->failure('svc', 'stg', 'source', $reason)->text;
+
+            foreach (['abc.def', 'dXNlcjpwYXNz', 'k-12345', 'abc123', 'hunter2', 'tok_123'] as $leak) {
+                self::assertStringNotContainsString($leak, $text, $reason);
+            }
+            self::assertStringContainsString('[redacted]', $text, $reason);
+        }
+    }
+
+    public function testOrdinaryWordsAroundTheKeywordsStayReadable(): void
+    {
+        $m = (new NoticeRenderer())->failure('svc', 'stg', 'source', 'token invalid; password rotation pending; authorization header missing');
+
+        self::assertSame('❌ watcher · svc · stg — source failed: token invalid; password rotation pending; authorization header missing', $m->text);
+    }
+
     public function testShortSecretsAreNotMaskedInsideOrdinaryWords(): void
     {
         $m = (new NoticeRenderer(['k']))->failure('svc', 'stg', 'source', 'token invalid');

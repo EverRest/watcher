@@ -662,6 +662,28 @@ final class WatchConfig
         return $out;
     }
 
+    /**
+     * Every credential in the config (model key, notifier tokens and webhooks, source auth, state passwords): what no
+     * error text may carry out. Strings only; the connection `instance` and DSNs are not values to match.
+     *
+     * @return list<string>
+     */
+    public function secrets(): array
+    {
+        $candidates = [
+            $this->analysis['api_key'],
+            ...$this->notifySecrets(),
+            $this->source['loki']['auth']['token'] ?? null,
+            $this->source['loki']['auth']['password'] ?? null,
+            $this->source['datadog']['api_key'] ?? null,
+            $this->source['datadog']['app_key'] ?? null,
+            $this->state['redis']['password'] ?? null,
+            $this->state['pdo']['password'] ?? null,
+        ];
+
+        return array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+    }
+
     /** @return array<string, array<string, mixed>> */
     private static function watchRules(mixed $rules): array
     {
