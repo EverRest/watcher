@@ -209,6 +209,13 @@ https ingress or a service mesh and use the `https` URL; reach it through a port
 `source.loki.allow_insecure: true`; or, when the network between the pod and Loki is yours to trust, set `allow_insecure: true` with the
 in-cluster URL (`*.svc`, `*.cluster.local`) or an RFC 1918 address. `allow_insecure` is a trust decision, never a default, and never works for a public host.
 
+### Proxies and the internal-address check
+
+Sources that fetch from a URL they were given (metrics, Sentry, an OpenAPI spec) refuse literal internal addresses and in-cluster names
+(`SecureUrl::internalHost`; names are not resolved). Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
+proxy the connection goes where the proxy decides, so the check does not cover it. Loki and Slack keep working behind a proxy and are not
+changed; where a proxy must not be used, leave those variables unset for the process.
+
 ## Availability guards
 
 A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.
