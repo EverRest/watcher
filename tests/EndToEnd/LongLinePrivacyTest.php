@@ -21,6 +21,7 @@ final class LongLinePrivacyTest extends TestCase
         for ($i = 0; $i < 3; ++$i) {
             $ts = sprintf('[2026-10-08T10:%02d:01+00:00]', $i);
             $out[] = $ts . ' production.ERROR: [LONG]: boom now {"email":"early.leak@example.org","pad":"' . str_repeat('p', 9000) . '","t":"late.leak@example.org","secret":"Zk8Qw3Rt5Yu7"} []';
+            $out[] = $ts . ' production.ERROR: [LONG]: boom now ["early.leak@example.org","' . str_repeat('p', 9000) . '","late.leak@example.org"] []';
             $out[] = '{"level":"error","message":"early.leak@example.org","pad":"' . str_repeat('p', 300000) . '","t":"late.leak@example.org"}';
             // The cut falls inside `password=hunterxyz99` (a plain line, no timestamp): the partial key must not be sent either.
             $out[] = 'ERROR plain overflow ' . str_repeat('x ', intdiv(LineParser::MAX_LINE - 30, 2)) . 'cut.leak@example.org password=hunterxyz99 end';

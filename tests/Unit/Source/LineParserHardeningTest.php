@@ -174,4 +174,46 @@ final class LineParserHardeningTest extends TestCase
         self::assertSame('real message', $e->message);
         self::assertSame(Level::Error, $e->level);
     }
+
+    public function testAMonologListContextCutAtTheHeadKeepsOnlyTheMessage(): void
+    {
+        $p = new LineParser();
+        $line = '[2026-10-22 10:00:00] app.ERROR: boom now ["early.leak@example.org","' . str_repeat('p', 9000) . '","late.leak@example.org"] []';
+        $e = $p->parse($line);
+
+        self::assertSame('boom now', $e->message);
+        self::assertSame([], $e->fields);
+        self::assertSame(Level::Error, $e->level);
+    }
+
+    public function testAnOversizedStructuredLineAlwaysStartsItsOwnRecord(): void
+    {
+        $p = new LineParser();
+        $open = "[2026-10-22 10:00:00] app.ERROR: boom {}\n    at f()";
+        $json = '{"level":"error","message":"m","pad":"' . str_repeat('p', 300000) . '"}';
+
+        self::assertFalse($p->continues($json, $open));
+        self::assertFalse($p->continues("  \t" . $json, $open));
+        self::assertFalse($p->isOrphanTrace($json));
+    }
+
+    public function testALineThatIsEmptyOnceCutNeverContinuesARecord(): void
+    {
+        $p = new LineParser();
+        $open = '[2026-10-22 10:00:00] app.ERROR: boom {}';
+
+        self::assertSame('', $p->capLine(str_repeat('x', 20000)));
+        self::assertFalse($p->continues(str_repeat('x', 20000), $open));
+        self::assertFalse($p->continues(str_repeat('x', 20000), "panic: boom\ngoroutine 1 [running]:"));
+        self::assertTrue($p->continues('', $open), 'a genuinely empty line still does');
+    }
+
+    public function testTheRecordByteBoundMeasuresTheRawLine(): void
+    {
+        $p = new LineParser();
+        $open = '[2026-10-22 10:00:00] app.ERROR: boom {}';
+
+        self::assertFalse($p->continues('    at ' . str_repeat('x', 200000), $open));
+        self::assertTrue($p->continues('    at ' . str_repeat('x', 100), $open));
+    }
 }

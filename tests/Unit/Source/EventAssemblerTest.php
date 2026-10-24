@@ -212,4 +212,14 @@ final class EventAssemblerTest extends TestCase
     {
         self::assertSame([], $this->assemble([]));
     }
+
+    public function testAnOversizedJsonLineAndAHugeTokenStartTheirOwnRecords(): void
+    {
+        $json = '{"level":"error","message":"m","pad":"' . str_repeat('p', 300000) . '"}';
+        $records = $this->assemble(['[2026-10-22 10:00:00] app.ERROR: first {}', '    at f()', $json, str_repeat('x', 20000), '    at g()']);
+
+        self::assertCount(3, $records);
+        self::assertSame("[2026-10-22 10:00:00] app.ERROR: first {}\n    at f()", $records[0]);
+        self::assertSame($json, $records[1]);
+    }
 }

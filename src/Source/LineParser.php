@@ -150,8 +150,8 @@ final class LineParser
      */
     public function isOrphanTrace(string $line, bool $labelled = false): bool
     {
-        $line = $this->capLine($line);
-        if ($labelled || trim($line) === '' || $this->structured($line) || $this->plainLevel($line) !== null || !$this->re(self::FRAME_ONLY, $line)) {
+        // Structure is judged on the RAW line (a `{` line is a record start whatever its size); the cut form only feeds the regexes.
+        if ($labelled || trim($line) === '' || $this->structured($line) || $this->plainLevel($line) !== null || !$this->re(self::FRAME_ONLY, $this->capLine($line))) {
             return false;
         }
         ++$this->orphanTraceLines;
@@ -168,8 +168,12 @@ final class LineParser
      */
     public function continues(string $line, string $open, bool $labelled = false): bool
     {
-        $line = $this->capLine($line);
         if ($this->structured($line) || $this->plainLevel($line) !== null) {
+            return false;
+        }
+        $cut = $this->capLine($line);
+        // Cut to nothing but not empty: one huge token, never the tail of anything.
+        if ($cut === '' && $line !== '') {
             return false;
         }
         // A record is bounded: a flood of lines (or one huge record) never grows it without end.
@@ -182,7 +186,7 @@ final class LineParser
         $head = $nl === false ? $open : substr($open, 0, $nl);
         // Only a line that looks like the tail of a record continues it, whatever the head is: a plain message line
         // after a JSON / Monolog record is a record of its own (it must not vanish into the one before it).
-        if ($this->re(self::CONTINUATION, $line) || ($this->structured($head) && $this->re(self::STRUCTURED_TAIL, $line))) {
+        if ($this->re(self::CONTINUATION, $cut) || ($this->structured($head) && $this->re(self::STRUCTURED_TAIL, $cut))) {
             return true;
         }
         if ($labelled || $this->structured($head)) {
@@ -200,8 +204,9 @@ final class LineParser
     private function structured(string $line): bool
     {
         $trimmed = trim($line);
-        if (str_starts_with($trimmed, '{') && strlen($trimmed) <= self::MAX_JSON_BYTES) {
-            return is_array(json_decode($trimmed, true));
+        if (str_starts_with($trimmed, '{')) {
+            // Too large to decode: parse() turns it into a placeholder event, so it is a record start all the same.
+            return strlen($trimmed) > self::MAX_JSON_BYTES || is_array(json_decode($trimmed, true));
         }
         $m = $this->text($line);
 
@@ -244,8 +249,11 @@ final class LineParser
         $m = $this->text($head);
         // A Monolog line the cut reached keeps only its message: what follows ' {' is the context, now unparseable and never exposed.
         if ($headCut && $m !== null) {
-            $m['msg'] = explode(' {', (string) $m['msg'], 2)[0];
+            $msg = (string) $m['msg'];
+            $at = array_filter([strpos($msg, ' {'), strpos($msg, ' [')], static fn (int|false $x): bool => $x !== false);
+            $m['msg'] = $at === [] ? $msg : substr($msg, 0, min($at));
             $m['ctx'] = '';
+            $m['extra'] = '';
         }
         // Laravel leaves the context JSON open on the first line when the exception trace has line breaks.
         if ($rest !== '' && ($m === null || $this->ctx($m['ctx'] ?? '') === null)) {

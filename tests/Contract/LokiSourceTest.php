@@ -290,6 +290,24 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertSame(Level::Error, $events[1]->level); // the stream label, not a quiet Info
     }
 
+    public function testAnOversizedJsonLineIsNotSwallowedByTheRecordBeforeIt(): void
+    {
+        $source = $this->makeSourceWithLines([
+            '[2026-10-22 10:00:00] production.ERROR: first {}',
+            '    at frame()',
+            '{"level":"error","message":"second","pad":"' . str_repeat('p', 300000) . '","t":"late.leak@example.org"}',
+            str_repeat('x', 20000),
+        ]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertCount(3, $events);
+        $this->assertSame('first', $events[0]->message);
+        $this->assertStringNotContainsString('leak', $events[1]->message);
+        $this->assertSame(Level::Error, $events[1]->level);
+    }
+
     public function testAFloodOfIndentedLinesIsCutIntoBoundedRecords(): void
     {
         $lines = ['[2026-10-22 10:00:00] production.ERROR: head {}'];
