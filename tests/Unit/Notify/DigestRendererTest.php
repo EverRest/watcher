@@ -230,7 +230,7 @@ final class DigestRendererTest extends TestCase
         self::assertStringContainsString('info ×6 vs previous window', $n);
         self::assertStringContainsString('truncated: 5,000 events read', $n);
         self::assertStringContainsString('truncated: 5 groups dropped (budget)', $n);
-        $last = $m->sections[array_key_last($m->sections)];
+        $last = array_slice($m->sections, -1)[0];
         self::assertSame('footer', $last['kind']);
         self::assertSame('— tokens in 18.2k / out 1.9k / cached 6.1k · triage haiku-x · analyze sonnet-x · ≈ $0.04', $last['text']);
     }

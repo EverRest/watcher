@@ -101,6 +101,8 @@ final class RunGate
         $guess = $wall - $date->setTimestamp($wall - 86400)->getOffset();
         $transitions = $this->timezone->getTransitions($guess - 86400, $guess);
 
-        return $date->setTimestamp($transitions[array_key_last($transitions)]['ts']);
+        $last = end($transitions);
+
+        return $date->setTimestamp($last === false ? $guess : $last['ts']); // getTransitions always lists the start instant, so the fallback is not reached
     }
 }

@@ -91,6 +91,7 @@ final class SecureUrlTest extends TestCase
         $n = new SlackWebhookNotifier(new Client(['handler' => $stack]));
 
         $n->send(new Message('x', []), new Destination('http://127.0.0.1:9/hook', 'slack', allowInsecure: true));
+        self::assertIsArray($hist);
         self::assertCount(1, $hist);
 
         $this->expectException(DeliveryFailed::class);
@@ -110,6 +111,7 @@ final class SecureUrlTest extends TestCase
         } catch (DeliveryFailed $e) {
             self::assertStringContainsString('HTTP 302', $e->getMessage());
         }
+        self::assertIsArray($hist);
         self::assertCount(1, $hist);
         self::assertFalse($hist[0]['options']['allow_redirects']);
         self::assertTrue($hist[0]['options']['verify']);

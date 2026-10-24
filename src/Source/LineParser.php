@@ -127,8 +127,12 @@ final class LineParser
         return substr($cut, 0, $i);
     }
 
-    /** preg_match on log text: a failure is counted and reads as "no match", never as an exception or a silent skip. */
-    /** @param array<int|string, string>|null $m */
+    /**
+     * preg_match on log text: a failure is counted and reads as "no match", never as an exception or a silent skip.
+     *
+     * @param array<int|string, string>|null $m
+     * @param-out array<int|string, string> $m
+     */
     private function re(string $pattern, string $subject, ?array &$m = null): bool
     {
         $r = preg_match($pattern, $subject, $m);

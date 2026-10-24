@@ -332,6 +332,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     private function post(string $path, array $body): array
     {
         // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
+        /** @var \ArrayObject<string, bool> $tripped */
         $tripped = new \ArrayObject();
         try {
             $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('POST', $this->baseUrl . $path, [

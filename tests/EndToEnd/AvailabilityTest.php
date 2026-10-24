@@ -109,7 +109,7 @@ final class AvailabilityTest extends TestCase
         self::assertSame('truncated:deadline', $result->summaryData?->reason);
         $texts = implode("\n", self::notices($h));
         self::assertStringContainsString('deadline', $texts);
-        self::assertLessThan(100, $result->summaryData?->stats?->eventsRead ?? 0);
+        self::assertLessThan(100, $result->summaryData?->stats->eventsRead ?? 0);
         // R-3: a cut window is not final: no run record, so the next trigger can read it again.
         self::assertNull($h->state->get($runKey), 'a cut window leaves no done record');
         self::assertNotNull($h->state->get($partialKey));

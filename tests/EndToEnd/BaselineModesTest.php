@@ -36,7 +36,7 @@ final class BaselineModesTest extends TestCase
         for ($d = 0; $d < $days; ++$d) {
             $result = $h->watcher(self::source($level($d, $h->clock->now()->format('D'))))->run();
             if ($d >= $skip) {
-                $candidates[] = $result->summaryData?->stats?->candidates ?? 0;
+                $candidates[] = $result->summaryData?->stats->candidates ?? 0;
             }
             $h->nextWindow();
         }

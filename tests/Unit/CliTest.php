@@ -396,7 +396,7 @@ final class CliTest extends TestCase
             }
 
             return static function (?DateTimeImmutable $now) use ($config, $options, $only, $outcome, &$calls): FleetResult {
-                $calls[] = [$config, $options, $only, $now];
+                $calls[] = [$config, $options, array_values($only), $now];
 
                 return $outcome;
             };

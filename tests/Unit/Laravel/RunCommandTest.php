@@ -76,20 +76,20 @@ final class RunCommandTest extends TestCase
 
     public function testNowOptionIsPassedThrough(): void
     {
-        $seen = 'unset';
+        $seen = [];
         $factory = static function () use (&$seen): callable {
             return static function (?DateTimeImmutable $now) use (&$seen): RunResult {
-                $seen = $now;
+                $seen[] = $now;
 
                 return new RunResult(RunOutcome::Quiet);
             };
         };
         $this->exec($factory, ['--now' => '2026-10-23T06:00:00+02:00']);
-        self::assertInstanceOf(DateTimeImmutable::class, $seen);
-        self::assertSame('2026-10-23T06:00:00+02:00', $seen->format(DATE_ATOM));
-
         $this->exec($factory);
-        self::assertNull($seen);
+        self::assertCount(2, $seen);
+        self::assertInstanceOf(DateTimeImmutable::class, $seen[0]);
+        self::assertSame('2026-10-23T06:00:00+02:00', $seen[0]->format(DATE_ATOM));
+        self::assertNull($seen[1]);
     }
 
     public function testInvalidNowReturnsTwoWithoutBuildingWatcher(): void

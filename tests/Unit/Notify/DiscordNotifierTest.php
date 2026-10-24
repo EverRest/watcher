@@ -38,7 +38,9 @@ final class DiscordNotifierTest extends TestCase
         $this->history = [];
         $this->slept = [];
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new DiscordNotifier(new Client(['handler' => $stack]), $budget, function (int $s): void {
             $this->slept[] = $s;

@@ -93,11 +93,13 @@ final class AnthropicAnalyzer implements Analyzer
      * carried by the AnalyzerFailed when both are bad, because both were billed).
      * A reply cut off by max_tokens is retried with the cap doubled (at most 8192), not with the same cap.
      *
+     * @template T
+     *
      * @param list<RedactedGroup>          $groups
-     * @param callable(array<mixed>): array<mixed> $validate
+     * @param callable(array<mixed>): T    $validate
      * @param list<DependencyContext>      $dependencyContext
      *
-     * @return array{0: array<mixed>, 1: Usage}
+     * @return array{0: T, 1: Usage}
      */
     private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = []): array
     {

@@ -39,7 +39,7 @@ final class RunStats
     /** Source pages fetched, when the source reports it. */
     public ?int $pages = null;
 
-    /** @param 'triage'|'analyze'|'escalate' $step */
+    /** @param string $step 'triage'|'analyze'|'escalate'; anything else is refused */
     public function addUsage(string $step, Usage $usage): void
     {
         if (! isset($this->calls[$step])) {

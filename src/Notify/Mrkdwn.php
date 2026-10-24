@@ -22,12 +22,12 @@ final class Mrkdwn
         foreach ($m as $hit) {
             $start = $hit[0][1];
             $token = null;
-            if (($hit[1][1] ?? -1) >= 0 && $hit[1][0] !== '') {
+            if (($hit[1][1] ?? -1) >= 0) {
                 $url = self::decode($hit[1][0]);
                 $token = preg_match('~^https?://[^\s|<>"]+$~D', $url) === 1 ? ['link', $url, self::decode($hit[2][0] ?? '')] : null;
-            } elseif (($hit[3][1] ?? -1) >= 0 && $hit[3][0] !== '') {
+            } elseif (($hit[3][1] ?? -1) >= 0) {
                 $token = ['bold', $hit[3][0]];
-            } elseif (($hit[4][1] ?? -1) >= 0 && $hit[4][0] !== '') {
+            } elseif (($hit[4][1] ?? -1) >= 0) {
                 $token = ['code', $hit[4][0]];
             }
             if ($token === null) {

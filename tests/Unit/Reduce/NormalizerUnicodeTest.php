@@ -89,7 +89,8 @@ final class NormalizerUnicodeTest extends TestCase
         }
         ini_set('pcre.jit', '1');
         // Five levels is past the bound: the text is still scanned, never looped on.
-        self::assertIsString((new Normalizer())->normalize('a%25252525252540b.com'));
+        (new Normalizer())->normalize('a%25252525252540b.com');
+        $this->addToAssertionCount(1);
     }
 
     public function testDotsBetweenLabelsAreDotsEverywhere(): void

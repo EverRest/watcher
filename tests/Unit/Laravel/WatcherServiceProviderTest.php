@@ -44,9 +44,7 @@ final class WatcherServiceProviderTest extends TestCase
             {
             }
         });
-        /** @var Application $application the provider type-hints the Application contract; the container satisfies its API */
-        $application = $app;
-        (new WatcherServiceProvider($application))->register();
+        (new WatcherServiceProvider($app))->register(); // phpstan.neon.dist: the provider type-hints the Application contract, the plain container satisfies the API it uses
 
         return $app;
     }

@@ -44,7 +44,9 @@ final class AnthropicAnalyzerTest extends TestCase
     private function analyzer(array $responses): AnthropicAnalyzer
     {
         $stack = HandlerStack::create(new MockHandler($responses));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         // zero retry delay keeps the SDK's own retries instant
         return new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]);
@@ -107,7 +109,9 @@ final class AnthropicAnalyzerTest extends TestCase
 
         $this->history = [];
         $stack = HandlerStack::create(new MockHandler([self::json('message-valid.json')]));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
         (new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0], false))->analyze(self::request());
         $off = $this->body();
         self::assertStringNotContainsString('how_to_check', (string) json_encode($off));

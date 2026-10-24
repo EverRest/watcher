@@ -36,7 +36,6 @@ final class RunStatsTest extends TestCase
     public function testUnknownStepIsRejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        // @phpstan-ignore argument.type
         (new RunStats())->addUsage('free text', new Usage('m', 1, 1));
     }
 }
