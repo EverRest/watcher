@@ -184,7 +184,7 @@ final class DigestRenderer
         return $out;
     }
 
-    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, oversized_lines?: int} $diag */
+    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, oversized_lines?: int, unscannable_events?: int} $diag */
     private function readQualityLine(array $diag): ?string
     {
         $parts = [];
@@ -195,6 +195,7 @@ final class DigestRenderer
             'truncated_lines' => '%s over-long lines cut before parsing',
             'truncated_structured' => '%s oversized structured lines replaced by a placeholder',
             'oversized_lines' => '%s lines over 64 KB dropped',
+            'unscannable_events' => '%s events withheld (could not be scanned)',
             'pages_shrunk' => '%s pages re-read at a smaller size (response cap)',
             'regex_failures' => '%s lines the parser could not read (kept, level guessed)',
         ] as $key => $format) {

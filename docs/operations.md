@@ -308,7 +308,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
 - `watcher run --dry-run` runs the whole pipeline for the window ending at the latest `run_at` instant (ignoring the due
   hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
   billed**; spend is not recorded.
-- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr.
+- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
 
 ## Upgrading
 

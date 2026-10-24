@@ -664,6 +664,8 @@ final class Watcher
         $this->stats->eventsRead = $eventsRead;
         $this->stats->unscannableEvents = $reducer->unscannableEvents();
         $this->stats->oversizedLines = array_sum(array_map(static fn (ReadFilter $f): int => $f->oversizedLines, $filters));
+        $this->stats->overflowedEvents = $reducer->overflowedEvents();
+        $this->stats->readQuality = $this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : [];
         // Blindness (A4-03, A4-08): what this run could not see, as counts. Sent as a short notice even when the run is otherwise quiet.
         $readReason = $this->guard?->reason() ?? array_values(array_filter(array_map(static fn (ReadFilter $f): ?string => $f->truncationReason, $filters)))[0] ?? ($truncated ? 'cap' : null);
         $zeroStreak = $this->zeroStreak($key, $eventsRead, $totals);
@@ -693,6 +695,7 @@ final class Watcher
         $patternFailures = $rules->failures() + $mute->failures()
             + array_sum(array_map(static fn (\Watcher\Select\Matcher $m): int => $m->failures, $muteMatchers))
             + array_sum(array_map(static fn (ReadFilter $f): int => $f->patternErrors, $filters));
+        $this->stats->patternFailures = $patternFailures;
         if ($patternFailures > 0) {
             $this->hostLog?->warning('pattern evaluation failures: rules may have been skipped', ['service' => $service, 'count' => $patternFailures]);
         }
@@ -904,7 +907,7 @@ final class Watcher
             $annotations,
             $comparison,
             $reducer->mining(),
-            ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->stats->oversizedLines > 0 ? ['oversized_lines' => $this->stats->oversizedLines] : []),
+            ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->stats->oversizedLines > 0 ? ['oversized_lines' => $this->stats->oversizedLines] : []) + ($this->stats->unscannableEvents > 0 ? ['unscannable_events' => $this->stats->unscannableEvents] : []),
             $routed->reused,
             $routed->triageDropped,
             $routed->triageCoerced,

@@ -246,11 +246,33 @@ final class RunSummaryTest extends TestCase
         self::assertStringContainsString('"state_unreadable":3', (new JsonSummary())->render($d));
     }
 
-    public function testNoUnreadableEntriesLeavesTheJsonLineUnchanged(): void
+    public function testNoUnreadableEntriesIsAnExplicitZero(): void
     {
         $d = self::data(self::ready()->watcher(self::source())->run());
 
         self::assertSame(0, $d->stats?->stateUnreadable);
-        self::assertStringNotContainsString('state_unreadable', (new JsonSummary())->render($d));
+        self::assertStringContainsString('"state_unreadable":0', (new JsonSummary())->render($d));
+    }
+
+    public function testUnscannableEventsAreCountedInTheJsonLineAndNamedOnceInTheDigest(): void
+    {
+        $h = self::ready();
+        $events = Harness::events(Level::Error, "payment \xFF failed in a unique way", 4, 'Alpha');
+
+        $r = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+
+        $d = self::data($r);
+        $json = json_decode((new JsonSummary())->render($d), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(4, $json['unscannable_events']);
+        $texts = [];
+        foreach ($h->notifier->sent as $sent) {
+            foreach ($sent['message']->sections as $section) {
+                $texts[] = $section['text'];
+            }
+        }
+        $lines = array_values(array_filter($texts, static fn (string $t): bool => str_contains($t, 'withheld')));
+        self::assertCount(1, $lines, 'one line, not one per event');
+        self::assertSame('ℹ️ read quality: 4 events withheld (could not be scanned)', $lines[0]);
+        self::assertStringNotContainsString('payment', $lines[0]);
     }
 }

@@ -11,6 +11,11 @@ use Throwable;
 /** The one-line JSON summary of a run: counts, outcome names, numbers and times only (Principle I). */
 final class JsonSummary
 {
+    /** The names under `read_quality`: fixed, each always present (0 when the source did not report it). */
+    public const READ_QUALITY = [
+        'unknown_levels', 'orphan_trace_lines', 'message_tails_dropped', 'truncated_lines', 'truncated_structured', 'regex_failures', 'pages_shrunk',
+    ];
+
     private const PACKAGE = 'everrest/watcher';
 
     /** Letters, digits and a little punctuation, short: a code or "internal error (Class)", never prose with data. */
@@ -43,7 +48,12 @@ final class JsonSummary
             'release' => $d->release,
             'version' => self::packageVersion(self::PACKAGE),
             'dry_run' => $d->dryRun,
-            ...($s !== null && $s->stateUnreadable > 0 ? ['state_unreadable' => $s->stateUnreadable] : []), // only when non-zero: the line stays as it was
+            'state_unreadable' => $s->stateUnreadable ?? 0,
+            'unscannable_events' => $s->unscannableEvents ?? 0,
+            'oversized_lines' => $s->oversizedLines ?? 0,
+            'overflowed_events' => $s->overflowedEvents ?? 0,
+            'pattern_failures' => $s->patternFailures ?? 0,
+            'read_quality' => array_combine(self::READ_QUALITY, array_map(static fn (string $k): int => $s->readQuality[$k] ?? 0, self::READ_QUALITY)),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
     }
 
