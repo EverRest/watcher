@@ -230,6 +230,21 @@ final class AnthropicHttpClientTest extends TestCase
         $this->call($this->client([new Response(200, [], '{"model":"m","content":[],"stop_reason":"end_turn"}')]));
     }
 
+    /** @dataProvider badCacheFields */
+    public function testNonIntegerCacheTokensAreAnInvalidReply(mixed $value): void
+    {
+        $body = (string) json_encode(['model' => 'm', 'content' => [], 'stop_reason' => 'end_turn', 'usage' => ['input_tokens' => 1, 'output_tokens' => 1, 'cache_read_input_tokens' => $value]]);
+
+        $this->expectExceptionObject(new AnalyzerFailed('provider unavailable (invalid reply)'));
+        $this->call($this->client([new Response(200, [], $body)]));
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function badCacheFields(): array
+    {
+        return ['string' => ['12'], 'negative' => [-5], 'array' => [[1]]];
+    }
+
     public function testAnOversizedReplyIsRefusedBeforeParsing(): void
     {
         $big = new Response(200, ['Content-Length' => (string) (ResponseLimit::MAX_BYTES + 1)], '{}');

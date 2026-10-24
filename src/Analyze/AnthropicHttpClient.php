@@ -86,6 +86,14 @@ final class AnthropicHttpClient implements MessagesClient
                 break;
             }
         }
+        $cache = [];
+        foreach (['cache_read_input_tokens', 'cache_creation_input_tokens'] as $field) {
+            $v = $usage[$field] ?? 0; // absent means none; present must be a count, or the spend would be undercounted
+            if (!is_int($v) || $v < 0) {
+                throw new AnalyzerFailed('provider unavailable (invalid reply)');
+            }
+            $cache[] = $v;
+        }
         $stop = $data['stop_reason'] ?? null;
 
         return new ModelReply(
@@ -94,8 +102,8 @@ final class AnthropicHttpClient implements MessagesClient
             $data['model'],
             $in,
             $out,
-            max(0, (int) ($usage['cache_read_input_tokens'] ?? 0)),
-            max(0, (int) ($usage['cache_creation_input_tokens'] ?? 0)),
+            $cache[0],
+            $cache[1],
         );
     }
 }

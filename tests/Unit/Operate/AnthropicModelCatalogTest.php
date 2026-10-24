@@ -101,6 +101,17 @@ final class AnthropicModelCatalogTest extends TestCase
         self::assertSame('', $this->history[1]['request']->getHeaderLine('x-api-key'));
     }
 
+    public function testTheKeyNeverFollowsARedirectAndTlsIsVerified(): void
+    {
+        $this->catalog([self::ok(), self::ok()])->probe();
+
+        foreach ($this->history as $h) {
+            self::assertFalse($h['options']['allow_redirects']);
+            self::assertTrue($h['options']['verify']);
+            self::assertArrayHasKey('on_headers', $h['options'], 'ResponseLimit is applied');
+        }
+    }
+
     public function testMalformedBodyYieldsNoIdsAndNoLeak(): void
     {
         $catalog = $this->catalog([new Response(200, [], 'not json ' . self::KEY), new Response(200, [], '{"data":"x"}')]);
