@@ -269,6 +269,18 @@ final class LokiSourceTest extends LogSourceContractTest
         }
     }
 
+    public function testTheLevelLabelOfTheStreamIsHandedToTheContinuationRule(): void
+    {
+        $values = [[$this->ns(self::BASE_NS), 'panic: boom'], [$this->ns(self::BASE_NS + 1), 'goroutine 1 [running]:'], [$this->ns(self::BASE_NS + 2), 'something odd']];
+        $body = static fn (array $labels): array => ['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [['stream' => $labels, 'values' => $values]]]];
+
+        $labelled = $this->source([$this->json($body(['app' => 'svc', 'level' => 'error']))]);
+        $plain = $this->source([$this->json($body(['app' => 'svc']))]);
+
+        $this->assertCount(2, $this->collect($labelled->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10))), 'a labelled stream starts a record per line');
+        $this->assertCount(1, $this->collect($plain->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10))), 'an unlabelled one lets the odd line continue the record');
+    }
+
     public function testPlainLinesAfterAJsonRecordAreNotSwallowedByIt(): void
     {
         $source = $this->makeSourceWithLines([
