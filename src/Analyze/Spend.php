@@ -24,6 +24,8 @@ final class Spend
     /** What this run reserved for the call in progress and has not settled yet (M2). */
     private float $pendingUsd = 0.0;
     private float $pendingTokens = 0.0;
+    /** The day the reservation was made on: it is settled or released on that day's counters, whatever the clock says by then. */
+    private string $pendingDay = '';
 
     public function day(): string
     {
@@ -36,6 +38,9 @@ final class Spend
         $day = $this->day();
         $ttl = Keys::ttl(Keys::SPEND, 0, 0);
         $tokens = $usage->inputTokens + $usage->outputTokens + $usage->cacheReadTokens + $usage->cacheWriteTokens;
+        if ($this->pendingDay !== '' && $this->pendingDay !== $day) {
+            $this->release(); // the reservation belongs to an earlier day: give it back there, book the real cost today
+        }
         $this->store->increment(Keys::spendUsd($this->service, $day), $costUsd - $this->pendingUsd, $ttl);
         $this->store->increment(Keys::spendTokens($this->service, $day), (float) $tokens - $this->pendingTokens, $ttl);
         $this->pendingUsd = $this->pendingTokens = 0.0;
@@ -54,7 +59,7 @@ final class Spend
             $ok = $this->store->reserve(Keys::spendUsd($this->service, $day), Keys::spendTokens($this->service, $day), $usd, (float) $tokens, $capUsd + 1e-9, $capTokens === null ? null : (float) $capTokens, Keys::ttl(Keys::SPEND, 0, 0));
             if ($ok !== null) {
                 if ($ok) {
-                    [$this->pendingUsd, $this->pendingTokens] = [$usd, (float) $tokens];
+                    [$this->pendingUsd, $this->pendingTokens, $this->pendingDay] = [$usd, (float) $tokens, $day];
                 }
 
                 return $ok;
@@ -71,7 +76,7 @@ final class Spend
         if ($this->pendingUsd === 0.0 && $this->pendingTokens === 0.0) {
             return;
         }
-        $day = $this->day();
+        $day = $this->pendingDay;
         $ttl = Keys::ttl(Keys::SPEND, 0, 0);
         [$usd, $tokens] = [$this->pendingUsd, $this->pendingTokens];
         $this->pendingUsd = $this->pendingTokens = 0.0;

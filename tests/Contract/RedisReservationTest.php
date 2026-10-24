@@ -71,6 +71,38 @@ final class RedisReservationTest extends TestCase
         self::assertSame(100000, $total['tokens']);
     }
 
+    public function testParallelRunsSettlingAfterMidnightLeaveTheOldDayAtZero(): void
+    {
+        $service = 'svc' . bin2hex(random_bytes(3));
+        $goAt = microtime(true) + 1.0;
+        $procs = [];
+        for ($i = 0; $i < 2; ++$i) {
+            $p = proc_open([PHP_BINARY, __DIR__ . '/../Fixtures/reserve_boundary_child.php', $this->dsn, $this->prefix, (string) $goAt, '40', $service], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, dirname(__DIR__, 2));
+            self::assertIsResource($p);
+            $procs[] = [$p, $pipes];
+        }
+        $settled = 0;
+        foreach ($procs as [$p, $pipes]) {
+            $settled += (int) stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($p);
+        }
+
+        self::assertGreaterThan(0, $settled);
+        $day = static fn (string $d): FrozenClock => new FrozenClock(new DateTimeImmutable($d . 'T12:00:00+00:00'));
+        $before = $day('2026-10-23');
+        $after = $day('2026-10-24');
+        $old = (new Spend(new RedisStateStore($this->redis, $before, $this->prefix), $before, new DateTimeZone('UTC'), $service))->today();
+        $new = (new Spend(new RedisStateStore($this->redis, $after, $this->prefix), $after, new DateTimeZone('UTC'), $service))->today();
+        self::assertEqualsWithDelta(0.0, $old['usd'], 1e-6, 'every reservation was given back on the day it was made');
+        self::assertSame(0, $old['tokens']);
+        self::assertEqualsWithDelta($settled * 0.04, $new['usd'], 1e-6, 'only the real cost landed on the new day');
+        foreach ($this->redis->keys($this->prefix . '*') as $key) {
+            self::assertGreaterThan(0, $this->redis->pttl($key), 'every key keeps its expiry');
+        }
+    }
+
     public function testSettleBooksTheActualCostAndReleasesTheRest(): void
     {
         $spend = $this->spend();
