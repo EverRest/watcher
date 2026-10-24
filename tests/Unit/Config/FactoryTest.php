@@ -90,6 +90,16 @@ final class FactoryTest extends TestCase
         self::assertStringContainsString('level=~', is_string($q['query'] ?? null) ? $q['query'] : '');
     }
 
+    public function testMaxResponseMbReachesTheSource(): void
+    {
+        $body = '{"status":"success","data":{"result":[]},"pad":"' . str_repeat('x', 1_500_000) . '"}';
+        $src = Factory::source(WatchConfig::fromArray(self::config(['driver' => 'loki', 'max_response_mb' => 1, 'loki' => ['url' => 'https://loki.invalid']])), new Client(['handler' => HandlerStack::create(new MockHandler([new Response(200, [], $body)]))]));
+
+        $this->expectException(\Watcher\Source\SourceUnavailable::class);
+        $this->expectExceptionMessage('too large');
+        $src->totals(new Window(new \DateTimeImmutable('2026-10-07T06:00:00Z'), new \DateTimeImmutable('2026-10-08T06:00:00Z')), new StreamSelector(['app' => 'svc']));
+    }
+
     public function testDatadogMapsNewestFirstAndLevelMode(): void
     {
         $seen = self::read(['driver' => 'datadog', 'level_mode' => 'all', 'datadog' => ['api_key' => 'a', 'app_key' => 'b', 'newest_first' => true]], '{"data":[],"meta":{"page":{}}}');

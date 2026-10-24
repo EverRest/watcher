@@ -28,6 +28,7 @@ use Watcher\Schedule\Window;
 final class DatadogSource implements LogSource, ReadDiagnostics
 {
     private const PAGE_LIMIT = 5000;
+    private const MIN_PAGE_LIMIT = 100;
     private const FACET_LIMIT = 50;
     private const VERSION_STEP = 3600;
 
@@ -37,6 +38,9 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     private readonly Retry $retry;
     private readonly ClockInterface $clock;
     private bool $truncated = false;
+
+    /** Times a page tripped the response cap and was re-read with half the limit during the last lines() call. */
+    public int $pagesShrunk = 0;
     private LineParser $parser;
 
     /** @param (callable(int): void)|null $sleeper receives whole seconds to wait between retries; defaults to sleep() */
@@ -51,6 +55,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         ?ClockInterface $clock = null,
         private readonly string $levelMode = 'status',
         private readonly bool $newestFirst = false,
+        private readonly int $maxResponseBytes = ResponseLimit::MAX_BYTES,
     ) {
         if (!in_array($levelMode, ['status', 'all'], true)) {
             throw new InvalidArgumentException("Invalid Datadog level_mode '{$levelMode}' (status or all).");
@@ -87,6 +92,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): Generator
     {
         $this->truncated = false;
+        $this->pagesShrunk = 0;
+        $limit = self::PAGE_LIMIT;
         $this->parser = new LineParser();
         $query = $this->tagQuery($selector) . $this->readQuery($filter);
         $cursor = null;
@@ -101,12 +108,23 @@ final class DatadogSource implements LogSource, ReadDiagnostics
 
                 return;
             }
-            $page = ['limit' => self::PAGE_LIMIT] + ($cursor === null ? [] : ['cursor' => $cursor]);
-            $data = $this->post('/api/v2/logs/events/search', [
-                'filter' => $this->filter($window, $query),
-                'sort' => $this->newestFirst ? '-timestamp' : 'timestamp',
-                'page' => $page,
-            ]);
+            while (true) {
+                try {
+                    $data = $this->post('/api/v2/logs/events/search', [
+                        'filter' => $this->filter($window, $query),
+                        'sort' => $this->newestFirst ? '-timestamp' : 'timestamp',
+                        'page' => ['limit' => $limit] + ($cursor === null ? [] : ['cursor' => $cursor]),
+                    ]);
+                    break;
+                } catch (SourceUnavailable $e) {
+                    // The reply tripped the size cap: the same cursor with half the page (R-1), kept for the rest of the read.
+                    if (!$e->tooLarge || $limit <= self::MIN_PAGE_LIMIT) {
+                        throw $e;
+                    }
+                    $limit = max(self::MIN_PAGE_LIMIT, intdiv($limit, 2));
+                    ++$this->pagesShrunk;
+                }
+            }
             foreach ($data['data'] ?? [] as $raw) {
                 if (!is_array($raw)) {
                     continue;
@@ -152,7 +170,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
 
     public function readDiagnostics(): array
     {
-        return $this->parser->diagnostics();
+        return $this->parser->diagnostics() + ($this->pagesShrunk > 0 ? ['pages_shrunk' => $this->pagesShrunk] : []);
     }
 
     public function lastReadTruncated(): bool
@@ -322,15 +340,15 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             'http_errors' => false,
             'allow_redirects' => false, // DD-API-KEY would follow a redirect; a 3xx is an error here
             'verify' => true,
-        ] + ResponseLimit::options($tripped)), 'datadog', false);
+        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'datadog', false);
         } catch (SourceUnavailable $e) {
-            throw isset($tripped['large']) ? new SourceUnavailable('datadog response too large') : $e;
+            throw isset($tripped['large']) ? new SourceUnavailable('datadog response too large', true) : $e;
         }
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {
             throw new SourceUnavailable(trim("datadog {$status} " . $response->getReasonPhrase()));
         }
-        return ResponseLimit::decode($response, 'datadog');
+        return ResponseLimit::decode($response, 'datadog', $this->maxResponseBytes);
     }
 }

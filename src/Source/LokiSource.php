@@ -19,6 +19,7 @@ use Watcher\Schedule\Window;
 final class LokiSource implements LogSource, ReadDiagnostics
 {
     private const PAGE_LIMIT = 5000;
+    private const MIN_PAGE_LIMIT = 100;
     private const VERSION_STEP = 3600;
     private const LEVEL_WORDS = [
         'debug' => ['debug'],
@@ -38,6 +39,10 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private readonly array $headers;
     private readonly Retry $retry;
     private bool $truncated = false;
+    private int $pageLimit = self::PAGE_LIMIT;
+
+    /** Times a page tripped the response cap and was re-read with half the limit during the last lines() call. */
+    public int $pagesShrunk = 0;
     private LineParser $parser;
     private readonly ClockInterface $clock;
 
@@ -62,6 +67,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         private readonly int $pagingBudget = 300,
         private readonly int $maxPages = 1000,
         bool $allowInsecure = false,
+        private readonly int $maxResponseBytes = ResponseLimit::MAX_BYTES,
     ) {
         $this->clock = $clock ?? new SystemClock();
         if (($problem = \Watcher\Config\SecureUrl::problem($baseUrl, $allowInsecure)) !== null) {
@@ -106,6 +112,8 @@ final class LokiSource implements LogSource, ReadDiagnostics
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): Generator
     {
         $this->truncated = false;
+        $this->pageLimit = self::PAGE_LIMIT;
+        $this->pagesShrunk = 0;
         $this->parser = new LineParser();
         $labelled = $this->levelMode === 'label' && $filter->watchPatterns === [];
         $query = $this->selector($selector, $labelled ? $this->levelMatcher($filter) : '') . $this->lineFilter($filter);
@@ -166,7 +174,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
             }
 
             // A short page (or one that is all duplicates) means the window is exhausted.
-            if (count($entries) < self::PAGE_LIMIT || $fresh === 0) {
+            if (count($entries) < $this->pageLimit || $fresh === 0) {
                 return;
             }
             if ($entries[0][0] === $entries[count($entries) - 1][0] || $entries[count($entries) - 1][0] <= $start) {
@@ -194,7 +202,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
 
     public function readDiagnostics(): array
     {
-        return $this->parser->diagnostics();
+        return $this->parser->diagnostics() + ($this->pagesShrunk > 0 ? ['pages_shrunk' => $this->pagesShrunk] : []);
     }
 
     public function lastReadTruncated(): bool
@@ -240,13 +248,26 @@ final class LokiSource implements LogSource, ReadDiagnostics
      */
     private function page(string $query, string $start, string $end): array
     {
-        $data = $this->get('/loki/api/v1/query_range', [
-            'query' => $query,
-            'start' => $start,
-            'end' => $end,
-            'limit' => (string) self::PAGE_LIMIT,
-            'direction' => 'forward',
-        ]);
+        $data = [];
+        while (true) {
+            try {
+                $data = $this->get('/loki/api/v1/query_range', [
+                    'query' => $query,
+                    'start' => $start,
+                    'end' => $end,
+                    'limit' => (string) $this->pageLimit,
+                    'direction' => 'forward',
+                ]);
+                break;
+            } catch (SourceUnavailable $e) {
+                // The reply tripped the size cap: the same cursor with half the page (R-1), kept for the rest of the read.
+                if (!$e->tooLarge || $this->pageLimit <= self::MIN_PAGE_LIMIT) {
+                    throw $e;
+                }
+                $this->pageLimit = max(self::MIN_PAGE_LIMIT, intdiv($this->pageLimit, 2));
+                ++$this->pagesShrunk;
+            }
+        }
 
         $entries = [];
         foreach ($this->results($data) as $stream) {
@@ -416,15 +437,15 @@ final class LokiSource implements LogSource, ReadDiagnostics
             'http_errors' => false,
             'allow_redirects' => false, // X-Scope-OrgID would follow a redirect; a 3xx is an error here
             'verify' => true,
-        ] + ResponseLimit::options($tripped)), 'loki', true);
+        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'loki', true);
         } catch (SourceUnavailable $e) {
-            throw isset($tripped['large']) ? new SourceUnavailable('loki response too large') : $e;
+            throw isset($tripped['large']) ? new SourceUnavailable('loki response too large', true) : $e;
         }
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {
             throw new SourceUnavailable(trim("loki {$status} " . $response->getReasonPhrase()));
         }
-        return ResponseLimit::decode($response, 'loki');
+        return ResponseLimit::decode($response, 'loki', $this->maxResponseBytes);
     }
 }
