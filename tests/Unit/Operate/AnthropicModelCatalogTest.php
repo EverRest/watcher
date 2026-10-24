@@ -6,14 +6,13 @@ namespace Watcher\Tests\Unit\Operate;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
-use Psr\Http\Client\NetworkExceptionInterface;
-use Psr\Http\Message\RequestInterface;
 use Watcher\Operate\AnthropicModelCatalog;
 use Watcher\Operate\ModelCatalog;
 
@@ -84,20 +83,11 @@ final class AnthropicModelCatalogTest extends TestCase
         self::assertStringNotContainsString(self::KEY, (string) json_encode($probe));
     }
 
-    /** Guzzle 8 splits timeouts: a read timeout is a NetworkException, not a ConnectException. Both implement the PSR interface. */
-    public function testAnyPsrNetworkFailureIsReportedAsTimeout(): void
+    /** Guzzle 8 splits timeouts: a read timeout is a NetworkTimeoutException, no longer a ConnectException (which is all 7 has). */
+    public function testARealGuzzleReadTimeoutIsReportedAsTimeout(): void
     {
-        $e = new class ('timed out', new Request('GET', 'https://api.anthropic.com/v1/models')) extends \RuntimeException implements NetworkExceptionInterface {
-            public function __construct(string $message, private readonly RequestInterface $request)
-            {
-                parent::__construct($message);
-            }
-
-            public function getRequest(): RequestInterface
-            {
-                return $this->request;
-            }
-        };
+        $class = class_exists(NetworkTimeoutException::class) ? NetworkTimeoutException::class : ConnectException::class;
+        $e = new $class('cURL error 28: operation timed out', new Request('GET', 'https://api.anthropic.com/v1/models'));
 
         self::assertSame(['bearer' => 'timeout', 'x-api-key' => 'timeout'], $this->catalog([$e, $e])->probe());
     }

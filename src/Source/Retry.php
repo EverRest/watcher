@@ -6,6 +6,7 @@ namespace Watcher\Source;
 
 use Closure;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Exception\RequestException;
 use Psr\Http\Message\ResponseInterface;
 
 /**
@@ -56,12 +57,17 @@ final class Retry
 
     /**
      * A failure the server answered (a response exists): retrying it repeats what the server already decided.
-     * Guzzle 7 asks RequestException::hasResponse(); Guzzle 8 removed it and keeps getResponse() on ResponseException only,
-     * so ask whichever exists. ponytail: two majors supported; when 7 is dropped this is `$e instanceof ResponseException`.
+     * Guzzle 8 carries the response on ResponseException only; Guzzle 7 on RequestException::hasResponse().
+     * ponytail: two majors supported; when 7 is dropped this is `$e instanceof ResponseException`.
      */
     private function carriesResponse(GuzzleException $e): bool
     {
-        return method_exists($e, 'getResponse') && $e->getResponse() !== null;
+        $guzzle8 = 'GuzzleHttp\\Exception\\ResponseException';
+        if (class_exists($guzzle8)) {
+            return $e instanceof $guzzle8;
+        }
+
+        return $e instanceof RequestException && $e->hasResponse();
     }
 
     /**
