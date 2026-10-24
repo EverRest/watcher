@@ -185,6 +185,10 @@ final class Application
             fwrite($this->err, $e->getMessage() . "\n");
 
             return 2;
+        } catch (\Throwable $e) {
+            fwrite($this->err, 'state unavailable (' . $e::class . ")\n"); // class only: a driver message can carry host and credentials
+
+            return 1;
         }
         if ($text === null) {
             fwrite($this->err, "state:get: no entry stored for that key\n");

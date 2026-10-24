@@ -89,4 +89,13 @@ final class CliStateGetTest extends TestCase
             self::assertStringContainsString('usage:', $err);
         }
     }
+
+    public function testAnUnavailableStoreExitsOneWithTheClassNameOnly(): void
+    {
+        [$code, $out, $err] = $this->exec(['state:get', 'heartbeat', '--config=' . $this->cfg], static fn (): string => throw new \RuntimeException('connect to 10.0.0.5 as hunter2 failed'));
+
+        self::assertSame(1, $code);
+        self::assertSame('', $out);
+        self::assertSame("state unavailable (RuntimeException)\n", $err);
+    }
 }
