@@ -109,6 +109,24 @@ final class Normalizer
         return $this->scan($text)['text'];
     }
 
+    /** Text that could not be scanned (invalid UTF-8, a regex failure) in this instance, see {@see normalizeOrUnscannable()}. */
+    public int $unscannable = 0;
+
+    /**
+     * Per-event fail-closed: a line the rules cannot scan becomes the placeholder `<UNSCANNABLE>` (counted), never raw
+     * text and never an exception that fails the whole window.
+     */
+    public function normalizeOrUnscannable(string $text): string
+    {
+        try {
+            return $this->normalize($text);
+        } catch (NormalizationException) {
+            ++$this->unscannable;
+
+            return '<UNSCANNABLE>';
+        }
+    }
+
     /**
      * @return array{text: string, changed: bool} `changed` is true when any placeholder was applied
      *                                            (whitespace collapsing alone does not count).
@@ -213,7 +231,9 @@ final class Normalizer
                 // After 'user:' (a non-port value) a / ? # appears before a later '@': that is a password
                 // swallowing the authority, so the whole token is dropped. RFC-compliant credentials fall
                 // through to the next rule; ports and '@' in a query (http://h:80/x?e=a@b) are not matched.
-                '\b[a-z][a-z0-9+.-]*://[^\s/?\#@\'"' . $ang . ']*:(?!\d+(?:[/?\#]|$|\s))[^\s/?\#\'"' . $ang . ']*[/?\#][^\s\'"' . $ang . ']*@[^\s\'"' . $ang . ']*',
+                // Linear: possessive classes, the user part cannot hold ':' (so the FIRST colon is the user:password split) and
+                // the '@' is looked for once, ahead, instead of being backtracked into.
+                '\b[a-z][a-z0-9+.-]*+://[^\s/?\#@:\'"' . $ang . ']*+:(?!\d+(?:[/?\#]|$|\s))[^\s/?\#\'"' . $ang . ']*+[/?\#](?=[^\s\'"' . $ang . ']*@)[^\s\'"' . $ang . ']*+',
                 '<URL>',
             ],
             [
