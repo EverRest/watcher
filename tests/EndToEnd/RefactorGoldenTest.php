@@ -9,6 +9,7 @@ use DateTimeInterface;
 use DateTimeZone;
 use JsonSerializable;
 use PHPUnit\Framework\TestCase;
+use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\Spend;
 use Watcher\Analyze\Usage;
 use Watcher\Level;
@@ -17,9 +18,11 @@ use Watcher\Operate\RunOptions;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
 use Watcher\Source\LogEvent;
+use Watcher\Source\SourceUnavailable;
 use Watcher\Tests\Fakes\FakeLogSource;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 use Watcher\Tests\Fakes\RecordingStateStore;
+use Watcher\Tests\Fakes\RoutedLogSource;
 
 /**
  * Characterisation of Watcher::run() for the decomposition (Lane A): digest text, every state write in order, the final
@@ -193,6 +196,91 @@ final class RefactorGoldenTest extends TestCase
         $r = $h->watcher(self::source(self::alpha()))->run();
 
         self::assertGolden('disabled', self::capture($h, $r, $spy), RunOutcome::Disabled);
+    }
+
+    public function testAnalyzerFailureStillKeepsTheWindowSnapshotAndLeavesNoRunRecord(): void
+    {
+        $h = new Harness();
+        $spy = self::ready($h);
+        $h->analyzer->analyzeFailure = new AnalyzerFailed('provider unavailable');
+        $r = $h->watcher(self::source(self::withBeta()))->run();
+
+        self::assertGolden('analyzer-failed', self::capture($h, $r, $spy), RunOutcome::Failed);
+    }
+
+    public function testSourceFailure(): void
+    {
+        $h = new Harness();
+        $spy = self::ready($h);
+        $source = self::source(self::withBeta());
+        $source->failWith(new SourceUnavailable('loki 503 Service Unavailable'));
+        $r = $h->watcher($source)->run();
+
+        self::assertGolden('source-failed', self::capture($h, $r, $spy), RunOutcome::Failed);
+    }
+
+    public function testAnUnexpectedThrowableBecomesAnInternalErrorAndTheLockIsReleased(): void
+    {
+        $h = new Harness();
+        $spy = self::ready($h);
+        $spy->failWritesTo('run:');
+        $r = $h->watcher(self::source(self::withBeta()))->run();
+
+        self::assertGolden('internal-error', self::capture($h, $r, $spy), RunOutcome::Failed);
+    }
+
+    public function testLocked(): void
+    {
+        $h = new Harness();
+        $spy = self::ready($h);
+        $h->state->acquire($h->lockKey(), 'another-run', 600);
+        $r = $h->watcher(self::source(self::withBeta()))->run();
+
+        self::assertGolden('locked', self::capture($h, $r, $spy), RunOutcome::SkippedLocked);
+    }
+
+    public function testDone(): void
+    {
+        $h = new Harness();
+        self::ready($h);
+        $h->watcher(self::source([]))->run();
+        $h->state = $spy = new RecordingStateStore(self::inner($h));
+        $r = $h->watcher(self::source(self::withBeta()))->run();
+
+        self::assertGolden('done', self::capture($h, $r, $spy), RunOutcome::SkippedDone);
+    }
+
+    public function testNotDue(): void
+    {
+        $h = new Harness(['schedule' => ['run_at' => '12:00']]);
+        $h->state = $spy = new RecordingStateStore($h->state);
+        $r = $h->watcher(self::source(self::alpha()))->run();
+
+        self::assertGolden('not-due', self::capture($h, $r, $spy), RunOutcome::SkippedNotDue);
+    }
+
+    /** A field mute, a watch rule on an info line, a level anomaly and a dependency in one reported run. */
+    public function testMuteWatchRuleLevelAnomalyAndDependencyTogether(): void
+    {
+        $dep = ['core-api' => ['stream_tags' => ['app' => 'core-api', 'env' => 'stg']]];
+        $h = new Harness([
+            'dependencies' => $dep,
+            'mute' => [['field' => 'tenant', 'equals' => 't-muted']],
+            'watch_rules' => ['quota' => ['template' => '/QuotaTracking/']],
+        ]);
+        $at = new \DateTimeImmutable('2026-10-07T12:00:00', new \DateTimeZone('UTC'));
+        $muted = array_map(static fn (): LogEvent => new LogEvent($at, Level::Error, 'Tenant import failed', 'ImportException', [], ['tenant' => 't-muted'], []), range(1, 5));
+        $own = Harness::events(Level::Error, 'GET http://core-api/api/items returned 500', 5);
+        $quota = Harness::events(Level::Info, 'QuotaTracking drifted again', 4);
+        $depEvents = Harness::events(Level::Error, 'Pool exhausted', 6);
+        $routed = static fn (array $events, array $totals): RoutedLogSource => new RoutedLogSource(['core-api' => new FakeLogSource(Harness::totalsOf($depEvents), $depEvents)], new FakeLogSource($totals, $events));
+
+        $h->watcher($routed($own, ['error' => 5, 'info' => 1000]))->run();
+        $h->nextWindow();
+        $h->state = $spy = new RecordingStateStore($h->state);
+        $r = $h->watcher($routed([...$own, ...$muted, ...$quota], ['error' => 10, 'info' => 6000]))->run();
+
+        self::assertGolden('mute-rule-anomaly-dependency', self::capture($h, $r, $spy), RunOutcome::Reported);
     }
 
     public function testFleetSeam(): void

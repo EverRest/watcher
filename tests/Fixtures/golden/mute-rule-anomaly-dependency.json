@@ -1,0 +1,336 @@
+{
+    "result": {
+        "outcome": "reported",
+        "failureReason": null,
+        "usage": {
+            "@Watcher\\Analyze\\Usage": {
+                "model": "mixed",
+                "inputTokens": 2400,
+                "outputTokens": 600,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+                "costUsd": 0.0108,
+                "returnedModel": null
+            }
+        },
+        "summary": {
+            "@Watcher\\Operate\\RunSummaryData": {
+                "outcome": "reported",
+                "service": "svc",
+                "reason": null,
+                "windowStart": "2026-10-08T06:00:00+00:00",
+                "windowEnd": "2026-10-09T06:00:00+00:00",
+                "stats": {
+                    "@Watcher\\Operate\\RunStats": {
+                        "eventsRead": 18,
+                        "groups": 3,
+                        "candidates": 2,
+                        "findings": 2,
+                        "calls": {
+                            "triage": 1,
+                            "analyze": 1,
+                            "escalate": 0
+                        },
+                        "tokensIn": 2400,
+                        "tokensOut": 600,
+                        "tokensCached": 0,
+                        "costUsd": 0.0108,
+                        "durationMs": 0,
+                        "pages": null
+                    }
+                },
+                "todayUsd": 0.0108,
+                "release": null,
+                "dryRun": false,
+                "environment": null
+            }
+        },
+        "summaryLine": "outcome=reported tokens_in=2400 tokens_out=600 tokens_cached=0 cost_usd=0.0108",
+        "exitCode": 0
+    },
+    "sent": [
+        {
+            "text": "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.",
+            "sections": [
+                {
+                    "kind": "notice",
+                    "text": "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run."
+                }
+            ],
+            "to": {
+                "driver": "slack",
+                "secrets": "[redacted]"
+            }
+        },
+        {
+            "text": "🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n2 findings",
+            "sections": [
+                {
+                    "kind": "header",
+                    "text": "🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)"
+                },
+                {
+                    "kind": "severity",
+                    "text": "🟠 *error* (2)"
+                },
+                {
+                    "kind": "finding",
+                    "text": "• Problem &lt;ID&gt; — 8× (new)  `9ab3237802d9`\n  Evidence: seen repeatedly; dependency core-api shows 6 errors\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
+                },
+                {
+                    "kind": "finding",
+                    "text": "• Problem &lt;ID&gt; — 5×  `922a8ce78cec`\n  Evidence: seen repeatedly; dependency core-api shows 6 errors\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
+                },
+                {
+                    "kind": "minor",
+                    "text": "1 muted"
+                },
+                {
+                    "kind": "notice",
+                    "text": "📈 info ×6 vs previous window"
+                },
+                {
+                    "kind": "footer",
+                    "text": "— tokens in 2.4k / out 600 / cached 0 · triage m-t · analyze m-a · ≈ $0.01 · today $0.01 of $0.50 (2%)"
+                }
+            ],
+            "to": {
+                "driver": "slack",
+                "secrets": "[redacted]"
+            }
+        }
+    ],
+    "attempts": 2,
+    "printed": "",
+    "writes": [
+        [
+            "acquire",
+            "lock:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "increment",
+            "spend:svc:2026-10-09:usd"
+        ],
+        [
+            "increment",
+            "spend:svc:2026-10-09:tokens"
+        ],
+        [
+            "increment",
+            "spend:svc:2026-10-09:usd"
+        ],
+        [
+            "increment",
+            "spend:svc:2026-10-09:tokens"
+        ],
+        [
+            "put",
+            "verdict:svc:9ab3237802d9"
+        ],
+        [
+            "put",
+            "verdict:svc:922a8ce78cec"
+        ],
+        [
+            "put",
+            "reported:svc:9ab3237802d9"
+        ],
+        [
+            "put",
+            "reported:svc:922a8ce78cec"
+        ],
+        [
+            "put",
+            "snap:svc:dep:core-api:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "snap:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "snap:svc:last"
+        ],
+        [
+            "put",
+            "run:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "release",
+            "lock:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "hb:svc"
+        ],
+        [
+            "increment",
+            "hbweek:svc:2026-W41:reported"
+        ],
+        [
+            "increment",
+            "hbweek:svc:2026-W41:cost"
+        ]
+    ],
+    "state": {
+        "snap:svc:dep:core-api:2026-10-08T06%3A00%3A00Z": {
+            "totals": {
+                "error": 6
+            },
+            "groups": []
+        },
+        "snap:svc:2026-10-08T06%3A00%3A00Z": {
+            "groups": {
+                "922a8ce78cec": 5
+            },
+            "totals": {
+                "error": 5,
+                "info": 1000
+            },
+            "deploy": {
+                "release": null,
+                "commit": null
+            },
+            "start": "2026-10-07T06:00:00Z"
+        },
+        "snap:svc:last": {
+            "end": "2026-10-09T06:00:00Z"
+        },
+        "run:svc:2026-10-08T06%3A00%3A00Z": {
+            "outcome": "baselined",
+            "usage": null,
+            "startedAt": "2026-10-08T06:00:00+00:00",
+            "finishedAt": "2026-10-08T06:00:00+00:00"
+        },
+        "hb:svc": {
+            "v": 1,
+            "service": "svc",
+            "finishedAt": "2026-10-09T06:00:00+00:00",
+            "outcome": "reported",
+            "reason": null,
+            "windowStart": "2026-10-08T06:00:00+00:00",
+            "windowEnd": "2026-10-09T06:00:00+00:00",
+            "durationSeconds": 0,
+            "costUsd": 0.0108,
+            "lastOkAt": "2026-10-09T06:00:00+00:00"
+        },
+        "hbweek:svc:2026-W41:baselined": {
+            "total": 1
+        },
+        "spend:svc:2026-10-09:usd": {
+            "total": 0.0108
+        },
+        "spend:svc:2026-10-09:tokens": {
+            "total": 3000
+        },
+        "verdict:svc:9ab3237802d9": {
+            "triage": "interesting",
+            "atCount": 8,
+            "finding": {
+                "fingerprints": [
+                    "9ab3237802d9"
+                ],
+                "kind": "bug",
+                "severity": "error",
+                "title": "Problem <ID>",
+                "evidence": "seen repeatedly; dependency core-api shows 6 errors",
+                "suspected_cause": "a dependency may be failing",
+                "suggested_action": "inspect the dependency",
+                "confidence": 0.9,
+                "escalated": false,
+                "how_to_check": "",
+                "related_checks": []
+            }
+        },
+        "verdict:svc:922a8ce78cec": {
+            "triage": "interesting",
+            "atCount": 5,
+            "finding": {
+                "fingerprints": [
+                    "922a8ce78cec"
+                ],
+                "kind": "bug",
+                "severity": "error",
+                "title": "Problem <ID>",
+                "evidence": "seen repeatedly; dependency core-api shows 6 errors",
+                "suspected_cause": "a dependency may be failing",
+                "suggested_action": "inspect the dependency",
+                "confidence": 0.9,
+                "escalated": false,
+                "how_to_check": "",
+                "related_checks": []
+            }
+        },
+        "reported:svc:9ab3237802d9": {
+            "lastReportedAt": "2026-10-09T06:00:00+00:00",
+            "atCount": 8
+        },
+        "reported:svc:922a8ce78cec": {
+            "lastReportedAt": "2026-10-09T06:00:00+00:00",
+            "atCount": 5
+        },
+        "snap:svc:dep:core-api:2026-10-09T06%3A00%3A00Z": {
+            "totals": {
+                "error": 6
+            },
+            "groups": {
+                "23c639f4f482": 6
+            }
+        },
+        "snap:svc:2026-10-09T06%3A00%3A00Z": {
+            "groups": {
+                "9ab3237802d9": 8,
+                "922a8ce78cec": 5,
+                "dad8ae6bd5b9": 5
+            },
+            "totals": {
+                "error": 10,
+                "info": 6000
+            },
+            "deploy": {
+                "release": null,
+                "commit": null
+            },
+            "start": "2026-10-08T06:00:00Z"
+        },
+        "run:svc:2026-10-09T06%3A00%3A00Z": {
+            "outcome": "reported",
+            "usage": {
+                "model": "mixed",
+                "inputTokens": 2400,
+                "outputTokens": 600,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+                "costUsd": 0.0108,
+                "returnedModel": null
+            },
+            "startedAt": "2026-10-09T06:00:00+00:00",
+            "finishedAt": "2026-10-09T06:00:00+00:00"
+        },
+        "hbweek:svc:2026-W41:reported": {
+            "total": 1
+        },
+        "hbweek:svc:2026-W41:cost": {
+            "total": 0.0108
+        }
+    },
+    "ttls": {
+        "snap:svc:dep:core-api:2026-10-08T06%3A00%3A00Z": 2505600,
+        "snap:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "snap:svc:last": 2592000,
+        "run:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "hb:svc": 7776000,
+        "hbweek:svc:2026-W41:baselined": 1123200,
+        "spend:svc:2026-10-09:usd": 172800,
+        "spend:svc:2026-10-09:tokens": 172800,
+        "verdict:svc:9ab3237802d9": 2592000,
+        "verdict:svc:922a8ce78cec": 2592000,
+        "reported:svc:9ab3237802d9": 2592000,
+        "reported:svc:922a8ce78cec": 2592000,
+        "snap:svc:dep:core-api:2026-10-09T06%3A00%3A00Z": 2592000,
+        "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
+        "run:svc:2026-10-09T06%3A00%3A00Z": 2592000,
+        "hbweek:svc:2026-W41:reported": 1209600,
+        "hbweek:svc:2026-W41:cost": 1209600
+    }
+}

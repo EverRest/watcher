@@ -1,0 +1,29 @@
+{
+    "result": {
+        "outcome": "skipped_not_due",
+        "failureReason": null,
+        "usage": null,
+        "summary": {
+            "@Watcher\\Operate\\RunSummaryData": {
+                "outcome": "skipped_not_due",
+                "service": "svc",
+                "reason": null,
+                "windowStart": null,
+                "windowEnd": null,
+                "stats": null,
+                "todayUsd": null,
+                "release": null,
+                "dryRun": false,
+                "environment": null
+            }
+        },
+        "summaryLine": "outcome=skipped_not_due",
+        "exitCode": 0
+    },
+    "sent": [],
+    "attempts": 0,
+    "printed": "",
+    "writes": [],
+    "state": [],
+    "ttls": []
+}
