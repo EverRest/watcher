@@ -291,6 +291,9 @@ final class Watcher
             return $this->locked($window);
         } catch (SourceUnavailable $e) {
             return $this->failWithNotice('source', $e->getMessage(), 'source_unavailable');
+        } catch (Config\InvalidConfig $e) {
+            // A state directory the store refuses: the message names the setting only, so it is safe to show.
+            return $this->failWithNotice('config', $e->getMessage(), 'invalid_config');
         } catch (AnalyzerFailed $e) {
             return $this->failWithNotice('analysis', $e->getMessage(), $e->refused ? 'analysis_refused' : 'analysis_failed');
         } catch (DeliveryFailed $e) {
@@ -723,6 +726,9 @@ final class Watcher
                 $this->readDependencies($window, $normalizer, $redactor, null);
             }
             $this->writeSnapshot($window, $allGroups, $totals);
+            if ($expired && $this->retryCutWindow($key, $endKey, $retention, count($candidates), $line)) {
+                return new RunResult(RunOutcome::Quiet); // no done record: the next trigger reads this window again (R-3)
+            }
             $this->blindNotice($line, $key, $endKey);
             $this->writeRun($runKey, RunOutcome::Quiet, null, $started, $this->blindCode);
 
@@ -887,7 +893,7 @@ final class Watcher
             $annotations,
             $comparison,
             $reducer->mining(),
-            $this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : [],
+            ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->stats->oversizedLines > 0 ? ['oversized_lines' => $this->stats->oversizedLines] : []),
             $routed->reused,
             $routed->triageDropped,
             $routed->triageCoerced,
@@ -1003,6 +1009,32 @@ final class Watcher
         $this->code ??= $code;
 
         return sprintf('⚠️ watcher · %s · %s — incomplete read: %s', SlackText::escape($this->config->service), SlackText::escape($this->environment()), implode('; ', $parts));
+    }
+
+    /**
+     * A window cut by the deadline or the memory guard has unread or unanalysed groups, so it is not done: the first cut
+     * leaves a marker and no run record (the next trigger in the due period reads the window again with a full budget).
+     * A second cut is final: true means "retry", false means record it, after a loud notice (counts only).
+     */
+    private function retryCutWindow(string $key, string $endKey, int $retention, int $unanalysed, ?string $line): bool
+    {
+        $marker = Keys::partial($key, $endKey);
+        if ((int) ($this->state->get($marker)['n'] ?? 0) < 1) {
+            $this->state->put($marker, ['n' => 1], $retention);
+            $this->blindNotice($line, $key, $endKey);
+
+            return true;
+        }
+        if ($this->config->on('notice')) {
+            $text = sprintf('⚠️ watcher · %s · %s — window cut again after a retry (%s): %d candidate groups were not analysed, recorded as final', SlackText::escape($this->config->service), SlackText::escape($this->environment()), $this->blindCode ?? 'truncated', $unanalysed);
+            try {
+                $this->noticeOnce('blindfinal:' . rawurlencode($key) . ':' . $endKey, self::plainNotice($text), $this->noticeDestination());
+            } catch (Throwable $e) {
+                $this->hostLog?->warning('incomplete-read notice not delivered: ' . $e::class, ['service' => $this->config->service]);
+            }
+        }
+
+        return false;
     }
 
     /** Once per window; a delivery fault is logged, never fatal. */

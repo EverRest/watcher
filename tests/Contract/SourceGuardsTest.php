@@ -130,6 +130,23 @@ final class SourceGuardsTest extends TestCase
         $src->totals($this->window(), new StreamSelector(['app' => 's']));
     }
 
+    public function testTheHeadersHookAbortsOnlyAboveTheCapAndSaysWhy(): void
+    {
+        $tripped = new \ArrayObject();
+        $hook = ResponseLimit::options($tripped, 1000)['on_headers'];
+
+        $hook(new Response(200, ['Content-Length' => '1000'], ''));
+        $this->assertCount(0, $tripped);
+
+        try {
+            $hook(new Response(200, ['Content-Length' => '1001'], ''));
+            $this->fail('expected the abort');
+        } catch (SourceUnavailable $e) {
+            $this->assertTrue($e->tooLarge);
+            $this->assertTrue($tripped['large']);
+        }
+    }
+
     public function testAnOversizedBodyWithoutContentLengthIsRefused(): void
     {
         $body = '{"data":{"result":[]},"pad":"' . str_repeat('x', ResponseLimit::MAX_BYTES) . '"}';
@@ -145,6 +162,22 @@ final class SourceGuardsTest extends TestCase
         $this->expectException(SourceUnavailable::class);
         $this->expectExceptionMessage('non-JSON');
         $src->totals($this->window(), new StreamSelector(['app' => 's']));
+    }
+
+    public function testDatadogNeverFollowsARedirectAndPinsTls(): void
+    {
+        $hist = [];
+        $stack = HandlerStack::create(new MockHandler([new Response(302, ['Location' => 'https://evil.example/']), new Response(200, [], '{"data":[]}')]));
+        $stack->push(\GuzzleHttp\Middleware::history($hist));
+        $src = new DatadogSource(new Client(['handler' => $stack]), 'datadoghq.com', 'a', 'b', sleeper: static fn (int $s) => null);
+
+        try {
+            $src->totals($this->window(), new StreamSelector(['service' => 's']));
+        } catch (SourceUnavailable) {
+        }
+        $this->assertCount(1, $hist);
+        $this->assertFalse($hist[0]['options']['allow_redirects']);
+        $this->assertTrue($hist[0]['options']['verify']);
     }
 
     public function testDatadogDropsOversizedMessagesAndHonoursTheStopHook(): void

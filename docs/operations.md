@@ -148,7 +148,7 @@ fails with `HTTP 429`.
 | `pdo` | you have a DB and no Redis | create the table once: `PdoStateStore::createTableSql('mysql')`; tested on SQLite only |
 | `file` | one runner, one host | **never** with several replicas or pods without a shared volume and a single scheduler |
 
-**File store:** the directory must not be writable by group or others (create it `0700`; a group-writable Laravel `storage` folder is refused with a message naming `state.file.path`), symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race. The daily budget check is read-then-book, so concurrent runs of the same service can overshoot it by one step each (the lock prevents that for one service; Redis `INCRBYFLOAT` reservation is not implemented).
+**File store:** the directory must be owned by the user running watcher and must not be world-writable unless it has the sticky bit (create it `0700`; a group-writable `0775` Laravel `storage` folder owned by that user is fine, and files are still written `0600`). A refused directory fails the run (notice `config failed: state.file.path ...`) and `watcher check`, naming `state.file.path` and never its value, symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race. The daily budget check is read-then-book, so concurrent runs of the same service can overshoot it by one step each (the lock prevents that for one service; Redis `INCRBYFLOAT` reservation is not implemented).
 
 State holds counters, fingerprints, verdicts, reported markers, run records, spend counters and alert markers, each with
 `state.retention` (30 days) except: spend and alert keys 2 days, weekly heartbeat counters 14 days, `noise`/`known` verdicts
@@ -157,6 +157,13 @@ State holds counters, fingerprints, verdicts, reported markers, run records, spe
 Reset a service (forces a new baseline): change `service`, or delete its keys. Redis keys are
 `watcher:<kind>:<service>:...` (kinds: `snap` (also per dependency), `verdict`, `reported`, `run`, `lock`, `spend`, `alert`, `exhausted`); file state is
 a directory of hashed file names, so wipe the whole directory.
+
+## Loki over plain http inside a private network
+
+A plain-http Loki such as `http://loki.monitoring.svc:3100` is refused by default: `https` is required. Options, safest first: put Loki behind an
+https ingress or a service mesh and use the `https` URL; reach it through a port-forward or loopback sidecar (`http://127.0.0.1:3100`) with
+`source.loki.allow_insecure: true`; or, when the network between the pod and Loki is yours to trust, set `allow_insecure: true` with the
+in-cluster URL (`*.svc`, `*.cluster.local`) or an RFC 1918 address. `allow_insecure` is a trust decision, never a default, and never works for a public host.
 
 ## Availability guards
 

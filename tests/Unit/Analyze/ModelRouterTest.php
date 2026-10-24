@@ -111,6 +111,19 @@ final class ModelRouterTest extends TestCase
         self::assertSame(750, $an->maxOutputTokens, '450 per group + 300 beats the configured 222');
     }
 
+    public function testAMissingTriageVerdictIsAnalysedAndCounted(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'noise']); // 'b' (a warning) was sent but got no verdict
+        $this->fake->analysis = self::analysis([self::finding('b')]);
+
+        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning)], false);
+
+        $an = $this->fake->requests[1];
+        self::assertInstanceOf(AnalysisRequest::class, $an);
+        self::assertSame(['b'], array_map(static fn ($g) => $g->fingerprint, $an->groups));
+        self::assertSame(1, $r->triageCoerced);
+    }
+
     public function testRoutingTable(): void
     {
         $this->fake->triage = self::triage(['a' => 'noise', 'b' => 'known', 'c' => 'interesting']);

@@ -86,4 +86,28 @@ final class RedisStateStoreTest extends StateStoreContractTest
 
         self::assertLessThanOrEqual(2, $this->redis->ttl($this->prefix . 'spend'));
     }
+
+    public function testRenewExtendsOnlyTheOwnersLive(): void
+    {
+        $store = $this->store;
+        self::assertInstanceOf(\Watcher\State\RenewableLock::class, $store);
+        self::assertTrue($store->acquire('l', 'me', 2));
+        sleep(1);
+        self::assertTrue($store->renew('l', 'me', 2));
+        usleep(1_500_000); // 2.5 s after acquire: would have expired without the renew
+        self::assertFalse($store->acquire('l', 'other', 2));
+        self::assertFalse($store->renew('l', 'other', 1000), 'a non-owner cannot renew');
+        usleep(2_200_000);
+        self::assertTrue($store->acquire('l', 'other', 2));
+    }
+
+    public function testRenewOfALostLockReturnsFalse(): void
+    {
+        $store = $this->store;
+        self::assertInstanceOf(\Watcher\State\RenewableLock::class, $store);
+        self::assertTrue($store->acquire('l', 'me', 1));
+        usleep(1_300_000);
+        self::assertFalse($store->renew('l', 'me', 1));
+        self::assertTrue($store->acquire('l', 'other', 1));
+    }
 }

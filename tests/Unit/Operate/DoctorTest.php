@@ -230,6 +230,24 @@ final class DoctorTest extends TestCase
         self::assertStringNotContainsString('hunter2', $r->text() . json_encode($r->toArray()));
     }
 
+    public function testAnInvalidStateDirectoryIsNamedInTheCheck(): void
+    {
+        $dir = sys_get_temp_dir() . '/watcher-doctor-' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        chmod($dir, 0777);
+        try {
+            $r = $this->doctor(store: new \Watcher\State\FileStateStore($dir, $this->clock, 900))->run();
+        } finally {
+            chmod($dir, 0700);
+            rmdir($dir);
+        }
+
+        $state = self::byName($r)['state'];
+        self::assertSame('fail', $state->status);
+        self::assertStringContainsString('state.file.path', (string) $state->reason);
+        self::assertStringNotContainsString($dir, $r->text());
+    }
+
     public function testStateInternalErrorNamesTheClassOnly(): void
     {
         $store = new FailingStateStore($this->store);

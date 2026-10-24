@@ -166,6 +166,15 @@ final class LineParserHardeningTest extends TestCase
         self::assertSame(Level::Warning, $unknown->level);
     }
 
+    public function testAStructuredLineJustOverTheLineCapBecomesAPlaceholder(): void
+    {
+        $p = new LineParser();
+        $e = $p->parse('{"severity":"critical","pad":"' . str_repeat('p', 70000) . '"}');
+
+        self::assertSame(Level::Critical, $e->level);
+        self::assertSame('[structured line too large, content withheld]', $e->message);
+    }
+
     public function testAJsonLineOverTheTextCapStillParsesAsJson(): void
     {
         $p = new LineParser();

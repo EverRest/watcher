@@ -116,7 +116,7 @@ everywhere.
 
 ## Technical Constraints
 
-- PHP ^8.1; core is framework-agnostic; the first adapter targets Lumen/Laravel.
+- PHP ^8.2; core is framework-agnostic; the first adapter targets Lumen/Laravel.
 - Package `everrest/watcher`, namespace `Watcher\`, semver releases with a changelog entry per
   release; breaking configuration changes require a MAJOR bump and an upgrade note.
 - Secrets (AI key, log-source tokens, webhooks) come only from the host's environment or

@@ -79,6 +79,20 @@ final class DigestRendererTest extends TestCase
         self::assertStringNotContainsString('multi-line', $loud);
     }
 
+    public function testDroppedOversizedLinesAreNamedInTheReadQualityLine(): void
+    {
+        $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0, 'oversized_lines' => 4]]), 0.5), 'notice');
+
+        self::assertStringContainsString('4 lines over 64 KB dropped', $t);
+    }
+
+    public function testShrunkPagesAreNamedInTheReadQualityLine(): void
+    {
+        $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0, 'pages_shrunk' => 2]]), 0.5), 'notice');
+
+        self::assertStringContainsString('2 pages re-read at a smaller size (response cap)', $t);
+    }
+
     public function testHeaderLineHasServiceEnvWindowInDisplayTimezoneAndRelease(): void
     {
         $m = (new DigestRenderer())->render($this->data([], [], ['release' => 'v1.2']), 0.5);

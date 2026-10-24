@@ -55,10 +55,13 @@ final class ReadFilter
         return true;
     }
 
-    /** True when the line is too large to parse; counts it. */
+    /**
+     * True when the line is too large to parse; counts it. A structured (`{`) line is never dropped here: the parser turns
+     * one over the cap into a placeholder event that keeps its level (R-4).
+     */
     public function oversized(string $line): bool
     {
-        if (strlen($line) <= self::MAX_LINE_BYTES) {
+        if (strlen($line) <= self::MAX_LINE_BYTES || str_starts_with(ltrim(substr($line, 0, 64)), '{')) {
             return false;
         }
         ++$this->oversizedLines;
