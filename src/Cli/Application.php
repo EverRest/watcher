@@ -7,6 +7,7 @@ namespace Watcher\Cli;
 use Closure;
 use DateTimeImmutable;
 use Watcher\Config\InvalidConfig;
+use Watcher\Fleet\FleetResult;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\Doctor;
 use Watcher\Operate\HeartbeatStatus;
@@ -24,6 +25,7 @@ final class Application
           watcher run --config=<file returning the config array> [--now=<ISO-8601>] [--dry-run [--estimate]] [--json]
           watcher check --config=<file> [--post-test] [--json]
           watcher status --config=<file> [--json]
+          watcher fleet:run --config=<fleet file or directory> [--now=<ISO-8601>] [--only=<service>[,<service>...]] [--dry-run [--estimate]] [--json]
 
         TXT;
 
@@ -32,6 +34,7 @@ final class Application
         'run' => ['--dry-run', '--estimate', '--json'],
         'check' => ['--post-test', '--json'],
         'status' => ['--json'],
+        'fleet:run' => ['--dry-run', '--estimate', '--json'],
     ];
 
     /**
@@ -40,6 +43,8 @@ final class Application
      * @param resource|null $out receives the primary output (the summary line, the check report, the status)
      * @param (Closure(array<string, mixed>, bool): CheckReport)|null $checkFactory builds the Doctor and runs it; InvalidConfig becomes a failed `config` check
      * @param (Closure(array<string, mixed>): HeartbeatStatus)|null $statusFactory
+     * @param (Closure(string, RunOptions, list<string>): (callable(?DateTimeImmutable): FleetResult))|null $fleetFactory
+     *        gets the fleet file or directory, the options and the --only names; throws InvalidConfig before any external call
      */
     public function __construct(
         private readonly Closure $factory,
@@ -47,6 +52,7 @@ final class Application
         private $out = null,
         private readonly ?Closure $checkFactory = null,
         private readonly ?Closure $statusFactory = null,
+        private readonly ?Closure $fleetFactory = null,
     ) {
     }
 
@@ -69,19 +75,25 @@ final class Application
         }
         $config = null;
         $nowRaw = null;
+        $only = null;
         $flags = [];
         foreach (array_slice($args, 1) as $a) {
             if (str_starts_with($a, '--config=')) {
                 $config = substr($a, 9);
-            } elseif ($command === 'run' && str_starts_with($a, '--now=')) {
+            } elseif (($command === 'run' || $command === 'fleet:run') && str_starts_with($a, '--now=')) {
                 $nowRaw = substr($a, 6);
+            } elseif ($command === 'fleet:run' && str_starts_with($a, '--only=')) {
+                $only = self::parseOnly(substr($a, 7));
+                if ($only === []) {
+                    return $this->usage();
+                }
             } elseif (in_array($a, self::FLAGS[$command], true)) {
                 $flags[$a] = true;
             } else {
                 return $this->usage();
             }
         }
-        if ($config === null || $config === '' || !is_file($config)) {
+        if ($config === null || $config === '' || !(is_file($config) || ($command === 'fleet:run' && is_dir($config)))) {
             return $this->usage();
         }
         $json = isset($flags['--json']);
@@ -100,6 +112,10 @@ final class Application
             fwrite($this->err, "invalid --now: expected ISO-8601, e.g. 2026-10-23T06:00:00Z\n");
 
             return 2;
+        }
+
+        if ($command === 'fleet:run') {
+            return $this->fleet($config, $now, new RunOptions(isset($flags['--dry-run']), isset($flags['--estimate']), $json), $only ?? []);
         }
 
         $values = null;
@@ -122,6 +138,38 @@ final class Application
         }
 
         return $result->exitCode();
+    }
+
+    /** @param list<string> $only */
+    private function fleet(string $config, ?DateTimeImmutable $now, RunOptions $options, array $only): int
+    {
+        if ($this->fleetFactory === null) {
+            return $this->usage();
+        }
+        try {
+            $result = ($this->fleetFactory)($config, $options, $only)($now);
+        } catch (InvalidConfig $e) {
+            fwrite($this->err, 'invalid fleet: ' . $e->getMessage() . "\n");
+            if ($options->json) {
+                $this->line(null, FleetResult::invalidJson());
+            }
+
+            return 2;
+        }
+        foreach ($result->lines() as $line) {
+            $this->line($options->json, $line, true);
+        }
+        if ($options->json) {
+            $this->line(null, $result->toJson());
+        }
+
+        return $result->exitCode();
+    }
+
+    /** @return list<string> the service names of an --only=a,b value (empty when none) */
+    public static function parseOnly(string $value): array
+    {
+        return array_values(array_filter(array_map('trim', explode(',', $value)), static fn (string $n): bool => $n !== ''));
     }
 
     private function operate(string $command, string $config, bool $json, bool $postTest): int

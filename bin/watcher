@@ -23,4 +23,14 @@ exit((new Watcher\Cli\Application(
     STDOUT,
     static fn (array $config, bool $postTest): Watcher\Operate\CheckReport => Watcher\Config\Factory::doctor($config)->run($postTest),
     static fn (array $config): Watcher\Operate\HeartbeatStatus => Watcher\Config\Factory::heartbeatStatus($config, null, new Watcher\Cli\StderrLogger(STDERR)),
+    static function (string $path, Watcher\Operate\RunOptions $options, array $only): callable {
+        $runner = Watcher\Fleet\FleetRunner::fromConfig(
+            $path,
+            new Watcher\Cli\StderrLogger(STDERR),
+            null,
+            static fn (string $text): int|false => fwrite($options->json ? STDERR : STDOUT, $text),
+        );
+
+        return static fn (?DateTimeImmutable $now): Watcher\Fleet\FleetResult => $runner->run($now, $options, $only);
+    },
 ))->run($argv));

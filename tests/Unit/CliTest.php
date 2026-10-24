@@ -8,6 +8,8 @@ use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Watcher\Cli\Application;
 use Watcher\Config\InvalidConfig;
+use Watcher\Fleet\FleetResult;
+use Watcher\Fleet\ServiceResult;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\CheckResult;
 use Watcher\Operate\HeartbeatStatus;
@@ -378,5 +380,125 @@ final class CliTest extends TestCase
         [$code, $err] = $this->exec(['check', '--config=' . $this->cfg], new RunResult(RunOutcome::Quiet));
         self::assertSame(2, $code);
         self::assertStringContainsString('usage:', $err);
+    }
+
+    /**
+     * @param list<string> $args
+     * @return array{int, string, string, list<array{string, RunOptions, list<string>, ?DateTimeImmutable}>}
+     */
+    private function execFleet(array $args, FleetResult|InvalidConfig $outcome): array
+    {
+        $calls = [];
+        $factory = static function (string $config, RunOptions $options, array $only) use ($outcome, &$calls): callable {
+            if ($outcome instanceof InvalidConfig) {
+                throw $outcome;
+            }
+
+            return static function (?DateTimeImmutable $now) use ($config, $options, $only, $outcome, &$calls): FleetResult {
+                $calls[] = [$config, $options, $only, $now];
+
+                return $outcome;
+            };
+        };
+        $err = fopen('php://memory', 'w+');
+        $out = fopen('php://memory', 'w+');
+        self::assertIsResource($err);
+        self::assertIsResource($out);
+        $unused = static function (): callable {
+            throw new \LogicException('not used');
+        };
+        $code = (new Application($unused, $err, $out, null, null, $factory))->run(['watcher', ...$args]);
+        rewind($err);
+        rewind($out);
+
+        return [$code, (string) stream_get_contents($out), (string) stream_get_contents($err), $calls];
+    }
+
+    private static function fleetResult(RunOutcome ...$outcomes): FleetResult
+    {
+        $services = [];
+        foreach ($outcomes as $i => $o) {
+            $services[] = ServiceResult::ran('s' . $i, new RunResult($o));
+        }
+
+        return new FleetResult('platform', $services);
+    }
+
+    public function testFleetRunPassesConfigOptionsOnlyAndNowAndMapsTheExitCode(): void
+    {
+        [$code, $out, , $calls] = $this->execFleet(
+            ['fleet:run', '--config=' . $this->cfg, '--dry-run', '--estimate', '--only=api, bff-a', '--now=2026-10-23T06:00:00Z'],
+            self::fleetResult(RunOutcome::Reported, RunOutcome::Failed),
+        );
+
+        self::assertSame(1, $code);
+        self::assertCount(1, $calls);
+        self::assertSame($this->cfg, $calls[0][0]);
+        self::assertTrue($calls[0][1]->dryRun);
+        self::assertTrue($calls[0][1]->estimate);
+        self::assertSame(['api', 'bff-a'], $calls[0][2]);
+        self::assertSame('2026-10-23T06:00:00+00:00', $calls[0][3]?->format(DATE_ATOM));
+        self::assertStringContainsString('s0: outcome=reported', $out);
+        self::assertStringContainsString('fleet platform: services=2 failed=1', $out);
+    }
+
+    public function testFleetRunAcceptsADirectory(): void
+    {
+        [$code, , , $calls] = $this->execFleet(['fleet:run', '--config=' . sys_get_temp_dir()], self::fleetResult(RunOutcome::Quiet));
+
+        self::assertSame(0, $code);
+        self::assertSame(sys_get_temp_dir(), $calls[0][0]);
+    }
+
+    public function testFleetRunJsonIsOneStdoutLineAndHumanTextGoesToStderr(): void
+    {
+        [$code, $out, $err] = $this->execFleet(['fleet:run', '--config=' . $this->cfg, '--json'], self::fleetResult(RunOutcome::Quiet));
+
+        self::assertSame(0, $code);
+        self::assertSame(1, substr_count($out, "\n"));
+        $j = json_decode($out, true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('platform', $j['fleet']);
+        self::assertStringContainsString('fleet platform: services=1', $err);
+        self::assertStringNotContainsString('fleet platform', $out);
+    }
+
+    public function testFleetRunInvalidFleetIsExitTwoWithTheKeyPathOnStderr(): void
+    {
+        [$code, $out, $err] = $this->execFleet(['fleet:run', '--config=' . $this->cfg, '--json'], new InvalidConfig('services[1] (bff-a): selection.growth_factor must be greater than 1'));
+
+        self::assertSame(2, $code);
+        self::assertSame('{"fleet":null,"exit":2,"error":"invalid_config"}' . "\n", $out);
+        self::assertStringContainsString('services[1] (bff-a): selection.growth_factor', $err);
+
+        [$code, $out] = $this->execFleet(['fleet:run', '--config=' . $this->cfg], new InvalidConfig('x'));
+        self::assertSame(2, $code);
+        self::assertSame('', $out);
+    }
+
+    public function testFleetRunUsageErrors(): void
+    {
+        $ok = self::fleetResult(RunOutcome::Quiet);
+        foreach ([['fleet:run'], ['fleet:run', '--config=/nonexistent'], ['fleet:run', '--config=' . $this->cfg, '--bogus'], ['fleet:run', '--config=' . $this->cfg, '--only=']] as $args) {
+            [$code, , , $calls] = $this->execFleet($args, $ok);
+            self::assertSame(2, $code, implode(' ', $args));
+            self::assertSame([], $calls);
+        }
+        [$code, , $err] = $this->execFleet(['fleet:run', '--config=' . $this->cfg, '--estimate'], $ok);
+        self::assertSame(2, $code);
+        self::assertStringContainsString('--estimate requires --dry-run', $err);
+        [$code, , $err] = $this->execFleet(['fleet:run', '--config=' . $this->cfg, '--now=yesterday'], $ok);
+        self::assertSame(2, $code);
+        self::assertStringContainsString('invalid --now', $err);
+    }
+
+    public function testFleetRunWithoutAFleetFactoryIsUsage(): void
+    {
+        $err = fopen('php://memory', 'w+');
+        self::assertIsResource($err);
+        $code = (new Application(static function (): callable {
+            throw new \LogicException('x');
+        }, $err))->run(['watcher', 'fleet:run', '--config=' . $this->cfg]);
+
+        self::assertSame(2, $code);
     }
 }

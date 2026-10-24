@@ -19,9 +19,7 @@ final class JsonSummary
     public function render(RunSummaryData $d): string
     {
         $s = $d->stats;
-        $reason = $d->reason === null || $d->reason === ''
-            ? null
-            : (preg_match(self::REASON, $d->reason) === 1 && preg_match('/[\w-]{24,}/', $d->reason) !== 1 ? $d->reason : 'unspecified');
+        $reason = self::reason($d->reason);
 
         return json_encode([
             'schema' => 1,
@@ -45,6 +43,16 @@ final class JsonSummary
             'version' => self::packageVersion(self::PACKAGE),
             'dry_run' => $d->dryRun,
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
+    }
+
+    /** A short code passes; anything else becomes 'unspecified'. */
+    public static function reason(?string $reason): ?string
+    {
+        if ($reason === null || $reason === '') {
+            return null;
+        }
+
+        return preg_match(self::REASON, $reason) === 1 && preg_match('/[\w-]{24,}/', $reason) !== 1 ? $reason : 'unspecified';
     }
 
     public static function packageVersion(string $package): string

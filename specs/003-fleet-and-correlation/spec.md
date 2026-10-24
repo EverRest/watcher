@@ -156,7 +156,8 @@ without any package code running inside them.
   fleet's exit code MUST be non-zero when any service failed or the definition was invalid.
 - **FR-004**: The fleet definition MUST be validated as a whole before any external call; duplicate service names,
   colliding state prefixes and invalid entries MUST be reported with the entry and key, and nothing MUST run.
-- **FR-005**: Services MUST be processed in a deterministic order (configured priority, then name) and the run MUST stop
+- **FR-005**: Services MUST be processed in a deterministic order (dependencies that are in the fleet first, then
+  configured priority, then name; a dependency cycle keeps the priority-then-name order) and the run MUST stop
   starting new services when a configurable total time budget is exhausted, reporting the remaining ones as skipped for
   time.
 - **FR-006**: The single-service entry points MUST keep working unchanged; a fleet of one is equivalent to a single
@@ -178,7 +179,9 @@ without any package code running inside them.
   consumer declares the origin service as a dependency, (b) the consumer group's masked template references that
   dependency's host, and (c) the origin service has a new or grown error group in the same window.
 - **FR-012**: A correlated finding MUST present the link as a hypothesis, name both services, and list affected
-  consumers with their counts; the origin's finding MUST refer back to its affected consumers.
+  consumers with their counts. The correlated message is additive: it names the origin finding and lists the consumers,
+  and does not edit the origin's already-delivered digest; each consumer finding stays in its own digest with an
+  annotation naming the likely origin finding (consumer findings are annotated, never withheld).
 - **FR-013**: Correlation MUST use only data already masked and redacted for the single-service pipeline; nothing
   else MUST pass between services.
 - **FR-014**: Correlation MUST be decided from counts, hosts and statuses in code; a model MAY be used only to word the

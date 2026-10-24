@@ -7,6 +7,7 @@ namespace Watcher\Laravel;
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 use Watcher\Config\Factory;
+use Watcher\Fleet\FleetRunner;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\HeartbeatStatus;
 use Watcher\Operate\RunOptions;
@@ -41,6 +42,16 @@ final class WatcherServiceProvider extends ServiceProvider
                 return Watcher::fromConfig((array) $app->make('config')->get('watcher'), $logger, null, $options, $out)->run(...);
             }),
         );
+        // The fleet array lives under the framework config key watcher.fleet; a dry run's output goes to the sink.
+        $this->app->bind(
+            FleetCommand::class,
+            static fn ($app): FleetCommand => new FleetCommand(static function (RunOptions $options, callable $out, array $only) use ($app): callable {
+                $logger = $app->bound(LoggerInterface::class) ? $app->make(LoggerInterface::class) : null;
+                $runner = FleetRunner::fromConfig((array) $app->make('config')->get('watcher.fleet'), $logger, null, $out);
+
+                return static fn (?\DateTimeImmutable $now): \Watcher\Fleet\FleetResult => $runner->run($now, $options, $only);
+            }),
+        );
         $this->app->bind(
             CheckCommand::class,
             static fn ($app): CheckCommand => new CheckCommand(static fn (bool $postTest): CheckReport => Factory::doctor((array) $app->make('config')->get('watcher'))->run($postTest)),
@@ -61,7 +72,7 @@ final class WatcherServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class]);
+        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, FleetCommand::class]);
         if (method_exists($this->app, 'basePath')) {
             $this->publishes([self::CONFIG => $this->app->basePath('config/watcher.php')], 'watcher-config');
         }
