@@ -122,7 +122,7 @@ key), and `digest: combined` needs a fleet `notify.digest` of any driver.
 ### Command-line flags (not config keys)
 
 `bin/watcher run --config=<file> [--now=<ISO-8601>] [--dry-run [--estimate]] [--json]`, `bin/watcher check --config=<file>
-[--post-test] [--json]`, `bin/watcher status --config=<file> [--json]`. `--estimate` requires `--dry-run`. See
+[--post-test] [--json]`, `bin/watcher status --config=<file> [--json]`, `bin/watcher state:get <key> --config=<file>`. `--estimate` requires `--dry-run`. See
 [operations](operations.md) for what each prints and its exit codes.
 
 ### Fleet configuration

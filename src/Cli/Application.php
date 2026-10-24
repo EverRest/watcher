@@ -27,6 +27,7 @@ final class Application
           watcher run --config=<file returning the config array> [--now=<ISO-8601>] [--dry-run [--estimate]] [--json]
           watcher check --config=<file> [--post-test] [--json]
           watcher status --config=<file> [--json]
+          watcher state:get <heartbeat|last-snapshot|snapshot:<window end>|run:<window end>> --config=<file>
           watcher fleet:run --config=<fleet file or directory> [--now=<ISO-8601>] [--only=<service>[,<service>...]] [--dry-run [--estimate]] [--json]
           watcher fleet:check --config=<fleet file or directory> [--post-test] [--json]
           watcher fleet:status --config=<fleet file or directory> [--json]
@@ -40,6 +41,7 @@ final class Application
         'run' => ['--dry-run', '--estimate', '--json'],
         'check' => ['--post-test', '--json'],
         'status' => ['--json'],
+        'state:get' => [],
         'fleet:run' => ['--dry-run', '--estimate', '--json'],
         'fleet:check' => ['--post-test', '--json'],
         'fleet:status' => ['--json'],
@@ -53,6 +55,8 @@ final class Application
      * @param (Closure(array<string, mixed>): HeartbeatStatus)|null $statusFactory
      * @param (Closure(string, RunOptions, list<string>): (callable(?DateTimeImmutable): FleetResult))|null $fleetFactory
      *        gets the fleet file or directory, the options and the --only names; throws InvalidConfig before any external call
+     * @param (Closure(array<string, mixed>, string): ?string)|null $stateGetFactory config and logical key to the redacted text, null when nothing is stored;
+     *        throws InvalidArgumentException for a refused key, InvalidConfig for a bad config
      * @param (Closure(string, bool): CheckReport)|null $fleetCheckFactory fleet file or directory, --post-test; throws InvalidConfig for an invalid fleet
      * @param (Closure(string): FleetStatus)|null $fleetStatusFactory fleet file or directory; throws InvalidConfig for an invalid fleet
      */
@@ -65,6 +69,7 @@ final class Application
         private readonly ?Closure $fleetFactory = null,
         private readonly ?Closure $fleetCheckFactory = null,
         private readonly ?Closure $fleetStatusFactory = null,
+        private readonly ?Closure $stateGetFactory = null,
     ) {
     }
 
@@ -88,10 +93,13 @@ final class Application
         $config = null;
         $nowRaw = null;
         $only = null;
+        $key = null;
         $flags = [];
         foreach (array_slice($args, 1) as $a) {
             if (str_starts_with($a, '--config=')) {
                 $config = substr($a, 9);
+            } elseif ($command === 'state:get' && $key === null && !str_starts_with($a, '-')) {
+                $key = $a;
             } elseif (($command === 'run' || $command === 'fleet:run') && str_starts_with($a, '--now=')) {
                 $nowRaw = substr($a, 6);
             } elseif ($command === 'fleet:run' && str_starts_with($a, '--only=')) {
@@ -109,6 +117,10 @@ final class Application
             return $this->usage();
         }
         $json = isset($flags['--json']);
+
+        if ($command === 'state:get') {
+            return $key === null ? $this->usage() : $this->stateGet($config, $key);
+        }
 
         if ($command === 'fleet:check' || $command === 'fleet:status') {
             return $this->fleetOperate($command, $config, $json, isset($flags['--post-test']));
@@ -156,6 +168,32 @@ final class Application
         }
 
         return $result->exitCode();
+    }
+
+    private function stateGet(string $config, string $key): int
+    {
+        if ($this->stateGetFactory === null) {
+            return $this->usage();
+        }
+        try {
+            $text = ($this->stateGetFactory)($this->load($config), $key);
+        } catch (InvalidConfig $e) {
+            fwrite($this->err, 'invalid config: ' . $e->getMessage() . "\n");
+
+            return 2;
+        } catch (\InvalidArgumentException $e) {
+            fwrite($this->err, $e->getMessage() . "\n");
+
+            return 2;
+        }
+        if ($text === null) {
+            fwrite($this->err, "state:get: no entry stored for that key\n");
+
+            return 1;
+        }
+        $this->line(null, $text);
+
+        return 0;
     }
 
     /** @param list<string> $only */

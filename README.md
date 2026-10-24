@@ -75,10 +75,11 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
    | `watcher run` | `--config=<file>` `[--now=<ISO-8601>]` `[--dry-run [--estimate]]` `[--json]` |
    | `watcher check` | `--config=<file>` `[--post-test]` `[--json]` (`--post-test` posts one labelled message per destination) |
    | `watcher status` | `--config=<file>` `[--json]` |
+   | `watcher state:get <key>` | `--config=<file>`; read-only debug view, `<key>` is `heartbeat`, `last-snapshot`, `snapshot:<window end>` or `run:<window end>` (strings redacted, cut to 200 characters; exit 1 when nothing is stored) |
 
    With `--json`, stdout is exactly one JSON line and every human line goes to stderr. A dry run never posts, writes
    state or records spend. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
-   {--post-test} {--json}`, `watcher:status {--json}`.
+   {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`.
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
    `watcher:run` command and merges `config/watcher.php`, which reads `WATCHER_*` environment variables.

@@ -30,6 +30,9 @@ use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
+use Watcher\Operate\StateInspector;
+use Watcher\Privacy\Redactor;
+use Watcher\Reduce\Normalizer;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
 use Watcher\State\Redis\RedisClient;
@@ -330,6 +333,21 @@ final class Factory
         $http ??= self::http();
 
         return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '');
+    }
+
+    /**
+     * For `watcher state:get`: reads one logical key of the configured store, redacted. No other collaborator is built.
+     *
+     * @param array<string, mixed> $config
+     * @throws InvalidConfig
+     */
+    public static function stateInspector(array $config, ?ClockInterface $clock = null): StateInspector
+    {
+        $c = WatchConfig::fromArray($config);
+        $normalizer = new Normalizer($c->on('dependencies') ? array_map('strval', array_keys($c->dependencies)) : [], $c->dependencyDomains, extraPatterns: $c->redactionPatterns);
+        $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
+
+        return new StateInspector(self::state($c, $clock ?? new SystemClock()), new Redactor($normalizer, $c->redactionPatterns, $pathMap), $c->stateKey, $c->secrets());
     }
 
     /**

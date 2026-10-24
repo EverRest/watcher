@@ -42,4 +42,5 @@ exit((new Watcher\Cli\Application(
     },
     static fn (string $path, bool $postTest): Watcher\Operate\CheckReport => Watcher\Fleet\FleetCheck::fromConfig($path)->run($postTest),
     static fn (string $path): Watcher\Fleet\FleetStatus => Watcher\Fleet\FleetStatus::fromConfig($path, null, new Watcher\Cli\StderrLogger(STDERR)),
+    static fn (array $config, string $key): ?string => Watcher\Config\Factory::stateInspector($config)->render($key),
 ))->run($argv));
