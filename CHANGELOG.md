@@ -7,6 +7,7 @@
 Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fail-closed model use, availability guards, input hardening and the regression fixes found by the review of this very release.
 
 **BREAKING**
+- PHP 8.1 is no longer supported: `composer.json` requires `^8.2` (8.1 left security support in December 2025). CI tests PHP 8.2 to 8.5.
 - `http://` Loki and Slack URLs are refused unless `allow_insecure: true` is set and the host is loopback, an RFC 1918 address or a cluster-local name (`*.svc`, `*.cluster.local`). Plain `http` to a public host is never accepted. In-cluster options: `docs/operations.md`.
 - Redis transport is NOT included in this hardening: use a `tls://` host and an ACL `username`; a plaintext Redis stays plaintext.
 
@@ -25,7 +26,7 @@ Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fa
 ### Security
 - File state store (TOCTOU): records and the purge marker are written to a random-named, exclusively created temp file (umask 0077) and renamed into place, never opened by their final path; lock sidecars are created by hard-linking a private temp file and opened only after `lstat` shows a regular file we own, then verified with `fstat` (device, inode, link count 1) against a fresh `lstat`. A symlink or hard link planted by another user of a group-writable state directory fails closed and no target is truncated or created.
 - Raised dependency floors to versions that are advisory-free and that CI actually passes on: `guzzlehttp/guzzle` ^7.15.2, `psr/log` ^2.0 || ^3.0 (the 1.x line was incompatible with `StderrLogger`), and `php-http/discovery` ^1.12 is now a direct requirement (the SDK alone allowed 1.9, which breaks it).
-- CI also tests the lowest (PHP 8.1, `--prefer-lowest`) and highest (PHP 8.5) dependency sets, because consumers ignore `composer.lock`, and audits the resolved runtime set.
+- CI also tests the lowest (PHP 8.2, `--prefer-lowest`) and highest (PHP 8.5) dependency sets, because consumers ignore `composer.lock`, and audits the resolved runtime set.
 - GitHub Actions are pinned to commit SHAs, checkouts no longer persist credentials, the Composer cache is exact-key only, Dependabot is enabled for Actions and Composer.
 - The release workflow refuses a tag that is not on `main`, marks `-rc`/`-beta` tags as pre-releases, verifies the tag and attaches a build-provenance attestation for the source archive.
 - README: decline the unneeded `php-http/discovery` Composer plugin (`allow-plugins.php-http/discovery false`).

@@ -29,7 +29,7 @@ If any check fails, stop and see [If something fails](#if-something-fails).
 
 | Need | Where to get it | Environment variable |
 |---|---|---|
-| Checkout of this repo with dependencies | `cd ~/code/watcher && composer install` (PHP 8.1 or newer) | n/a |
+| Checkout of this repo with dependencies | `cd ~/code/watcher && composer install` (PHP 8.2 or newer) | n/a |
 | Anthropic API key | Anthropic Console > API keys > create a key named for this test. Set a spend limit on its workspace first. | `WATCHER_ANTHROPIC_KEY` |
 | Three model ids (cheap / mid / strong) | Console model list. Triage = smallest, analysis = middle, escalation = strongest. | `WATCHER_MODEL_TRIAGE`, `WATCHER_MODEL_ANALYZE`, `WATCHER_MODEL_ESCALATE` |
 | Their prices, USD per million tokens (input, output) | The provider's pricing page. Prices change: copy the current numbers. | `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}` |
