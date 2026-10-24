@@ -6,7 +6,6 @@ namespace Watcher\Tests\Unit\Operate;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
-use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
@@ -86,7 +85,9 @@ final class AnthropicModelCatalogTest extends TestCase
     /** Guzzle 8 splits timeouts: a read timeout is a NetworkTimeoutException, no longer a ConnectException (which is all 7 has). */
     public function testARealGuzzleReadTimeoutIsReportedAsTimeout(): void
     {
-        $class = class_exists(NetworkTimeoutException::class) ? NetworkTimeoutException::class : ConnectException::class;
+        $guzzle8 = 'GuzzleHttp\\Exception\\NetworkTimeoutException';
+        /** @var class-string<\Throwable> $class */
+        $class = class_exists($guzzle8) ? $guzzle8 : ConnectException::class;
         $e = new $class('cURL error 28: operation timed out', new Request('GET', 'https://api.anthropic.com/v1/models'));
 
         self::assertSame(['bearer' => 'timeout', 'x-api-key' => 'timeout'], $this->catalog([$e, $e])->probe());
