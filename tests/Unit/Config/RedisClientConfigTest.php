@@ -49,6 +49,7 @@ final class RedisClientConfigTest extends TestCase
             'read timeout (documented, was rejected as an unknown key)' => [['read_timeout' => 2.5]],
             'compression off' => [['compress_min_bytes' => 0]],
             'compression threshold' => [['compress_min_bytes' => 4096]],
+            'prefix' => [['prefix' => 'prod:']],
         ];
     }
 
@@ -68,6 +69,9 @@ final class RedisClientConfigTest extends TestCase
             'read timeout not positive' => [['read_timeout' => -1], 'state.redis.read_timeout'],
             'negative threshold' => [['compress_min_bytes' => -1], 'state.redis.compress_min_bytes'],
             'string threshold' => [['compress_min_bytes' => '512'], 'state.redis.compress_min_bytes'],
+            'empty prefix' => [['prefix' => ''], 'state.redis.prefix'],
+            'prefix not a string' => [['prefix' => 5], 'state.redis.prefix'],
+            'prefix with a glob or space' => [['prefix' => 'a *b'], 'state.redis.prefix'],
         ];
     }
 
@@ -177,5 +181,15 @@ final class RedisClientConfigTest extends TestCase
         $server->plant('watcher:corrupt', 'z1:not zlib');
         $store->get('corrupt');
         self::assertSame(1, $store->unreadableEntries());
+    }
+
+    public function testThePrefixSeparatesEnvironmentsOnOneDatabase(): void
+    {
+        $clock = new FrozenClock(new DateTimeImmutable());
+        $server = new FakeRedisServer($clock);
+        Factory::state(WatchConfig::fromArray(self::base(['instance' => $server, 'prefix' => 'prod:'])), $clock)->put('k', ['a' => 1], 60);
+        Factory::state(WatchConfig::fromArray(self::base(['instance' => $server, 'prefix' => 'stg:'])), $clock)->put('k', ['a' => 2], 60);
+
+        self::assertEqualsCanonicalizing(['prod:k', 'stg:k'], $server->keys());
     }
 }

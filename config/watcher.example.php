@@ -138,6 +138,7 @@ return [
             'host' => '127.0.0.1', 'port' => 6379, 'password' => null, 'database' => 0,
             'client' => 'auto',                          // auto (ext-redis, else predis/predis) | phpredis | predis
             'compress_min_bytes' => 512,                 // values larger than this are zlib-compressed; 0 = never
+            'prefix' => 'watcher:',                      // key prefix: give each environment that shares a database its own
         ],
         'pdo' => [                                       // table is NEVER created implicitly: see PdoStateStore::createTableSql()
             'dsn' => getenv('WATCHER_DB_DSN'), 'username' => null, 'password' => null, 'table' => 'watcher_state',

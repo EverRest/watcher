@@ -126,7 +126,7 @@ final class Factory
             'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(
                 self::redisClient(is_array($st['redis'] ?? null) ? $st['redis'] : []),
                 $clock,
-                'watcher:',
+                is_string($st['redis']['prefix'] ?? null) ? $st['redis']['prefix'] : 'watcher:',
                 is_int($st['redis']['compress_min_bytes'] ?? null) ? $st['redis']['compress_min_bytes'] : 512,
                 $log,
             )),

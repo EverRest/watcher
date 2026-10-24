@@ -107,6 +107,7 @@ return [
             'database' => (int) env('WATCHER_REDIS_DATABASE', 0),
             'client' => env('WATCHER_REDIS_CLIENT', 'auto'),                              // auto | phpredis | predis
             'compress_min_bytes' => (int) env('WATCHER_REDIS_COMPRESS_MIN_BYTES', 512),  // 0 = never compress
+            'prefix' => env('WATCHER_REDIS_PREFIX', 'watcher:'),                         // give each environment sharing a database its own
         ],
         // The table is never created implicitly: see PdoStateStore::createTableSql().
         'pdo' => ['dsn' => env('WATCHER_DB_DSN'), 'username' => env('WATCHER_DB_USERNAME'), 'password' => env('WATCHER_DB_PASSWORD'), 'table' => 'watcher_state'],

@@ -564,7 +564,10 @@ final class WatchConfig implements \JsonSerializable
     /** @param array<string, mixed> $r an injected `instance` wins; otherwise host/port/password/database build one */
     private static function redis(array $r): void
     {
-        self::only($r, ['instance', 'host', 'port', 'username', 'password', 'database', 'client', 'compress_min_bytes', 'read_timeout'], 'state.redis');
+        self::only($r, ['instance', 'host', 'port', 'username', 'password', 'database', 'client', 'compress_min_bytes', 'read_timeout', 'prefix'], 'state.redis');
+        if (array_key_exists('prefix', $r) && (!is_string($r['prefix']) || preg_match('/^[A-Za-z0-9_.:-]{1,64}$/D', $r['prefix']) !== 1)) {
+            throw new InvalidConfig('state.redis.prefix must be 1 to 64 characters of letters, digits and _ . : -');
+        }
         if (!in_array($r['client'] ?? 'auto', ['auto', 'phpredis', 'predis'], true)) {
             throw new InvalidConfig('state.redis.client must be auto, phpredis or predis');
         }

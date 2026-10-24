@@ -227,7 +227,7 @@ final class ArchitectureTest extends TestCase
 
         self::assertSame(1, preg_match("/'redis'\\s*=>\\s*\\[(?<body>[^\\]]*)\\]/s", $text, $m), 'state.redis block not found');
         preg_match_all("/'(\\w+)'\\s*=>/", $m['body'] ?? '', $keys);
-        self::assertSame([], array_diff($keys[1], ['instance', 'host', 'port', 'password', 'database', 'client', 'compress_min_bytes', 'read_timeout']), 'state.redis holds a key WatchConfig does not read');
+        self::assertSame([], array_diff($keys[1], ['instance', 'host', 'port', 'password', 'database', 'client', 'compress_min_bytes', 'read_timeout', 'prefix', 'username']), 'state.redis holds a key WatchConfig does not read');
 
         self::assertSame(1, preg_match("/'pdo'\\s*=>\\s*\\[(?<body>[^\\]]*)\\]/s", $text, $p), 'state.pdo block not found');
         preg_match_all("/'(\\w+)'\\s*=>/", $p['body'] ?? '', $pk);
