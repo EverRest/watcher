@@ -77,7 +77,7 @@ final class ServiceContextTest extends TestCase
         self::assertStringNotContainsString('secret-marker', $lines);
     }
 
-    /** @var list<array{request: \Psr\Http\Message\RequestInterface}> */
+    /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> */
     private array $history = [];
 
     public function testAnthropicPutsTheContextInTheCachedPrefixOfTriageAndAnalysis(): void
@@ -86,7 +86,7 @@ final class ServiceContextTest extends TestCase
             new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-triage-valid.json')),
             new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-valid.json')),
         ]));
-        /** @var list<array{request: \Psr\Http\Message\RequestInterface}> $log */
+        /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> $log */
         $log = [];
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));

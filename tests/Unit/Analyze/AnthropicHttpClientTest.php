@@ -21,7 +21,7 @@ final class AnthropicHttpClientTest extends TestCase
 {
     private const KEY = 'sk-ant-test-SECRET-KEY';
 
-    /** @var list<array{request: \Psr\Http\Message\RequestInterface, options: array<string, mixed>}> */
+    /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> */
     private array $history = [];
 
     private static function fixture(string $name, int $status = 200): Response
@@ -33,7 +33,7 @@ final class AnthropicHttpClientTest extends TestCase
     private function client(array $queue): AnthropicHttpClient
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        /** @var list<array{request: \Psr\Http\Message\RequestInterface, options: array<string, mixed>}> $log */
+        /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> $log */
         $log = [];
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
