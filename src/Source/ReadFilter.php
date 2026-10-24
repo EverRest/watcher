@@ -15,6 +15,9 @@ final class ReadFilter
     /** A physical line above this size never reaches the parser (A4-01): it is dropped and counted. */
     public const MAX_LINE_BYTES = 65536;
 
+    /** One fifth of eventCap is reserved for the NEWEST events when a read is cut short, so today's incident is never hidden behind the oldest ones (A4-03). */
+    public const NEWEST_SHARE_DIVISOR = 5;
+
     /** Lines dropped because they were larger than MAX_LINE_BYTES (a count, never the text). */
     public int $oversizedLines = 0;
 
@@ -35,6 +38,18 @@ final class ReadFilter
         if ($eventCap < 1) {
             throw new InvalidArgumentException('eventCap must be at least 1.');
         }
+    }
+
+    /** Events the newest share may add after a cut-short read; 0 below a cap of 5 (the old oldest-first behaviour). */
+    public function tailCap(): int
+    {
+        return intdiv($this->eventCap, self::NEWEST_SHARE_DIVISOR);
+    }
+
+    /** Events the forward (oldest first) read may keep before the newest share is read. */
+    public function headCap(): int
+    {
+        return $this->eventCap - $this->tailCap();
     }
 
     /** @param \Closure(): ?string $check returns a stop reason (deadline, memory) or null to go on */

@@ -518,10 +518,12 @@ final class Watcher
         $this->ledger->stats()->eventsRead = $collector->eventsRead();
         $this->ledger->stats()->unscannableEvents = $collector->unscannableEvents();
         $this->ledger->stats()->oversizedLines = $collector->oversizedLines();
+        $this->ledger->stats()->overflowedEvents = $collector->overflowedEvents();
+        $this->ledger->stats()->readQuality = $this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : [];
         // Blindness (A4-03, A4-08): what this run could not see, as counts. Sent as a short notice even when the run is otherwise quiet.
         $readReason = $this->guard?->reason() ?? $collector->truncationReason() ?? ($collector->truncated() ? 'cap' : null);
         $zeroStreak = $this->zeroStreak($key, $collector->eventsRead(), $totals);
-        $blind = fn (bool $quiet): ?string => $this->blindLine($quiet, $readReason, $collector->eventsRead(), $collector->overflowedEvents(), $zeroStreak);
+        $blind = fn (bool $quiet, bool $digestSent = false): ?string => $this->blindLine($quiet, $digestSent, $readReason, $collector->eventsRead(), $collector->overflowedEvents(), $zeroStreak);
         $this->ledger->stats()->groups = count($groups);
         // Muted groups leave first, so they reach neither a model nor the selector; the snapshot keeps them for growth.
         $allGroups = $groups;
@@ -545,6 +547,7 @@ final class Watcher
         $groups = $rules->apply($groups, $collector->ruleHits());
         // Counts only: a regex that failed to evaluate (backtrack limit) fails open, and the operator should hear about it.
         $patternFailures = $rules->failures() + $mute->failures() + $collector->patternFailures();
+        $this->ledger->stats()->patternFailures = $patternFailures;
         if ($patternFailures > 0) {
             $this->hostLog?->warning('pattern evaluation failures: rules may have been skipped', ['service' => $service, 'count' => $patternFailures]);
         }
@@ -628,7 +631,7 @@ final class Watcher
         } catch (Throwable $e) {
             $this->hostLog?->warning('delivered marker not written: ' . $e::class, ['service' => $service]);
         }
-        $this->blindNotice($blind(false), $key, $endKey);
+        $this->blindNotice($blind(false, true), $key, $endKey);
         foreach ($findings as $finding) {
             foreach ($finding->fingerprints as $fp) {
                 $analysis->buffer->put($keys->reported($fp), ['lastReportedAt' => $now, 'atCount' => $analysis->byFingerprint[$fp]->count ?? 0], $retention);
@@ -693,7 +696,11 @@ final class Watcher
         $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
         $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet);
         try {
-            $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
+            try {
+                $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
+            } finally {
+                $spend->release(); // a step reserved but never called (or a non-analyzer error) must not hold budget
+            }
         } catch (AnalyzerFailed $e) {
             // The window was read: keep it as the next window's comparison base. Normally no RunRecord, so the next trigger retries;
             // but a refusal, or a second failure of this window, is recorded as failed so hourly triggers do not re-bill it endlessly.
@@ -834,7 +841,7 @@ final class Watcher
             $annotations,
             $comparison,
             $collector->mining(),
-            ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->ledger->stats()->oversizedLines > 0 ? ['oversized_lines' => $this->ledger->stats()->oversizedLines] : []),
+            ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->ledger->stats()->oversizedLines > 0 ? ['oversized_lines' => $this->ledger->stats()->oversizedLines] : []) + ($this->ledger->stats()->unscannableEvents > 0 ? ['unscannable_events' => $this->ledger->stats()->unscannableEvents] : []),
             $routed->reused,
             $routed->triageDropped,
             $routed->triageCoerced,
@@ -895,7 +902,7 @@ final class Watcher
      * What the run could not see, as one line of counts, or null. Cap truncation and overflow are already in a sent digest,
      * so they are only named here for a quiet run; a deadline, memory stop, cursor stop, dropped line or empty source always are.
      */
-    private function blindLine(bool $quiet, ?string $reason, int $eventsRead, int $overflow, int $zeroStreak): ?string
+    private function blindLine(bool $quiet, bool $digestSent, ?string $reason, int $eventsRead, int $overflow, int $zeroStreak): ?string
     {
         $stats = $this->ledger->stats();
         $parts = [];
@@ -912,7 +919,7 @@ final class Watcher
             $parts[] = sprintf('%d lines over 64 KB dropped', $stats->oversizedLines);
             $code ??= 'oversized_lines';
         }
-        if ($stats->unscannableEvents > 0) {
+        if ($stats->unscannableEvents > 0 && !$digestSent) { // a sent digest already carries it in its read-quality line
             $parts[] = sprintf('%d events could not be scanned', $stats->unscannableEvents);
             $code ??= 'unscannable_events';
         }
@@ -1043,6 +1050,8 @@ final class Watcher
             {
                 if ($e->usage !== null) {
                     $this->book($e->usage, $step);
+                } else {
+                    $this->spend->release(); // nothing was billed: give the reserved worst case back (M2)
                 }
 
                 return $e;

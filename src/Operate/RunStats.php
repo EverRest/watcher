@@ -22,6 +22,15 @@ final class RunStats
     /** State entries that could not be decoded and were read as missing (Redis store). */
     public int $stateUnreadable = 0;
 
+    /** Events folded into the per-level overflow group (source.group_cap hit). */
+    public int $overflowedEvents = 0;
+
+    /** Regex evaluations that failed and failed open (rules, mutes, backend filters). */
+    public int $patternFailures = 0;
+
+    /** @var array<string, int> what the source's parser guessed or dropped (ReadDiagnostics); only the names JsonSummary::READ_QUALITY are exported */
+    public array $readQuality = [];
+
     public int $candidates = 0;
 
     public int $findings = 0;
