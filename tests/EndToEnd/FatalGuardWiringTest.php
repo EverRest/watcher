@@ -15,13 +15,14 @@ final class FatalGuardWiringTest extends TestCase
         $script = __DIR__ . '/../Fixtures/fatal_child.php';
         $p = proc_open(
             [PHP_BINARY, '-d', 'memory_limit=48M', '-d', 'display_errors=0', $script],
-            [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             $root,
         );
         self::assertIsResource($p);
-        $out = (string) stream_get_contents($pipes[1]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]); // the child's output is a few lines: no pipe fills
         fclose($pipes[1]);
+        fclose($pipes[2]);
         proc_close($p);
 
         self::assertStringContainsString('LOG watcher run aborted by a PHP fatal error (E_ERROR)', $out);

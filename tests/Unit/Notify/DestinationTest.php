@@ -47,7 +47,7 @@ final class DestinationTest extends TestCase
 
     public function testHasNoStringCast(): void
     {
-        self::assertNotInstanceOf(\Stringable::class, new Destination(self::HOOK));
+        self::assertNotContains(\Stringable::class, class_implements(new Destination(self::HOOK)) ?: []);
     }
 
     private const TOKEN = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw_';

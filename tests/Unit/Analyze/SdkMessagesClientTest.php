@@ -25,7 +25,10 @@ final class SdkMessagesClientTest extends TestCase
     private function client(array $queue): SdkMessagesClient
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        /** @var list<array{request: \Psr\Http\Message\RequestInterface}> $log */
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new SdkMessagesClient(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]);
     }

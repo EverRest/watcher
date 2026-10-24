@@ -394,11 +394,12 @@ final class LokiSourceTest extends LogSourceContractTest
         $source = $this->source([$this->streams($values), $this->streams($values)]);
         $filter = new ReadFilter(Level::Debug, [], 100);
 
-        $this->assertSame(0, $source->orphanTraceLines());
+        $counts = [$source->orphanTraceLines()];
         $this->collect($source->lines($this->window(), $this->selector(), $filter));
-        $this->assertSame(2, $source->orphanTraceLines());
+        $counts[] = $source->orphanTraceLines();
         $this->collect($source->lines($this->window(), $this->selector(), $filter));
-        $this->assertSame(2, $source->orphanTraceLines());
+        $counts[] = $source->orphanTraceLines();
+        $this->assertSame([0, 2, 2], $counts);
     }
 
     public function testReadDiagnosticsDescribeTheLastLinesCallOnly(): void
@@ -697,7 +698,9 @@ final class LokiSourceTest extends LogSourceContractTest
     private function source(array $responses, ?string $bearer = self::SECRET, ?string $user = null, ?string $password = null, ?string $tenant = null, int $retryBudget = 120, string $levelMode = 'text'): LokiSource
     {
         $stack = HandlerStack::create(new MockHandler($responses));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new LokiSource(
             new Client(['handler' => $stack]),

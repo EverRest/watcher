@@ -300,7 +300,8 @@ final class LokiSource implements LogSource, ReadDiagnostics
                 continue;
             }
             if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1], isset($labels['level']))) {
-                $out[$open[$stream]][1] .= "\n" . $line;
+                [$firstTs, $text, $firstLabels] = $out[$open[$stream]];
+                $out[$open[$stream]] = [$firstTs, $text . "\n" . $line, $firstLabels];
                 continue;
             }
             $open[$stream] = count($out);
@@ -429,6 +430,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private function get(string $path, array $query): array
     {
         // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
+        /** @var \ArrayObject<string, bool> $tripped */
         $tripped = new \ArrayObject();
         try {
             $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('GET', $this->baseUrl . $path, [

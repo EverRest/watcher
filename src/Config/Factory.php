@@ -186,6 +186,14 @@ final class Factory
     }
 
     /**
+     * predis/predis is only a `suggest`: the name comes from a method so phpstan does not look for the class.
+     */
+    private static function predisClass(): string
+    {
+        return 'Predis\\Client';
+    }
+
+    /**
      * #[\SensitiveParameter] (PHP 8.2+, ignored on 8.1) keeps `$r`, password included, out of exception traces.
      *
      * @param array<string, mixed> $r
@@ -195,8 +203,7 @@ final class Factory
         if (is_object($r['instance'] ?? null)) {
             return self::wrapRedisInstance($r['instance']);
         }
-        /** @var class-string $predisClass predis/predis is only a `suggest`: phpstan must not look for it */
-        $predisClass = 'Predis\\Client';
+        $predisClass = self::predisClass();
         $pick = self::pickRedisClient(is_string($r['client'] ?? null) ? $r['client'] : 'auto', class_exists(Redis::class), class_exists($predisClass));
         if ($pick === 'predis') {
             try {

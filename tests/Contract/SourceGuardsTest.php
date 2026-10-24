@@ -30,7 +30,10 @@ final class SourceGuardsTest extends TestCase
         return new Window(new DateTimeImmutable('@' . self::T0), new DateTimeImmutable('@' . (self::T0 + 86400)));
     }
 
-    /** @param list<Response> $responses */
+    /**
+     * @param list<Response> $responses
+     * @param-out MockHandler $mock
+     */
     private function loki(array $responses, ?FrozenClock $clock = null, int $pagingBudget = 300, int $maxPages = 1000, ?MockHandler &$mock = null): LokiSource
     {
         $mock = new MockHandler($responses);
@@ -132,6 +135,7 @@ final class SourceGuardsTest extends TestCase
 
     public function testTheHeadersHookAbortsOnlyAboveTheCapAndSaysWhy(): void
     {
+        /** @var \ArrayObject<string, bool> $tripped */
         $tripped = new \ArrayObject();
         $hook = ResponseLimit::options($tripped, 1000)['on_headers'];
 
@@ -175,6 +179,7 @@ final class SourceGuardsTest extends TestCase
             $src->totals($this->window(), new StreamSelector(['service' => 's']));
         } catch (SourceUnavailable) {
         }
+        $this->assertIsArray($hist);
         $this->assertCount(1, $hist);
         $this->assertFalse($hist[0]['options']['allow_redirects']);
         $this->assertTrue($hist[0]['options']['verify']);

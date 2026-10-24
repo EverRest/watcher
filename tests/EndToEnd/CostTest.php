@@ -144,7 +144,7 @@ final class CostTest extends TestCase
 
         self::assertSame(RunOutcome::Reported, $result->outcome);
         $sent = $h->analyzer->triageRequests[0]->groups;
-        self::assertSame(['Alpha', 'Beta'], array_values(array_map(static fn ($g): ?string => $g->errorType, $sent)));
+        self::assertSame(['Alpha', 'Beta'], array_map(static fn ($g): ?string => $g->errorType, $sent));
         self::assertStringContainsString('truncated: 2 groups dropped (budget)', $h->sentTexts()[1]);
     }
 
@@ -281,7 +281,7 @@ final class CostTest extends TestCase
         $today = (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->today();
         self::assertEqualsWithDelta(2.4, $today['usd'], 1e-9);
         self::assertSame(3000, $today['tokens']);
-        self::assertEqualsWithDelta(2.4, $result->usage?->costUsd ?? -1, 1e-9);
+        self::assertEqualsWithDelta(2.4, $result->usage->costUsd ?? -1, 1e-9);
     }
 
     public function testAFailedAlertNoticeGivesTheClaimBackAndNeverAbortsTheDigest(): void

@@ -38,7 +38,9 @@ final class AnthropicAnalyzerTriageTest extends TestCase
     private function analyzer(array $responses): AnthropicAnalyzer
     {
         $stack = HandlerStack::create(new MockHandler($responses));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])));
     }

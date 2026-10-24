@@ -98,7 +98,7 @@ final class ConfigDumpTest extends TestCase
                 WatchConfig::fromArray($raw);
                 self::fail("$key accepted a trailing newline");
             } catch (\Watcher\Config\InvalidConfig) {
-                self::assertTrue(true);
+                $this->addToAssertionCount(1);
             }
         }
         $raw = self::raw();

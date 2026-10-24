@@ -43,7 +43,7 @@ final class CombinedDigest
         $quietLine = $quiet === [] ? [] : [['kind' => 'notice', 'text' => '✅ quiet: ' . implode(', ', array_map(SlackText::escape(...), $quiet))]];
 
         while (count($sections = $this->assemble($title, $items, $quietLine)) > self::MAX_BLOCKS) {
-            $this->shrink($items);
+            $items = $this->shrink($items);
         }
 
         $names = implode(', ', array_map(static fn (array $i): string => $i['name'], $items));
@@ -81,8 +81,10 @@ final class CombinedDigest
      * Collapses the full service with the fewest findings (the later one on a tie); with none left, folds the last line.
      *
      * @param list<array{name: string, n: int, mode: string, full: list<array{kind: string, text: string}>, line: array{kind: string, text: string}}> $items
+     *
+     * @return list<array{name: string, n: int, mode: string, full: list<array{kind: string, text: string}>, line: array{kind: string, text: string}}>
      */
-    private function shrink(array &$items): void
+    private function shrink(array $items): array
     {
         $pick = null;
         foreach ($items as $k => $i) {
@@ -91,16 +93,18 @@ final class CombinedDigest
             }
         }
         if ($pick !== null) {
-            $items[$pick]['mode'] = 'line';
+            $items[$pick] = [...$items[$pick], 'mode' => 'line'];
 
-            return;
+            return $items;
         }
         foreach (array_reverse(array_keys($items)) as $k) {
             if ($items[$k]['mode'] === 'line') {
                 $items[$k]['mode'] = 'merged';
 
-                return;
+                return $items;
             }
         }
+
+        return $items;
     }
 }

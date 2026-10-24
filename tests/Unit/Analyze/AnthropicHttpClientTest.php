@@ -33,7 +33,10 @@ final class AnthropicHttpClientTest extends TestCase
     private function client(array $queue): AnthropicHttpClient
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        /** @var list<array{request: \Psr\Http\Message\RequestInterface, options: array<string, mixed>}> $log */
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack]));
     }

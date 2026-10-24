@@ -140,7 +140,7 @@ final class ContextTest extends TestCase
         ]);
         self::go($h, $s2, ['links' => self::GRAFANA]);
 
-        $findings = array_filter($h->notifier->sent[array_key_last($h->notifier->sent)]['message']->sections, static fn (array $s): bool => $s['kind'] === 'finding');
+        $findings = array_filter($h->notifier->last()['message']->sections, static fn (array $s): bool => $s['kind'] === 'finding');
         self::assertCount(2, $findings);
         foreach ($findings as $f) {
             self::assertMatchesRegularExpression('~<https://grafana\.test/explore\?schemaVersion=1&panes=[^|>\s]+\|log>~', $f['text']);

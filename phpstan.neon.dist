@@ -7,3 +7,22 @@ parameters:
         - scripts/badges.php
     excludePaths:
         - tests/Fixtures
+    ignoreErrors:
+        # Deliberate runtime guard: the phpdoc says list<RedactedGroup>, but the privacy boundary must not rely on a doc
+        # (CorrelatorTest feeds it a non-RedactedGroup and expects the TypeError).
+        -
+            identifier: instanceof.alwaysTrue
+            path: src/Fleet/Correlator.php
+            count: 1
+        # Lumen's application has no basePath() although the declared type (Laravel's contract) says it does; the
+        # method_exists check is what keeps the adapter loadable on Lumen.
+        -
+            identifier: function.alreadyNarrowedType
+            path: src/Laravel/WatcherServiceProvider.php
+            count: 1
+        # The provider type-hints Laravel's Application contract; the test hands it the bare container (the only part of the
+        # contract register() uses), which is a real Container but not an Application.
+        -
+            identifier: argument.type
+            path: tests/Unit/Laravel/WatcherServiceProviderTest.php
+            count: 1

@@ -52,7 +52,7 @@ final class RedisTtlContractTest extends TestCase
 
                 return [
                     new RedisStateStore(new PhpRedisClient($redis), $clock, $prefix),
-                    static fn (): array => array_map(static fn (string $k): int => (int) $redis->pttl($k), array_map('strval', (array) $redis->keys($prefix . '*'))),
+                    static fn (): array => array_values(array_map(static fn (string $k): int => (int) $redis->pttl($k), array_map('strval', (array) $redis->keys($prefix . '*')))),
                     static function () use ($redis, $prefix): void {
                         foreach ((array) $redis->keys($prefix . '*') as $k) {
                             $redis->del($k);

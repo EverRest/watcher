@@ -41,7 +41,9 @@ final class AnthropicModelCatalogTest extends TestCase
     private function catalog(array $queue): AnthropicModelCatalog
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new AnthropicModelCatalog(new Client(['handler' => $stack]), self::KEY);
     }

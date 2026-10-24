@@ -86,7 +86,10 @@ final class ServiceContextTest extends TestCase
             new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-triage-valid.json')),
             new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-valid.json')),
         ]));
-        $stack->push(Middleware::history($this->history));
+        /** @var list<array{request: \Psr\Http\Message\RequestInterface}> $log */
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
         $analyzer = new AnthropicAnalyzer(new AnthropicHttpClient('k', new Client(['handler' => $stack])));
         $t = new DateTimeImmutable('2026-10-23T05:00:00Z');
         $g = new RedactedGroup('fp-aaa', 'Timeout', Level::Error, null, [], 3, null, GroupStatusLabel::New, [], $t, $t);

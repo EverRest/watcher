@@ -253,13 +253,14 @@ final class LineParserTest extends TestCase
         $e = $p->parse('{"level":"error","timestamp":"2026-10-07T21:49:49+00:00","message":"Payment failed\\r\\nargs: anna@example.com\\n  at x"}');
 
         self::assertSame('Payment failed', $e->message);
-        self::assertSame(1, $p->messageTailsDropped);
+        $dropped = [$p->messageTailsDropped];
         self::assertStringNotContainsString("anna", $e->message);
 
         $p->parse('{"level":"error","message":"one line only"}');
-        self::assertSame(1, $p->messageTailsDropped);
+        $dropped[] = $p->messageTailsDropped;
         $p->parse('{"level":"error","message":"trailing break\\n"}');
-        self::assertSame(1, $p->messageTailsDropped);
+        $dropped[] = $p->messageTailsDropped;
+        self::assertSame([1, 1, 1], $dropped, 'only the cut message counts, not a one-liner or a trailing break');
     }
 
     public function testJsonMessageTailStillFeedsExceptionClassAndFrames(): void

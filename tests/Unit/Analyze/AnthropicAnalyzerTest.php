@@ -45,7 +45,9 @@ final class AnthropicAnalyzerTest extends TestCase
     private function analyzer(array $responses): AnthropicAnalyzer
     {
         $stack = HandlerStack::create(new MockHandler($responses));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])));
     }
@@ -106,7 +108,9 @@ final class AnthropicAnalyzerTest extends TestCase
 
         $this->history = [];
         $stack = HandlerStack::create(new MockHandler([self::json('message-valid.json')]));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
         (new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])), false))->analyze(self::request());
         $off = $this->body();
         self::assertStringNotContainsString('how_to_check', (string) json_encode($off));

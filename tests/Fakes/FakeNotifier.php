@@ -17,6 +17,18 @@ final class FakeNotifier implements Notifier
     private ?DeliveryFailed $failure = null;
     private bool $once = false;
 
+    /** @return array{message: Message, to: Destination} the latest delivery; fails the test when nothing was sent */
+    public function last(): array
+    {
+        return end($this->sent) ?: throw new \LogicException('nothing was sent');
+    }
+
+    /** Forgets what was sent so far (a method, so a static analyser does not assume the list stays empty after the next run). */
+    public function forget(): void
+    {
+        $this->sent = [];
+    }
+
     public function failWith(DeliveryFailed $e): void
     {
         $this->failure = $e;
