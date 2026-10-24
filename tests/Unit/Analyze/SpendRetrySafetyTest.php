@@ -59,7 +59,7 @@ final class SpendRetrySafetyTest extends TestCase
                 return $this->inner->increment($key, $by, $ttlSeconds);
             }
 
-            public function reserve(string $usdKey, string $tokensKey, float $usd, float $tokens, float $usdCap, ?float $tokenCap, int $ttlSeconds): ?bool
+            public function reserve(string $usdKey, string $tokensKey, float $usd, float $tokens, float $usdCap, ?float $tokenCap, int $ttlSeconds): bool
             {
                 return $this->inner->reserve($usdKey, $tokensKey, $usd, $tokens, $usdCap, $tokenCap, $ttlSeconds);
             }

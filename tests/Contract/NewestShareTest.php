@@ -140,13 +140,35 @@ final class NewestShareTest extends TestCase
 
     public function testDatadogEventsInTheSameMillisecondAsTheSeamAreReportedAsACut(): void
     {
-        $events = self::eventsIn(900, 900);
-        $events[800][0] = $events[799][0]; // the event that trips the cap shares its time with the last one kept
+        // the event that trips the cap (index 800) shares its time with the last one kept (799)
+        $events = array_map(static fn (array $e, int $i): array => [$i === 800 ? self::START + 799 * intdiv(80000, 900) : $e[0], $e[1]], self::eventsIn(900, 900), array_keys(self::eventsIn(900, 900)));
         $source = $this->source('datadog', $events);
 
         $this->read($source, 1000);
 
         $this->assertTrue($source->lastReadTruncated());
+    }
+
+    public function testTheTailDoesNotCountOversizedLinesTheHeadPageAlreadyDropped(): void
+    {
+        $events = array_map(static fn (array $e, int $i): array => [$e[0], $i === 850 ? str_repeat('x', 70_000) : $e[1]], self::eventsIn(900, 900), array_keys(self::eventsIn(900, 900)));
+        $source = $this->lokiSource($events);
+        $filter = new ReadFilter(Level::Error, [], 1000);
+
+        iterator_to_array($source->lines($this->window(), new StreamSelector(['app' => 'svc']), $filter), false);
+
+        $this->assertSame(1, $filter->oversizedLines);
+    }
+
+    public function testTheFrameLinesOfTheLastKeptRecordAreNotCountedAsOrphansByTheTail(): void
+    {
+        $base = self::eventsIn(900, 900);
+        $events = [...array_slice($base, 0, 800), [$base[799][0] + 1, 'RAW:#0 /app/Foo.php(12): bar()'], ...array_slice($base, 800)];
+        $source = $this->lokiSource($events);
+
+        iterator_to_array($source->lines($this->window(), new StreamSelector(['app' => 'svc']), new ReadFilter(Level::Error, [], 1000)), false);
+
+        $this->assertSame(0, $source->orphanTraceLines());
     }
 
     /**
@@ -165,6 +187,12 @@ final class NewestShareTest extends TestCase
         };
 
         return new DatadogSource(new Client(['handler' => $handler]), 'datadoghq.eu', 'k', 'a', maxResponseBytes: 200_000);
+    }
+
+    /** @param list<array{int, string}> $events */
+    private function lokiSource(array $events): LokiSource
+    {
+        return new LokiSource(new Client(['handler' => static fn (RequestInterface $r, array $o) => Create::promiseFor(self::loki($r, $events))]), 'https://loki.test/', 'tok');
     }
 
     /** @param list<array{int, string}> $events */
@@ -188,7 +216,7 @@ final class NewestShareTest extends TestCase
         foreach ($events as [$t, $m]) {
             $ns = $t * 1_000_000_000;
             if ($ns >= $start && $ns < $end) {
-                $values[] = [(string) $ns, "[" . gmdate('Y-m-d H:i:s', $t) . "] production.ERROR: {$m} {}"];
+                $values[] = [(string) $ns, str_starts_with($m, 'RAW:') ? substr($m, 4) : "[" . gmdate('Y-m-d H:i:s', $t) . "] production.ERROR: {$m} {}"];
             }
         }
         if ($q['direction'] === 'backward') {

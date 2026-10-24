@@ -137,7 +137,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
             };
             if ($stop !== null) {
                 if (in_array($stop, ['pages', 'time'], true)) {
-                    yield from $this->newest($query, $start, $end, $filter, $stop);
+                    yield from $this->newest($query, $start, $end, $filter, $stop, $start);
 
                     return;
                 }
@@ -167,7 +167,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
                     continue;
                 }
                 if ($kept >= $filter->headCap()) {
-                    yield from $this->newest($query, $lastTs, $end, $filter, 'cap');
+                    yield from $this->newest($query, $lastTs, $end, $filter, 'cap', $entries[count($entries) - 1][0]);
 
                     return;
                 }
@@ -209,7 +209,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
      *
      * @return Generator<int, LogEvent>
      */
-    private function newest(string $query, int $after, string $end, ReadFilter $filter, string $reason): Generator
+    private function newest(string $query, int $after, string $end, ReadFilter $filter, string $reason, int $seen): Generator
     {
         // After a spent time or page budget only two pages more are read: the budget is gone, the share is a courtesy.
         $maxPages = $reason === 'cap' ? self::TAIL_PAGES : 2;
@@ -221,7 +221,23 @@ final class LokiSource implements LogSource, ReadDiagnostics
         for ($i = 0; $want > 0 && $i < $maxPages && !$filter->shouldStop(); ++$i) {
             // ponytail: Loki's end is exclusive, so entries sharing the page's oldest nanosecond beyond the limit are skipped.
             $entries = $this->page($query, (string) ($after + 1), $to, 'backward');
-            $fresh = array_values(array_filter($entries, fn (array $e): bool => !$filter->oversized($e[1])));
+            // Lines up to $seen were already counted by the page the head read (oversized, orphan frames): not again.
+            $fresh = [];
+            foreach ($entries as $e) {
+                $before = $filter->oversizedLines;
+                if ($filter->oversized($e[1])) {
+                    $filter->oversizedLines = $e[0] <= $seen ? $before : $filter->oversizedLines;
+                    continue;
+                }
+                $fresh[] = $e;
+            }
+            $overlap = array_values(array_filter($fresh, static fn (array $e): bool => $e[0] <= $seen));
+            $orphans = $this->parser->orphanTraceLines;
+            if ($overlap !== []) {
+                $this->records($overlap);
+                $overlapOrphans = $this->parser->orphanTraceLines - $orphans;
+                $this->parser->orphanTraceLines = $orphans;
+            }
             $batch = [];
             foreach ($this->records($fresh) as [$ts, $line, $labels]) {
                 $event = $this->event($ts, $line, $labels);
@@ -229,6 +245,8 @@ final class LokiSource implements LogSource, ReadDiagnostics
                     $batch[] = $event;
                 }
             }
+            $this->parser->orphanTraceLines -= $overlapOrphans ?? 0;
+            unset($overlapOrphans);
             $batches[] = $batch;
             $have += count($batch);
             if (count($entries) < $this->pageLimit) {
