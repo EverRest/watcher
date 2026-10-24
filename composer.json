@@ -22,6 +22,7 @@
         "illuminate/console": "^10.0 || ^11.0",
         "illuminate/support": "^10.0 || ^11.0",
         "laravel/pint": "^1.13",
+        "php-http/discovery": "^1.12",
         "phpstan/phpstan": "^2.3",
         "phpunit/phpunit": "^10.5 || ^11.0",
         "vlucas/phpdotenv": "^5.7"
