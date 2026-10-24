@@ -23,8 +23,11 @@ final class PredisClient implements RedisClient
     public function get(string $key): ?string
     {
         $v = $this->call('get', $key);
+        if ($v !== null && !is_string($v)) { // an error reply object (exceptions off) is not "missing"
+            throw new RuntimeException('state.redis: unexpected reply to GET');
+        }
 
-        return is_string($v) ? $v : null;
+        return $v;
     }
 
     public function set(string $key, string $value, int $ttlMs, bool $onlyIfAbsent = false): bool

@@ -88,4 +88,17 @@ final class PredisClientTest extends TestCase
             self::assertStringNotContainsString('hunter2', $e->getMessage());
         }
     }
+
+    public function testAnErrorObjectInsteadOfAReplyFailsClosedNotAsMissing(): void
+    {
+        $client = new PredisClient(new class () {
+            public function get(string $key): object
+            {
+                return new \stdClass(); // what Predis returns for a server error when exceptions are off
+            }
+        });
+
+        $this->expectException(RuntimeException::class);
+        $client->get('k');
+    }
 }

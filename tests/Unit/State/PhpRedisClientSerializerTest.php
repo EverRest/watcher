@@ -30,7 +30,7 @@ final class PhpRedisClientSerializerTest extends TestCase
             /** @param int $option */
             public function getOption($option): mixed
             {
-                return $option === Redis::OPT_SERIALIZER ? $this->serializer : false;
+                return $option === Redis::OPT_SERIALIZER ? $this->serializer : 0;
             }
         };
     }
@@ -51,5 +51,58 @@ final class PhpRedisClientSerializerTest extends TestCase
     public function testNoSerializerIsAccepted(): void
     {
         self::assertInstanceOf(PhpRedisClient::class, Factory::wrapRedisInstance(self::redis(Redis::SERIALIZER_NONE)));
+    }
+
+    public function testAnInjectedCompressionIsRefusedToo(): void
+    {
+        $r = new class () extends Redis {
+            public function __construct()
+            {
+            }
+
+            /** @param int $option */
+            public function getOption($option): mixed
+            {
+                return $option === Redis::OPT_COMPRESSION ? Redis::COMPRESSION_ZSTD : 0;
+            }
+        };
+
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('must not use a serializer or compression');
+        new PhpRedisClient($r);
+    }
+
+    public function testATransportErrorOnGetFailsClosedButAMissingKeyIsNull(): void
+    {
+        $make = static fn (?string $error): PhpRedisClient => new PhpRedisClient(new class ($error) extends Redis {
+            public function __construct(private readonly ?string $error)
+            {
+            }
+
+            /** @param int $option */
+            public function getOption($option): mixed
+            {
+                return 0;
+            }
+
+            public function get($key): mixed
+            {
+                return false; // phpredis answers false for a missing key AND for a failed command
+            }
+
+            public function getLastError(): ?string
+            {
+                return $this->error;
+            }
+
+            public function clearLastError(): bool
+            {
+                return true;
+            }
+        });
+
+        self::assertNull($make(null)->get('k'));
+        $this->expectException(\RuntimeException::class);
+        $make('NOAUTH Authentication required')->get('k');
     }
 }
