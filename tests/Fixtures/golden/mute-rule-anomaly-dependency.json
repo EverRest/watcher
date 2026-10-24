@@ -24,6 +24,8 @@
                     "@Watcher\\Operate\\RunStats": {
                         "eventsRead": 18,
                         "groups": 3,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
                         "candidates": 2,
                         "findings": 2,
                         "calls": {
@@ -71,15 +73,19 @@
                 },
                 {
                     "kind": "severity",
-                    "text": "🟠 *error* (2)"
-                },
-                {
-                    "kind": "finding",
-                    "text": "• Problem &lt;ID&gt; — 8× (new)  `9ab3237802d9`\n  Evidence: seen repeatedly; dependency core-api shows 6 errors\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
+                    "text": "🟠 *error* (1)"
                 },
                 {
                     "kind": "finding",
                     "text": "• Problem &lt;ID&gt; — 5×  `922a8ce78cec`\n  Evidence: seen repeatedly; dependency core-api shows 6 errors\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
+                },
+                {
+                    "kind": "severity",
+                    "text": "🟡 *warn* (1)"
+                },
+                {
+                    "kind": "finding",
+                    "text": "• Problem &lt;ID&gt; — 8× (new)  `9ab3237802d9`\n  Evidence: seen repeatedly; dependency core-api shows 6 errors\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
                 },
                 {
                     "kind": "minor",
@@ -122,6 +128,10 @@
         [
             "increment",
             "spend:svc:2026-10-09:tokens"
+        ],
+        [
+            "put",
+            "sent:svc:2026-10-09T06%3A00%3A00Z"
         ],
         [
             "put",
@@ -223,6 +233,9 @@
         "spend:svc:2026-10-09:tokens": {
             "total": 3000
         },
+        "sent:svc:2026-10-09T06%3A00%3A00Z": {
+            "at": "2026-10-09T06:00:00+00:00"
+        },
         "verdict:svc:9ab3237802d9": {
             "triage": "interesting",
             "atCount": 8,
@@ -231,7 +244,7 @@
                     "9ab3237802d9"
                 ],
                 "kind": "bug",
-                "severity": "error",
+                "severity": "warn",
                 "title": "Problem <ID>",
                 "evidence": "seen repeatedly; dependency core-api shows 6 errors",
                 "suspected_cause": "a dependency may be failing",
@@ -323,6 +336,7 @@
         "hbweek:svc:2026-W41:baselined": 1123200,
         "spend:svc:2026-10-09:usd": 172800,
         "spend:svc:2026-10-09:tokens": 172800,
+        "sent:svc:2026-10-09T06%3A00%3A00Z": 21600,
         "verdict:svc:9ab3237802d9": 2592000,
         "verdict:svc:922a8ce78cec": 2592000,
         "reported:svc:9ab3237802d9": 2592000,

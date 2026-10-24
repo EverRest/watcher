@@ -14,6 +14,8 @@
                     "@Watcher\\Operate\\RunStats": {
                         "eventsRead": 0,
                         "groups": 0,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
                         "candidates": 0,
                         "findings": 0,
                         "calls": {
@@ -59,6 +61,10 @@
         [
             "acquire",
             "lock:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "zero:svc"
         ],
         [
             "put",
@@ -123,6 +129,9 @@
         "hbweek:svc:2026-W41:baselined": {
             "total": 1
         },
+        "zero:svc": {
+            "n": 1
+        },
         "snap:svc:2026-10-09T06%3A00%3A00Z": {
             "groups": [],
             "totals": [],
@@ -148,6 +157,7 @@
         "run:svc:2026-10-08T06%3A00%3A00Z": 2505600,
         "hb:svc": 7776000,
         "hbweek:svc:2026-W41:baselined": 1123200,
+        "zero:svc": 2592000,
         "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
         "run:svc:2026-10-09T06%3A00%3A00Z": 2592000,
         "hbweek:svc:2026-W41:quiet": 1209600

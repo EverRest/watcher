@@ -14,6 +14,8 @@
                     "@Watcher\\Operate\\RunStats": {
                         "eventsRead": 8,
                         "groups": 2,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
                         "candidates": 2,
                         "findings": 0,
                         "calls": {
@@ -94,6 +96,14 @@
             "snap:svc:last"
         ],
         [
+            "put",
+            "run:svc:2026-10-09T06%3A00%3A00Z:failures"
+        ],
+        [
+            "increment",
+            "failn:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
             "release",
             "lock:svc:2026-10-09T06%3A00%3A00Z"
         ],
@@ -172,6 +182,12 @@
             },
             "start": "2026-10-08T06:00:00Z"
         },
+        "run:svc:2026-10-09T06%3A00%3A00Z:failures": {
+            "n": 1
+        },
+        "failn:svc:2026-10-09T06%3A00%3A00Z": {
+            "total": 1
+        },
         "hbweek:svc:2026-W41:failed": {
             "total": 1
         },
@@ -189,6 +205,8 @@
         "spend:svc:2026-10-09:tokens": 172800,
         "triage:svc:2026-10-09T06%3A00%3A00Z": 21600,
         "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
+        "run:svc:2026-10-09T06%3A00%3A00Z:failures": 2592000,
+        "failn:svc:2026-10-09T06%3A00%3A00Z": 172800,
         "hbweek:svc:2026-W41:failed": 1209600,
         "hbweek:svc:2026-W41:cost": 1209600
     }

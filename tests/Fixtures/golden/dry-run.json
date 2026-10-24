@@ -24,6 +24,8 @@
                     "@Watcher\\Operate\\RunStats": {
                         "eventsRead": 8,
                         "groups": 2,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
                         "candidates": 2,
                         "findings": 2,
                         "calls": {
@@ -39,7 +41,7 @@
                         "pages": null
                     }
                 },
-                "todayUsd": 0,
+                "todayUsd": 0.0108,
                 "release": null,
                 "dryRun": true,
                 "environment": null

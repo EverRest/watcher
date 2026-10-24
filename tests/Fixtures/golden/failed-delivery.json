@@ -14,6 +14,8 @@
                     "@Watcher\\Operate\\RunStats": {
                         "eventsRead": 8,
                         "groups": 2,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
                         "candidates": 2,
                         "findings": 2,
                         "calls": {

@@ -24,6 +24,8 @@
                     "@Watcher\\Operate\\RunStats": {
                         "eventsRead": 8,
                         "groups": 2,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
                         "candidates": 2,
                         "findings": 0,
                         "calls": {
@@ -118,6 +120,10 @@
         ],
         [
             "put",
+            "sent:svc:2026-10-08T07%3A00%3A00Z"
+        ],
+        [
+            "put",
             "snap:svc:2026-10-08T07%3A00%3A00Z"
         ],
         [
@@ -186,6 +192,9 @@
             "total": 1502
         },
         "exhausted:svc:2026-10-08": [],
+        "sent:svc:2026-10-08T07%3A00%3A00Z": {
+            "at": "2026-10-08T07:00:00+00:00"
+        },
         "snap:svc:2026-10-08T07%3A00%3A00Z": {
             "groups": {
                 "3ba2fceef742": 5,
@@ -227,6 +236,7 @@
         "spend:svc:2026-10-08:usd": 172800,
         "spend:svc:2026-10-08:tokens": 172800,
         "exhausted:svc:2026-10-08": 172800,
+        "sent:svc:2026-10-08T07%3A00%3A00Z": 21600,
         "snap:svc:2026-10-08T07%3A00%3A00Z": 2592000,
         "run:svc:2026-10-08T07%3A00%3A00Z": 2592000,
         "hbweek:svc:2026-W41:reported": 1209600

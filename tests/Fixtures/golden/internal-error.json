@@ -14,6 +14,8 @@
                     "@Watcher\\Operate\\RunStats": {
                         "eventsRead": 8,
                         "groups": 2,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
                         "candidates": 2,
                         "findings": 2,
                         "calls": {
@@ -120,7 +122,7 @@
         ],
         [
             "put",
-            "verdict:svc:ed1c1517d685"
+            "sent:svc:2026-10-09T06%3A00%3A00Z"
         ],
         [
             "put",
@@ -128,11 +130,15 @@
         ],
         [
             "put",
-            "reported:svc:ed1c1517d685"
+            "verdict:svc:ed1c1517d685"
         ],
         [
             "put",
             "reported:svc:3ba2fceef742"
+        ],
+        [
+            "put",
+            "reported:svc:ed1c1517d685"
         ],
         [
             "put",
@@ -145,6 +151,10 @@
         [
             "put",
             "run:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "increment",
+            "failn:svc:2026-10-09T06%3A00%3A00Z"
         ],
         [
             "release",
@@ -207,24 +217,8 @@
         "spend:svc:2026-10-09:tokens": {
             "total": 3000
         },
-        "verdict:svc:ed1c1517d685": {
-            "triage": "interesting",
-            "atCount": 3,
-            "finding": {
-                "fingerprints": [
-                    "ed1c1517d685"
-                ],
-                "kind": "bug",
-                "severity": "error",
-                "title": "Problem <ID>",
-                "evidence": "seen repeatedly",
-                "suspected_cause": "a dependency may be failing",
-                "suggested_action": "inspect the dependency",
-                "confidence": 0.9,
-                "escalated": false,
-                "how_to_check": "",
-                "related_checks": []
-            }
+        "sent:svc:2026-10-09T06%3A00%3A00Z": {
+            "at": "2026-10-09T06:00:00+00:00"
         },
         "verdict:svc:3ba2fceef742": {
             "triage": "interesting",
@@ -245,13 +239,32 @@
                 "related_checks": []
             }
         },
-        "reported:svc:ed1c1517d685": {
-            "lastReportedAt": "2026-10-09T06:00:00+00:00",
-            "atCount": 3
+        "verdict:svc:ed1c1517d685": {
+            "triage": "interesting",
+            "atCount": 3,
+            "finding": {
+                "fingerprints": [
+                    "ed1c1517d685"
+                ],
+                "kind": "bug",
+                "severity": "error",
+                "title": "Problem <ID>",
+                "evidence": "seen repeatedly",
+                "suspected_cause": "a dependency may be failing",
+                "suggested_action": "inspect the dependency",
+                "confidence": 0.9,
+                "escalated": false,
+                "how_to_check": "",
+                "related_checks": []
+            }
         },
         "reported:svc:3ba2fceef742": {
             "lastReportedAt": "2026-10-09T06:00:00+00:00",
             "atCount": 5
+        },
+        "reported:svc:ed1c1517d685": {
+            "lastReportedAt": "2026-10-09T06:00:00+00:00",
+            "atCount": 3
         },
         "snap:svc:2026-10-09T06%3A00%3A00Z": {
             "groups": {
@@ -266,6 +279,9 @@
                 "commit": null
             },
             "start": "2026-10-08T06:00:00Z"
+        },
+        "failn:svc:2026-10-09T06%3A00%3A00Z": {
+            "total": 1
         },
         "hbweek:svc:2026-W41:failed": {
             "total": 1
@@ -282,11 +298,13 @@
         "hbweek:svc:2026-W41:baselined": 1123200,
         "spend:svc:2026-10-09:usd": 172800,
         "spend:svc:2026-10-09:tokens": 172800,
-        "verdict:svc:ed1c1517d685": 2592000,
+        "sent:svc:2026-10-09T06%3A00%3A00Z": 21600,
         "verdict:svc:3ba2fceef742": 2592000,
-        "reported:svc:ed1c1517d685": 2592000,
+        "verdict:svc:ed1c1517d685": 2592000,
         "reported:svc:3ba2fceef742": 2592000,
+        "reported:svc:ed1c1517d685": 2592000,
         "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
+        "failn:svc:2026-10-09T06%3A00%3A00Z": 172800,
         "hbweek:svc:2026-W41:failed": 1209600,
         "hbweek:svc:2026-W41:cost": 1209600
     }
