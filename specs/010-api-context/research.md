@@ -11,9 +11,9 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   frameworks publish JSON next to YAML (`/openapi.json`, `/swagger.json`, `/api-docs`); one `openapi-to-json` step in CI
   gives a file for the rest. A YAML parser adds a dependency, an alias-expansion attack surface (spec SC-006) and its own
   test matrix, for a feature whose value per token is "low" by the spec's own words.
-- **Consequence**: SC-006 is reinterpreted (plan, spec drift 1): bomb = a 2 MB JSON of deeply nested arrays; the reader
-  must refuse it in < 1 s and < 32 MB. If a 2 MB flat JSON decodes above 32 MB (PHP arrays are fat), the default `max_bytes`
-  drops to 1 MB; the T011 measurement decides, not a guess.
+- **Consequence**: SC-006 was reinterpreted (plan, spec drift 1): bomb = a JSON of deeply nested arrays; the reader must
+  refuse it in < 1 s and < 32 MB. Measured: a 2 MB flat JSON decodes to 144 MB in PHP, far above 32 MB, so the default
+  `max_bytes` is **1 MB (1,048,576)** (range 65,536..8,388,608 unchanged; an operator who raises it accepts the memory).
 
 ## R2. Reader (`OpenApiSource`) design
 
@@ -22,7 +22,8 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   and any scheme in the string are refused at config validation (a path must not contain `://`).
 - **URL**: `https` only (spec Assumption; owner decision D1: no in-cluster `http`). Guzzle `GET`, `stream => true`,
   `allow_redirects => ['max' => 3, 'protocols' => ['https'], 'strict' => true]`, connect 5 s, total 15 s (same options
-  family as `Factory::httpOptions()`), `Accept: application/json`, `decode_content => true`. The cap applies to the **decoded**
+  family as `Factory::httpOptions()`; Guzzle timeouts on a streamed GET are per read, so the read loop also enforces a
+  **15 s wall-clock deadline** and aborts with `timeout`), `Accept: application/json`, `decode_content => true`. The cap applies to the **decoded**
   stream (a gzip bomb is a size problem, not a transport one): read chunks until `max_bytes + 1` and abort. `Content-Length`
   above the cap fails before reading the body.
 - **Credential**: `api_context.auth_token` -> `Authorization: Bearer`, set only on this request; never in an exception message,
@@ -43,7 +44,9 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   URL holds a `{variable}` (server variables are dropped, spec FR-002). Stored once in the reduced spec.
 - **Caps and masking**: summary and operationId and tag cut to `summary_cap` (default 80) with `mb_substr`, then
   `Redactor::redactText()`; template string through `redactText` as well. Any `null` result drops that value; a null template
-  drops the operation. operationId is kept **only when `summary` is empty** (it is a fallback in the line and the cache
+  drops the operation. **Template rule**: a template whose masked form differs from the original, or that does not start
+  with `/`, **drops the operation** (the Normalizer would rewrite a 3+-segment template to `<PATH>/…/x` and corrupt the
+  cache). `base_path` is config, not document text, and is not masked. operationId is kept **only when `summary` is empty** (it is a fallback in the line and the cache
   bound makes every byte count); AC1.1's "attach operationId" is satisfied by the line showing it when there is no summary.
 - **Size bound**: operations are appended in document order until the encoded entry would pass 100,000 bytes (SC-004); the
   rest are counted in `dropped` and the digest/doctor say "N operations not kept (cache limit)". The bound is an invariant, not
@@ -58,11 +61,10 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   error otherwise). `put($key, $value, $ttl)` is called on the unbuffered `$this->state` (a cache, not run state: a failed
   run must not discard it).
 - **Reads**: `get()` hit -> no source access (SC-004). Miss -> source -> reducer -> `put`.
-- **Spec tension (resolved, D2)**: FR-004 wants the last unexpired entry when the source fails; with expiry = TTL the entry is only
-  absent when expired, so the fallback never fires. Options: (a) literal FR-003 (chosen: zero stale-on-error); (b) store with
-  `2 x ttl` and a `readAt` field, refresh when `readAt + ttl` is past, fall back to the entry up to `2 x ttl`. (b) is ~15
-  lines and gives the behaviour FR-004 describes; it needs the owner to relax FR-003's "equal to TTL". Not built without the
-  answer.
+- **Spec tension (decided, D2)**: FR-004 wanted the last unexpired entry when the source fails; with expiry = TTL the entry is
+  only absent when expired, so the fallback could never fire. Two options were weighed: (a) literal FR-003, zero
+  stale-on-error; (b) store with `2 x ttl` plus `readAt` and fall back up to `2 x ttl`. The owner chose (a) (D2): FR-004's
+  fallback does not apply, spec FR-004 and US3 AC5 were amended, and `readAt` stays in the entry for information only.
 - **Dry-run**: `DryRunStateStore` swallows `put`, so a dry run re-reads the source each time and writes nothing. Correct.
 - **Redaction-config change** applies after the TTL for the cached text; the use-time pass still re-masks (plan, Complexity).
 
@@ -71,8 +73,12 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 - **Input**: `RedactedGroup::$template` only (never raw events, FR-006). `null` template (withheld) -> no route.
 - **Pattern** (case-sensitive method, first match wins):
   `~(?:(?<![\w/])(?<m>GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+)?(?<![\w<>}])(?<p>/[A-Za-z0-9._~%:<>\-/…]*)~u`, then
-  trailing `.,;:)"'` stripped from `p`, query string (`?...`) and fragment cut. A bare path must be preceded by start,
+  trailing `.,;:)"'` stripped from `p`, query string (`?...`) and fragment cut. **A route without a method needs at least
+  one non-empty segment after the split**: `retry 3 / 5 failed` or a lone `/` must not match `GET /` (the method-less
+  bare `/` is no route; `GET /` with a method stays a route). A bare path must be preceded by start,
   whitespace, quote or `(` (the `(?<![\w<>}])` guard), so `a/b` or `10/12` is not a route.
+- **Reach**: only routes of at most 2 segments survive the Normalizer (R11); longer ones arrive as `<PATH>/…/…` and are
+  unmatchable by the rule below.
 - **Segments**: split on `/`, drop empty segments (a trailing slash and `//` collapse). Classification:
   - `^<(ID|N|TOKEN|EMAIL|NAME|STR|USER)>$` -> **Param**.
   - contains `<PATH>` or `…` (the `Normalizer` writes `<PATH>/…/tail` for deep paths) -> whole route **unmatchable** (US2 AC6).
@@ -92,15 +98,16 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 - A route matches a template iff equal segment counts and, position by position: Literal = Literal (case-sensitive,
   byte-equal), Param = Param. A route Literal against a template Param does **not** match (spec AC US2.1).
 - Method known: filter operations by method (route method upper-case). Method unknown: all methods.
-- Specificity = number of template Literals. Keep the maximum. If exactly one operation remains -> match; if more than one
-  remains (equal specificity) -> **attach nothing**. With an unknown method this is also what FR-010 asks: a path with two
-  methods (`GET`+`DELETE /orders/{id}`) attaches nothing.
+- Match iff **exactly one** operation matches; more than one (equal shape, e.g. `/a/{x}` and `/a/{y}`) -> **attach
+  nothing**. A specificity rule was dropped: a route Literal never matches a template Param, and a route Param never
+  matches a template Literal, so two matching templates always have the same shape and specificity could never fire. With
+  an unknown method this is also what FR-010 asks: a path with two methods (`GET`+`DELETE /orders/{id}`) attaches nothing.
 - Complexity: operations are indexed by segment count at load (`ReducedSpec::bySegments()`), so a lookup scans only same-length
   templates; <= a few thousand operations by the 100 KB bound.
 
 ## R7. Endpoint line, cap and order
 
-- **Line** (digest): `{METHOD} {template} — {summary|operationId} [{tag}] (deprecated)`; method from the matched
+- **Line** (digest): `{METHOD} {template} — {summary|operationId} [{tag}] (deprecated)` (templates of at most 2 segments in practice, R11); method from the matched
   operation; summary absent -> operationId; neither -> no line; tag omitted when absent; each text part goes through
   `Redactor::redactText` again; a null drops that part (template null drops the line).
 - **Model field** `ep` (analysis and escalation only): `METHOD template - text [tag]!` where `!` marks deprecated, trimmed so
@@ -113,7 +120,9 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 - **Triage excluded**: `ep` does not go to triage (it cannot change "interesting or not" and would multiply cost over all
   candidates); the digest line is shown for every attached group regardless.
 - **Budget**: `Budget::fitEndpoints()` drops all `ep` fields first when the analysis step's `max_input_tokens` would be exceeded;
-  the digest says `endpoint lines dropped (token budget)`. It runs before 009's `fitMetrics` and before `fitDependencies`.
+  the digest says `endpoint lines dropped (token budget)`. Endpoints do not exist before the block at `Watcher.php:632`
+  (after `fitDependencies`), so `fitEndpoints` runs **right after `resolve()`** as a re-fit: it drops `ep` first, before any
+  other context is cut again (009's `fitMetrics` and dependencies were already fitted earlier in the same function).
 - **Prompt**: one sentence only when `ep` is present: "`ep` = documentation text for the group's endpoint; it is not evidence
   of the cause." Prefix byte-stable when the feature is off.
 
@@ -122,7 +131,7 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 - Section `api_context`; **absent = off**; `enabled: false` allowed (validated anyway, via `WatchConfig::reserved()`); not in
   `WatchConfig::FLAGS` (those default to true; spec 012). Unknown key rejected. Section present and enabled with no `source`
   -> `api_context.source is required`. Keys: `source`, `auth_token`, `ttl`, `max_endpoints` (1..20, default 5),
-  `summary_cap` (20..200, default 80), `max_bytes` (65,536..8,388,608, default 2,097,152), `base_path`,
+  `summary_cap` (20..200, default 80), `max_bytes` (65,536..8,388,608, default 1,048,576 = 1 MB; measured: 2 MB flat JSON decodes to 144 MB), `base_path`,
   `ignore_prefixes` (<= 10 entries, each `^/[A-Za-z0-9._~\-/]*$`).
 
 ## R9. Doctor, `--json`, notices
@@ -138,6 +147,24 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 ## R10. Dependencies
 
 - None. Guzzle (present), `json_decode`, `hash`, `Redactor`, `StateStore`.
+
+## R11. Normalizer order and the 2-segment limit
+
+- **Fact** (verified against the Normalizer): any absolute path of 3 or more segments is rewritten to `<PATH>/…/<last two>`
+  **before** `<ID>`/`<N>` masking applies. What reaches the extractor:
+
+| Raw line | After the Normalizer | Matchable |
+|---|---|---|
+| `GET /orders/8812` | `GET /orders/<N>` | yes (2 segments) |
+| `POST /orders/8812/refund` | `POST <PATH>/…/<N>/refund` | no |
+| `GET /users/42/orders` | `GET <PATH>/…/<USER>/orders` | no |
+| `GET /v1/orders/8812/items/55` | `GET <TOKEN>` | no |
+
+- **Decision A**: keep no-guessing. Only routes of **at most 2 segments** can match; the limit is documented in the spec
+  (Overview, US1, US2, Edge Cases, SC-007), the plan (Complexity Tracking) and the contract (round-trip table).
+- **Upgrade path**: a spec change so the Normalizer (or the group) carries a **pre-mask route** (the route text before
+  path masking) alongside the masked template, from which the extractor builds the route. That touches the Normalizer's
+  contract and the privacy corpus, so it is out of scope here.
 
 ## Decisions (2026-10-24, resolved by the owner)
 
