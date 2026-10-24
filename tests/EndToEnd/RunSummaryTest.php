@@ -9,6 +9,7 @@ use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Level;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Operate\JsonSummary;
+use Watcher\Operate\RunOptions;
 use Watcher\Operate\RunSummaryData;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
@@ -201,10 +202,9 @@ final class RunSummaryTest extends TestCase
         self::assertStringContainsString('source_unavailable', $blobs[1]);
     }
 
-    public function testUnreadableStateEntriesAreSurfacedAsACount(): void
+    private static function withUnreadable(StateStore $inner): StateStore
     {
-        $h = self::ready();
-        $h->state = new class ($h->state) implements StateStore, UnreadableCounter {
+        return new class ($inner) implements StateStore, UnreadableCounter {
             public function __construct(private readonly StateStore $inner)
             {
             }
@@ -239,11 +239,28 @@ final class RunSummaryTest extends TestCase
                 return $this->inner->increment($key, $by, $ttlSeconds);
             }
         };
+    }
+
+    public function testUnreadableStateEntriesAreSurfacedAsACount(): void
+    {
+        $h = self::ready();
+        $h->state = self::withUnreadable($h->state);
 
         $d = self::data($h->watcher(self::source())->run());
 
         self::assertSame(3, $d->stats?->stateUnreadable);
         self::assertStringContainsString('"state_unreadable":3', (new JsonSummary())->render($d));
+    }
+
+    public function testADryRunStillReportsTheUnreadableCountOfTheRealStore(): void
+    {
+        $h = self::ready();
+        $h->state = self::withUnreadable($h->state);
+
+        $d = self::data($h->watcher(self::source(), RunOptions::dryRun(), static function (string $s): void {
+        })->run());
+
+        self::assertSame(3, $d->stats?->stateUnreadable);
     }
 
     public function testNoUnreadableEntriesLeavesTheJsonLineUnchanged(): void

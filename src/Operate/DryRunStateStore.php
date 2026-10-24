@@ -7,6 +7,7 @@ namespace Watcher\Operate;
 use Watcher\State\Keys;
 use Watcher\State\RenewableLock;
 use Watcher\State\StateStore;
+use Watcher\State\UnreadableCounter;
 
 /**
  * Dry-run decorator: the real store is only ever read, never written.
@@ -18,7 +19,7 @@ use Watcher\State\StateStore;
  * - `run:` records of the real store are hidden (the dry run ignores "already done"); the shadow still serves its own.
  * - Not `Purgeable`: nothing can be deleted through it.
  */
-final class DryRunStateStore implements StateStore, RenewableLock
+final class DryRunStateStore implements StateStore, RenewableLock, UnreadableCounter
 {
     /** @var array<string, array<mixed>> */
     private array $shadow = [];
@@ -28,6 +29,11 @@ final class DryRunStateStore implements StateStore, RenewableLock
 
     public function __construct(private readonly StateStore $real)
     {
+    }
+
+    public function unreadableEntries(): int
+    {
+        return $this->real instanceof UnreadableCounter ? $this->real->unreadableEntries() : 0;
     }
 
     public function get(string $key): ?array
