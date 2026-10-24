@@ -67,7 +67,7 @@ final class NotifyConfigTest extends TestCase
         $raw['state'] = ['driver' => 'pdo', 'pdo' => ['dsn' => 'pgsql:host=db', 'username' => 'u', 'password' => 'pdo-pass-1']];
         $c = WatchConfig::fromArray($raw);
 
-        self::assertEqualsCanonicalizing(['sk-secret-key', self::HOOK, 'loki-pass-1', 'pdo-pass-1'], $c->secrets());
+        self::assertEqualsCanonicalizing(['sk-secret-key', self::HOOK, 'loki-pass-1', 'pdo-pass-1', 'pgsql:host=db'], $c->secrets());
 
         $raw['source'] = ['driver' => 'datadog', 'datadog' => ['api_key' => 'dd-api-1', 'app_key' => 'dd-app-1']];
         $raw['state'] = ['driver' => 'redis', 'redis' => ['password' => 'redis-pass-1']];

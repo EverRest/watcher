@@ -112,6 +112,13 @@ final class NoticeRendererTest extends TestCase
         self::assertSame('❌ watcher · svc · stg — source failed: token invalid; password rotation pending; authorization header missing', $m->text);
     }
 
+    public function testBearerInProseIsNotMangled(): void
+    {
+        $m = (new NoticeRenderer())->failure('svc', 'stg', 'source', 'bearer authentication failed');
+
+        self::assertSame('❌ watcher · svc · stg — source failed: bearer authentication failed', $m->text);
+    }
+
     public function testShortSecretsAreNotMaskedInsideOrdinaryWords(): void
     {
         $m = (new NoticeRenderer(['k']))->failure('svc', 'stg', 'source', 'token invalid');

@@ -664,7 +664,7 @@ final class WatchConfig
 
     /**
      * Every credential in the config (model key, notifier tokens and webhooks, source auth, state passwords): what no
-     * error text may carry out. Strings only; the connection `instance` and DSNs are not values to match.
+     * error text may carry out. Strings only; the connection `instance` is not a value to match.
      *
      * @return list<string>
      */
@@ -679,6 +679,7 @@ final class WatchConfig
             $this->source['datadog']['app_key'] ?? null,
             $this->state['redis']['password'] ?? null,
             $this->state['pdo']['password'] ?? null,
+            $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
         ];
 
         return array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
