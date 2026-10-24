@@ -43,8 +43,7 @@ final class AnomalyDeadlineTest extends TestCase
                 $this->clock->advance('+60 seconds'); // past the 10 s deadline
                 $this->stopped[] = $filter->shouldStop();
 
-                return;
-                yield;
+                yield from [];
             }
 
             public function lastReadTruncated(): bool
