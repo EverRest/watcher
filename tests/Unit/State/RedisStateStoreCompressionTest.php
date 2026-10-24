@@ -149,20 +149,45 @@ final class RedisStateStoreCompressionTest extends TestCase
         self::assertSame(2, $store->unreadable); // the plain oversize value is null as any plain non-JSON is
     }
 
-    public function testTheInflateLengthArgumentBoundsMemoryBeforeTheSizeCheck(): void
+    public function testABombIsRejectedWithMemoryBoundedByTheCapPlusASlice(): void
     {
-        // A 400 MB zero payload (~400 KB compressed) in a process limited to 64 MB: only gzuncompress's own length
-        // argument keeps it from being inflated whole; the post-check alone would die with a fatal error.
+        // 200 MB of zeros (~200 KB compressed). Run in a child so the parent's own fixture does not count; the child
+        // measures its peak around decode(). Dropping the running-total check or the chunk loop fails this.
         $script = sys_get_temp_dir() . '/watcher-bomb-' . getmypid() . '.php';
-        file_put_contents($script . '.z', (string) gzcompress(str_repeat('0', 400 * 1024 * 1024), 1));
+        file_put_contents($script . '.z', (string) gzcompress(str_repeat('0', 200 * 1024 * 1024), 1));
         file_put_contents($script, '<?php require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true) . ';'
             . '$z = "z1:" . file_get_contents(' . var_export($script . '.z', true) . ');'
-            . 'try { Watcher\State\StateCodec::decode($z); echo "decoded"; } catch (UnexpectedValueException) { echo "refused"; }');
-        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d memory_limit=64M ' . escapeshellarg($script) . ' 2>&1');
+            . '$base = memory_get_peak_usage(); try { Watcher\\State\\StateCodec::decode($z); $r = "decoded"; } catch (UnexpectedValueException) { $r = "refused"; }'
+            . 'echo $r, " ", memory_get_peak_usage() - $base;');
+        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d memory_limit=1G ' . escapeshellarg($script) . ' 2>&1');
         @unlink($script);
         @unlink($script . '.z');
 
-        self::assertSame('refused', $out);
+        self::assertMatchesRegularExpression('/^refused \d+$/', $out);
+        self::assertLessThan(StateCodec::MAX_BYTES + 8 * 1024 * 1024, (int) substr($out, 8), 'peak delta ' . $out);
+    }
+
+    public function testTheCapPlusOneIsRefusedAndTheCapItselfReads(): void
+    {
+        $pad = static fn (int $bytes): string => '{"x":"' . str_repeat('a', $bytes - 8) . '"}';
+        self::assertSame(StateCodec::MAX_BYTES, strlen($pad(StateCodec::MAX_BYTES)));
+        self::assertIsArray(StateCodec::decode('z1:' . gzcompress($pad(StateCodec::MAX_BYTES), 6)));
+        $this->expectException(\UnexpectedValueException::class);
+        StateCodec::decode('z1:' . gzcompress($pad(StateCodec::MAX_BYTES + 1), 6));
+    }
+
+    public function testATruncatedStreamAndTrailingBytesAreUnreadable(): void
+    {
+        $z = (string) gzcompress((string) json_encode(self::big()), 6);
+        $this->server->plant('p:trunc', 'z1:' . substr($z, 0, intdiv(strlen($z), 2)));
+        $this->server->plant('p:trail', 'z1:' . $z . str_repeat('garbage', 300));
+        $this->server->plant('p:ok', 'z1:' . $z);
+        $store = $this->store();
+
+        self::assertNull($store->get('trunc'));
+        self::assertNull($store->get('trail'));
+        self::assertSame(self::big(), $store->get('ok'));
+        self::assertSame(2, $store->unreadable);
     }
 
     public function testEncodeSkipsCompressionWithoutZlibAndDecodeRefusesZ1(): void

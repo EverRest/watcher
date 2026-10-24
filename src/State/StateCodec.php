@@ -24,6 +24,8 @@ final class StateCodec
 
     private const DEPTH = 64;
 
+    private const CHUNK = 1024;
+
     private const LEVEL = 6;
 
     /** @param array<mixed> $value $minBytes 0 = never compress */
@@ -51,18 +53,49 @@ final class StateCodec
         if (!$zlib) {
             throw new UnexpectedValueException('compressed state entry and ext-zlib is not loaded');
         }
-        set_error_handler(static fn (): bool => true); // gzuncompress warns on corruption and on the size cap
+        $json = self::inflate(substr($raw, strlen(self::PREFIX)));
+
+        return self::json($json, true);
+    }
+
+    /**
+     * Inflates in small input slices and stops the moment the output passes the cap, so a bomb never costs more than
+     * cap + what one slice can expand to (~1 MB at zlib's 1032:1 limit). A truncated stream or bytes after its end are corrupt.
+     *
+     * @throws UnexpectedValueException
+     */
+    private static function inflate(string $z): string
+    {
+        $ctx = inflate_init(ZLIB_ENCODING_DEFLATE);
+        if ($ctx === false) {
+            throw new UnexpectedValueException('compressed state entry is corrupt');
+        }
+        $out = '';
+        set_error_handler(static fn (): bool => true); // inflate_add warns on corruption
         try {
-            $json = gzuncompress(substr($raw, strlen(self::PREFIX)), self::MAX_BYTES);
+            for ($i = 0, $n = strlen($z); $i < $n; $i += self::CHUNK) {
+                if (inflate_get_status($ctx) === ZLIB_STREAM_END) {
+                    throw new UnexpectedValueException('compressed state entry has trailing bytes');
+                }
+                $part = inflate_add($ctx, substr($z, $i, self::CHUNK), ZLIB_NO_FLUSH);
+                if ($part === false) {
+                    throw new UnexpectedValueException('compressed state entry is corrupt');
+                }
+                $out .= $part;
+                if (strlen($out) > self::MAX_BYTES) {
+                    throw new UnexpectedValueException('compressed state entry is too large');
+                }
+            }
+        } catch (\ValueError) {
+            throw new UnexpectedValueException('compressed state entry is corrupt');
         } finally {
             restore_error_handler();
         }
-        // zlib rounds the length limit up to its buffer size, so the exact cap is checked on the result as well.
-        if ($json === false || strlen($json) > self::MAX_BYTES) {
-            throw new UnexpectedValueException('compressed state entry is corrupt or too large');
+        if (inflate_get_status($ctx) !== ZLIB_STREAM_END) {
+            throw new UnexpectedValueException('compressed state entry is truncated');
         }
 
-        return self::json($json, true);
+        return $out;
     }
 
     /** @return array<mixed>|null */
