@@ -14,7 +14,7 @@ final class FatalGuardWiringTest extends TestCase
         $root = dirname(__DIR__, 2);
         $script = __DIR__ . '/../Fixtures/fatal_child.php';
         $p = proc_open(
-            [PHP_BINARY, '-n', '-d', 'memory_limit=48M', '-d', 'display_errors=0', $script],
+            [PHP_BINARY, '-d', 'memory_limit=48M', '-d', 'display_errors=0', $script],
             [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
             $pipes,
             $root,
