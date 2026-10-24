@@ -85,9 +85,9 @@ final class RedisTtlContractTest extends TestCase
                     self::assertGreaterThan(0, $pttl, 'a key exists without a TTL after step ' . $i);
                 }
             }
+            self::assertNotSame([], $ttls(), 'the sequence left nothing to check'); // before the cleanup removes the keys
         } finally {
             $cleanup();
         }
-        self::assertNotSame([], $ttls(), 'the sequence left nothing to check');
     }
 }
