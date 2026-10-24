@@ -166,7 +166,7 @@ final class Factory
     }
 
     /** An injected client: a \Redis, anything already speaking RedisClient, or else a Predis client. */
-    public static function wrapRedisInstance(object $instance): RedisClient
+    public static function wrapRedisInstance(#[\SensitiveParameter] object $instance): RedisClient
     {
         return match (true) {
             $instance instanceof RedisClient => $instance,
@@ -175,8 +175,12 @@ final class Factory
         };
     }
 
-    /** @param array<string, mixed> $r */
-    private static function redisClient(array $r): RedisClient
+    /**
+     * #[\SensitiveParameter] (PHP 8.2+, ignored on 8.1) keeps `$r`, password included, out of exception traces.
+     *
+     * @param array<string, mixed> $r
+     */
+    private static function redisClient(#[\SensitiveParameter] array $r): RedisClient
     {
         if (is_object($r['instance'] ?? null)) {
             return self::wrapRedisInstance($r['instance']);

@@ -16,7 +16,7 @@ use Throwable;
  */
 final class PredisClient implements RedisClient
 {
-    public function __construct(private readonly object $client)
+    public function __construct(#[\SensitiveParameter] private readonly object $client)
     {
     }
 

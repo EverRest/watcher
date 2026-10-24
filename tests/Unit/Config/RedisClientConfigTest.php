@@ -138,4 +138,30 @@ final class RedisClientConfigTest extends TestCase
         self::assertInstanceOf(PredisClient::class, Factory::wrapRedisInstance(new \Watcher\Tests\Fakes\FakePredis(new FakeRedisServer(new FrozenClock(new DateTimeImmutable())))));
         self::assertInstanceOf(PhpRedisClient::class, Factory::wrapRedisInstance($this->createMock(\Redis::class)));
     }
+
+    public function testAFailedConnectionKeepsThePasswordOutOfTheTraceAndItsArguments(): void
+    {
+        if (!class_exists(\Redis::class)) {
+            self::markTestSkipped('ext-redis');
+        }
+        $password = 'hunter2-TRACE-SECRET';
+        $c = WatchConfig::fromArray(self::base(['client' => 'phpredis', 'host' => '127.0.0.1', 'port' => 1, 'password' => $password, 'username' => 'u']));
+        $store = Factory::state($c, new FrozenClock(new DateTimeImmutable()));
+        ini_set('zend.exception_ignore_args', '0');
+        try {
+            $store->get('heartbeat');
+            self::fail('port 1 must refuse');
+        } catch (RuntimeException $e) {
+            self::assertStringNotContainsString($password, $e->getTraceAsString());
+            $args = '';
+            foreach ($e->getTrace() as $frame) {
+                if (str_starts_with((string) ($frame['class'] ?? ''), 'Watcher\\') && !str_contains((string) $frame['class'], 'Tests')) {
+                    $args .= print_r($frame['args'] ?? [], true);
+                }
+            }
+            self::assertStringContainsString('Watcher', (string) $e->getTraceAsString()); // the frames were inspected
+            self::assertNotSame('', $args);
+            self::assertStringNotContainsString($password, $args);
+        }
+    }
 }

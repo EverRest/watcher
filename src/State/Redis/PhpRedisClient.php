@@ -9,7 +9,7 @@ use Redis;
 
 final class PhpRedisClient implements RedisClient
 {
-    public function __construct(private readonly Redis $redis)
+    public function __construct(#[\SensitiveParameter] private readonly Redis $redis)
     {
     }
 
