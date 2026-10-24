@@ -45,8 +45,13 @@ final class ModelRouter
 
         $usage = [];
         // Triage paid for by an earlier attempt of this window whose analysis failed (R5).
-        $verdicts = $this->checkpoint?->load($fresh) ?? [];
+        $verdicts = $this->s->triageEnabled ? ($this->checkpoint?->load($fresh) ?? []) : [];
         $pending = array_values(array_filter($fresh, static fn (RedactedGroup $g): bool => !isset($verdicts[$g->fingerprint])));
+        if (!$this->s->triageEnabled) {
+            // Triage off: no call, no checkpoint; every fresh group goes to analysis (top-M and the budget still apply).
+            $verdicts = array_fill_keys(array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $fresh), 'interesting');
+            $pending = [];
+        }
         $notTriaged = 0;
         if ($pending !== []) {
             if (!$triageOnly && $reservation !== null && !$reservation->allows($this->s->triageModel, $this->inputTokens('triage', $pending), AnthropicAnalyzer::triageOutputCap($this->s->triageMaxTokens, count($pending)))) {
@@ -93,7 +98,9 @@ final class ModelRouter
                     $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $this->s->analyzeMaxTokens, $topContext));
                 } catch (AnalyzerFailed $e) {
                     // Triage was paid for: keep its verdicts for the retry of this window.
-                    $this->checkpoint?->save($verdicts, $fresh);
+                    if ($this->s->triageEnabled) {
+                        $this->checkpoint?->save($verdicts, $fresh);
+                    }
 
                     throw $e;
                 }

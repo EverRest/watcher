@@ -33,6 +33,8 @@ final class Application
 
         TXT;
 
+    public const DISABLED_HINT = 'watcher: disabled (set enabled=true / WATCHER_ENABLED=1)';
+
     /** Flags each command accepts (besides --config=). */
     private const FLAGS = [
         'run' => ['--dry-run', '--estimate', '--json'],
@@ -145,6 +147,9 @@ final class Application
             return 2;
         }
 
+        if ($result->outcome === RunOutcome::Disabled) {
+            fwrite($this->err, self::DISABLED_HINT . "\n");
+        }
         $this->line($json, 'watcher: ' . $result->summary(), true);
         if ($json) {
             $this->line(null, (new JsonSummary())->render($result->summaryData ?? new RunSummaryData($result->outcome, null, $result->failureReason)));

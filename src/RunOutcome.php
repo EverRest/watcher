@@ -14,4 +14,6 @@ enum RunOutcome: string
     case Reported = 'reported';
     case Failed = 'failed';
     case InvalidConfig = 'invalid_config';
+    /** `enabled` is false: the run touched nothing (spec 012). */
+    case Disabled = 'disabled';
 }

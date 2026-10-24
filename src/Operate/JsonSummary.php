@@ -24,6 +24,7 @@ final class JsonSummary
         return json_encode([
             'schema' => 1,
             'service' => $d->service,
+            ...($d->environment === null ? [] : ['environment' => $d->environment]),
             'outcome' => $d->outcome->value,
             'reason' => $reason,
             'window_start' => $d->windowStart?->format(DateTimeInterface::ATOM),

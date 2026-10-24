@@ -7,6 +7,9 @@
 /scripts export-ignore
 /docs/audit-2026-10-23.md export-ignore
 /docs/review-2026-10-23.md export-ignore
+/docs/brief.md export-ignore
+/docs/roadmap.md export-ignore
+/Makefile export-ignore
 /phpstan.neon.dist export-ignore
 /phpunit.xml.dist export-ignore
 /pint.json export-ignore

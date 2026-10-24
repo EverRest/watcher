@@ -26,6 +26,12 @@ final class ServiceResult
         return new self($service, $result->outcome->value, $result->failureReason, $result);
     }
 
+    /** The service (or the whole fleet) is switched off: nothing was touched, not an error. */
+    public static function disabled(string $service): self
+    {
+        return new self($service, RunOutcome::Disabled->value, null, null);
+    }
+
     public static function skippedTime(string $service): self
     {
         return new self($service, self::SKIPPED_TIME, null, null);

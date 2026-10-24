@@ -20,6 +20,8 @@ final class RouterSettings
         public readonly string $serviceContext,
         /** analysis.max_input_tokens.escalate: an escalation sends at most this many estimated input tokens */
         public readonly int $escalateMaxInputTokens = PHP_INT_MAX,
+        /** analysis.triage.enabled: false = every fresh group goes straight to analysis, no triage call */
+        public readonly bool $triageEnabled = true,
     ) {
     }
 }

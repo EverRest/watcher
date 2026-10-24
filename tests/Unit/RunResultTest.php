@@ -50,7 +50,7 @@ final class RunResultTest extends TestCase
     public function testOutcomeValues(): void
     {
         self::assertSame(
-            ['skipped_not_due', 'skipped_locked', 'skipped_done', 'baselined', 'quiet', 'reported', 'failed', 'invalid_config'],
+            ['skipped_not_due', 'skipped_locked', 'skipped_done', 'baselined', 'quiet', 'reported', 'failed', 'invalid_config', 'disabled'],
             array_map(static fn (RunOutcome $o): string => $o->value, RunOutcome::cases()),
         );
     }

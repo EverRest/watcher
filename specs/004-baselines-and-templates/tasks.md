@@ -10,7 +10,7 @@ description: "Task list for Smarter Baselines and Better Templates (everrest/wat
 **Tests**: REQUIRED (Constitution III). Each implementation task names the test task(s) it turns green; the test task
 is written first and must fail first. No test touches the network.
 
-**Format**: `[ID] [P?] [Story] Description`. Paths relative to `/path/to/watcher`. `[P]` = different files, no
+**Format**: `[ID] [P?] [Story] Description`. Paths relative to the repository root. `[P]` = different files, no
 unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src/Reduce/Reducer.php`,
 `src/Reduce/TemplateMiner.php` or `src/Notify/DigestRenderer.php` and must run one at a time in the stated order.
 

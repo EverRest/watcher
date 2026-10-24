@@ -95,6 +95,10 @@ final class FleetRunner
         if ($unknown !== []) {
             throw new InvalidConfig('--only names a service that is not in the fleet');
         }
+        if (!$this->config->enabled) {
+            // The fleet switch: no store, budget, source or notifier is reached.
+            return new FleetResult($this->config->name, array_map(static fn (ServiceEntry $e): ServiceResult => ServiceResult::disabled($e->name()), array_values(array_filter($this->config->inOrder(), static fn (ServiceEntry $e): bool => $only === [] || in_array($e->name(), $only, true)))));
+        }
         $startedAt = $this->clock->now();
         $now ??= $startedAt; // one instant for the whole trigger
         $deadline = $this->config->timeBudgetSeconds === null ? null : $startedAt->modify('+' . $this->config->timeBudgetSeconds . ' seconds');
@@ -108,6 +112,10 @@ final class FleetRunner
         $results = [];
         foreach ($this->config->inOrder() as $entry) {
             if ($only !== [] && !in_array($entry->name(), $only, true)) {
+                continue;
+            }
+            if (!$entry->config->enabled) {
+                $results[] = ServiceResult::disabled($entry->name());
                 continue;
             }
             if ($deadline !== null && $this->clock->now() >= $deadline) {
@@ -249,6 +257,9 @@ final class FleetRunner
             return;
         }
         $first = $this->config->services[0]->config;
+        if (!$first->on('heartbeat')) {
+            return;
+        }
         $secrets = [];
         foreach ($this->config->services as $e) {
             $secrets = [...$secrets, (string) $e->config->analysis['api_key'], ...$e->config->notifySecrets()];

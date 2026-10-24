@@ -58,7 +58,7 @@ final class NormalizerTest extends TestCase
             'undeclared single label with credentials' => ['http://user:pa55@db/x', '<URL>'],
             'declared single label' => ['calling http://core/v1?id=7 now', 'calling <URL:core> now'],
             'declared with port and credentials' => ['http://u:p1@core:8080/x', '<URL:core>'],
-            'declared plus domain suffix' => ['http://core.example-ns.vendor.net/x', '<URL:core>'],
+            'declared plus domain suffix' => ['http://core.example.vendor.net/x', '<URL:core>'],
             'declared name is case-insensitive' => ['http://CORE/x', '<URL:core>'],
             'declared name with a non-allowlisted suffix' => ['http://core.svc/x', '<URL>'],
             'declared name under domain, one label' => ['http://core.vendor.net/x', '<URL:core>'],
@@ -92,7 +92,7 @@ final class NormalizerTest extends TestCase
             'dependency domain alone keeps nothing' => ['svc-x.billing.svc.cluster.local', '<HOST>'],
             'person under the default domain' => ['dial anna-kowalski.svc.cluster.local', 'dial <HOST>'],
             'tenant id under the default domain' => ['dial tenant-48213.svc.cluster.local', 'dial <HOST>'],
-            'declared plus default domain' => ['dial core-api.example-ns.svc.cluster.local', 'dial <HOST:core-api>'],
+            'declared plus default domain' => ['dial core-api.example.svc.cluster.local', 'dial <HOST:core-api>'],
             'attacker suffix labels' => ['dns billing.john-smith.evil.example down', 'dns <HOST> down'],
             'declared name under foreign domain' => ['dns core-api.evil.com down', 'dns <HOST> down'],
             'declared name, two extra labels' => ['dial core-api.eu.tenant-48213.svc.cluster.local', 'dial <HOST>'],
@@ -232,14 +232,14 @@ final class NormalizerTest extends TestCase
     public function testDeclaredNameKeptOnlyAsEqualityOrAllowlistedDomain(): void
     {
         $n = new Normalizer(['core-api'], ['svc.cluster.local']);
-        self::assertSame('<URL:core-api>', $n->normalize('http://CORE-API:8080/x'));
-        self::assertSame('dial <HOST:core-api>', $n->normalize('dial core-api.example-ns.svc.cluster.local'));
+        self::assertSame('<URL:core-api>', $n->normalize('http://Core-Api:8080/x'));
+        self::assertSame('dial <HOST:core-api>', $n->normalize('dial core-api.example.svc.cluster.local'));
         self::assertSame('<URL>', $n->normalize('http://billing.john-smith.evil.example/x'));
         self::assertSame('dial <HOST>', $n->normalize('dial billing.evil.com'));
 
         $bare = new Normalizer(['core-api']);
         self::assertSame('<URL:core-api>', $bare->normalize('http://core-api/x'));
-        self::assertSame('dial <HOST>', $bare->normalize('dial core-api.example-ns.svc.cluster.local'));
+        self::assertSame('dial <HOST>', $bare->normalize('dial core-api.example.svc.cluster.local'));
     }
 
     /** @return array<string, array{string, string}> value, fragment that must not survive */

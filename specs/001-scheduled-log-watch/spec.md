@@ -51,7 +51,7 @@ it happened, the trend versus the previous window, and a labelled hypothesis abo
 suggested next step. Problems that were already there yesterday at the same level are not repeated.
 
 **Why this priority**: This is the product. Today the same result is produced by hand
-(`orders-api/docs/context/logs/dev-notes`, a 15-row backlog assembled from raw pod logs).
+(`docs/context/logs/backlog.md`, a 15-row backlog assembled from raw pod logs).
 
 **Independent Test**: Feed a fixed set of log events for two consecutive windows into a run with a
 stub log source, stub AI and stub Slack; the digest lists exactly the new and grown groups with the
@@ -189,7 +189,7 @@ A Reader sees, for each finding, whether a dependency misbehaved at the same tim
 problem started after a deploy, a link to the exact log query and links to the code lines in its
 stack trace — so the first click goes to the cause, not to a search.
 
-**Why this priority**: In the hand-made baseline (`dev-notes`) several High items had their cause in
+**Why this priority**: In the hand-made baseline (`backlog.md`) several High items had their cause in
 another service or in configuration (e.g. WT-02, a BFF calling a host that does not exist). Logs of
 one service alone give the symptom, not the cause.
 
@@ -461,7 +461,7 @@ finding has a log link and code links at the deployed commit.
 ### Measurable Outcomes
 
 - **SC-001**: For the first consumer, a daily digest reproduces at least 80% of the High/Med items an
-  engineer found by hand for the same window (baseline: `dev-notes`, 2026-10-07).
+  engineer found by hand for the same window (baseline: `backlog.md`, 2026-10-07).
 - **SC-002**: Zero seeded personal values appear in anything sent to the AI or Slack across the privacy
   test corpus (100% of seeded values removed).
 - **SC-003**: On a window with no new or grown problems, the run makes zero AI requests.

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Watcher\Config\Env;
+
 /*
  * First real config for orders-api (Loki / Grafana environment). Same environment variables as docs/smoke-test.md, plus:
  *   WATCHER_LOKI_LABEL_NAME   Loki label that selects orders-api, e.g. `app` or `service_name` (Grafana > Explore > label browser)
@@ -18,6 +20,8 @@ declare(strict_types=1);
  * and a startup script can print the whole environment as KEY=value lines.
  */
 return [
+    'enabled' => Env::bool('WATCHER_ENABLED', true), // the master switch is off by default; WATCHER_ENABLED=0 switches this environment off
+    'environment' => Env::string('WATCHER_ENVIRONMENT'), // e.g. int | prod: state keys become orders-api@<environment>
     'service' => 'orders-api',
 
     'schedule' => [

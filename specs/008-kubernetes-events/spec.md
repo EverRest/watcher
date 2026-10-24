@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Kubernetes events as a second log source kind for everrest/watcher, for pod-level problems invisible in application logs: CrashLoopBackOff, OOMKilled, ImagePullBackOff, failed probes, restarts, HPA errors, evictions. Read-only via the Kubernetes API (list/get events and pods) with a read-only service account or kubeconfig; namespace and label selectors; dedupe repeated events by count and last timestamp; works alongside Loki or Datadog in a fleet; pod and node names, image tags, registries and annotations masked or allowlisted. Source: docs/audit-2026-10-23.md feature 3, docs/roadmap.md item 008, the hand-made dev-notes backlog (half pod-level)."
+**Input**: User description: "Kubernetes events as a second log source kind for everrest/watcher, for pod-level problems invisible in application logs: CrashLoopBackOff, OOMKilled, ImagePullBackOff, failed probes, restarts, HPA errors, evictions. Read-only via the Kubernetes API (list/get events and pods) with a read-only service account or kubeconfig; namespace and label selectors; dedupe repeated events by count and last timestamp; works alongside Loki or Datadog in a fleet; pod and node names, image tags, registries and annotations masked or allowlisted. Source: docs/audit-2026-10-23.md feature 3, docs/roadmap.md item 008, the hand-made backlog.md backlog (half pod-level)."
 
 ## Overview
 
@@ -279,7 +279,7 @@ notifier payload, summary, accumulator, state write or log, and that eight pod n
 
 - **SC-001**: On the recorded fixture covering CrashLoopBackOff, OOMKilled, ImagePullBackOff, failed probes, restarts, HPA
   metric errors and evictions, 100% of the seven problem classes yield a group with the right reason and level, and the
-  audit's pod-level manual backlog items (the hand-made `dev-notes` list) are each reproduced from a fixture or a live run.
+  audit's pod-level manual backlog items (the hand-made `backlog.md` list) are each reproduced from a fixture or a live run.
 - **SC-002**: N pods of one workload (tested with N = 1, 8, 200) produce exactly 1 fingerprint per reason; 0 pod names, node
   names, image tags or registries (outside the allowlist) appear in any payload, summary, state or log on the privacy
   corpus.

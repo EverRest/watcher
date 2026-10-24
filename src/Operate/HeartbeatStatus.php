@@ -6,7 +6,7 @@ namespace Watcher\Operate;
 
 use DateTimeImmutable;
 
-/** Answer of {@see Heartbeat::status()}. `state` is ok|stale|failed|unknown; only `ok` is healthy. Not stored. */
+/** Answer of {@see Heartbeat::status()}. `state` is ok|stale|failed|unknown|disabled; only `ok` is healthy. Not stored. */
 final class HeartbeatStatus
 {
     /** @param array<mixed>|null $record the stored heartbeat record */
@@ -21,6 +21,12 @@ final class HeartbeatStatus
     ) {
     }
 
+    /** The watcher (or its heartbeat) is switched off: nothing is written, so nothing can be stale. Reads no store. */
+    public static function disabled(int $limitSeconds, DateTimeImmutable $now): self
+    {
+        return new self('disabled', null, null, $limitSeconds, $now, null, null);
+    }
+
     public function ok(): bool
     {
         return $this->state === 'ok';
@@ -30,7 +36,7 @@ final class HeartbeatStatus
     public function exitCode(): int
     {
         return match ($this->state) {
-            'ok' => 0,
+            'ok', 'disabled' => 0,
             'unknown' => 3,
             default => 1,
         };

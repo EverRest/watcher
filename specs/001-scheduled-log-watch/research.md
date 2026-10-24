@@ -174,8 +174,8 @@ confirmed and are handled defensively.
   candidate references the host or the dependency's error total grew ≥ `growth_factor`: one
   `lines()` call filtered to level ≥ error, capped at 5,000, reduced locally, top 5 groups by count.
   A quiet day therefore adds one totals query per dependency and zero dependency line reads. The dependency's previous totals are kept in its own `snap:{service}:dep:{name}:…` key.
-  For orders-api the initial declaration comes from `orders-api/EXTERNAL_SERVICE_CALLS.md` (users-api,
-  partners-api, core-api, auth-api).
+  For orders-api the initial declaration comes from `EXTERNAL_SERVICE_CALLS.md` (users-api,
+  partner-api, core-api, auth-api).
 - **Deploy version**: `deploy.release` / `deploy.commit` from env. Loki: if `deploy.version_label`
   is set (e.g. an image tag label), a metric query `count by (<label>)` over the window gives the
   versions present and the switch time is found with a coarse `step` (1h). Datadog: same via

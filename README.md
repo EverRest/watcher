@@ -21,6 +21,8 @@ LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) 
              + vs yesterday
 ```
 
+Every feature has an on/off flag in the config and a `WATCHER_*` environment variable, so one package can run in int, prod and dev with different settings; the master switch `enabled` (`WATCHER_ENABLED`) defaults to off and `environment` (`WATCHER_ENVIRONMENT`) prefixes the state keys (see [docs/configuration.md](docs/configuration.md#feature-flags-spec-012) and [docs/operations.md](docs/operations.md#enabling-and-disabling-per-environment)). Redaction has no switch.
+
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
 ## Requirements
@@ -30,22 +32,21 @@ Nothing new to report means zero model calls. The first run only records a basel
 - A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
 - Lumen/Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11); the core has no framework dependency.
 
-## Install
+## Installation
+
+> **Status: pre-1.0. The API may change between minor versions** (see `CHANGELOG.md`).
 
 ```bash
 composer require everrest/watcher
 ```
 
-The repository is not public yet. Until it is, add it as a VCS repository to your `composer.json` first:
-
-```json
-{ "repositories": [{ "type": "vcs", "url": "<url of the EverRest/watcher repository>" }] }
-```
+Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.providers`); in Lumen register
+`Watcher\Laravel\WatcherServiceProvider` by hand in `bootstrap/app.php`. Without a framework use `vendor/bin/watcher`.
 
 ## Quick start
 
 1. Copy `config/watcher.example.php` into your service and fill in the environment variables it reads.
-   It returns a plain PHP array.
+   It returns a plain PHP array. Set `enabled` to true (or `WATCHER_ENABLED=1`): the master switch is off by default and a disabled run reports `disabled` and touches nothing.
 2. Check the setup (read-only; posts nothing), preview a run, then run it:
 
    ```bash

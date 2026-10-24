@@ -3,6 +3,13 @@
     "description": "Scheduled, model-routed log analysis that reports problems to Slack.",
     "type": "library",
     "license": "MIT",
+    "keywords": ["log-analysis", "observability", "monitoring", "loki", "datadog", "anthropic", "claude", "llm", "slack", "telegram", "discord", "laravel", "lumen"],
+    "homepage": "https://github.com/EverRest/watcher",
+    "authors": [{ "name": "EverRest", "homepage": "https://github.com/EverRest" }],
+    "support": {
+        "issues": "https://github.com/EverRest/watcher/issues",
+        "source": "https://github.com/EverRest/watcher"
+    },
     "require": {
         "php": "^8.1",
         "anthropic-ai/sdk": "^1.1",
@@ -41,6 +48,10 @@
         "stan": "phpstan analyse --memory-limit=512M",
         "style": "pint --test",
         "ci": ["@style", "@stan", "@test"]
+    },
+    "extra": {
+        "branch-alias": { "dev-main": "0.1.x-dev" },
+        "laravel": { "providers": ["Watcher\\Laravel\\WatcherServiceProvider"] }
     },
     "minimum-stability": "stable"
 }

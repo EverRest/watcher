@@ -66,7 +66,7 @@ function badges_version(?string $latestTag, string $changelog): string
     if ($latestTag !== null && $latestTag !== '') {
         return ltrim($latestTag, 'v');
     }
-    if (preg_match('/^## v?(\d+\.\d+\.\d+\S*)/m', $changelog, $m) === 1) {
+    if (preg_match('/^## v?(\d+\.\d+\.\d+\S*)(?![^\n]*unreleased)/mi', $changelog, $m) === 1) {
         return $m[1];
     }
 

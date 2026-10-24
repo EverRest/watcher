@@ -23,6 +23,7 @@ final class RunSummaryData
         public readonly ?float $todayUsd = null,
         public readonly ?string $release = null,
         public readonly bool $dryRun = false,
+        public readonly ?string $environment = null,
     ) {
     }
 }

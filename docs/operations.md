@@ -58,6 +58,7 @@ log text).
 | `skipped_locked` | 0 | Another runner holds this window | none (check you do not run two schedulers) |
 | `failed` | 1 | Source, analysis, delivery or state failed | see the reason and the notice in Slack |
 | `invalid_config` | 2 | Config rejected before any call | fix the named key |
+| `disabled` | 0 | `enabled` is false (the default): nothing was touched | set `enabled=true` / `WATCHER_ENABLED=1` where it should run |
 
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
@@ -72,7 +73,7 @@ A failed **digest delivery** is only logged (the channel is the one that broke).
 ### Lumen / Laravel
 
 ```bash
-composer require everrest/watcher        # add the repository to composer.json first; the package is not on Packagist
+composer require everrest/watcher        # from Packagist once published; before that add the GitHub repository as a VCS repository
 ```
 
 Register the provider (Lumen: `bootstrap/app.php`), copy `vendor/everrest/watcher/config/watcher.php` to
@@ -259,7 +260,42 @@ otherwise, change `service` to start a new baseline.
 | Dependencies missing in a digest | declare them in `dependencies` (the digest shows only a count of undeclared call targets, never their names; a host is kept as `<URL:name>` only if it equals a declared name or is `name.<domain>` for a `dependency_domains` entry) |
 | Links point nowhere | `links.*` and `repo.path_map` are config only; the Grafana Explore URL shape is not verified against every Grafana version |
 
+## Enabling and disabling per environment
+
+One package, one config, one switch per environment. `enabled` (`WATCHER_ENABLED`) defaults to **off**, so a deploy that
+does not set it runs nothing and says so (`watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr, outcome
+`disabled`, exit 0). Name the environment with `WATCHER_ENVIRONMENT` so state keys do not collide
+(`<service>@<environment>`); every other feature has its own `WATCHER_*_ENABLED` variable (full table: [configuration.md](configuration.md#feature-flags-spec-012)).
+Use the `Watcher\Config\Env` helper in a plain-PHP config (`Env::bool('WATCHER_ENABLED', false)`); `config/watcher.php`
+already does.
+
+| Environment | Variables | Result |
+|---|---|---|
+| int on | `WATCHER_ENABLED=1`, `WATCHER_ENVIRONMENT=int`, `WATCHER_HEARTBEAT_WEEKLY_SUMMARY=0` | runs, keys `orders-api@int`, no weekly line |
+| prod on | `WATCHER_ENABLED=1`, `WATCHER_ENVIRONMENT=prod`, `WATCHER_HEARTBEAT_WEEKLY_SUMMARY=1` | runs, keys `orders-api@prod`, weekly line |
+| dev off | nothing (or `WATCHER_ENABLED=0`) | `disabled`: no source, state, model or notifier access; `watcher status` says `disabled` (exit 0); `watcher check` validates the config only |
+
+Cheaper variants: `WATCHER_ESCALATION_ENABLED=0` (no stronger model), `WATCHER_TRIAGE_ENABLED=0` (no triage call),
+`WATCHER_DIGEST_ENABLED=0` (read and snapshot only, no model calls), `WATCHER_NOTICE_ENABLED=0` (failures only in the
+host log and the exit code).
+
+Kubernetes (the same image and ConfigMap everywhere; only the environment differs):
+
+```yaml
+env:
+  - { name: WATCHER_ENABLED, value: "1" }          # absent or "" = off
+  - { name: WATCHER_ENVIRONMENT, value: "int" }    # state keys: orders-api@int
+  - { name: WATCHER_HEARTBEAT_WEEKLY_SUMMARY, value: "0" }
+  - { name: WATCHER_ESCALATION_ENABLED, value: "0" }
+  - name: WATCHER_ANTHROPIC_KEY
+    valueFrom: { secretKeyRef: { name: watcher, key: anthropic-key } }
+```
+
+A fleet has the same switches: fleet `enabled`, and `enabled` per entry or in `defaults` (a disabled service is reported
+`disabled`, not failed). Two environments must not share a store prefix: the process cannot detect that, so give each its
+own `environment` (fleet validation rejects a duplicate `service@environment`).
+
 ## Rollback / disabling
 
-Remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
+Set `WATCHER_ENABLED=0` (the run then touches nothing), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
 nothing in your service or its logs; state can stay or be deleted.

@@ -209,6 +209,6 @@ final class RunCommandTest extends TestCase
     public function testPublishableConfigHasNoConsumerNamesOrModelIds(): void
     {
         $src = (string) file_get_contents(__DIR__ . '/../../../config/watcher.php');
-        self::assertDoesNotMatchRegularExpression('/orders-api|tenant-a|example|claude-(opus|sonnet|haiku)/i', $src);
+        self::assertDoesNotMatchRegularExpression('/tenant-a|core-api|claude-(opus|sonnet|haiku)/i', $src);
     }
 }

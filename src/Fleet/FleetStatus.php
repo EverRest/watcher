@@ -36,10 +36,14 @@ final class FleetStatus
     public static function forState(FleetConfig $fleet, StateStore $state, ClockInterface $clock, ?LoggerInterface $log = null): self
     {
         $first = $fleet->services[0]->config;
-        $own = (new Heartbeat($state, $clock, 'fleet/' . $fleet->name, new DateTimeZone($fleet->timezone), $first->state['retention'], $log))->status($first->heartbeat['stale_after']);
+        $own = !$fleet->enabled || !$first->on('heartbeat')
+            ? HeartbeatStatus::disabled($first->heartbeat['stale_after'], $clock->now())
+            : (new Heartbeat($state, $clock, 'fleet/' . $fleet->name, new DateTimeZone($fleet->timezone), $first->state['retention'], $log))->status($first->heartbeat['stale_after']);
         $services = [];
         foreach ($fleet->inOrder() as $e) {
-            $services[$e->name()] = Factory::heartbeat($e->config, $state, $clock, $log)->status($e->config->heartbeat['stale_after']);
+            $services[$e->name()] = !$fleet->enabled || !$e->config->enabled || !$e->config->on('heartbeat')
+                ? HeartbeatStatus::disabled($e->config->heartbeat['stale_after'], $clock->now())
+                : Factory::heartbeat($e->config, $state, $clock, $log)->status($e->config->heartbeat['stale_after']);
         }
 
         return new self($fleet->name, $own, $services);

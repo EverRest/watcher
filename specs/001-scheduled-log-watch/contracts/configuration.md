@@ -50,7 +50,7 @@ return [
     'dependencies' => [                            // FR-039; hosts also auto-detected from templates
         'core-api'        => ['stream_tags' => ['app' => 'core-api']],
         'users-api' => ['stream_tags' => ['app' => 'users-api']],
-        'partners-api'     => ['stream_tags' => ['app' => 'partners-api']],
+        'partner-api'     => ['stream_tags' => ['app' => 'partner-api']],
         'auth-api'        => ['stream_tags' => ['app' => 'auth-api'], 'source' => null], // null → service's source
     ],
     'dependency_read_cap' => 5000,

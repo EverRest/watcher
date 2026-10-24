@@ -14,6 +14,8 @@ Secrets and model ids are never defaults in code: they come from the environment
 
 ## Required keys
 
+The master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**: set it to true (per environment) or `run` reports `disabled` and does nothing. See [Feature flags](#feature-flags-spec-012).
+
 `service`, `schedule.run_at`, `source.driver` with that driver's credentials, `analysis.api_key`,
 `analysis.models.{triage,analyze,escalate}`, `analysis.prices` for each of those models, `state.driver` with its
 settings, `notify.digest.webhook`.
@@ -185,6 +187,68 @@ backend-filter regex failed to evaluate, e.g. hit the PCRE backtrack limit; it f
 dependencies` and `dependency unavailable: name`. A day with such a notice is sent even when there are no findings, so a missed
 analysis never looks like a quiet day.
 
+## Feature flags (spec 012)
+
+Every feature can be switched on or off in the config array and by an environment variable, so one package serves
+int, prod and dev. **Only the master `enabled` defaults to off**; every other flag defaults to on, which is exactly the
+behaviour before flags existed. A switched-off feature does nothing: no read, no write, no model call, no notice, no
+cost. Flags must be real booleans in an array config (the string `'false'` is rejected: `heartbeat.enabled must be true
+or false`). In a plain-PHP config read the variables with `Watcher\Config\Env` (`bool`, `int`, `string`, `float`,
+`list`; unset or empty = the default; true/false/1/0/yes/no/on/off in any case; an invalid value throws `InvalidConfig:
+environment variable NAME must be true or false`, naming the variable and never its value). The shipped configs
+(`config/watcher.php`, `config/watcher.example.php`, `docs/examples/*.php`) already do this.
+
+| Flag | Config key | Environment variable | Default | When false |
+|---|---|---|---|---|
+| master switch | `enabled` | `WATCHER_ENABLED` | **false** | `run` returns outcome `disabled` (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr); no source, state, model or notifier access, not even a heartbeat. `status` reports `disabled` without reading the store; `check` still validates the config and skips the rest as `disabled` |
+| environment name | `environment` (optional string) | `WATCHER_ENVIRONMENT` | unset | not a flag: state keys become `<service>@<environment>`; shown in the digest header and the JSON summary (`environment`) |
+| heartbeat | `heartbeat.enabled` | `WATCHER_HEARTBEAT_ENABLED` | true | no liveness record, trigger record or weekly counter is written; `status` reports `disabled` |
+| weekly summary | `heartbeat.weekly_summary` | `WATCHER_HEARTBEAT_WEEKLY_SUMMARY` | false (already opt-in) | no weekly line |
+| file purge | `purge.enabled` | `WATCHER_PURGE_ENABLED` | true | expired files of the file state store are not purged |
+| dependencies | `dependencies.enabled` | `WATCHER_DEPENDENCIES_ENABLED` | true | declared dependencies are not read, not named in redaction, nothing is stored for them |
+| deploy info | `deploy.enabled` | `WATCHER_DEPLOY_ENABLED` | true | no release/commit line, no version query to the source |
+| log links | `links.logs.enabled` | `WATCHER_LINKS_LOGS_ENABLED` | true | no log-search link per finding |
+| code links | `links.code.enabled` | `WATCHER_LINKS_CODE_ENABLED` | true | no code link per stack frame |
+| service context | `service_context.enabled` (with `service_context.text`; a plain string still works) | `WATCHER_SERVICE_CONTEXT_ENABLED` | true | the context is not scanned and not sent to the model |
+| watch rules | `watch_rules.enabled` | `WATCHER_WATCH_RULES_ENABLED` | true | no rule is evaluated (rules are still validated) |
+| mute | `mute.enabled` | `WATCHER_MUTE_ENABLED` | true | nothing is muted (entries are still validated) |
+| level anomaly | `level_anomaly.enabled` | `WATCHER_LEVEL_ANOMALY_ENABLED` | true | no level totals are read, no second pass; snapshots omit `totals`, and a missing `totals` means "unknown", never "appeared" |
+| escalation | `selection.escalation.enabled` | `WATCHER_ESCALATION_ENABLED` | true | no stronger-model call: triage and analysis only |
+| triage | `analysis.triage.enabled` | `WATCHER_TRIAGE_ENABLED` | true | no triage call and no triage checkpoint; the selected candidates go straight to analysis (`top_m`, budget and reservation still apply) |
+| baseline | `baseline.enabled` | `WATCHER_BASELINE_ENABLED` | true | previous-window comparison only, whatever `baseline.mode` says |
+| grouping | `grouping.enabled` | `WATCHER_GROUPING_ENABLED` | true | the old exact token-count clusters instead of similarity clusters (fingerprints are unchanged) |
+| budget alerts | `budget_alerts.enabled` | `WATCHER_BUDGET_ALERTS_ENABLED` | true | no 25/50/75/90 % notice and no "budget exhausted" notice (the caps themselves still apply) |
+| notices | `notify.notice.enabled` | `WATCHER_NOTICE_ENABLED` | true | no failure, baseline, budget or weekly notice is posted; failures still go to the host log and the exit code |
+| digest | `notify.digest.enabled` | `WATCHER_DIGEST_ENABLED` | true | no digest is posted, so no model is paid for: the window is read and snapshotted and the run ends `quiet` (reason `digest_disabled`) |
+| fleet | fleet `enabled` | `WATCHER_FLEET_ENABLED` | true | every service is reported `disabled`; no store, budget, source or notifier is reached |
+| fleet service | entry (or `defaults`) `enabled` | `WATCHER_ENABLED` | **false** (as a service) | that service is skipped with outcome `disabled` (not an error, exit 0) |
+| fleet correlation | `correlation.enabled` | `WATCHER_FLEET_CORRELATION_ENABLED` | true | no cross-service annotation or correlated message |
+
+Where a section is not a plain map the flag is a reserved key or a small map: `notify.notice` may be `['enabled' =>
+false]` alone (it then uses the digest destination); `watch_rules`, `mute` and `dependencies` reserve the key `enabled`
+(a rule or dependency cannot be named `enabled`); `mute` keeps its list items beside it.
+
+**Deliberately absent.** There is no flag for redaction, the normalizer or the allowlist (privacy is not optional; an
+architecture test fails if one appears) and none for read-only behaviour. `analysis.enabled` is not provided: a digest
+without model findings needs a new groups-only digest section and an extension of the privacy corpus, which is not a
+small change; use `notify.digest.enabled=false` (no model calls) or `watcher run --dry-run --estimate` instead.
+
+**Environment and shared state.** With `environment` set, a service's keys are `<service>@<environment>` (for example
+`orders-api@int`). Two processes that share one store and use the same prefix share state; a process cannot see the
+other's config, so `watcher check` cannot warn about it. Give each environment its own `environment` (or its own
+store). Fleet validation rejects two entries with the same `service@environment`.
+
+**Minimal enabled config.** The smallest config that runs (the rest of the required keys as in
+[Required keys](#required-keys)):
+
+```php
+return [
+    'enabled' => true,                 // or WATCHER_ENABLED=1 with Env::bool('WATCHER_ENABLED', false)
+    'service' => 'orders-api',
+    // schedule.run_at, source, analysis, state, notify.digest ...
+];
+```
+
 ## Environment variables used by the shipped configs
 
 `config/watcher.php` (Laravel/Lumen) reads these through `env()`. `config/watcher.example.php` reads the subset marked
@@ -193,6 +257,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | Variable | Config key |
 |---|---|
 | `WATCHER_SERVICE` | `service` |
+| `WATCHER_ENABLED`, `WATCHER_ENVIRONMENT`, `WATCHER_*_ENABLED` | feature flags, see [Feature flags](#feature-flags-spec-012) |
 | `WATCHER_RUN_AT`, `WATCHER_TIMEZONE` | `schedule.run_at`, `schedule.timezone` |
 | `WATCHER_SOURCE` | `source.driver` |
 | `WATCHER_LOKI_URL*`, `WATCHER_LOKI_TOKEN*`, `WATCHER_LOKI_TENANT` | `source.loki.*` |

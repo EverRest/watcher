@@ -49,6 +49,7 @@ Grafana Cloud Loki or a multi-tenant Loki needs basic auth and/or a tenant heade
 Create `~/watcher-smoke.env` (outside the repo; `chmod 600`):
 
 ```bash
+WATCHER_ENABLED=1
 WATCHER_SERVICE=orders-api
 WATCHER_LOKI_URL=https://grafana.example.com/api/datasources/proxy/uid/abc123
 WATCHER_LOKI_TOKEN=...
@@ -221,7 +222,7 @@ Each should fail loudly, with the reason in stdout and a notice in Slack, and wi
 
 ## 10. Check 7: compare with your manual list (SC-001)
 
-If you keep a hand-made backlog for the same window (for example `orders-api/docs/context/logs/dev-notes`), fill in:
+If you keep a hand-made backlog for the same window (for example `docs/context/logs/backlog.md`), fill in:
 
 | Manual item | Severity | Visible in app logs? | In the digest? |
 |---|---|---|---|

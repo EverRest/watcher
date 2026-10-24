@@ -21,7 +21,7 @@ exit 0 (read `$?`).
 - **[Story]**: US1..US5 from spec.md
 - **[W]**: edits `src/Watcher.php` - never in parallel with another [W] task
 - **[A]**: edits `src/Cli/Application.php` - never in parallel with another [A] task
-- Paths are relative to the repository root `/path/to/watcher`
+- Paths are relative to the repository root the repository root
 
 ---
 

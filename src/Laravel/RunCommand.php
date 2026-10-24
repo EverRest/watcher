@@ -60,6 +60,9 @@ final class RunCommand extends Command
             return 2;
         }
 
+        if ($result->outcome === RunOutcome::Disabled) {
+            $this->output->getErrorStyle()->writeln(Application::DISABLED_HINT);
+        }
         $human->writeln('watcher: ' . $result->summary());
         if ($json) {
             $this->line((new JsonSummary())->render($result->summaryData ?? new RunSummaryData($result->outcome, null, $result->failureReason)));

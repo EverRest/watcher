@@ -46,6 +46,7 @@ final class DoctorTest extends TestCase
     {
         return WatchConfig::fromArray([
             'service' => 'orders',
+            'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test', 'auth' => ['type' => 'bearer', 'token' => 'LOKITOKEN']], 'stream_tags' => ['app' => 'orders']],
             'analysis' => [

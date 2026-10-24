@@ -10,7 +10,7 @@ description: "Task list for More Notification Channels (everrest/watcher)"
 **Tests**: REQUIRED (Constitution III). In each task the test is written first and must fail first; the implementation
 turns it green. No test touches the network (Guzzle `MockHandler`, recorded fixtures).
 
-**Format**: `[ID] [P?] [Story] Description`. Paths relative to `/path/to/watcher`. `[P]` = different files, no
+**Format**: `[ID] [P?] [Story] Description`. Paths relative to the repository root. `[P]` = different files, no
 unfinished dependency.
 
 **SEQUENTIAL** (shared files, run one at a time, in this order): **T011** (`src/Config/WatchConfig.php`), **T012**

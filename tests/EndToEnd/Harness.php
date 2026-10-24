@@ -49,6 +49,7 @@ final class Harness
         // tests of the gate itself pass schedule.run_at explicitly.
         $config = array_replace_recursive([
             'service' => 'svc',
+            'enabled' => true,
             'schedule' => ['run_at' => $this->clock->now()->format('H:i')],
             'source' => [
                 'driver' => 'loki',

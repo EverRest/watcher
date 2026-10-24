@@ -1,6 +1,6 @@
 # watcher — brief (output of brainstorming, input to spec-driven development)
 
-Status: brainstorm approved by the owner (the maintainer) section by section on 2026-10-23. Next step: run
+Status: brainstorm approved by the owner (the owner) section by section on 2026-10-23. Next step: run
 `/speckit-specify` (then clarify, plan, tasks) from this brief. Nothing is implemented yet.
 
 ## Goal
@@ -11,7 +11,7 @@ judging. First consumer is `orders-api`, but the package must not be orders-api-
 behind an interface and chosen by config.
 
 - Package: `everrest/watcher`, namespace `Watcher\`, repo `EverRest/watcher` (owner's org; not the
-  company GitLab `example-org`, not yet). PHP ^8.1 (orders-api is PHP 8.2 / Lumen 10 / PHPUnit 10).
+  company's internal GitLab, not yet). PHP ^8.1 (orders-api is PHP 8.2 / Lumen 10 / PHPUnit 10).
 - Design priority from the owner: **as abstract and flexible as possible**; **token efficiency is a
   first-class concern**; **models are selectable per task**.
 
@@ -21,13 +21,13 @@ behind an interface and chosen by config.
   `vcs` repositories.
 - Logs: Monolog to stdout, **plain text line**, not JSON:
   `[datetime] channel.LEVEL [APP]: message {context} {extra}` (`App\Formatters\Logs\StdFormatter`).
-  Other services differ (`vendor/log-support` is a JSON logger) → source adapters must normalise.
+  Other services differ (one internal service uses a JSON logger) → source adapters must normalise.
 - `logging.php` already has a `slack` channel (webhook, level `critical` only).
 - Cluster notes mention splunk-otel and datadog; reporting services export OpenTelemetry (UNVERIFIED
   which backend is authoritative). **Backend differs per environment** (Grafana/Loki in some,
   Datadog in others) → source is a per-environment config choice. Grafana/Datadog/Sentry were not
   reachable from the brainstorming session (401 / unauthenticated), so no API was exercised.
-- A hand-made precedent exists: `orders-api/docs/context/logs/dev-notes` is a manual 15-row backlog
+- A hand-made precedent exists: `docs/context/logs/backlog.md` is a manual 15-row backlog
   (id, severity, workload, symptom, evidence, suspected cause, next step, status). The package output
   should resemble one such row.
 - orders-api data contains participant personal data → GDPR applies to anything leaving the perimeter.

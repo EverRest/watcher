@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Watcher\Config\Env;
+
 /*
  * Minimal config for the first live smoke run (docs/smoke-test.md): Loki as the log source, file state in a
  * throwaway directory, a private Slack channel, a tiny daily budget. Copy it, set the environment variables
@@ -10,6 +12,7 @@ declare(strict_types=1);
  *   php bin/watcher run --config=smoke.config.php --now=<ISO-8601>
  */
 return [
+    'enabled' => Env::bool('WATCHER_ENABLED', true), // the master switch is off by default; this guide turns it on
     'service' => getenv('WATCHER_SERVICE') ?: 'smoke-service',
 
     'schedule' => [

@@ -231,7 +231,7 @@ final class Factory
         return new Heartbeat(
             $state,
             $clock,
-            $c->service,
+            $c->stateKey,
             new \DateTimeZone($c->schedule['timezone']),
             $c->state['retention'],
             $log,
@@ -264,6 +264,9 @@ final class Factory
     {
         $c = WatchConfig::fromArray($config);
         $clock ??= new SystemClock();
+        if (!$c->enabled || !$c->on('heartbeat')) {
+            return HeartbeatStatus::disabled($c->heartbeat['stale_after'], $clock->now());
+        }
 
         return self::heartbeat($c, self::state($c, $clock), $clock, $log)->status($c->heartbeat['stale_after']);
     }

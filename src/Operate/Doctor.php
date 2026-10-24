@@ -56,6 +56,10 @@ final class Doctor
     /** @param bool $postTest also post one labelled test message per distinct destination */
     public function run(bool $postTest = false): CheckReport
     {
+        if (!$this->config->enabled) {
+            // The config was validated; a disabled watcher calls nothing, so there is nothing else to check.
+            return new CheckReport([CheckResult::pass('config', 'disabled (enabled=false)'), ...array_map(static fn (string $n): CheckResult => CheckResult::skip($n, 'disabled'), array_slice(self::NAMES, 1))]);
+        }
         $results = [CheckResult::pass('config')];
         $results[] = $this->guard('source', fn (): CheckResult => $this->source());
         [$auth, $models] = $this->provider();

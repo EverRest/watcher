@@ -39,7 +39,7 @@ final class FleetResult
     public function lines(): array
     {
         $lines = [];
-        $failed = $skipped = 0;
+        $failed = $skipped = $disabled = 0;
         foreach ($this->services as $s) {
             if ($s->result !== null) {
                 $lines[] = $s->service . ': ' . $s->result->summary();
@@ -48,8 +48,9 @@ final class FleetResult
             }
             $failed += $s->outcome === 'failed' ? 1 : 0;
             $skipped += $s->outcome === ServiceResult::SKIPPED_TIME ? 1 : 0;
+            $disabled += $s->outcome === 'disabled' ? 1 : 0;
         }
-        $lines[] = sprintf('fleet %s: services=%d failed=%d skipped_time=%d correlated=%d', $this->fleet, count($this->services), $failed, $skipped, count($this->correlated));
+        $lines[] = sprintf('fleet %s: services=%d failed=%d skipped_time=%d correlated=%d', $this->fleet, count($this->services), $failed, $skipped, count($this->correlated)) . ($disabled > 0 ? sprintf(' disabled=%d', $disabled) : '');
 
         return $lines;
     }

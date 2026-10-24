@@ -10,7 +10,7 @@ description: "Task list for Fleet Mode and Cross-Service Correlation (everrest/w
 **Tests**: REQUIRED (Constitution III). Every test task comes before its implementation task and must fail first.
 No network. Gates after each story: `composer test`, `composer stan`, `composer style`, each exit 0 (read `$?`).
 
-**Organization**: by user story. US1, US2 are P1; US3, US4 are P2. Paths relative to `/path/to/watcher`.
+**Organization**: by user story. US1, US2 are P1; US3, US4 are P2. Paths relative to the repository root.
 
 ## Format: `[ID] [P?] [Story] Description`
 

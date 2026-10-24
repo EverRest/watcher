@@ -19,6 +19,13 @@ final class WatchConfig
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts',
+    ];
+
+    /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
+    public const FLAGS = [
+        'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
+        'level_anomaly', 'escalation', 'triage', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -40,6 +47,7 @@ final class WatchConfig
      * @param array{stale_after: int, weekly_summary: bool} $heartbeat stale_after in seconds
      * @param array{mode: string, windows: int, max_age: string, max_age_seconds: int, exclude: list<string>, since: ?string} $baseline
      * @param array{similarity: float, message_cap: int, backend_patterns: bool} $grouping
+     * @param array<string, bool> $flags see {@see self::FLAGS}
      */
     private function __construct(
         public readonly string $service,
@@ -63,7 +71,17 @@ final class WatchConfig
         public readonly array $heartbeat,
         public readonly array $baseline,
         public readonly array $grouping,
+        public readonly bool $enabled,
+        public readonly ?string $environment,
+        public readonly string $stateKey,
+        private readonly array $flags,
     ) {
+    }
+
+    /** Whether a feature flag is on. */
+    public function on(string $flag): bool
+    {
+        return $this->flags[$flag] ?? throw new \LogicException('unknown feature flag ' . $flag);
     }
 
     /** @param array<string, mixed> $config */
@@ -76,6 +94,12 @@ final class WatchConfig
         }
 
         $service = self::str($config, 'service', 'service');
+        $enabled = self::flag($config, 'enabled', 'enabled', false);
+        $environment = $config['environment'] ?? null;
+        if ($environment !== null && (!is_string($environment) || preg_match('/^[A-Za-z0-9._-]{1,64}$/', $environment) !== 1)) {
+            throw new InvalidConfig('environment must be a name of letters, digits, dot, dash and underscore');
+        }
+        $flags = [];
 
         $sch = self::section($config, 'schedule');
         self::only($sch, ['run_at', 'timezone', 'window', 'lock_ttl'], 'schedule');
@@ -106,7 +130,8 @@ final class WatchConfig
         $source = self::source(self::section($config, 'source'));
 
         $selSec = self::section($config, 'selection');
-        self::only($selSec, ['min_level', 'growth_factor', 'top_n', 'top_m'], 'selection');
+        self::only($selSec, ['min_level', 'growth_factor', 'top_n', 'top_m', 'escalation'], 'selection');
+        $flags['escalation'] = self::subFlag($selSec, 'escalation', 'selection.escalation');
         $selection = [
             'min_level' => self::level($selSec, 'min_level', 'error', 'selection.min_level'),
             'growth_factor' => self::num($selSec, 'growth_factor', 3.0, 'selection.growth_factor'),
@@ -121,6 +146,12 @@ final class WatchConfig
         }
 
         $ctx = $config['service_context'] ?? '';
+        $flags['service_context'] = true;
+        if (is_array($ctx)) {
+            self::only($ctx, ['enabled', 'text'], 'service_context');
+            $flags['service_context'] = self::flag($ctx, 'enabled', 'service_context.enabled');
+            $ctx = $ctx['text'] ?? '';
+        }
         if (!is_string($ctx) || mb_strlen($ctx) > 1000) {
             throw new InvalidConfig('service_context must be a string of at most 1000 characters');
         }
@@ -144,30 +175,65 @@ final class WatchConfig
         }
 
         $state = self::state(self::section($config, 'state'));
-        $baseline = self::baseline(self::section($config, 'baseline'), $interval, $state['retention']);
+        $baselineSec = self::section($config, 'baseline');
+        $flags['baseline'] = self::flag($baselineSec, 'enabled', 'baseline.enabled');
+        unset($baselineSec['enabled']);
+        $baseline = self::baseline($baselineSec, $interval, $state['retention']);
+        $groupingSec = self::section($config, 'grouping');
+        $flags['grouping'] = self::flag($groupingSec, 'enabled', 'grouping.enabled');
+        unset($groupingSec['enabled']);
+        foreach (['purge', 'level_anomaly', 'budget_alerts'] as $name) {
+            $sec = self::section($config, $name);
+            self::only($sec, ['enabled'], $name);
+            $flags[$name] = self::flag($sec, 'enabled', $name . '.enabled');
+        }
+        [$watchRules, $flags['watch_rules']] = self::reserved($config['watch_rules'] ?? [], 'watch_rules');
+        [$muteEntries, $flags['mute']] = self::reserved($config['mute'] ?? [], 'mute');
+        $rules = self::watchRules($watchRules); // validated even when switched off, so a flag flip never reveals a bad rule
+        $mute = self::mute($muteEntries);
+        [$deps, $flags['dependencies']] = self::reserved($config['dependencies'] ?? [], 'dependencies');
+        $deploySec = self::known(self::section($config, 'deploy'), ['release', 'commit', 'version_label', 'enabled'], 'deploy');
+        $flags['deploy'] = self::flag($deploySec, 'enabled', 'deploy.enabled');
+        $links = self::links(self::section($config, 'links'));
+        $flags['links.logs'] = self::subFlag($links, 'logs', 'links.logs');
+        $flags['links.code'] = self::subFlag($links, 'code', 'links.code');
+        $analysis = self::analysis(self::section($config, 'analysis'));
+        $flags['triage'] = self::subFlag($analysis, 'triage', 'analysis.triage');
+        $heartbeat = self::heartbeat(self::section($config, 'heartbeat'), $interval);
+        $flags['heartbeat'] = $heartbeat['enabled'];
+        unset($heartbeat['enabled']);
+        $notifySec = self::section($config, 'notify');
+        $notify = self::notify($notifySec);
+        foreach (['digest', 'notice'] as $kind) {
+            $flags[$kind] = self::flag(is_array($notifySec[$kind] ?? null) ? $notifySec[$kind] : [], 'enabled', 'notify.' . $kind . '.enabled');
+        }
 
         return new self(
             $service,
             $schedule,
             $source,
-            self::watchRules($config['watch_rules'] ?? []),
-            self::mute($config['mute'] ?? []),
+            $flags['watch_rules'] ? $rules : [],
+            $flags['mute'] ? $mute : [],
             $ctx,
-            self::dependencies($config['dependencies'] ?? []),
+            self::dependencies($deps),
             self::posInt($config, 'dependency_read_cap', 5000, 'dependency_read_cap'),
             $domains,
-            self::known(self::section($config, 'deploy'), ['release', 'commit', 'version_label'], 'deploy'),
-            self::links(self::section($config, 'links')),
+            $deploySec,
+            $links,
             self::repo($config['repo'] ?? null),
             $selection,
-            self::analysis(self::section($config, 'analysis')),
+            $analysis,
             $patterns,
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
             $state,
-            self::notify(self::section($config, 'notify')),
-            self::heartbeat(self::section($config, 'heartbeat'), $interval),
+            $notify,
+            $heartbeat,
             $baseline,
-            self::grouping(self::section($config, 'grouping')),
+            self::grouping($groupingSec),
+            $enabled,
+            $environment,
+            $environment === null ? $service : $service . '@' . $environment,
+            $flags,
         );
     }
 
@@ -260,11 +326,12 @@ final class WatchConfig
 
     /**
      * @param array<string, mixed> $h
-     * @return array{stale_after: int, weekly_summary: bool}
+     * @return array{stale_after: int, weekly_summary: bool, enabled: bool}
      */
     private static function heartbeat(array $h, \DateInterval $window): array
     {
-        self::only($h, ['stale_after', 'weekly_summary'], 'heartbeat');
+        self::only($h, ['stale_after', 'weekly_summary', 'enabled'], 'heartbeat');
+        $on = self::flag($h, 'enabled', 'heartbeat.enabled');
         $weekly = $h['weekly_summary'] ?? false;
         if (!is_bool($weekly)) {
             throw new InvalidConfig('heartbeat.weekly_summary must be true or false');
@@ -284,7 +351,7 @@ final class WatchConfig
             $seconds = (int) ceil(1.5 * $epoch->add($window)->getTimestamp());
         }
 
-        return ['stale_after' => $seconds, 'weekly_summary' => $weekly];
+        return ['stale_after' => $seconds, 'weekly_summary' => $weekly, 'enabled' => $on];
     }
 
     /**
@@ -346,7 +413,7 @@ final class WatchConfig
      */
     private static function analysis(array $a): array
     {
-        self::only($a, ['provider', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents'], 'analysis');
+        self::only($a, ['provider', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage'], 'analysis');
         self::str($a, 'api_key', 'analysis.api_key');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
@@ -496,10 +563,22 @@ final class WatchConfig
     private static function notify(array $n): array
     {
         self::only($n, ['digest', 'notice'], 'notify');
-        $digest = self::notifyEntry($n['digest'] ?? null, 'notify.digest');
-        $notice = ($n['notice'] ?? null) === null ? $digest : self::notifyEntry($n['notice'], 'notify.notice');
+        $digest = self::notifyEntry(self::withoutEnabled($n['digest'] ?? null), 'notify.digest');
+        $notice = $n['notice'] ?? null;
+        $notice = self::withoutEnabled($notice);
+        $notice = $notice === null || $notice === [] ? $digest : self::notifyEntry($notice, 'notify.notice');
 
         return ['digest' => $digest, 'notice' => $notice];
+    }
+
+    private static function withoutEnabled(mixed $entry): mixed
+    {
+        if (!is_array($entry)) {
+            return $entry;
+        }
+        unset($entry['enabled']);
+
+        return $entry;
     }
 
     /**
@@ -687,7 +766,7 @@ final class WatchConfig
      */
     private static function links(array $links): array
     {
-        self::only($links, ['grafana', 'datadog'], 'links');
+        self::only($links, ['grafana', 'datadog', 'logs', 'code'], 'links');
         foreach (['grafana' => ['base_url', 'datasource_uid'], 'datadog' => ['app_url']] as $name => $keys) {
             if (is_array($links[$name] ?? null)) {
                 self::only($links[$name], $keys, 'links.' . $name);
@@ -776,6 +855,52 @@ final class WatchConfig
         }
 
         return $v;
+    }
+
+    /**
+     * A strict boolean flag: true/false only, a string such as 'false' is rejected.
+     *
+     * @param array<array-key, mixed> $from
+     */
+    private static function flag(array $from, string $key, string $path, bool $default = true): bool
+    {
+        $v = $from[$key] ?? $default;
+        if (!is_bool($v)) {
+            throw new InvalidConfig($path . ' must be true or false');
+        }
+
+        return $v;
+    }
+
+    /** @param array<array-key, mixed> $parent a section holding `$key => ['enabled' => bool]` */
+    private static function subFlag(array $parent, string $key, string $path): bool
+    {
+        $sub = $parent[$key] ?? [];
+        if (!is_array($sub)) {
+            throw new InvalidConfig($path . ' must be a map');
+        }
+        self::only($sub, ['enabled'], $path);
+
+        return self::flag($sub, 'enabled', $path . '.enabled');
+    }
+
+    /**
+     * A list or map that reserves the key `enabled` for its flag (entries never are a bare boolean).
+     *
+     * @return array{0: mixed, 1: bool} the value without the flag, the flag
+     */
+    private static function reserved(mixed $value, string $path): array
+    {
+        if (!is_array($value) || !array_key_exists('enabled', $value)) {
+            return [$value, true];
+        }
+        $on = $value['enabled'];
+        if (!is_bool($on)) {
+            throw new InvalidConfig($path . '.enabled must be true or false');
+        }
+        unset($value['enabled']);
+
+        return [$value, $on];
     }
 
     /** @param array<array-key, mixed> $from */

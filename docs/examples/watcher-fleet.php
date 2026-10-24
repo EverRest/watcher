@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Watcher\Config\Env;
+
 /*
  * A fleet of three services run by ONE job: an API and two backends-for-frontend (bff-a, bff-b) that call it. The BFFs have no
  * CLI and no scheduler of their own; they exist here only as a log selection. Names are generic: replace them.
@@ -23,6 +25,7 @@ $loki = [
 
 return [
     'fleet' => 'platform',
+    'enabled' => Env::bool('WATCHER_FLEET_ENABLED', true), // false: every service is reported `disabled`, nothing is touched
     'digest' => 'per_service',             // 'combined' = one message for the whole fleet
     'timezone' => 'UTC',
     'time_budget' => 'PT50M',               // services not started in time are listed as skipped_time (exit 1)
@@ -34,10 +37,12 @@ return [
         'digest' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_DIGEST')],
         'notice' => ['driver' => 'telegram', 'bot_token' => getenv('WATCHER_TG_TOKEN'), 'chat_id' => getenv('WATCHER_TG_CHAT')],
     ],
-    'correlation' => ['enabled' => true, 'tolerance' => 'PT0S'],
+    'correlation' => ['enabled' => Env::bool('WATCHER_FLEET_CORRELATION_ENABLED', true), 'tolerance' => 'PT0S'],
 
     // Merged UNDER every entry. `state` and `analysis.api_key` must end up identical in all of them.
     'defaults' => [
+        'enabled' => Env::bool('WATCHER_ENABLED', true),   // off by default in code; a single entry can set its own `enabled`
+        'environment' => Env::string('WATCHER_ENVIRONMENT'), // optional: int | prod | ...; state keys become <service>@<environment>
         'schedule' => ['run_at' => '06:00', 'timezone' => 'UTC', 'window' => 'PT24H'],
         'analysis' => [
             'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),

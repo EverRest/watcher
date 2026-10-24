@@ -23,7 +23,7 @@ final class ServiceEntry
 
     public function name(): string
     {
-        return $this->config->service;
+        return $this->config->stateKey; // service, or service@environment
     }
 
     /** @return list<string> */

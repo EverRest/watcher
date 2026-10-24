@@ -2,14 +2,22 @@
 
 declare(strict_types=1);
 
+use Watcher\Config\Env;
+
 /*
  * Publishable configuration. Required keys have no default: a missing one makes
  * Watcher::fromConfig() throw InvalidConfig naming the key (exit code 2).
  * Model ids are never defaulted in code. Set them per tier in the environment,
  * e.g. a small/cheap model for triage, a mid-size one for analysis and the
  * largest for escalation, and give every one of them a price below.
+ *
+ * Every feature has an on/off flag, set here or by its WATCHER_* variable (table: docs/configuration.md).
+ * Only `enabled` defaults to off: a deployment must opt in, per environment (WATCHER_ENABLED=1).
+ * All other flags default to on (today's behaviour). There is no flag for redaction: privacy is not optional.
  */
 return [
+    'enabled' => Env::bool('WATCHER_ENABLED', false), // master switch: false = the run does nothing and reports `disabled`
+    'environment' => Env::string('WATCHER_ENVIRONMENT'), // optional (int, prod, ...): state keys become <service>@<environment>
     'service' => env('WATCHER_SERVICE'),           // required; key prefix for all state
 
     'schedule' => [
@@ -43,20 +51,28 @@ return [
     // Explicit matchers; only the rule name leaves the service. One of
     // template | error_type | field (+ equals | matches). Example:
     //   'quota' => ['template' => '/QuotaTracking/'],
-    'watch_rules' => [],
+    'watch_rules' => ['enabled' => Env::bool('WATCHER_WATCH_RULES_ENABLED', true)],
 
     // [['fingerprint' => 'abc123', 'until' => '2030-01-31'], ['template' => '/regex/', 'until' => null]]
-    'mute' => [],
+    'mute' => ['enabled' => Env::bool('WATCHER_MUTE_ENABLED', true)], // add entries as list items next to `enabled`
 
     'selection' => [
         'min_level' => 'error',
         'growth_factor' => 3.0,
         'top_n' => 50,
         'top_m' => 10,
+        'escalation' => ['enabled' => Env::bool('WATCHER_ESCALATION_ENABLED', true)], // false: only triage + analysis
     ],
+
+    'level_anomaly' => ['enabled' => Env::bool('WATCHER_LEVEL_ANOMALY_ENABLED', true)],  // second pass on a level whose total grew
+    'budget_alerts' => ['enabled' => Env::bool('WATCHER_BUDGET_ALERTS_ENABLED', true)],  // 25/50/75/90 % notices and the exhausted notice
+    'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                  // expired-file purge (file state store only)
+    'baseline' => ['enabled' => Env::bool('WATCHER_BASELINE_ENABLED', true)],            // false: previous-window comparison only
+    'grouping' => ['enabled' => Env::bool('WATCHER_GROUPING_ENABLED', true)],            // false: exact token-count clusters
 
     'analysis' => [
         'provider' => 'anthropic',
+        'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis
         'api_key' => env('WATCHER_ANTHROPIC_KEY'),
         'models' => [
             'triage' => env('WATCHER_MODEL_TRIAGE'),
@@ -94,14 +110,18 @@ return [
     ],
 
     'notify' => [
-        'digest' => ['driver' => 'slack', 'webhook' => env('WATCHER_SLACK_WEBHOOK')],
-        'notice' => null,                          // null: use the digest destination
+        'digest' => ['driver' => 'slack', 'webhook' => env('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
+        // Failure and budget notices. Only `enabled`: use the digest destination. Add driver + webhook for a channel of its own.
+        'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
     ],
 
-    'service_context' => env('WATCHER_SERVICE_CONTEXT'), // what the service does and what is critical, <= 1000 chars
+    'service_context' => [
+        'enabled' => Env::bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),
+        'text' => env('WATCHER_SERVICE_CONTEXT'),  // what the service does and what is critical, <= 1000 chars
+    ],
 
     // 'other-service' => ['stream_tags' => ['app' => 'other-service']]
-    'dependencies' => [],
+    'dependencies' => ['enabled' => Env::bool('WATCHER_DEPENDENCIES_ENABLED', true)],
     'dependency_read_cap' => 5000,
     'dependency_domains' => [],
 
@@ -109,16 +129,20 @@ return [
         'release' => env('WATCHER_RELEASE'),
         'commit' => env('WATCHER_COMMIT'),
         'version_label' => null,
+        'enabled' => Env::bool('WATCHER_DEPLOY_ENABLED', true),
     ],
 
     'heartbeat' => [
         // 'stale_after' => 'PT36H',               // default: 1.5 x schedule.window
-        'weekly_summary' => false,                 // one counts-and-cost line per ISO week
+        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // one counts-and-cost line per ISO week
+        'enabled' => Env::bool('WATCHER_HEARTBEAT_ENABLED', true),
     ],
 
     'links' => [
         'grafana' => ['base_url' => env('WATCHER_GRAFANA_URL'), 'datasource_uid' => env('WATCHER_LOKI_DS_UID')],
         'datadog' => ['app_url' => null],
+        'logs' => ['enabled' => Env::bool('WATCHER_LINKS_LOGS_ENABLED', true)],
+        'code' => ['enabled' => Env::bool('WATCHER_LINKS_CODE_ENABLED', true)],
     ],
 
     'repo' => [

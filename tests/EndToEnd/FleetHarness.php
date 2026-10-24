@@ -78,6 +78,7 @@ final class FleetHarness
     {
         return array_replace_recursive([
             'service' => $name,
+            'enabled' => true,
             'schedule' => ['run_at' => $this->clock->now()->format('H:i')],
             'source' => [
                 'driver' => 'loki',

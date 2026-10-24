@@ -24,6 +24,8 @@ final class BadgesTest extends TestCase
         self::assertSame('2.0.0', badges_version('v2.0.0', $log));
         self::assertSame('1.2.3', badges_version(null, $log));
         self::assertSame('unreleased', badges_version('', "## Unreleased\n"));
+        self::assertSame('unreleased', badges_version(null, "## Unreleased\n\n## 0.1.0 — unreleased draft\n"));
+        self::assertSame('0.1.0', badges_version(null, "## Unreleased\n\n## 0.1.0 — 2026-11-01 — first release\n"));
     }
 
     public function testCoverageFromCoberturaAndClover(): void

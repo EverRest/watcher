@@ -60,7 +60,7 @@ final class ArchitectureTest extends TestCase
     {
         $files = array_values(array_filter(self::shipped(), 'is_file'));
 
-        self::assertSame([], self::grep($files, '/orders-api|tenant-a|example|example|core-api|users-api/i'));
+        self::assertSame([], self::grep($files, '/tenant-a|core-api|users-api|bff-a|bff-b/i'));
     }
 
     public function testLokiSourceOnlyReadsQueryEndpointsWithGet(): void

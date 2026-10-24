@@ -20,6 +20,7 @@ final class FleetConfigTest extends TestCase
     {
         return array_replace_recursive([
             'service' => $name,
+            'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid'], 'stream_tags' => ['app' => $name]],
             'analysis' => [

@@ -2,13 +2,21 @@
 
 declare(strict_types=1);
 
+use Watcher\Config\Env;
+
 /*
  * Plain-PHP example: return this array from the file you pass to `bin/watcher run --config=<file>`
  * (or hand it to Watcher::fromConfig()). Every key is shown with its default; keys marked "required"
  * have none. Secrets and model ids come from the environment, never from code.
  * Unknown top-level keys are rejected, so a typo cannot silently disable a setting.
+ *
+ * Feature flags: every feature has an `enabled` key and a WATCHER_* variable (Env reads it; table in docs/configuration.md).
+ * Only the master `enabled` defaults to false; the example turns it on. All other flags default to true. Flags must be real
+ * booleans: the string 'false' is rejected. There is no flag for redaction: privacy is not optional.
  */
 return [
+    'enabled' => Env::bool('WATCHER_ENABLED', true),     // master switch, default FALSE. false: the run touches nothing and reports `disabled`
+    'environment' => Env::string('WATCHER_ENVIRONMENT'), // optional (int, prod, ...): state keys become <service>@<environment>; two processes with the same prefix share state
     'service' => 'orders-api',                           // required; prefix for all state keys
 
     'schedule' => [
@@ -42,6 +50,7 @@ return [
     // Explicit matchers that raise a group's priority; only the rule NAME leaves the service.
     // Exactly one of template | error_type | field (field + equals | matches). Default [].
     'watch_rules' => [
+        'enabled' => Env::bool('WATCHER_WATCH_RULES_ENABLED', true), // reserved key; false = no rule is evaluated
         'billing-calls' => ['template' => '/billing/i'],
         'db-errors' => ['error_type' => '/PDOException|SQLSTATE/'],
         'one-tenant' => ['field' => 'tenant', 'equals' => 'acme'],
@@ -49,6 +58,7 @@ return [
 
     // Known noise. Fingerprint or the same matcher form, with an optional end date (null = forever). Default [].
     'mute' => [
+        'enabled' => Env::bool('WATCHER_MUTE_ENABLED', true), // reserved key beside the list items; false = nothing is muted
         ['fingerprint' => 'a1b2c3d4e5f6', 'until' => '2030-01-31'],
         ['template' => '/Creating default object from empty value/', 'until' => null],
     ],
@@ -58,10 +68,16 @@ return [
         'growth_factor' => 3.0,                          // "grew" = count at least this many times yesterday's (> 1), default 3.0
         'top_n' => 50,                                   // candidates kept per run, default 50
         'top_m' => 10,                                   // groups deep-analysed per run (<= top_n), default 10
+        'escalation' => ['enabled' => Env::bool('WATCHER_ESCALATION_ENABLED', true)], // false: only triage + analysis, no stronger model
     ],
+
+    'level_anomaly' => ['enabled' => Env::bool('WATCHER_LEVEL_ANOMALY_ENABLED', true)], // second read for a level (below read_min_level) whose total jumped
+    'budget_alerts' => ['enabled' => Env::bool('WATCHER_BUDGET_ALERTS_ENABLED', true)], // threshold notices and the "budget exhausted" notice
+    'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                 // expired-file purge of the file state store
 
     // What a window is compared with. Default 'previous' = the window before (no change in behaviour).
     'baseline' => [
+        'enabled' => Env::bool('WATCHER_BASELINE_ENABLED', true), // false: previous-window comparison only, whatever `mode` says
         'mode' => 'previous',                            // previous | rolling (mean of N windows) | weekday (median of N same weekdays)
         'windows' => null,                               // rolling default 7 (>= 2), weekday default 4 (>= 3); needs state.retention >= windows x span + 1 day
         'max_age' => 'P7D',                              // oldest snapshot a missing previous window may fall back to; <= state.retention
@@ -71,12 +87,14 @@ return [
 
     // How messages are grouped into templates.
     'grouping' => [
+        'enabled' => Env::bool('WATCHER_GROUPING_ENABLED', true), // false: the old exact token-count clusters
         'similarity' => 0.5,                             // 0 < x <= 1: share of literal words that must match, default 0.5
         'message_cap' => 50000,                          // >= 1000: distinct masked messages clustered per run, default 50000
     ],
 
     'analysis' => [
         'provider' => 'anthropic',                       // only anthropic is available
+        'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis (top_m, budget still apply)
         'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),    // required
         'models' => [                                    // required: one id per tier, no defaults in code
             'triage' => getenv('WATCHER_MODEL_TRIAGE'),
@@ -125,20 +143,25 @@ return [
     ],
 
     'notify' => [
-        'digest' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_WEBHOOK')], // required
+        'digest' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)], // required; enabled=false: no model call, the run ends quiet
         // Telegram: ['driver' => 'telegram', 'bot_token' => getenv('WATCHER_TG_TOKEN'), 'chat_id' => getenv('WATCHER_TG_CHAT'), 'thread_id' => 7],
         // Discord:  ['driver' => 'discord', 'webhook' => getenv('WATCHER_DISCORD_WEBHOOK')],
-        'notice' => null,                                // failures and budget notices; null = use the digest destination
+        'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)], // failure and budget notices; only `enabled` = use the digest destination (null = same). false: host log and exit code only
     ],
 
     'heartbeat' => [                                     // optional
         'stale_after' => 'PT36H',                        // ISO-8601; `watcher status` is non-zero when the last ok run is older. Default 1.5 x schedule.window
-        'weekly_summary' => false,                       // true: one counts-and-cost line per ISO week to the notice destination, default false
+        'enabled' => Env::bool('WATCHER_HEARTBEAT_ENABLED', true), // false: no liveness record is written; `status` reports disabled
+        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // true: one counts-and-cost line per ISO week to the notice destination, default false
     ],
 
-    'service_context' => 'Order intake and fulfilment. Critical: payment capture, stock reservation.', // <= 1000 chars; default ''
+    'service_context' => [
+        'enabled' => Env::bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),
+        'text' => 'Order intake and fulfilment. Critical: payment capture, stock reservation.', // <= 1000 chars; default ''. A plain string is still accepted
+    ],
 
     'dependencies' => [                                  // other services whose logs give context; default []
+        'enabled' => Env::bool('WATCHER_DEPENDENCIES_ENABLED', true), // reserved key (a dependency cannot be named "enabled")
         'billing' => ['stream_tags' => ['app' => 'billing']],
         'auth' => ['stream_tags' => ['app' => 'auth']],
     ],
@@ -149,11 +172,14 @@ return [
         'release' => getenv('WATCHER_RELEASE') ?: null,  // shown next to findings to correlate with deploys
         'commit' => getenv('WATCHER_COMMIT') ?: null,
         'version_label' => null,                         // log label carrying the running version, if the source has one
+        'enabled' => Env::bool('WATCHER_DEPLOY_ENABLED', true), // false: no release line, no version query
     ],
 
     'links' => [
         'grafana' => ['base_url' => 'https://grafana.example.com', 'datasource_uid' => 'loki'],
         'datadog' => ['app_url' => null],                // e.g. https://app.datadoghq.eu
+        'logs' => ['enabled' => Env::bool('WATCHER_LINKS_LOGS_ENABLED', true)], // false: no log-search link per finding
+        'code' => ['enabled' => Env::bool('WATCHER_LINKS_CODE_ENABLED', true)], // false: no code link per stack frame
     ],
 
     'repo' => [

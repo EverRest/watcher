@@ -14,7 +14,7 @@ use Watcher\Config\WatchConfig;
  */
 final class FleetConfig
 {
-    private const KEYS = ['fleet', 'digest', 'timezone', 'time_budget', 'budget', 'notify', 'correlation', 'defaults', 'services'];
+    private const KEYS = ['fleet', 'enabled', 'digest', 'timezone', 'time_budget', 'budget', 'notify', 'correlation', 'defaults', 'services'];
 
     /**
      * @param list<ServiceEntry> $services in configuration order (FleetOrder decides the run order)
@@ -31,6 +31,7 @@ final class FleetConfig
         public readonly array $notify,
         public readonly bool $correlationEnabled,
         public readonly int $correlationToleranceSeconds,
+        public readonly bool $enabled = true,
     ) {
     }
 
@@ -50,6 +51,10 @@ final class FleetConfig
             throw new InvalidConfig('fleet must be a name of letters, digits, dot, dash and underscore');
         }
 
+        $enabled = $config['enabled'] ?? true;
+        if (!is_bool($enabled)) {
+            throw new InvalidConfig('enabled must be true or false');
+        }
         $digest = $config['digest'] ?? 'per_service';
         if ($digest !== 'per_service' && $digest !== 'combined') {
             throw new InvalidConfig('digest must be per_service or combined');
@@ -84,6 +89,7 @@ final class FleetConfig
             $notify,
             $corr['enabled'] ?? true,
             isset($corr['tolerance']) ? self::seconds($corr['tolerance'], 'correlation.tolerance') : 0,
+            $enabled,
         );
     }
 
@@ -159,11 +165,11 @@ final class FleetConfig
             if (str_contains($c->service, '/')) {
                 throw new InvalidConfig("$label: service must not contain '/'");
             }
-            if (isset($index[$c->service])) {
-                $first = $index[$c->service];
-                throw new InvalidConfig("duplicate service: services[$first] ($c->service) and $label");
+            if (isset($index[$c->stateKey])) {
+                $first = $index[$c->stateKey];
+                throw new InvalidConfig("duplicate service: services[$first] ($c->stateKey) and $label");
             }
-            $index[$c->service] = $i;
+            $index[$c->stateKey] = $i;
             $entry = new ServiceEntry($c, $priority, $provides);
             if ($entries !== []) {
                 self::sameShared($entries[0], $entry, $label);
