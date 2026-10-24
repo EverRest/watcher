@@ -344,3 +344,10 @@ own `environment` (fleet validation rejects a duplicate `service@environment`).
 
 Set `WATCHER_ENABLED=0` (the run then touches nothing), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
 nothing in your service or its logs; state can stay or be deleted.
+
+**Rolling back to a release without Redis compression.** An older release cannot decode `z1:` values: it reads them as **missing**, with no crash.
+Every value above 512 bytes (snapshots, run records, verdict blobs) is then lost for that window: a run record reads as "not run yet" (a possible
+duplicate digest) and the baseline is gone (the next run baselines again). Roll back safely in this order: (1) set `state.redis.compress_min_bytes: 0`
+and deploy; (2) wait one retention period (`state.retention`) so the compressed entries expire, or delete the package's keys by prefix
+(`watcher:*`, or your configured prefix; scan, then delete in batches); (3) only then roll back the release. `watcher check` does not warn about this:
+compression is on by default, so the warning would be on every install.

@@ -136,7 +136,9 @@ final class RedisClientConfigTest extends TestCase
     public function testAPredisShapedObjectIsWrappedByTheAdapter(): void
     {
         self::assertInstanceOf(PredisClient::class, Factory::wrapRedisInstance(new \Watcher\Tests\Fakes\FakePredis(new FakeRedisServer(new FrozenClock(new DateTimeImmutable())))));
-        self::assertInstanceOf(PhpRedisClient::class, Factory::wrapRedisInstance($this->createMock(\Redis::class)));
+        $redis = $this->createMock(\Redis::class);
+        $redis->method('getOption')->willReturn(\Redis::SERIALIZER_NONE);
+        self::assertInstanceOf(PhpRedisClient::class, Factory::wrapRedisInstance($redis));
     }
 
     public function testAFailedConnectionKeepsThePasswordOutOfTheTraceAndItsArguments(): void
