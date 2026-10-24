@@ -17,6 +17,9 @@
                         "unscannableEvents": 0,
                         "oversizedLines": 0,
                         "stateUnreadable": 0,
+                        "overflowedEvents": 0,
+                        "patternFailures": 0,
+                        "readQuality": [],
                         "candidates": 0,
                         "findings": 0,
                         "calls": {
