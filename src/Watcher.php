@@ -166,7 +166,7 @@ final class Watcher
         $this->analyzer = $analyzer;
         $this->notifier = $notifier;
         $heartbeat = $this->options->dryRun || !$config->on('heartbeat') ? null : Factory::heartbeat($config, $state, $this->clock, $hostLog);
-        $this->ledger = new RunLedger($config, $state, $this->clock, $heartbeat, $notifier, $hostLog);
+        $this->ledger = new RunLedger(config: $config, state: $state, clock: $this->clock, heartbeat: $heartbeat, notifier: $notifier, hostLog: $hostLog);
     }
 
     private static function discarding(): Notifier
@@ -597,8 +597,8 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
-        $read = new WindowRead($window, $allGroups, $totals, $anomalies, $prev['totals'] ?? [], $comparedWith, $deploy, $collector, $muteResult, $comparison, $patternFailures);
-        $analysis = $this->analyze($read, $candidates, $normalizer, $redactor, $environment, $keys, $started);
+        $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures);
+        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started);
 
         $routed = $analysis->routed;
         $usage = $analysis->usage;
@@ -764,7 +764,7 @@ final class Watcher
             $byFingerprint[$g->fingerprint] = $g;
         }
 
-        return new Analysis($routed, $usage, $costUsd, $models, $after, $truncation, $redacted, $byFingerprint, $undeclared, $failedDependencies, $annotations, $buffer, $checkpoint);
+        return new Analysis(routed: $routed, usage: $usage, costUsd: $costUsd, models: $models, after: $after, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint);
     }
 
     /** The digest message: findings, what was left out and why, cost, links. */
@@ -805,48 +805,48 @@ final class Watcher
             }
         }
         return (new DigestRenderer())->render(new DigestData(
-            $service,
-            $environment,
-            $window->start,
-            $window->end,
-            $c->schedule['timezone'],
-            $findings,
-            $analysis->byFingerprint,
-            $deploy->release,
-            $usage,
-            $models,
-            $costUsd,
-            $this->anomalyLine($anomalies, $read->previousTotals, $totals),
-            $collector->truncated() ? $collector->eventsRead() : null,
-            $truncation->droppedCount,
-            $selection->otherGroups,
-            $selection->otherEvents,
-            $muteResult->mutedCount,
-            $after['usd'],
-            $c->analysis['daily_budget_usd'],
-            $after['tokens'],
-            $c->analysis['daily_token_limit'],
-            $afterRelease,
-            $undeclared,
-            $failedDependencies,
-            $links,
-            $collector->overflowedEvents(),
-            $c->source['group_cap'],
-            $muteResult->partial,
-            $routed->notAnalysed,
-            $patternFailures,
-            $routed->notTriaged,
-            $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize,
-            $comparison->usedMode === 'previous' ? $comparedWith : null,
-            $annotations,
-            $comparison,
-            $collector->mining(),
-            ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->ledger->stats()->oversizedLines > 0 ? ['oversized_lines' => $this->ledger->stats()->oversizedLines] : []) + ($this->ledger->stats()->unscannableEvents > 0 ? ['unscannable_events' => $this->ledger->stats()->unscannableEvents] : []),
-            $routed->reused,
-            $routed->triageDropped,
-            $routed->triageCoerced,
-            $routed->unreported,
-            $routed->newOverflow,
+            service: $service,
+            environment: $environment,
+            windowStart: $window->start,
+            windowEnd: $window->end,
+            timezone: $c->schedule['timezone'],
+            findings: $findings,
+            groups: $analysis->byFingerprint,
+            release: $deploy->release,
+            usage: $usage,
+            models: $models,
+            costUsd: $costUsd,
+            levelAnomalyLine: $this->anomalyLine($anomalies, $read->previousTotals, $totals),
+            eventsReadTruncated: $collector->truncated() ? $collector->eventsRead() : null,
+            droppedGroups: $truncation->droppedCount,
+            otherGroups: $selection->otherGroups,
+            otherEvents: $selection->otherEvents,
+            muted: $muteResult->mutedCount,
+            todayUsd: $after['usd'],
+            dailyBudgetUsd: $c->analysis['daily_budget_usd'],
+            todayTokens: $after['tokens'],
+            dailyTokenLimit: $c->analysis['daily_token_limit'],
+            afterReleaseFingerprints: $afterRelease,
+            undeclaredHostCount: $undeclared,
+            failedDependencies: $failedDependencies,
+            links: $links,
+            overflowedEvents: $collector->overflowedEvents(),
+            groupCap: $c->source['group_cap'],
+            mutePartial: $muteResult->partial,
+            notAnalysed: $routed->notAnalysed,
+            patternFailures: $patternFailures,
+            notTriaged: $routed->notTriaged,
+            escalationsSkipped: $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize,
+            comparedWith: $comparison->usedMode === 'previous' ? $comparedWith : null,
+            annotations: $annotations,
+            comparison: $comparison,
+            mining: $collector->mining(),
+            readDiagnostics: ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->ledger->stats()->oversizedLines > 0 ? ['oversized_lines' => $this->ledger->stats()->oversizedLines] : []) + ($this->ledger->stats()->unscannableEvents > 0 ? ['unscannable_events' => $this->ledger->stats()->unscannableEvents] : []),
+            reusedGroups: $routed->reused,
+            triageDropped: $routed->triageDropped,
+            triageCoerced: $routed->triageCoerced,
+            unreported: $routed->unreported,
+            newOverflow: $routed->newOverflow,
         ), $c->analysis['confidence_threshold']);
     }
 

@@ -273,7 +273,7 @@ final class RefactorGoldenTest extends TestCase
         $own = Harness::events(Level::Error, 'GET http://core-api/api/items returned 500', 5);
         $quota = Harness::events(Level::Info, 'QuotaTracking drifted again', 4);
         $depEvents = Harness::events(Level::Error, 'Pool exhausted', 6);
-        $routed = static fn (array $events, array $totals): RoutedLogSource => new RoutedLogSource(['core-api' => new FakeLogSource(Harness::totalsOf($depEvents), $depEvents)], new FakeLogSource($totals, $events));
+        $routed = static fn (array $events, array $totals): RoutedLogSource => new RoutedLogSource(['core-api' => new FakeLogSource(Harness::totalsOf($depEvents), $depEvents)], new FakeLogSource($totals, array_values($events)));
 
         $h->watcher($routed($own, ['error' => 5, 'info' => 1000]))->run();
         $h->nextWindow();
