@@ -158,6 +158,16 @@ A PersistentVolumeClaim keeps the history and is the fallback when there is no R
 Redis connection failures are lazy: a trigger that is not in its run hour never connects. The Redis client is `ext-redis`
 when loaded, else `predis/predis` (`composer require predis/predis`, `^2.0 || ^3.0`); force one with `WATCHER_REDIS_CLIENT=phpredis|predis`.
 
+**Redis requirements.**
+
+- **`maxmemory-policy noeviction`** (or a `volatile-*` policy on an instance that holds only data with TTLs you accept losing). `allkeys-*` policies can evict the spend counters, the run lock and the delivered markers, which makes the budget cap and the duplicate-digest protection fail open.
+- **One key prefix per environment.** Two environments (or two tenants) with the same `service` on one Redis database share locks, spend and markers. Give each its own `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`) or its own database.
+- An injected `\Redis` must use no serializer and no compression (`SERIALIZER_NONE`, `COMPRESSION_NONE`); it is refused otherwise.
+- **Size budget.** A stored value may be at most 4 MB of JSON, 100,000 elements and 16,000 arrays/objects (`StateCodec`), so the worst accepted value decodes to about 16 MB of PHP memory. Larger values are refused at write (`StateValueTooLarge`, the run fails visibly) instead of being written and read back as missing. A snapshot passes up to roughly 90,000 groups; the default `source.group_cap` is 5,000.
+- **Errors fail closed.** A failed `GET` (a phpredis `false` with an error, a Predis error reply) raises and the run fails; only a missing key reads as missing.
+- **Lost lock.** If the run lock is found expired or taken when it is renewed, the run stops at that checkpoint (reason `lock_lost`, host log and exit code 1, no digest). With asynchronous Redis replication a failover can lose a lock; the delivered marker still prevents a second digest for the same window.
+- **Budget overshoot.** The daily budget check reads the spend and the call adds to it afterwards (the increment itself is atomic), so parallel runs of one service (different windows, a dry run next to a real run, fleet siblings) can each pass the check against the same total. The overshoot is bounded by the number of parallel runs times the cost of one step; it is not a hard cap under concurrency.
+
 ### Notification channels
 
 `watcher check` validates each destination's shape without a network call and names only the key
