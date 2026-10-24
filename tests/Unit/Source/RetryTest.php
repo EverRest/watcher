@@ -42,6 +42,25 @@ final class RetryTest extends TestCase
         };
     }
 
+    public function testNetworkFailureDoesNotChainTheGuzzleExceptionWhichCarriesTheUrl(): void
+    {
+        $url = 'https://api.telegram.org/botSECRET-TOKEN/sendMessage';
+        $fail = static fn (): ConnectException => new ConnectException("cURL error 6: Could not resolve host for {$url}", new Request('POST', $url));
+
+        foreach ([
+            fn (): ResponseInterface => $this->retry(0)->send($this->sender([$fail(), $fail(), $fail()]), 'x', false),
+            fn (): ResponseInterface => $this->retry()->sendRateLimited($this->sender([$fail()]), 'x'),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('expected SourceUnavailable');
+            } catch (SourceUnavailable $e) {
+                self::assertNull($e->getPrevious());
+                self::assertSame('x request failed (' . ConnectException::class . ')', $e->getMessage());
+            }
+        }
+    }
+
     public function testRetriesA429WithTheHint(): void
     {
         $hint = static fn (ResponseInterface $r): float => (float) json_decode((string) $r->getBody(), true)['retry_after'];
