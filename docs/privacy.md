@@ -63,7 +63,14 @@ credentials, anything from `fields`.
 5. **Model output scrub:** everything the model writes (title, evidence, cause, action) is scanned the same way before it
    is shown, stored or cached; plain numbers are kept.
 
-## What is sent to Slack
+## What is sent to your notification channel
+
+Whichever channel you configure (Slack, Telegram or Discord) receives the same content, and nothing else leaves per
+channel: Slack gets the webhook POST, Telegram a `sendMessage` call to `api.telegram.org` (chat id in the body, bot token
+in the URL), Discord a webhook POST. The credentials (webhook, bot token, chat id) are secrets: they are masked in failure
+reasons and the stored heartbeat, and never appear in logs, summaries, `check` output or exception messages. Model text is
+inert on Telegram and Discord too (HTML and Markdown escaped, links and mentions broken up; Discord posts with
+`allowed_mentions.parse` empty and embeds suppressed). Retention at Telegram or Discord is theirs.
 
 The digest and notices: finding titles, evidence, hypothesis and suggested action written by the model from the masked
 input; 12-character fingerprints; counts and trends; token and cost figures; release names; and optional links built by
@@ -126,7 +133,7 @@ new value in the model payload is the group status `expected` (alongside `new`, 
   catches the patterns above, not arbitrary words.
 - **Field-based rules.** A `field`+`equals` watch rule or mute reads field values inside the process to decide; only the
   rule name leaves. The value `equals` is compared with is in your config.
-- **Provider and Slack retention are theirs.** Check your agreement and workspace settings. The package does not select a
+- **Provider and channel (Slack, Telegram, Discord) retention are theirs.** Check your agreement and workspace settings. The package does not select a
   provider region; the API endpoint is the provider's default.
 - **Legal basis.** Whether sending masked operational data to an AI provider and a chat tool is lawful for your
   organisation (processor agreements, transfers, retention) is your decision. This page describes the technical data

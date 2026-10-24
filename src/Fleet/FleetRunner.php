@@ -63,7 +63,7 @@ final class FleetRunner
         $first = $fleet->services[0]->config;
         $state = Factory::state($first, $clock);
         $analyzer = Factory::analyzer($first);
-        $notifier = Factory::notifier($http);
+        $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
         $sources = [];
         foreach ($fleet->services as $e) {
             $sources[$e->name()] = Factory::source($e->config, $http, $clock);
@@ -133,9 +133,7 @@ final class FleetRunner
     /** Where the fleet's own messages go: its notice destination, else its digest one; null = nowhere. */
     private function destination(): ?Destination
     {
-        $webhook = $this->config->notify['notice']['webhook'] ?? $this->config->notify['digest']['webhook'] ?? null;
-
-        return $this->notifier !== null && is_string($webhook) ? new Destination($webhook) : null;
+        return $this->notifier !== null ? $this->config->destination('notice') : null;
     }
 
     private function print(string $kind, Message $message): void
@@ -202,8 +200,8 @@ final class FleetRunner
      */
     private function postCorrelated(array $findings, bool $dryRun): ?bool
     {
-        $webhook = $this->config->notify['digest']['webhook'] ?? $this->config->notify['notice']['webhook'] ?? null;
-        if ($findings === [] || $this->notifier === null || !is_string($webhook)) {
+        $to = $this->config->destination('digest');
+        if ($findings === [] || $this->notifier === null || $to === null) {
             return null;
         }
         $renderer = new CorrelationRenderer();
@@ -215,7 +213,7 @@ final class FleetRunner
                 continue;
             }
             try {
-                $this->notifier->send($message, new Destination($webhook));
+                $this->notifier->send($message, $to);
             } catch (Throwable $e) {
                 $posted = false;
                 $this->log?->warning('correlated finding not delivered: ' . $e::class, ['fleet' => $this->config->name]);
@@ -253,7 +251,7 @@ final class FleetRunner
         $first = $this->config->services[0]->config;
         $secrets = [];
         foreach ($this->config->services as $e) {
-            $secrets = [...$secrets, (string) $e->config->analysis['api_key'], $e->config->notify['digest']['webhook'], $e->config->notify['notice']['webhook']];
+            $secrets = [...$secrets, (string) $e->config->analysis['api_key'], ...$e->config->notifySecrets()];
         }
         $now = $this->clock->now();
         (new Heartbeat(

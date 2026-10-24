@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Fleet;
 
 use Watcher\Config\InvalidConfig;
+use Watcher\Notify\Destination;
 use Watcher\Config\WatchConfig;
 
 /**
@@ -61,9 +62,9 @@ final class FleetConfig
         if ($timeBudget === 0) {
             throw new InvalidConfig('time_budget must be longer than zero');
         }
-        $notify = self::map($config['notify'] ?? [], 'notify');
-        if ($digest === 'combined' && !is_string($notify['digest']['webhook'] ?? null)) {
-            throw new InvalidConfig('digest combined needs notify.digest.webhook');
+        $notify = self::notify(self::map($config['notify'] ?? [], 'notify'));
+        if ($digest === 'combined' && !isset($notify['digest'])) {
+            throw new InvalidConfig('digest combined needs notify.digest');
         }
         $corr = self::map($config['correlation'] ?? [], 'correlation');
         self::only($corr, ['enabled', 'tolerance'], 'correlation');
@@ -151,7 +152,7 @@ final class FleetConfig
             }
             unset($raw['priority'], $raw['provides']);
             try {
-                $c = WatchConfig::fromArray(array_replace_recursive($fleetNotify === [] ? [] : ['notify' => $fleetNotify], $defaults, $raw));
+                $c = WatchConfig::fromArray(self::merged($fleetNotify, $defaults, $raw));
             } catch (InvalidConfig $e) {
                 throw new InvalidConfig("$label: " . $e->getMessage());
             }
@@ -171,6 +172,60 @@ final class FleetConfig
         }
 
         return $entries;
+    }
+
+    /**
+     * Fleet defaults under `defaults` under the entry. A destination (`notify.digest`, `notify.notice`) is replaced
+     * wholesale by the nearest layer that sets it: merging would graft a fleet Slack webhook onto a service's Telegram entry.
+     *
+     * @param array<string, mixed> $fleetNotify
+     * @param array<string, mixed> $defaults
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private static function merged(array $fleetNotify, array $defaults, array $raw): array
+    {
+        $merged = array_replace_recursive($fleetNotify === [] ? [] : ['notify' => $fleetNotify], $defaults, $raw);
+        if (!is_array($merged['notify'] ?? null)) {
+            return $merged;
+        }
+        foreach (['digest', 'notice'] as $kind) {
+            foreach ([$raw, $defaults, ['notify' => $fleetNotify]] as $layer) {
+                if (is_array($layer['notify'] ?? null) && array_key_exists($kind, $layer['notify'])) {
+                    $merged['notify'][$kind] = $layer['notify'][$kind];
+                    break;
+                }
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
+     * The fleet's own destinations, validated like a service's; a kind that is absent stays absent.
+     *
+     * @param array<string, mixed> $n
+     * @return array<string, array<string, mixed>>
+     */
+    private static function notify(array $n): array
+    {
+        self::only($n, ['digest', 'notice'], 'notify');
+        $out = [];
+        foreach (['digest', 'notice'] as $kind) {
+            if (($n[$kind] ?? null) !== null) {
+                $out[$kind] = WatchConfig::notifyEntry($n[$kind], 'notify.' . $kind);
+            }
+        }
+
+        return $out;
+    }
+
+    /** Where the fleet's own messages go: the notice destination, else the digest one; for `digest`, the reverse. */
+    public function destination(string $kind): ?Destination
+    {
+        $entry = $this->notify[$kind] ?? $this->notify[$kind === 'digest' ? 'notice' : 'digest'] ?? null;
+
+        return $entry === null ? null : WatchConfig::destinationFrom($entry);
     }
 
     /** One StateStore and one Analyzer serve the fleet, so the sections they are built from must not differ. */

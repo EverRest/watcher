@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher\Config;
 
+use Watcher\Notify\Destination;
 use Watcher\Level;
 
 /**
@@ -495,26 +496,90 @@ final class WatchConfig
     private static function notify(array $n): array
     {
         self::only($n, ['digest', 'notice'], 'notify');
-        $digest = self::destination($n['digest'] ?? null, 'notify.digest');
-        $notice = ($n['notice'] ?? null) === null ? $digest : self::destination($n['notice'], 'notify.notice');
+        $digest = self::notifyEntry($n['digest'] ?? null, 'notify.digest');
+        $notice = ($n['notice'] ?? null) === null ? $digest : self::notifyEntry($n['notice'], 'notify.notice');
 
         return ['digest' => $digest, 'notice' => $notice];
     }
 
-    /** @return array<string, mixed> */
-    private static function destination(mixed $d, string $path): array
+    /**
+     * One validated `notify.<kind>` entry; every message names the key path, never a value. Public for the fleet.
+     *
+     * @return array<string, mixed>
+     */
+    public static function notifyEntry(mixed $d, string $path): array
     {
+        $keys = ['slack' => ['webhook'], 'telegram' => ['bot_token', 'chat_id', 'thread_id'], 'discord' => ['webhook']];
         if (!is_array($d)) {
             throw new InvalidConfig($path . '.webhook is required');
         }
-        self::only($d, ['driver', 'webhook'], $path);
-        $driver = self::optStr($d, 'driver', 'slack', $path . '.driver');
-        if ($driver !== 'slack') {
-            throw new InvalidConfig($path . '.driver must be slack');
+        $driver = $d['driver'] ?? 'slack';
+        if (!is_string($driver)) {
+            throw new InvalidConfig($path . '.driver must be a string');
         }
-        self::str($d, 'webhook', $path . '.webhook');
+        if (!isset($keys[$driver])) {
+            throw new InvalidConfig($path . '.driver must be one of slack, telegram, discord');
+        }
+        foreach (array_keys($d) as $key) {
+            if ($key === 'driver' || in_array($key, $keys[$driver], true)) {
+                continue;
+            }
+            if (in_array($key, array_merge(...array_values($keys)), true)) {
+                throw new InvalidConfig($path . '.' . $key . ' is not valid for driver ' . $driver);
+            }
+            throw new InvalidConfig('Unknown configuration key: ' . $path . '.' . $key);
+        }
+        if ($driver !== 'telegram') {
+            return ['driver' => $driver, 'webhook' => self::str($d, 'webhook', $path . '.webhook')];
+        }
+        $out = ['driver' => $driver, 'bot_token' => self::str($d, 'bot_token', $path . '.bot_token')];
+        $chat = $d['chat_id'] ?? null;
+        if ($chat !== null && !is_int($chat) && !is_string($chat)) {
+            throw new InvalidConfig($path . '.chat_id must be an integer or a string');
+        }
+        if ($chat === null || $chat === '') {
+            throw new InvalidConfig($path . '.chat_id is required');
+        }
+        $out['chat_id'] = (string) $chat;
+        if (isset($d['thread_id'])) {
+            if (!is_int($d['thread_id']) || $d['thread_id'] < 1) {
+                throw new InvalidConfig($path . '.thread_id must be a positive integer');
+            }
+            $out['thread_id'] = $d['thread_id'];
+        }
 
-        return array_merge($d, ['driver' => $driver]);
+        return $out;
+    }
+
+    /** @param array<string, mixed> $entry a validated entry, see {@see notifyEntry()} */
+    public static function destinationFrom(array $entry): Destination
+    {
+        return match ($entry['driver']) {
+            'telegram' => Destination::telegram($entry['bot_token'], $entry['chat_id'], $entry['thread_id'] ?? null),
+            'discord' => Destination::discord($entry['webhook']),
+            default => Destination::slack($entry['webhook']),
+        };
+    }
+
+    /** @param 'digest'|'notice' $kind */
+    public function destination(string $kind): Destination
+    {
+        return self::destinationFrom($this->notify[$kind]);
+    }
+
+    /** @return list<string> every secret of both destinations, digest first */
+    public function notifySecrets(): array
+    {
+        $out = [];
+        foreach (['digest', 'notice'] as $kind) {
+            foreach (['webhook', 'bot_token', 'chat_id'] as $k) {
+                if (isset($this->notify[$kind][$k])) {
+                    $out[] = (string) $this->notify[$kind][$k];
+                }
+            }
+        }
+
+        return $out;
     }
 
     /** @return array<string, array<string, mixed>> */

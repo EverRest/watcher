@@ -100,8 +100,16 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 | Key | Default | Notes |
 |---|---|---|
-| `notify.digest.webhook` | required | Slack incoming webhook for the digest. |
-| `notify.notice` | null | Separate destination (same shape) for failures, budget notices and baseline messages; null uses the digest destination. |
+| `notify.digest.driver` | `slack` | `slack`, `telegram` or `discord`. |
+| `notify.digest.webhook` | required for slack, discord | Slack incoming webhook, or `https://discord.com/api/webhooks/<id>/<token>` (`discordapp.com` also accepted). |
+| `notify.digest.bot_token` | required for telegram | Bot API token (`123456:ABC...`). Read it from the environment. |
+| `notify.digest.chat_id` | required for telegram | Integer or `@channel` name; a supergroup id is negative. |
+| `notify.digest.thread_id` | none | Telegram forum topic id (positive integer). Discord has no equivalent. |
+| `notify.notice` | null | Separate destination (same shape, any driver) for failures, budget notices and baseline messages; null uses the digest destination. |
+
+A key of another driver (`webhook` on a Telegram entry) is an error that names the key path, never the value. In a fleet
+file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
+key), and `digest: combined` needs a fleet `notify.digest` of any driver.
 
 ### Command-line flags (not config keys)
 
@@ -195,7 +203,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_STATE`, `WATCHER_STATE_PATH` | `state.driver`, `state.file.path` |
 | `WATCHER_REDIS_{HOST,PORT,PASSWORD,DATABASE}` | `state.redis.*` |
 | `WATCHER_DB_{DSN*,USERNAME,PASSWORD}` | `state.pdo.*` |
-| `WATCHER_SLACK_WEBHOOK*` | `notify.digest.webhook` |
+| `WATCHER_SLACK_WEBHOOK*` | `notify.digest.webhook` (Telegram and Discord: `bot_token`, `chat_id`, `webhook` the same way) |
 | `WATCHER_SERVICE_CONTEXT` | `service_context` |
 | `WATCHER_RELEASE*`, `WATCHER_COMMIT*` | `deploy.release`, `deploy.commit` |
 | `WATCHER_GRAFANA_URL`, `WATCHER_LOKI_DS_UID` | `links.grafana.*` |

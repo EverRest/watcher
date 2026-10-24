@@ -184,4 +184,19 @@ final class FleetBudgetTest extends TestCase
         self::assertSame(0.0, $result->fleetCostTodayUsd);
         self::assertSame([], $h->fleetNotifier->sent);
     }
+
+    public function testFleetPostsUseTheFleetDestinationOfAnyDriver(): void
+    {
+        $hook = 'https://discord.com/api/webhooks/123456789012345678/abcDEF_ghi-123';
+        $h = self::harness(['digest' => 'combined', 'budget' => ['daily_budget_usd' => 0.04], 'notify' => ['digest' => ['driver' => 'discord', 'webhook' => $hook]]]);
+        self::ready($h, ['api', 'bff-a']);
+
+        $h->runner()->run(null, RunOptions::default());
+
+        self::assertGreaterThan(1, count($h->fleetNotifier->sent), 'budget alerts and the combined digest');
+        foreach ($h->fleetNotifier->sent as $sent) {
+            self::assertSame('discord', $sent['to']->driver());
+            self::assertSame($hook, $sent['to']->webhook());
+        }
+    }
 }

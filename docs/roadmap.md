@@ -16,6 +16,7 @@ Decisions recorded here were made by the owner on 2026-10-23.
 | **008 kubernetes events** | CrashLoopBackOff, OOMKilled, probe failures, restarts, HPA errors as a second source | Spec written | Closes the pod-level half of the manual backlog; needed for SC-001 |
 | **009 metrics and Sentry** | Prometheus error rate / p95 deltas; Sentry issues as an already-grouped source | Spec written | |
 | **010 API context** | OpenAPI/Swagger summaries for endpoints in findings | Spec written | Low value per token |
+| **011 more-notifiers** | Telegram and Discord next to Slack; per-kind destinations, message splitting, 429 handling, fleet override, `check` per driver | Implemented | Slack unchanged; MINOR release |
 
 ## Out of scope until a constitution amendment
 

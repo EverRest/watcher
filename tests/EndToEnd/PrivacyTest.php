@@ -241,6 +241,64 @@ final class PrivacyTest extends TestCase
             self::assertStringNotContainsString($raw, $all);
         }
     }
+
+    private const TOKEN = '987654:ZYXwvuTSRqponMLKjihGFEdcbaZYXwvu01234';
+    private const CHAT = '-1009876543210';
+    private const HOOK = 'https://discord.com/api/webhooks/987654321098765432/SEEDEDhookTOKEN_xyz-789';
+
+    /** @return array<string, array{array<string, mixed>}> */
+    public static function drivers(): array
+    {
+        return [
+            'slack' => [['driver' => 'slack', 'webhook' => 'https://hooks.slack.test/services/T9/B9/SEEDEDSLACKSECRET99']],
+            'telegram' => [['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => self::CHAT]],
+            'discord' => [['driver' => 'discord', 'webhook' => self::HOOK]],
+        ];
+    }
+
+    /**
+     * SC-001: seeded personal values and credentials appear nowhere, whichever channel carries the digest.
+     *
+     * @param array<string, mixed> $destination
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('drivers')]
+    public function testNoSeededValueOrCredentialSurfacesForAnyDriver(array $destination): void
+    {
+        /** @var list<string> $seeded */
+        $seeded = require __DIR__ . '/../Fixtures/privacy/seeded-values.php';
+        $events = self::eventsFrom('corpus.log');
+        $log = new \Watcher\Tests\Fakes\SpyLogger();
+        $h = new Harness(['notify' => ['digest' => $destination]]);
+        $h->hostLog = $log;
+
+        $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $h->nextWindow();
+        $reported = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $h->nextWindow();
+        $h->analyzer->failure = new \Watcher\Analyze\AnalyzerFailed('provider said ' . implode(' ', array_filter($destination, static fn (string $k): bool => $k !== 'driver', ARRAY_FILTER_USE_KEY)));
+        $failed = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+
+        self::assertSame(RunOutcome::Reported, $reported->outcome);
+        self::assertSame(RunOutcome::Failed, $failed->outcome);
+        self::assertInstanceOf(InMemoryStateStore::class, $h->state);
+        $surfaces = [
+            'messages' => array_map(static fn (array $s): array => [$s['message'], $s['to']], $h->notifier->sent),
+            'state' => $h->state->all(),
+            'host log' => $log->records,
+            'summary' => [$reported->summary(), $failed->summary()],
+            'failure reason' => $failed->failureReason,
+        ];
+        $needles = [...$seeded, ...array_values(array_filter($destination, static fn (string $k): bool => $k !== 'driver', ARRAY_FILTER_USE_KEY))];
+        foreach ($surfaces as $where => $payload) {
+            $plain = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            foreach ([$plain, json_encode($payload, JSON_THROW_ON_ERROR)] as $haystack) {
+                foreach ($needles as $value) {
+                    self::assertStringNotContainsString((string) $value, $haystack, "leaked into $where: " . substr((string) $value, 0, 6));
+                }
+            }
+        }
+        self::assertStringContainsString('analysis failed', implode("\n", $h->sentTexts()), 'control: the failure notice was posted, and masked');
+    }
 }
 
 /** Answers like a model that echoes personal data back (defence-in-depth case). */

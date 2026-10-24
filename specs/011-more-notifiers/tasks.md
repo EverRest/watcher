@@ -27,7 +27,7 @@ these files: rebase on the then-current file before each of these tasks.
 
 ## Phase 0: Gate
 
-- [ ] T001 Run the gate command on the current tree and record the exit codes. Re-read `src/Notify/Destination.php`,
+- [x] T001 Run the gate command on the current tree and record the exit codes. Re-read `src/Notify/Destination.php`,
   `src/Watcher.php` (the `['webhook']` reads at the digest send, `announceDigestFailure`, `notices()`,
   `noticeDestination`), `src/Fleet/FleetRunner.php` and `src/Fleet/FleetConfig.php`; list every `['webhook']` read in
   `src/` with `grep -rn "\['webhook'\]" src` and paste the list into the T013/T014 notes (it is the checklist for them).
@@ -84,45 +84,45 @@ these files: rebase on the then-current file before each of these tasks.
   `tests/Unit/Notify/DiscordNotifierTest.php`: scenarios 10, 12 plus the same secret-in-trace test for the webhook;
   host re-check refuses `https://discord.com.evil.example/...`. Implement `src/Notify/DiscordNotifier.php`. Depends
   T002, T005, T006, T007.
-- [ ] T010 [US3] Red tests in `tests/Unit/Notify/RoutingNotifierTest.php`: each driver reaches the right inner notifier
+- [x] T010 [US3] Red tests in `tests/Unit/Notify/RoutingNotifierTest.php`: each driver reaches the right inner notifier
   (inner fakes), failure from the inner propagates untouched. Implement `src/Notify/RoutingNotifier.php`
   (constructor takes the three `Notifier`s). `SlackWebhookNotifier` is not modified (it reads `$to->webhook()`, which
   works for a Slack destination). Depends T008, T009.
 
 ## Phase 3: Configuration and wiring (SEQUENTIAL)
 
-- [ ] T011 [US3] **SEQUENTIAL, touches `src/Config/WatchConfig.php`.** Red tests in
+- [x] T011 [US3] **SEQUENTIAL, touches `src/Config/WatchConfig.php`.** Red tests in
   `tests/Unit/Config/NotifyConfigTest.php`: every row of the validation table in contracts/config.md (message text is
   exact, no value ever in a message: use a sentinel secret and assert absence), defaults, `notice` falls back to
   digest, `destination('digest')`/`destination('notice')` return the right driver, `notifySecrets()` lists all
   secrets, static `destinationFrom()` for the fleet; existing `WatchConfigTest` unchanged and green. Implement in
   `src/Config/WatchConfig.php`: make `destination()` per-driver (keep the Slack error texts), add the public methods,
   normalise `chat_id` to string. Depends T002.
-- [ ] T012 [US3] **SEQUENTIAL, touches `src/Config/Factory.php`.** Red tests in `tests/Unit/Config/FactoryTest.php`:
+- [x] T012 [US3] **SEQUENTIAL, touches `src/Config/Factory.php`.** Red tests in `tests/Unit/Config/FactoryTest.php`:
   `notifier($http, $lockTtl)` returns a `RoutingNotifier`, retry budget `min(60, max(1, lockTtl/10))`, `doctor()` passes
   the config's `lock_ttl`, `heartbeat()` mask list equals `notifySecrets()`. Implement in `src/Config/Factory.php`
   (optional `int $lockTtl = 900`, so `FleetCheck`/`FleetRunner` callers compile unchanged). Depends T010, T011.
-- [ ] T013 [US3] **SEQUENTIAL, touches `src/Watcher.php`, `src/Notify/NoticeRenderer.php`.** Red tests in
+- [x] T013 [US3] **SEQUENTIAL, touches `src/Watcher.php`, `src/Notify/NoticeRenderer.php`.** Red tests in
   `tests/EndToEnd/MultiChannelTest.php`: `testDigestFailureAnnouncedOnOtherChannel`, `testSameDestinationNoAnnouncement`
   (Telegram+Telegram same chat vs different chats), notices go to the notice destination, secrets from
   `notifySecrets()` masked in a failure reason (token embedded in a source error text). Replace the `['webhook']`
   reads listed in T001 with `$this->config->destination(...)`, `Destination::sameAs`, `notifySecrets()`; keep the
   `NoticeRenderer` constructor, only its callers change. Depends T011, T012.
-- [ ] T014 [US3] **SEQUENTIAL after T013, touches `src/Fleet/FleetConfig.php`, `src/Fleet/FleetRunner.php`.** Red tests:
+- [x] T014 [US3] **SEQUENTIAL after T013, touches `src/Fleet/FleetConfig.php`, `src/Fleet/FleetRunner.php`.** Red tests:
   `tests/Unit/Fleet/FleetConfigTest.php::testServiceDestinationReplacesFleetDefault` (and the reverse: service without
   its own entry inherits), `::testCombinedNeedsDigestDestinationOfAnyDriver`, fleet-level `notify` validated with the
   same rules and error path prefix; `MultiChannelTest::testFleetPostsUseFleetDestination` (budget alert, correlated
   finding, combined digest on a Discord fake). Implement: wholesale replace of `notify.digest`/`notify.notice` in
   `entries()` (R10), destinations from `WatchConfig::destinationFrom`, heartbeat secrets from each service's
   `notifySecrets()`. Depends T011, T013.
-- [ ] T015 [US4] **SEQUENTIAL after T014, touches `src/Operate/Doctor.php`.** Red tests in
+- [x] T015 [US4] **SEQUENTIAL after T014, touches `src/Operate/Doctor.php`.** Red tests in
   `tests/Unit/Operate/DoctorTest.php`: scenarios 21-23 of quickstart.md (zero HTTP calls in plain `check`, labels,
   distinctness via `sameAs`, no secret in text or JSON output). Implement: `notifier()` uses
   `Destination::invalidKey()`; `postTest()` groups by `sameAs`. Depends T011.
 
 ## Phase 4: Proof and documentation
 
-- [ ] T016 [US1] Privacy corpus (Constitution I, same change). Extend `tests/Unit/PrivacyCorpusTest.php` and
+- [x] T016 [US1] Privacy corpus (Constitution I, same change). Extend `tests/Unit/PrivacyCorpusTest.php` and
   `tests/EndToEnd/PrivacyTest.php`: run the seeded corpus through all three drivers; assert on every outbound request
   body, every exception string and trace, the `SpyLogger` records, the heartbeat record, `check`/`status`/`run --json`
   output: 0 seeded personal values, 0 credentials (token, chat id, webhooks); seeded `@everyone`/`<@1>` yield
@@ -132,7 +132,7 @@ these files: rebase on the then-current file before each of these tasks.
   Bot API method name appears under `src/`; `DiscordNotifier` only POSTs to the webhook; the notifier list
   (`glob('src/Notify/*Notifier.php')`) is pinned so a new notifier needs its own rule. Depends T008, T009 (can run in
   parallel with T011-T016).
-- [ ] T018 Docs and release. Update `docs/configuration.md` (`notify` section: drivers, keys, fleet override rule),
+- [x] T018 Docs and release. Update `docs/configuration.md` (`notify` section: drivers, keys, fleet override rule),
   `docs/privacy.md` ("What is sent to Slack" becomes "to your notification channel", credential handling, Telegram/
   Discord retention is theirs), `docs/operations.md` (egress hosts, `check` output, duplicate part 1 on rerun),
   `docs/smoke-test.md` (manual scenario of quickstart.md section 3), `config/watcher.example.php`,

@@ -32,7 +32,7 @@ return [
     ],
     'notify' => [                           // used by entries without their own, and by the correlated finding
         'digest' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_DIGEST')],
-        'notice' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_NOTICE')],
+        'notice' => ['driver' => 'telegram', 'bot_token' => getenv('WATCHER_TG_TOKEN'), 'chat_id' => getenv('WATCHER_TG_CHAT')],
     ],
     'correlation' => ['enabled' => true, 'tolerance' => 'PT0S'],
 
@@ -69,7 +69,7 @@ return [
             'source' => $loki + ['stream_tags' => ['app' => 'bff-a', 'env' => 'prod']],
             // A host in a BFF log line that equals this name becomes <URL:api>: that placeholder is what links the two.
             'dependencies' => ['api' => ['stream_tags' => ['app' => 'api', 'env' => 'prod']]],
-            'notify' => ['digest' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_BFF_A')]],
+            'notify' => ['digest' => ['driver' => 'discord', 'webhook' => getenv('WATCHER_DISCORD_BFF_A')]], // replaces the fleet digest destination as a whole
         ],
         [
             'service' => 'bff-b',

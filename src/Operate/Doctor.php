@@ -22,7 +22,7 @@ use Watcher\State\StateStore;
  *
  * The integrator builds the collaborators from config (after WatchConfig::fromArray succeeded):
  *   new Doctor($config, Factory::source($config, $http, $clock), Factory::state($config, $clock),
- *              Factory::modelCatalog($config, $http), Factory::notifier($http), $clock)
+ *              Factory::modelCatalog($config, $http), Factory::notifier($http, $config->schedule['lock_ttl']), $clock)
  * and, when WatchConfig::fromArray throws InvalidConfig: Doctor::configFailure($e->getMessage()).
  * where Factory::modelCatalog returns ?ModelCatalog: `provider === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null`.
  */
@@ -179,10 +179,9 @@ final class Doctor
     {
         $bad = [];
         foreach (['digest', 'notice'] as $kind) {
-            $url = (string) $this->config->notify[$kind]['webhook'];
-            $parts = parse_url($url);
-            if ($parts === false || ($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') === '') {
-                $bad[] = $kind . ' webhook invalid';
+            $key = $this->config->destination($kind)->invalidKey();
+            if ($key !== null) {
+                $bad[] = $kind . ' ' . $key . ' invalid'; // the key name only, never its value
             }
         }
 
@@ -191,21 +190,25 @@ final class Doctor
 
     private function postTest(): CheckResult
     {
-        /** @var array<string, list<string>> $byWebhook */
-        $byWebhook = [];
+        /** @var list<array{Destination, list<string>}> $groups one per distinct destination */
+        $groups = [];
         foreach (['digest', 'notice'] as $kind) {
-            $byWebhook[(string) $this->config->notify[$kind]['webhook']][] = $kind;
+            $to = $this->config->destination($kind);
+            foreach ($groups as $i => [$seen]) {
+                if ($seen->sameAs($to)) {
+                    $groups[$i][1][] = $kind;
+                    continue 2;
+                }
+            }
+            $groups[] = [$to, [$kind]];
         }
         $failed = [];
-        foreach ($byWebhook as $webhook => $kinds) {
+        foreach ($groups as [$to, $kinds]) {
             $label = implode(', ', $kinds);
             try {
-                $this->notifier->send(
-                    new Message("watcher check: test message for {$this->config->service} ({$label}) - safe to ignore"),
-                    new Destination((string) $webhook),
-                );
+                $this->notifier->send(new Message("watcher check: test message for {$this->config->service} ({$label}) - safe to ignore"), $to);
             } catch (Throwable) {
-                $failed[] = $label; // the exception text may carry the webhook
+                $failed[] = $label; // the exception text may carry a credential
             }
         }
 

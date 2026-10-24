@@ -426,4 +426,60 @@ final class DoctorTest extends TestCase
         self::assertStringContainsString("config         PASS\n", $text);
         self::assertStringEndsWith("result: 1 failed\n", $text);
     }
+
+    private const TOKEN = '123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789';
+    private const DISCORD = 'https://discord.com/api/webhooks/123456789012345678/abcDEF_ghi-123';
+
+    public function testTelegramShapeChecked(): void
+    {
+        $cfg = self::config([
+            'digest' => ['driver' => 'telegram', 'bot_token' => 'not-a-token-SENTINEL', 'chat_id' => '-100123'],
+            'notice' => ['driver' => 'discord', 'webhook' => 'https://discord.com.evil.example/api/webhooks/1/abc'],
+        ]);
+
+        $r = $this->doctor($cfg)->run();
+
+        self::assertFailsOnly('notifier', 'digest bot_token invalid, notice webhook invalid', $r);
+        self::assertSame(0, $this->notifier->attempts);
+        $out = $r->text() . json_encode($r->toArray());
+        self::assertStringNotContainsString('SENTINEL', $out);
+        self::assertStringNotContainsString('evil.example', $out);
+    }
+
+    public function testValidTelegramAndDiscordPass(): void
+    {
+        $cfg = self::config([
+            'digest' => ['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '@my_channel'],
+            'notice' => ['driver' => 'discord', 'webhook' => self::DISCORD],
+        ]);
+
+        self::assertTrue($this->doctor($cfg)->run()->ok());
+    }
+
+    public function testPostTestOncePerDistinctDestination(): void
+    {
+        $tg = static fn (string $chat): array => ['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => $chat];
+
+        $this->doctor(self::config(['digest' => $tg('-100111'), 'notice' => $tg('-100111')]))->run(postTest: true);
+        self::assertCount(1, $this->notifier->sent);
+        self::assertSame('watcher check: test message for orders (digest, notice) - safe to ignore', $this->notifier->sent[0]['message']->text);
+
+        $this->notifier->sent = [];
+        $this->doctor(self::config(['digest' => $tg('-100111'), 'notice' => $tg('-100222')]))->run(postTest: true);
+        self::assertCount(2, $this->notifier->sent);
+    }
+
+    public function testPostTestFailureHasNoSecret(): void
+    {
+        $this->notifier->failWith(new DeliveryFailed('telegram delivery failed: HTTP 403 ' . self::TOKEN . ' -100123'));
+        $cfg = self::config(['digest' => ['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '-100123']]);
+
+        $r = $this->doctor($cfg)->run(postTest: true);
+
+        self::assertFalse($r->ok());
+        $out = $r->text() . json_encode($r->toArray());
+        self::assertStringContainsString('delivery failed (digest, notice)', $out);
+        self::assertStringNotContainsString(self::TOKEN, $out);
+        self::assertStringNotContainsString('-100123', $out);
+    }
 }

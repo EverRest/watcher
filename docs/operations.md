@@ -15,7 +15,7 @@ The host triggers the package **at least once an hour**. On each trigger the pac
 3. It counts levels in the backend, reads lines at `warning` and above, groups and masks them, drops muted groups,
    compares with the previous window, picks candidates in code, and only then calls the model (triage, then analysis,
    then at most `escalation_cap` escalations). Nothing new means **no model call and no message**.
-4. One digest goes to Slack; counters and fingerprints go to the state store.
+4. One digest goes to your notification channel (Slack, Telegram or Discord); counters and fingerprints go to the state store.
 
 The first run for a service only records a **baseline** (no model call). Analysis starts with the second window.
 
@@ -122,8 +122,16 @@ spec:
 ```
 
 The ConfigMap holds the config file (no secrets: it reads `getenv()`), the Secret holds the keys. Egress needed: your
-log backend, `api.anthropic.com`, `hooks.slack.com`, and Redis or the database if used. A failed Job (exit 1 or 2) is
+log backend, `api.anthropic.com`, the channel host (`hooks.slack.com`, `api.telegram.org`, `discord.com` / `discordapp.com`), and Redis or the database if used. A failed Job (exit 1 or 2) is
 also a signal for your cluster alerting.
+
+### Notification channels
+
+`watcher check` validates each destination's shape without a network call and names only the key
+(`notifier: digest bot_token invalid`); `--post-test` posts one labelled message per distinct destination. A digest
+longer than the channel limit is posted as up to 10 numbered parts. If a later part fails, a rerun posts part 1 again, so
+a part may appear twice. On HTTP 429 the notifier waits the stated time within `min(60, lock_ttl / 10)` seconds, then
+fails with `HTTP 429`.
 
 ### Plain cron
 

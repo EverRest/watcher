@@ -2,7 +2,7 @@
 
 Scheduled, model-routed log analysis. Once per window (default 24 h) it reads one service's logs from
 Loki or Datadog, groups errors into fingerprinted clusters, decides in plain code which ones deserve
-attention, asks Anthropic models to judge only those, and posts one digest to Slack. It is read-only:
+attention, asks Anthropic models to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
 it never acts on a service, opens tickets, or stores raw log lines.
 
 ```
@@ -18,7 +18,7 @@ Nothing new to report means zero model calls. The first run only records a basel
 
 - PHP ^8.1.
 - Optional extensions: `ext-redis` (Redis state), `ext-pdo` plus a driver (PDO state).
-- A Slack incoming webhook, an Anthropic API key, read-only credentials for Loki or Datadog.
+- A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
 - Lumen/Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11); the core has no framework dependency.
 
 ## Install
@@ -209,7 +209,7 @@ decided in code from names, placeholders and times; it makes no model call and w
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
 - The suite passes on PHP 8.1, 8.3, 8.4 (official Docker images) and 8.5; the GitHub Actions matrix in `.github/workflows/ci.yml` has not run yet because the repository has no remote.
-- Only Slack, Anthropic, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
+- Only Slack, Telegram, Discord, Anthropic, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
 
 ## Development
 

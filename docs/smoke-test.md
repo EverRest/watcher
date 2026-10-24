@@ -4,6 +4,13 @@ Everything in the test suite runs against fakes and recorded fixtures. This guid
 real systems: your log backend, the Anthropic API and Slack. It takes about 45 minutes and costs **at most US$0.10** in
 model usage. It is read-only for your logs and posts only to a Slack channel you choose.
 
+## Other channels (spec 011)
+
+To smoke-test Telegram or Discord, set `notify.digest` to that driver (see `docs/configuration.md`), then: 1. run
+`watcher check --post-test` and see one labelled test message per distinct destination; 2. run `watcher run` over a day
+with enough findings for a long digest and see numbered parts `(1/2)`, `(2/2)`; 3. set a wrong token or webhook and see
+`telegram delivery failed: HTTP 401` or `discord delivery failed: HTTP 404` with no credential in any output.
+
 ## What "passed" means
 
 | # | Check | Pass |

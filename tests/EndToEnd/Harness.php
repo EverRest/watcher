@@ -47,7 +47,7 @@ final class Harness
     {
         // The gate runs only inside the run_at hour, so by default the schedule follows the clock (UTC);
         // tests of the gate itself pass schedule.run_at explicitly.
-        return array_replace_recursive([
+        $config = array_replace_recursive([
             'service' => 'svc',
             'schedule' => ['run_at' => $this->clock->now()->format('H:i')],
             'source' => [
@@ -64,6 +64,14 @@ final class Harness
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],
         ], $this->configPatch);
+        // A destination in the patch replaces the default wholesale (a Telegram entry must not inherit the Slack webhook).
+        foreach (['digest', 'notice'] as $kind) {
+            if (is_array($this->configPatch['notify'][$kind] ?? null)) {
+                $config['notify'][$kind] = $this->configPatch['notify'][$kind];
+            }
+        }
+
+        return $config;
     }
 
     public function watcher(\Watcher\Source\LogSource $source, ?\Watcher\Operate\RunOptions $options = null, mixed $out = null): Watcher

@@ -182,7 +182,7 @@ final class Watcher
             Factory::source($c, $http, $clock),
             Factory::state($c, $clock),
             Factory::analyzer($c),
-            Factory::notifier($http),
+            Factory::notifier($http, $c->schedule['lock_ttl']),
             $clock,
             $hostLog,
             $options,
@@ -366,6 +366,11 @@ final class Watcher
     private function fail(string $reason, string $code): RunResult
     {
         $this->code = $code;
+        foreach ([$this->config->analysis['api_key'], ...$this->config->notifySecrets()] as $secret) {
+            if (strlen((string) $secret) >= 8) {
+                $reason = str_replace((string) $secret, '[redacted]', $reason); // a provider error can echo a credential
+            }
+        }
         $this->hostLog?->error('watcher run failed: ' . $reason, ['service' => $this->config->service]);
 
         return new RunResult(RunOutcome::Failed, $reason);
@@ -387,8 +392,7 @@ final class Watcher
     /** The digest channel cannot carry its own failure; when the notice channel is another one, it can. */
     private function announceDigestFailure(DeliveryFailed $e, string $environment): void
     {
-        $n = $this->config->notify;
-        if ($n['notice']['webhook'] === $n['digest']['webhook']) {
+        if ($this->config->destination('notice')->sameAs($this->config->destination('digest'))) {
             return;
         }
         $code = preg_match('/HTTP (\d{3})/', $e->getMessage(), $m) === 1 ? ': HTTP ' . $m[1] : '';
@@ -404,12 +408,12 @@ final class Watcher
     {
         $c = $this->config;
 
-        return new NoticeRenderer([$c->analysis['api_key'], $c->notify['digest']['webhook'], $c->notify['notice']['webhook']]);
+        return new NoticeRenderer([$c->analysis['api_key'], ...$c->notifySecrets()]);
     }
 
     private function noticeDestination(): Destination
     {
-        return new Destination($this->config->notify['notice']['webhook']);
+        return $this->config->destination('notice');
     }
 
     private function environment(): string
@@ -565,7 +569,7 @@ final class Watcher
             $this->writeSnapshot($window, $allGroups, $totals);
             $this->notifier->send(
                 $renderer->renderBaseline($service, $environment, count($groups), array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups))),
-                new Destination($c->notify['notice']['webhook']),
+                $c->destination('notice'),
             );
             $this->writeRun($runKey, RunOutcome::Baselined, null, $started);
 
@@ -738,7 +742,7 @@ final class Watcher
             $reducer->mining(),
         ), $c->analysis['confidence_threshold']);
         try {
-            $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
+            $this->notifier->send($message, $c->destination('digest'));
         } catch (DeliveryFailed $e) {
             $this->announceDigestFailure($e, $environment);
 

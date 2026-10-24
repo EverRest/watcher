@@ -32,7 +32,7 @@ final class FleetCheck
         $clock ??= new SystemClock();
         $http = Factory::http();
         $state = Factory::state($fleet->services[0]->config, $clock);
-        $notifier = Factory::notifier($http);
+        $notifier = Factory::notifier($http, $fleet->services[0]->config->schedule['lock_ttl']);
 
         return new self($fleet, static fn (ServiceEntry $e, bool $postTest): CheckReport => (new Doctor(
             $e->config,

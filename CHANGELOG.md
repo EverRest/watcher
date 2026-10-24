@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added (spec 011, more notification channels)
+- `notify.digest` / `notify.notice` accept `driver: slack` (default, unchanged), `telegram` (`bot_token`, `chat_id`, optional `thread_id`) or `discord` (`webhook`). Digest and notices may go to different channels; a digest failure is announced on the notice channel when it is another destination.
+- Long digests are split at section boundaries (Telegram 4000, Discord 2000 characters, at most 10 posts, numbered `(i/n)`); a 429 waits the stated `retry_after` within `min(60, lock_ttl / 10)` seconds. Model text is inert on both channels (no live markup, links or mentions; Discord `allowed_mentions.parse` is `[]`).
+- Fleet: a service's `notify.digest` / `notify.notice` replace the fleet default wholesale; `digest: combined` needs a `notify.digest` of any driver.
+- `watcher check` validates each destination's shape per driver (no network, no value printed); `--post-test` posts one labelled message per distinct destination.
+- Bot token, chat id and webhooks are secrets: masked in failure reasons and the stored heartbeat, absent from logs, summaries and exceptions. New egress hosts: `api.telegram.org`, `discord.com` (`discordapp.com`).
+- MINOR, additive; Slack configs need no change and there is no upgrade step. Internal: `Factory::notifier($http, $lockTtl = 900)` returns a `RoutingNotifier`; `WatchConfig::destination()`, `notifySecrets()`, `destinationFrom()`.
+
 ### Added (spec 004, baselines and templates; backend patterns deferred)
 - `baseline.*` config: `previous` (default), `rolling` and `weekday` comparison modes, `windows`, `max_age`, `exclude`, `since`; digest lines name the basis and any fallback; new group status `expected`.
 - `grouping.*` config: similarity-based template clustering (`similarity`, `message_cap`); digest notices `Grouping limit reached` and `Grouping time budget reached` (counts only). Fingerprints are unchanged; templates may read differently.

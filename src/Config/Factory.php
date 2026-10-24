@@ -14,7 +14,9 @@ use Redis;
 use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Notify\DiscordNotifier;
 use Watcher\Notify\Notifier;
+use Watcher\Notify\RoutingNotifier;
 use Watcher\Operate\AnthropicModelCatalog;
 use Watcher\Operate\Doctor;
 use Watcher\Operate\Heartbeat;
@@ -22,6 +24,7 @@ use Watcher\Operate\HeartbeatStatus;
 use Watcher\Operate\ModelCatalog;
 use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
+use Watcher\Notify\TelegramNotifier;
 use Watcher\Source\LogSource;
 use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
@@ -208,9 +211,12 @@ final class Factory
         );
     }
 
-    public static function notifier(Client $http): Notifier
+    /** $lockTtl bounds the rate-limit wait of the chat notifiers: min(60, max(1, lockTtl / 10)) seconds per message. */
+    public static function notifier(Client $http, int $lockTtl = 900): Notifier
     {
-        return new SlackWebhookNotifier($http);
+        $budget = min(60, max(1, intdiv($lockTtl, 10)));
+
+        return new RoutingNotifier(new SlackWebhookNotifier($http), new TelegramNotifier($http, $budget), new DiscordNotifier($http, $budget));
     }
 
     /** Models-list probe for `check`; null for a provider without one. Makes no call by itself. */
@@ -229,7 +235,7 @@ final class Factory
             new \DateTimeZone($c->schedule['timezone']),
             $c->state['retention'],
             $log,
-            [(string) $c->analysis['api_key'], $c->notify['digest']['webhook'], $c->notify['notice']['webhook']],
+            [(string) $c->analysis['api_key'], ...$c->notifySecrets()],
         );
     }
 
@@ -245,7 +251,7 @@ final class Factory
         $clock ??= new SystemClock();
         $http ??= self::http();
 
-        return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http), $clock);
+        return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock);
     }
 
     /**

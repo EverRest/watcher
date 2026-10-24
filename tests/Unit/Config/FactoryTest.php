@@ -155,4 +155,16 @@ final class FactoryTest extends TestCase
         @unlink($dir . '/.purge');
         @rmdir($dir);
     }
+
+    public function testNotifierRoutesAndBoundsTheRetryWaitByLockTtl(): void
+    {
+        $body = '{"ok":false,"error_code":429,"parameters":{"retry_after":30}}';
+        $client = new Client(['handler' => HandlerStack::create(new MockHandler([new Response(429, [], $body)]))]);
+        $notifier = Factory::notifier($client, 100); // budget min(60, max(1, 100/10)) = 10 s < 30 s: no sleep, fails at once
+
+        self::assertInstanceOf(\Watcher\Notify\RoutingNotifier::class, $notifier);
+        $this->expectException(\Watcher\Notify\DeliveryFailed::class);
+        $this->expectExceptionMessage('telegram delivery failed: HTTP 429');
+        $notifier->send(new \Watcher\Notify\Message('x'), \Watcher\Notify\Destination::telegram('123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789', '-100123'));
+    }
 }

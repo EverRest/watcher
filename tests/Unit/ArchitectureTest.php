@@ -149,7 +149,7 @@ final class ArchitectureTest extends TestCase
         sort($notifiers);
 
         // Notifier is the contract; a new transport needs its own endpoint rule above.
-        self::assertSame(['DiscordNotifier.php', 'Notifier.php', 'SlackWebhookNotifier.php', 'TelegramNotifier.php'], $notifiers);
+        self::assertSame(['DiscordNotifier.php', 'Notifier.php', 'RoutingNotifier.php', 'SlackWebhookNotifier.php', 'TelegramNotifier.php'], $notifiers);
     }
 
     public function testNoNotifierPutsASecretInAnExceptionMessage(): void

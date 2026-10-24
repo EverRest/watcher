@@ -193,7 +193,7 @@ final class FleetConfigTest extends TestCase
         yield 'budget percents' => [['budget' => ['alert_percents' => [90, 50]]], 'budget.alert_percents must be ascending integers from 1 to 99'];
         yield 'budget key' => [['budget' => ['cap' => 1]], 'Unknown configuration key: fleet.budget.cap'];
         yield 'correlation key' => [['correlation' => ['x' => 1]], 'Unknown configuration key: fleet.correlation.x'];
-        yield 'combined needs a destination' => [['digest' => 'combined'], 'digest combined needs notify.digest.webhook'];
+        yield 'combined needs a destination' => [['digest' => 'combined'], 'digest combined needs notify.digest'];
     }
 
     /**
@@ -254,5 +254,69 @@ final class FleetConfigTest extends TestCase
         }
         $this->expectException(InvalidConfig::class);
         FleetConfig::fromPath('/nonexistent/fleet.php');
+    }
+
+    private const TOKEN = '123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789';
+
+    /**
+     * @param array<string, mixed> $notify
+     * @return array<string, mixed> a service whose notify is exactly $notify
+     */
+    private static function serviceNotify(string $name, array $notify): array
+    {
+        $s = self::service($name);
+        $s['notify'] = $notify;
+
+        return $s;
+    }
+
+    public function testServiceDestinationReplacesFleetDefault(): void
+    {
+        $tg = ['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '-100123'];
+        $f = FleetConfig::fromArray(self::fleet(
+            [self::serviceNotify('a', ['digest' => $tg]), ['service' => 'b'] + self::serviceNotify('b', [])],
+            ['notify' => ['digest' => ['webhook' => 'https://hooks.invalid/fleet']]],
+        ));
+
+        $a = $f->services[0]->config;
+        self::assertSame('telegram', $a->destination('digest')->driver());
+        self::assertSame('telegram', $a->destination('notice')->driver());
+        self::assertSame(['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '-100123'], $a->notify['digest']);
+        $b = $f->services[1]->config;
+        self::assertSame('slack', $b->destination('digest')->driver());
+        self::assertSame('https://hooks.invalid/fleet', $b->destination('digest')->webhook());
+    }
+
+    public function testServiceNoticeReplacesFleetNoticeWholesale(): void
+    {
+        $f = FleetConfig::fromArray(self::fleet(
+            [self::serviceNotify('a', ['notice' => ['driver' => 'discord', 'webhook' => 'https://discord.com/api/webhooks/1/abc']])],
+            ['notify' => ['digest' => ['webhook' => 'https://hooks.invalid/d'], 'notice' => ['webhook' => 'https://hooks.invalid/n']]],
+        ));
+
+        $a = $f->services[0]->config;
+        self::assertSame('slack', $a->destination('digest')->driver());
+        self::assertSame('discord', $a->destination('notice')->driver());
+    }
+
+    public function testCombinedNeedsDigestDestinationOfAnyDriver(): void
+    {
+        $tg = ['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '-100123'];
+        $f = FleetConfig::fromArray(self::fleet([self::service('a')], ['digest' => 'combined', 'notify' => ['digest' => $tg]]));
+
+        self::assertSame('telegram', $f->destination('digest')?->driver());
+        self::assertSame('digest combined needs notify.digest', self::message(self::fleet([self::service('a')], ['digest' => 'combined'])));
+    }
+
+    public function testFleetLevelNotifyIsValidatedWithTheSameRules(): void
+    {
+        self::assertSame(
+            'notify.digest.chat_id is required',
+            self::message(self::fleet([self::service('a')], ['notify' => ['digest' => ['driver' => 'telegram', 'bot_token' => self::TOKEN]]])),
+        );
+        self::assertSame(
+            'services[0] (a): notify.digest.bot_token is required',
+            self::message(self::fleet([self::serviceNotify('a', ['digest' => ['driver' => 'telegram', 'chat_id' => '1']])])),
+        );
     }
 }
