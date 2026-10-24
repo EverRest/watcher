@@ -157,7 +157,8 @@ final class RedisClientConfigTest extends TestCase
             self::assertStringNotContainsString($password, $e->getTraceAsString());
             $args = '';
             foreach ($e->getTrace() as $frame) {
-                if (str_starts_with((string) ($frame['class'] ?? ''), 'Watcher\\') && !str_contains((string) $frame['class'], 'Tests')) {
+                $class = $frame['class'] ?? '';
+                if (str_starts_with($class, 'Watcher\\') && !str_contains($class, 'Tests')) {
                     $args .= print_r($frame['args'] ?? [], true);
                 }
             }

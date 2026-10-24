@@ -27,6 +27,7 @@ final class PhpRedisClientSerializerTest extends TestCase
             {
             }
 
+            /** @param int $option */
             public function getOption($option): mixed
             {
                 return $option === Redis::OPT_SERIALIZER ? $this->serializer : false;
