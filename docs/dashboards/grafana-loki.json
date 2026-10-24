@@ -1,0 +1,735 @@
+{
+  "id": null,
+  "uid": null,
+  "title": "Watcher events (Loki)",
+  "description": "Runs, findings, groups, cost and budget from the watcher.event.v1 stream in Loki. Datasource and stream selector are variables.",
+  "tags": [
+    "watcher"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_LOKI",
+        "label": "Loki",
+        "type": "datasource",
+        "query": "loki",
+        "hide": 0,
+        "refresh": 1,
+        "current": {},
+        "options": [],
+        "regex": ""
+      },
+      {
+        "name": "stream",
+        "label": "Loki stream selector",
+        "type": "textbox",
+        "query": "app=\"watcher\"",
+        "current": {
+          "text": "app=\"watcher\"",
+          "value": "app=\"watcher\""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "app=\"watcher\"",
+            "value": "app=\"watcher\""
+          }
+        ],
+        "hide": 0,
+        "description": "Labels of the stream that carries the events, without braces. The dashboard reads service and environment from the event itself."
+      },
+      {
+        "name": "service",
+        "label": "Service (regex)",
+        "type": "textbox",
+        "query": ".+",
+        "current": {
+          "text": ".+",
+          "value": ".+"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": ".+",
+            "value": ".+"
+          }
+        ],
+        "hide": 0,
+        "description": "Matches the service field of the event or the service label of the metric."
+      },
+      {
+        "name": "environment",
+        "label": "Environment (regex)",
+        "type": "textbox",
+        "query": ".+",
+        "current": {
+          "text": ".+",
+          "value": ".+"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": ".+",
+            "value": ".+"
+          }
+        ],
+        "hide": 0,
+        "description": "Matches environment; events and metrics use unset when none is configured."
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "At a glance",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Failed runs (24 h)",
+      "description": "Events path. Runs whose outcome is failed.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({$stream} | json | event_type=\"run\" | outcome=\"failed\" | service=~\"$service\" | environment=~\"$environment\" [24h])) or vector(0)",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "instant"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Successful runs (36 h)",
+      "description": "Alert source: below 1 means no successful run in 36 h.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({$stream} | json | event_type=\"run\" | outcome=~\"reported|quiet|baselined\" | service=~\"$service\" | environment=~\"$environment\" [36h])) or vector(0)",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "instant"
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Last run cost",
+      "description": "Events path.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(last_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap cost_usd [$__range]))",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "instant"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Budget ratio (today)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "max(max_over_time({$stream} | json | event_type=\"budget\" | service=~\"$service\" | environment=~\"$environment\" | unwrap usd_ratio [$__range]))",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "instant"
+        }
+      ],
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.75
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Events",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Runs by outcome",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum by (outcome) (count_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" [$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{outcome}}",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Findings by severity",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum by (severity) (count_over_time({$stream} | json | event_type=\"finding\" | service=~\"$service\" | environment=~\"$environment\" [$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{severity}}",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Cost per run (USD)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum by (service) (sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap cost_usd [$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 8,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Tokens",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap tokens_in [$__interval]))",
+          "refId": "A",
+          "legendFormat": "in",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap tokens_out [$__interval]))",
+          "refId": "B",
+          "legendFormat": "out",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap tokens_cached [$__interval]))",
+          "refId": "C",
+          "legendFormat": "cached",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 13,
+        "w": 8,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Budget ratio",
+      "description": "Needs a daily budget; thresholds are at 0.9 and 1.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "max by (service) (max_over_time({$stream} | json | event_type=\"budget\" | service=~\"$service\" | environment=~\"$environment\" | unwrap usd_ratio [$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 13,
+        "w": 8,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Groups and events read per run",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "max by (service) (max_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap groups_total [$__interval]))",
+          "refId": "A",
+          "legendFormat": "groups {{service}}",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "max by (service) (max_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap events_read [$__interval]))",
+          "refId": "B",
+          "legendFormat": "events {{service}}",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Heartbeat age (s)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "max by (service) (max_over_time({$stream} | json | event_type=\"heartbeat\" | service=~\"$service\" | environment=~\"$environment\" | unwrap age_seconds [$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "Top groups",
+      "description": "Counts and fingerprints only; no log text.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{$stream} | json | event_type=\"group\" | rank <= 10 | service=~\"$service\" | environment=~\"$environment\" | line_format \"#{{.rank}} {{.fingerprint}} {{.level}} {{.trend}} {{.count}}x (was {{.previous_count}})\"",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Findings (needs include_text on the sink)",
+      "description": "Without include_text the text fields are absent and the line shows severity and counts only.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{$stream} | json | event_type=\"finding\" | service=~\"$service\" | environment=~\"$environment\" | line_format \"{{.severity}} {{.title}} ({{.group_count}}x, {{.group_trend}}) check: {{.check}}\"",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Warnings and delivery failures",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{$stream} | json | event_type=~\"config_warning|delivery_failure\" | service=~\"$service\" | environment=~\"$environment\"",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 17,
+      "type": "logs",
+      "title": "Run log",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | line_format \"{{.service}} {{.outcome}} {{.reason}} findings={{.findings_total}} cost={{.cost_usd}}\"",
+          "refId": "A",
+          "legendFormat": "",
+          "queryType": "range"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

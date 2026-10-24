@@ -24,6 +24,10 @@ final class Keys
     public const ZERO = 'zero';
     public const DELIVERED = 'sent';
     public const FAILNOTICE = 'failn';
+    public const OBSRUNS = 'obsruns';
+    public const OBSFAIL = 'obsfail';
+    public const OBSDELIV = 'obsdeliv';
+    public const OBSSEEN = 'obsseen';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -147,6 +151,28 @@ final class Keys
     public static function weekSent(string $service, string $isoWeek): string
     {
         return self::join(self::WEEKSENT, $service, $isoWeek);
+    }
+
+    /** Observability counters (spec 013): runs per outcome. Expire with state.retention like every other record (default of ttl()). */
+    public static function observeRuns(string $service, string $outcome): string
+    {
+        return self::join(self::OBSRUNS, $service, $outcome);
+    }
+
+    public static function observeSinkFailures(string $service, string $sink): string
+    {
+        return self::join(self::OBSFAIL, $service, $sink);
+    }
+
+    public static function observeDeliveryFailures(string $service, string $channel): string
+    {
+        return self::join(self::OBSDELIV, $service, $channel);
+    }
+
+    /** Snapshot of the sink-failure total at the last clean flush of that sink. */
+    public static function observeSeen(string $service, string $sink): string
+    {
+        return self::join(self::OBSSEEN, $service, $sink);
     }
 
     /** @param string $kind one of the kind constants */

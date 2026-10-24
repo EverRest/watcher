@@ -110,7 +110,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 | Key | Default | Notes |
 |---|---|---|
-| `notify.digest.driver` | `slack` | `slack`, `telegram` or `discord`. |
+| `notify.digest.driver` | `slack` | `slack`, `telegram`, `discord` or `none`. `none` is dashboard-only mode: every message is accepted and dropped, no other key is allowed under that entry, and at least one `observe` sink must be enabled (`notify.digest.driver none needs at least one enabled observe sink`). `notify.digest.enabled: false` is not the same: it skips the analysis. |
 | `notify.digest.webhook` | required for slack, discord | Slack incoming webhook, or `https://discord.com/api/webhooks/<id>/<token>` (`discordapp.com` also accepted). |
 | `notify.digest.allow_insecure` | `false` | Slack only (same for `notify.notice`): the webhook must be `https` with a host and no credentials; `true` allows plain `http` for a loopback, private-network or cluster-local host only (same rule as `source.loki.allow_insecure`). Redirects are never followed. |
 | `notify.digest.bot_token` | required for telegram | Bot API token (`123456:ABC...`). Read it from the environment. |
@@ -121,6 +121,47 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 A key of another driver (`webhook` on a Telegram entry) is an error that names the key path, never the value. In a fleet
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
 key), and `digest: combined` needs a fleet `notify.digest` of any driver.
+
+### `observe` (event sinks, spec 013)
+
+Guide, queries and the dashboard: [observability.md](observability.md). **Every sink is off** until its own `enabled` is `true`
+(a real boolean; `'false'` is rejected naming the key). A sub-key of a disabled sink is still validated. Errors name the key
+path, never a value. Redaction and the event sanitizer have no switch.
+
+| Key | Default | Notes |
+|---|---|---|
+| `observe.top_groups` | `20` | 0..100 `group` events per run; `0` emits none. |
+| `observe.log.enabled` | `false` | One JSON object per line. |
+| `observe.log.stream` | `stderr` | `stderr` or `stdout`; under `--json` stdout is replaced by stderr so the summary stays one line. |
+| `observe.log.include_text` | `false` | Opt in to put the (redacted) finding text on the stream; stderr is often forwarded by a shipper to a third party. |
+| `observe.file.enabled` | `false` | JSON lines file, mode 0600. |
+| `observe.file.path` | required when enabled | Absolute, no `..`, not a symlink; the directory must be yours and not group/world-writable unless sticky. |
+| `observe.file.rotate` | `size` | `size` or `daily`. |
+| `observe.file.max_bytes` | `10485760` | 1 MiB to 1 GiB (rotation by `size`). |
+| `observe.file.max_files` | `10` | 1..100 rotated files kept. |
+| `observe.file.retention_days` | `30` | 1..365; older files are deleted at each flush. |
+| `observe.file.include_text` | `false` | |
+| `observe.http.enabled` | `false` | NDJSON `POST`. |
+| `observe.http.url` | required when enabled | `https` with a host and no credentials; plain `http` only with `allow_insecure` and a loopback, private-network or cluster-local host. A secret: masked everywhere. Must not point at the log source. |
+| `observe.http.auth_header` | `Authorization` | Header name. |
+| `observe.http.auth_scheme` | `Bearer` | Word before the token; `''` (in code) sends the token alone, for `X-API-Key` style headers. |
+| `observe.http.auth_token` | none | A secret, at least 8 characters; no header is sent when absent. |
+| `observe.http.batch_size` | `100` | 1..1000 events per request. |
+| `observe.http.timeout` | `5` | 1..30 seconds per request; the whole flush is also bounded by what is left of the run deadline. |
+| `observe.http.allowed_hosts` | `[]` | When set, the URL host must be one of them. |
+| `observe.http.allow_insecure` | `false` | Permits `http://` (trusted-network hosts only) and emits `config_warning http_insecure_allowed`. |
+| `observe.http.allow_private_network` | `false` | Permits loopback, RFC 1918 and cluster-local hosts; link-local, CGNAT, metadata, unique-local IPv6 and reserved ranges stay refused (shared classifier). |
+| `observe.http.include_text` | `false` | `true` emits `config_warning include_text_external`. |
+| `observe.prometheus.enabled` | `false` | Textfile in the node_exporter format. |
+| `observe.prometheus.dir` | required when enabled | Absolute directory that exists and is writable. |
+| `observe.prometheus.name` | `watcher_<service>[_<environment>]` | `[a-z0-9_]{1,64}`; must be unset in a fleet. |
+| `observe.prometheus.file_mode` | `0644` | Octal string `0600`..`0664`. |
+| `observe.otlp` | reserved | Rejected: `observe.otlp is not available yet`. |
+
+With any sink enabled, `service` must match `[A-Za-z0-9][A-Za-z0-9._@-]{0,63}` and `environment` `[A-Za-z0-9][A-Za-z0-9._-]{0,31}` (the event schema's own patterns); a name outside them is refused at load naming the key, because the sanitizer would otherwise null it and every metric label would read `unset`. Without a sink the old, wider rules apply.
+
+In a fleet, `observe` may be set at the fleet level or in `defaults`; a service's own `observe` replaces it as a whole.
+Each service flushes its own events (with its own `service` and `environment`) and writes its own Prometheus file.
 
 ### Command-line flags (not config keys)
 
@@ -286,6 +327,8 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_SERVICE_CONTEXT` | `service_context` |
 | `WATCHER_RELEASE*`, `WATCHER_COMMIT*` | `deploy.release`, `deploy.commit` |
 | `WATCHER_GRAFANA_URL`, `WATCHER_LOKI_DS_UID` | `links.grafana.*` |
+| `WATCHER_OBSERVE_TOP_GROUPS`, `WATCHER_OBSERVE_{LOG,FILE,HTTP,PROMETHEUS}_*` | `observe.*`, one variable per key above (`..._ENABLED`, `..._PATH`, `..._URL`, `..._AUTH_TOKEN`, `..._ALLOWED_HOSTS` as a comma list, ...), all sinks off by default |
+| `WATCHER_DIGEST_DRIVER` | `notify.digest.driver` (`none` is dashboard-only mode; leave `WATCHER_SLACK_WEBHOOK` unset then, because a webhook under `none` is rejected) |
 | `WATCHER_REPO_URL` | `repo.web_url` |
 
 `config/watcher.php` ships `'prices' => []` and has no price variables: it fails validation (`analysis.prices (no price for models.triage)`) until you fill the array in.

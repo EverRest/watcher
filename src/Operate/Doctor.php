@@ -10,6 +10,8 @@ use Watcher\Config\WatchConfig;
 use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\Notifier;
+use Watcher\Observe\EventFactory;
+use Watcher\Observe\SinkDispatcher;
 use Watcher\Schedule\Window;
 use Watcher\Source\LogSource;
 use Watcher\Source\SourceUnavailable;
@@ -40,6 +42,7 @@ final class Doctor
         private readonly Notifier $notifier,
         private readonly ClockInterface $clock,
         private readonly bool $kubernetes = false,
+        private readonly ?SinkDispatcher $observe = null,
     ) {
     }
 
@@ -69,8 +72,15 @@ final class Doctor
         $results[] = $this->guard('prices', fn (): CheckResult => $this->prices());
         $results[] = $this->guard('state', fn (): CheckResult => $this->state());
         $results[] = $this->guard('notifier', fn (): CheckResult => $this->notifier());
+        $observing = $this->config->observe->anyEnabled();
+        if ($observing) {
+            $results[] = $this->guard('observe', fn (): CheckResult => $this->observe());
+        }
         if ($postTest) {
             $results[] = $this->guard('post_test', fn (): CheckResult => $this->postTest());
+            if ($observing) {
+                $results[] = $this->guard('post_test_observe', fn (): CheckResult => $this->postTestObserve());
+            }
         }
 
         return new CheckReport($results);
@@ -212,7 +222,61 @@ final class Doctor
             }
         }
 
-        return $bad === [] ? CheckResult::pass('notifier') : CheckResult::fail('notifier', implode(', ', $bad));
+        return $bad === [] ? CheckResult::pass('notifier', $this->config->destination('digest')->driver() === 'none' ? 'none (dashboard-only)' : '') : CheckResult::fail('notifier', implode(', ', $bad));
+    }
+
+    /** Local and syntactic only, no request: the sink, then the key that is wrong (never a path, URL or token). */
+    private function observe(): CheckResult
+    {
+        $o = $this->config->observe;
+        $ok = [];
+        $bad = [];
+        if ($o->log['enabled']) {
+            $ok[] = 'log ok';
+        }
+        if ($o->file['enabled']) {
+            $dir = dirname($o->file['path']);
+            while (!file_exists($dir) && $dir !== dirname($dir)) {
+                $dir = dirname($dir); // a missing directory is created at the first flush: its nearest existing parent must be writable
+            }
+            self::sinkOk($ok, $bad, 'file', 'path', is_dir($dir) && is_writable($dir) && !is_link($o->file['path']));
+        }
+        if ($o->http['enabled']) {
+            $ok[] = 'http ok'; // the URL was validated at load; no request is made
+        }
+        if ($o->prometheus['enabled']) {
+            self::sinkOk($ok, $bad, 'prometheus', 'dir', is_dir($o->prometheus['dir']) && is_writable($o->prometheus['dir']));
+        }
+
+        return $bad === [] ? CheckResult::pass('observe', implode(', ', $ok)) : CheckResult::fail('observe', implode(', ', $bad));
+    }
+
+    /**
+     * @param list<string> $ok
+     * @param list<string> $bad
+     */
+    private static function sinkOk(array &$ok, array &$bad, string $sink, string $key, bool $good): void
+    {
+        $good ? $ok[] = $sink . ' ok' : $bad[] = $sink . ' ' . $key . ' invalid';
+    }
+
+    /** One check_test event to every enabled sink except prometheus (a one-event file would replace the last real metrics). */
+    private function postTestObserve(): CheckResult
+    {
+        if ($this->observe === null) {
+            return CheckResult::skip('post_test_observe', 'no sink');
+        }
+        $event = (new EventFactory($this->clock, JsonSummary::packageVersion('everrest/watcher')))->checkTest($this->config->service, $this->config->environment);
+        $failed = $this->observe->dispatch([$event], 30);
+        $o = $this->config->observe;
+        $parts = [];
+        foreach (['log', 'file', 'http'] as $sink) {
+            if ($o->{$sink}['enabled']) {
+                $parts[] = $sink . (isset($failed[$sink]) ? ' failed' : ' ok');
+            }
+        }
+
+        return $failed === [] ? CheckResult::pass('post_test_observe', implode(', ', $parts)) : CheckResult::fail('post_test_observe', implode(', ', $parts));
     }
 
     private function postTest(): CheckResult

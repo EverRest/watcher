@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Watcher\Config;
 
 use Watcher\Notify\Destination;
+use Watcher\Observe\EventSchema;
+use Watcher\Observe\ObserveSettings;
 use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Level;
 use Watcher\State\Redis\RedisClient;
@@ -21,7 +23,7 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
@@ -77,6 +79,7 @@ final class WatchConfig implements \JsonSerializable
         public readonly ?string $environment,
         public readonly string $stateKey,
         private readonly array $flags,
+        public readonly ObserveSettings $observe,
     ) {
     }
 
@@ -89,7 +92,7 @@ final class WatchConfig implements \JsonSerializable
     public function __debugInfo(): array
     {
         $out = get_object_vars($this);
-        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags'] as $k) {
+        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags', 'observe'] as $k) {
             $out[$k] = '[redacted]';
         }
 
@@ -243,6 +246,24 @@ final class WatchConfig implements \JsonSerializable
             $flags[$kind] = self::flag(is_array($notifySec[$kind] ?? null) ? $notifySec[$kind] : [], 'enabled', 'notify.' . $kind . '.enabled');
         }
 
+        $observe = ObserveSettings::fromArray(
+            $config['observe'] ?? [],
+            $environment === null ? $service : $service . '_' . $environment,
+            $source['driver'] === 'datadog' ? 'api.' . ($source['datadog']['site'] ?? 'datadoghq.com') : ($source['loki']['url'] ?? null),
+        );
+        if ($observe->anyEnabled()) {
+            // The event sanitizer nulls a name outside its pattern, and a null service turns every Prometheus label into "unset": refuse it here.
+            if (preg_match(EventSchema::PATTERNS['service'], $service) !== 1) {
+                throw new InvalidConfig('service must match [A-Za-z0-9][A-Za-z0-9._@-]{0,63} when an observe sink is enabled');
+            }
+            if ($environment !== null && preg_match(EventSchema::PATTERNS['environment'], $environment) !== 1) {
+                throw new InvalidConfig('environment must match [A-Za-z0-9][A-Za-z0-9._-]{0,31} when an observe sink is enabled');
+            }
+        }
+        if (!$observe->anyEnabled() && ($notify['digest']['driver'] === 'none' || $notify['notice']['driver'] === 'none')) {
+            throw new InvalidConfig('notify.' . ($notify['digest']['driver'] === 'none' ? 'digest' : 'notice') . '.driver none needs at least one enabled observe sink');
+        }
+
         return new self(
             $service,
             $schedule,
@@ -269,6 +290,7 @@ final class WatchConfig implements \JsonSerializable
             $environment,
             $environment === null ? $service : $service . '@' . $environment,
             $flags,
+            $observe,
         );
     }
 
@@ -661,7 +683,7 @@ final class WatchConfig implements \JsonSerializable
      */
     public static function notifyEntry(mixed $d, string $path): array
     {
-        $keys = ['slack' => ['webhook', 'allow_insecure'], 'telegram' => ['bot_token', 'chat_id', 'thread_id'], 'discord' => ['webhook']];
+        $keys = ['slack' => ['webhook', 'allow_insecure'], 'telegram' => ['bot_token', 'chat_id', 'thread_id'], 'discord' => ['webhook'], 'none' => []];
         if (!is_array($d)) {
             throw new InvalidConfig($path . '.webhook is required');
         }
@@ -670,7 +692,11 @@ final class WatchConfig implements \JsonSerializable
             throw new InvalidConfig($path . '.driver must be a string');
         }
         if (!isset($keys[$driver])) {
-            throw new InvalidConfig($path . '.driver must be one of slack, telegram, discord');
+            throw new InvalidConfig($path . '.driver must be one of slack, telegram, discord, none');
+        }
+        if ($driver === 'none') {
+            // A config file lists `webhook => env(...)` for every driver; unset values (null, '', false from getenv) are not a setting.
+            $d = array_filter($d, static fn (mixed $v, int|string $k): bool => $k === 'driver' || !in_array($v, [null, '', false], true), ARRAY_FILTER_USE_BOTH);
         }
         foreach (array_keys($d) as $key) {
             if ($key === 'driver' || in_array($key, $keys[$driver], true)) {
@@ -680,6 +706,9 @@ final class WatchConfig implements \JsonSerializable
                 throw new InvalidConfig($path . '.' . $key . ' is not valid for driver ' . $driver);
             }
             throw new InvalidConfig('Unknown configuration key: ' . $path . '.' . $key);
+        }
+        if ($driver === 'none') {
+            return ['driver' => 'none']; // dashboard-only: nothing to deliver, nothing to validate
         }
         if ($driver !== 'telegram') {
             $out = ['driver' => $driver, 'webhook' => self::str($d, 'webhook', $path . '.webhook')];
@@ -715,6 +744,7 @@ final class WatchConfig implements \JsonSerializable
     public static function destinationFrom(array $entry): Destination
     {
         return match ($entry['driver']) {
+            'none' => Destination::none(),
             'telegram' => Destination::telegram($entry['bot_token'], $entry['chat_id'], $entry['thread_id'] ?? null),
             'discord' => Destination::discord($entry['webhook']),
             default => Destination::slack($entry['webhook'], ($entry['allow_insecure'] ?? false) === true),
@@ -760,8 +790,8 @@ final class WatchConfig implements \JsonSerializable
             $this->state['redis']['password'] ?? null,
             $this->state['pdo']['password'] ?? null,
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
+            ...$this->observe->secrets(),
         ];
-
         $secrets = array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
         // Longest first: masking `sk-ant` before `sk-ant-SECRET` would leave `-SECRET` behind. (usort is stable in PHP 8.)
         usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));

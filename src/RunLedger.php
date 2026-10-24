@@ -13,6 +13,10 @@ use Watcher\Config\WatchConfig;
 use Watcher\Context\DeployInfo;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\Notifier;
+use Watcher\Observe\RunObservation;
+use Watcher\Observe\RunPublisher;
+use Watcher\Privacy\RedactedGroup;
+use Watcher\Reduce\EventCollector;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\RunStats;
 use Watcher\Operate\RunSummaryData;
@@ -32,6 +36,9 @@ use Watcher\State\UnreadableCounter;
 final class RunLedger
 {
     private RunStats $stats;
+
+    /** What the event sinks are built from (spec 013); filled only when a publisher is configured. */
+    private RunObservation $observation;
 
     private ?Window $window = null;
 
@@ -57,6 +64,8 @@ final class RunLedger
         private readonly ?Heartbeat $heartbeat,
         private readonly Notifier $notifier,
         private readonly ?LoggerInterface $hostLog,
+        private readonly ?RunPublisher $publisher = null,
+        private readonly int $topGroups = 20,
     ) {
         $this->reset();
     }
@@ -64,6 +73,7 @@ final class RunLedger
     public function reset(): void
     {
         $this->stats = new RunStats();
+        $this->observation = new RunObservation();
         $this->window = null;
         $this->code = null;
         $this->todayUsd = null;
@@ -75,6 +85,95 @@ final class RunLedger
     public function stats(): RunStats
     {
         return $this->stats;
+    }
+
+    public function observation(): RunObservation
+    {
+        return $this->observation;
+    }
+
+    /** Whether the events are wanted at all: with no sink the run collects nothing for them. */
+    public function observing(): bool
+    {
+        return $this->publisher !== null;
+    }
+
+    /**
+     * What the read left, as counts and the top groups only: trends of every kept group, and the top_groups biggest
+     * as RedactedGroup (allowlisted fields; the template is never read for an event).
+     *
+     * @param list<ProblemGroup> $groups the groups after muting, comparison and watch rules
+     */
+    public function observeRead(array $groups, EventCollector $collector, int $muted): void
+    {
+        if ($this->publisher === null) {
+            return;
+        }
+        $o = $this->observation;
+        $o->trends = [];
+        foreach ($groups as $g) {
+            $o->trends[$g->status->value] = ($o->trends[$g->status->value] ?? 0) + 1;
+        }
+        usort($groups, static fn (ProblemGroup $a, ProblemGroup $b): int => [$b->count, $a->fingerprint] <=> [$a->count, $b->fingerprint]);
+        foreach (array_slice($groups, 0, $this->topGroups) as $g) {
+            $o->groups[$g->fingerprint] = RedactedGroup::fromProblemGroup($g);
+        }
+        $o->muted = $muted;
+        $o->truncated = $collector->truncated();
+        if ($collector->truncationReason() !== null) {
+            $o->warn('event_cap_hit', 'source.event_cap', $collector->eventsRead());
+        }
+        if ($collector->overflowedEvents() > 0) {
+            $o->warn('group_cap_hit', 'source.group_cap', $collector->overflowedEvents());
+        }
+    }
+
+    /** The model run's findings and spend, for the finding, group and budget events. */
+    public function observeAnalysis(Analysis $a, bool $triageOnly): void
+    {
+        if ($this->publisher === null) {
+            return;
+        }
+        $o = $this->observation;
+        $o->findings = $a->routed->findings;
+        $o->router = $a->routed;
+        foreach ($a->byFingerprint as $fp => $group) {
+            $o->groups[$fp] = $group;
+        }
+        $cfg = $this->config->analysis;
+        $o->spentTodayUsd = $a->after['usd'];
+        $o->tokensToday = $a->after['tokens'];
+        $o->dailyBudgetUsd = is_numeric($cfg['daily_budget_usd'] ?? null) ? (float) $cfg['daily_budget_usd'] : null;
+        $o->dailyTokenLimit = is_numeric($cfg['daily_token_limit'] ?? null) ? (int) $cfg['daily_token_limit'] : null;
+        $o->triageOnly = $triageOnly;
+        $ratio = max(
+            $o->dailyBudgetUsd > 0 ? $o->spentTodayUsd / $o->dailyBudgetUsd : 0.0,
+            $o->dailyTokenLimit > 0 ? $o->tokensToday / $o->dailyTokenLimit : 0.0,
+        );
+        foreach ($cfg['budget_alert_percents'] ?? [] as $percent) {
+            if (is_int($percent) && $ratio * 100 >= $percent) {
+                $o->thresholdPct = max($o->thresholdPct, $percent);
+            }
+        }
+        $notDone = $a->routed->notAnalysed + $a->routed->notTriaged;
+        if ($notDone > 0) {
+            $o->warn('analysis_partial', null, $notDone);
+        }
+    }
+
+    /**
+     * Flushes the events to the sinks (after finish(), so the heartbeat status is the fresh one) and returns the summary with
+     * the run id and the failed sinks. Never throws and never changes the outcome.
+     */
+    public function publish(RunSummaryData $summary, ?int $remainingSeconds, bool $dryRun, callable $out): RunSummaryData
+    {
+        if ($this->publisher === null) {
+            return $summary;
+        }
+        $status = $this->heartbeat?->status($this->config->heartbeat['stale_after']);
+        $done = $this->publisher->publish($this->observation, $summary, $status, $remainingSeconds, $dryRun, $out);
+
+        return $done === null ? $summary : $summary->withSinks($done['run_id'], $done['failures']);
     }
 
     /** The trigger passed the run_at gate for this window. */

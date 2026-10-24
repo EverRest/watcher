@@ -26,7 +26,7 @@ LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) 
 
 Every feature has an on/off flag in the config and a `WATCHER_*` environment variable, so one package can run in int, prod and dev with different settings; the master switch `enabled` (`WATCHER_ENABLED`) defaults to off and `environment` (`WATCHER_ENVIRONMENT`) prefixes the state keys (see [docs/configuration.md](docs/configuration.md#feature-flags-spec-012) and [docs/operations.md](docs/operations.md#enabling-and-disabling-per-environment)). Redaction has no switch.
 
-Also: `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
+Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
 
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
@@ -130,7 +130,7 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [010](specs/010-api-context/spec.md) | API context | Spec written |
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
 | [012](specs/012-feature-flags/spec.md) | Feature flags and environments | Implemented (changelog) |
-| [013](specs/013-observability-sink/spec.md) | Observability sink | Spec written |
+| [013](specs/013-observability-sink/spec.md) | Observability sink | Implemented (changelog) |
 <!-- docs:end -->
 
 ## Configuration

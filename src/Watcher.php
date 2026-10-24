@@ -45,6 +45,10 @@ use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\SlackText;
 use Watcher\Notify\Notifier;
+use Watcher\Observe\ObserveCounters;
+use Watcher\Observe\ObservingNotifier;
+use Watcher\Observe\RunPublisher;
+use Watcher\Observe\SinkDispatcher;
 use Watcher\Operate\CapturingNotifier;
 use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\EstimatingAnalyzer;
@@ -117,6 +121,8 @@ final class Watcher
 
     private readonly RunLedger $ledger;
 
+    private ?ObservingNotifier $observer = null;
+
     // Availability bookkeeping (A4-01, A4-05), reset by run().
     private ?RunGuard $guard = null;
 
@@ -146,6 +152,8 @@ final class Watcher
         ?RunOptions $options = null,
         mixed $out = null,
         private readonly ?FleetSeam $fleet = null,
+        ?SinkDispatcher $sinks = null,
+        ?ObserveCounters $counters = null,
     ) {
         $this->clock = $clock ?? new SystemClock();
         $this->options = $options ?? RunOptions::default();
@@ -164,9 +172,15 @@ final class Watcher
         }
         $this->state = $state;
         $this->analyzer = $analyzer;
+        if ($sinks !== null && !$this->options->dryRun) {
+            // Spec 013: a failed chat delivery becomes a delivery_failure event (code only), then travels on untouched.
+            $notifier = $this->observer = new ObservingNotifier($notifier);
+        }
         $this->notifier = $notifier;
+        $publisher = $sinks === null ? null : new RunPublisher($sinks, $config->observe, $this->clock, $this->options->dryRun ? null : $counters, $hostLog);
         $heartbeat = $this->options->dryRun || !$config->on('heartbeat') ? null : Factory::heartbeat($config, $state, $this->clock, $hostLog);
-        $this->ledger = new RunLedger(config: $config, state: $state, clock: $this->clock, heartbeat: $heartbeat, notifier: $notifier, hostLog: $hostLog);
+        $this->ledger = new RunLedger(config: $config, state: $state, clock: $this->clock, heartbeat: $heartbeat, notifier: $notifier, hostLog: $hostLog, publisher: $publisher, topGroups: $config->observe->topGroups);
+        $this->observer?->observeWith(fn () => $this->ledger->observation());
     }
 
     private static function discarding(): Notifier
@@ -182,22 +196,26 @@ final class Watcher
      * @param array<string, mixed> $config
      * @throws Config\InvalidConfig before any external call; callers map it to RunResult::invalidConfig()
      */
-    public static function fromConfig(array $config, ?LoggerInterface $hostLog = null, ?ClockInterface $clock = null, ?RunOptions $options = null, mixed $out = null): self
+    public static function fromConfig(#[\SensitiveParameter] array $config, ?LoggerInterface $hostLog = null, ?ClockInterface $clock = null, ?RunOptions $options = null, mixed $out = null): self
     {
         $c = WatchConfig::fromArray($config);
         $clock ??= new SystemClock();
         $http = Factory::http();
+        $state = Factory::state($c, $clock, $hostLog); // the one state instance: the unreadable-counter wrapper, the run and the sink counters share it
+        $counters = new ObserveCounters($state, $c->stateKey, $c->state['retention']);
 
         return new self(
-            $c,
-            Factory::source($c, $http, $clock),
-            Factory::state($c, $clock, $hostLog),
-            Factory::analyzer($c),
-            Factory::notifier($http, $c->schedule['lock_ttl']),
-            $clock,
-            $hostLog,
-            $options,
-            $out,
+            config: $c,
+            source: Factory::source($c, $http, $clock),
+            state: $state,
+            analyzer: Factory::analyzer($c),
+            notifier: Factory::notifier($http, $c->schedule['lock_ttl']),
+            clock: $clock,
+            hostLog: $hostLog,
+            options: $options,
+            out: $out,
+            sinks: $c->enabled ? Factory::observe($c, $clock, $hostLog, $counters, stdoutToStderr: $options?->json === true) : null,
+            counters: $counters,
         );
     }
 
@@ -365,7 +383,10 @@ final class Watcher
             $this->printEstimate($this->estimator);
         }
 
-        return new RunResult($outcome, $r->failureReason, $r->usage, $this->ledger->summary($outcome, $this->options->dryRun));
+        // Spec 013: the events leave once, after the heartbeat is written; bounded by what is left of the run deadline.
+        $summary = $this->ledger->publish($this->ledger->summary($outcome, $this->options->dryRun), $this->guard?->remainingSeconds(), $this->options->dryRun, $this->emit(...));
+
+        return new RunResult($outcome, $r->failureReason, $r->usage, $summary);
     }
 
     private function printEstimate(EstimatingAnalyzer $e): void
@@ -503,6 +524,9 @@ final class Watcher
             // H6: the previous window has no snapshot (skipped or failed day): fall back to the last good one, if recent enough.
             [$prev, $comparedWith, $this->previousKey] = $this->lastGoodSnapshot($window) + [null, null, $this->previousKey];
         }
+        if ($comparedWith !== null) {
+            $this->ledger->observation()->warn('comparison_gap', null, max(1, (int) round(($window->start->getTimestamp() - $comparedWith->getTimestamp()) / 86400)));
+        }
         $this->ledger->defer();
         $deploy = $c->on('deploy') ? DeployInfo::resolve($c->deploy, $prev['deploy'] ?? null, $this->source, $window, $selector) : new DeployInfo(null, null, null, false);
         $this->ledger->setDeployInfo($deploy);
@@ -545,6 +569,7 @@ final class Watcher
         );
 
         $groups = $rules->apply($groups, $collector->ruleHits());
+        $this->ledger->observeRead($groups, $collector, $muteResult->mutedCount);
         // Counts only: a regex that failed to evaluate (backtrack limit) fails open, and the operator should hear about it.
         $patternFailures = $rules->failures() + $mute->failures() + $collector->patternFailures();
         $this->ledger->stats()->patternFailures = $patternFailures;
@@ -617,8 +642,11 @@ final class Watcher
 
         $message = $this->buildDigest($read, $analysis, $selection, $environment);
         try {
+            $this->observer?->kind('digest');
             $this->notifier->send($message, $c->destination('digest'));
+            $this->observer?->kind('other');
         } catch (DeliveryFailed $e) {
+            $this->observer?->kind('other');
             $this->announceDigestFailure($e, $environment);
 
             throw $e;
@@ -764,7 +792,10 @@ final class Watcher
             $byFingerprint[$g->fingerprint] = $g;
         }
 
-        return new Analysis(routed: $routed, usage: $usage, costUsd: $costUsd, models: $models, after: $after, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint);
+        $analysis = new Analysis(routed: $routed, usage: $usage, costUsd: $costUsd, models: $models, after: $after, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint);
+        $this->ledger->observeAnalysis($analysis, $triageOnly);
+
+        return $analysis;
     }
 
     /** The digest message: findings, what was left out and why, cost, links. */
@@ -804,6 +835,8 @@ final class Watcher
                 $afterRelease[$g->fingerprint] = $mark;
             }
         }
+        $this->ledger->observation()->newAfterRelease = array_map('strval', array_keys($afterRelease));
+
         return (new DigestRenderer())->render(new DigestData(
             service: $service,
             environment: $environment,

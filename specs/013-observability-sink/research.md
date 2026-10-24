@@ -44,7 +44,8 @@ is given.
 
 ## R4. `include_text` defaults
 
-- **Decision**: per-sink flag. Default **true** for `log`, **false** for `file`, `http` (and not applicable to
+- **Decision (superseded by an owner decision after the Lane G review: default false for every sink, `log` included;
+  the text below is the original reasoning)**: per-sink flag. Default **true** for `log`, **false** for `file`, `http` (and not applicable to
   `prometheus`).
 - **Why true for `log`**: the lead's proposal, and the owner's first requirement is a dashboard "to view everything": with
   driver `none` and no text the dashboard would show counts but not what is wrong. The `log` sink writes to the host's

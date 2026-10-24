@@ -24,6 +24,28 @@ final class RunSummaryData
         public readonly ?string $release = null,
         public readonly bool $dryRun = false,
         public readonly ?string $environment = null,
+        private readonly ?string $runId = null,
+        /** @var array<string, int> */
+        private readonly array $sinkFailures = [],
     ) {
+    }
+
+    /** Set only when an event sink was flushed. Private on purpose: the summary data stays byte-identical without sinks. */
+    public function runId(): ?string
+    {
+        return $this->runId;
+    }
+
+    /** @return array<string, int> sink name => failures of this flush */
+    public function sinkFailures(): array
+    {
+        return $this->sinkFailures;
+    }
+
+    /** The same data plus what the event sinks reported (additive; only when a sink was flushed). */
+    /** @param array<string, int> $failures */
+    public function withSinks(string $runId, array $failures): self
+    {
+        return new self($this->outcome, $this->service, $this->reason, $this->windowStart, $this->windowEnd, $this->stats, $this->todayUsd, $this->release, $this->dryRun, $this->environment, $runId, $failures);
     }
 }
