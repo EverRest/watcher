@@ -40,6 +40,19 @@ final class NormalizerUnicodeTest extends TestCase
             'zero-width host' => ["to db{$z}.internal.corp now", ['internal']],
             'quoted local part' => ['to "john smith"@example.com now', ['john', 'smith']],
             'fullwidth password key' => ['ｐａｓｓｗｏｒｄ＝hunterxyz', ['hunterxyz']],
+            'percent-encoded fullwidth at' => ['mail jsmith%EF%BC%A0example.com sent', ['jsmith']],
+            'entity fullwidth at' => ['mail jsmith&#xFF20;example.com sent', ['jsmith']],
+            'double percent' => ['mail jsmith%2540example.com sent', ['jsmith']],
+            'triple percent' => ['mail jsmith%252540example.com sent', ['jsmith']],
+            'entity of percent' => ['mail jsmith&#37;40example.com sent', ['jsmith']],
+            'entity of entity' => ['mail jsmith&amp;#64;example.com sent', ['jsmith']],
+            'zero-width inside percent' => ["mail jsmith%4{$z}0example.com sent", ['jsmith']],
+            'bidi inside entity' => ["mail jsmith&#6\u{202E}4;example.com sent", ['jsmith']],
+            'ideographic dot email' => ['mail john@example。com sent', ['example']],
+            'halfwidth ideographic dot email' => ['mail john@example｡com sent', ['example']],
+            'ideographic dot ipv4' => ['from 10。0。0。1 now', ['10']],
+            'fullwidth dot ipv4' => ['from 10．0．0．1 now', ['10']],
+            'halfwidth dot host' => ['to api｡internal｡example now', ['internal']],
             'zero-width in password key' => ["pass{$z}word=hunterxyz", ['hunterxyz']],
         ];
     }
@@ -53,7 +66,7 @@ final class NormalizerUnicodeTest extends TestCase
         foreach ($gone as $fragment) {
             self::assertStringNotContainsString($fragment, $out, $out);
         }
-        self::assertSame(1, preg_match('/<(?:EMAIL|HOST|URL|TOKEN)>/', $out), $out);
+        self::assertSame(1, preg_match('/<(?:EMAIL|HOST|URL|TOKEN|IP)>/', $out), $out);
     }
 
     #[DataProvider('bypasses')]
@@ -62,7 +75,31 @@ final class NormalizerUnicodeTest extends TestCase
         // The fold used when ext-intl is missing is exercised on its own, then the rules run on its output.
         $out = (new Normalizer())->normalize(Normalizer::canonical($in, false));
 
-        self::assertSame(1, preg_match('/<(?:EMAIL|HOST|URL|TOKEN)>/', $out), $out);
+        self::assertSame(1, preg_match('/<(?:EMAIL|HOST|URL|TOKEN|IP)>/', $out), $out);
+    }
+
+    public function testNestingIsBoundedAndFast(): void
+    {
+        foreach ([1, 0] as $jit) {
+            ini_set('pcre.jit', (string) $jit);
+            $t = microtime(true);
+            (new Normalizer())->scan(str_repeat('%25', 1300) . str_repeat('&amp;', 600));
+            (new Normalizer())->scan(str_repeat("\u{FDFA}%2540", 700));
+            self::assertLessThan(0.5, microtime(true) - $t);
+        }
+        ini_set('pcre.jit', '1');
+        // Five levels is past the bound: the text is still scanned, never looped on.
+        self::assertIsString((new Normalizer())->normalize('a%25252525252540b.com'));
+    }
+
+    public function testDotsBetweenLabelsAreDotsEverywhere(): void
+    {
+        self::assertSame('a.b', Normalizer::canonical("a\u{3002}b", false));
+        self::assertSame('a.b', Normalizer::canonical("a\u{FF61}b", false));
+        self::assertSame('a.b', Normalizer::canonical("a\u{FF0E}b", false));
+        self::assertSame('a.b', Normalizer::canonical("a\u{FF61}b", true));
+        // A CJK sentence stop next to a space or at the end is no dot.
+        self::assertSame("接続失敗。 次\u{3002}", Normalizer::canonical("接続失敗。 次\u{3002}", false));
     }
 
     public function testFormatCharactersNeverSurvive(): void
@@ -87,6 +124,6 @@ final class NormalizerUnicodeTest extends TestCase
 
     public function testPercentSequencesInPlainTextAreOnlyDecodedForPunctuation(): void
     {
-        self::assertSame('<N>%<N> done', (new Normalizer())->normalize('100%25 done'));
+        self::assertSame('<N>% done', (new Normalizer())->normalize('100%25 done'));
     }
 }

@@ -146,4 +146,9 @@ return [
     'stepan',
     'Marichka+Fedorivna',
     'Bohdan%20Lysenko',
+    'ostap%2540example.org',
+    'hanna%EF%BC%A0example.org',
+    'yurii&#37;40example.org',
+    'roman@example。org',
+    '10。8。7。6',
 ];

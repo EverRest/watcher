@@ -137,10 +137,9 @@ final class Normalizer
             throw new NormalizationException('Input is not valid UTF-8.');
         }
 
-        $text = self::cut($text);
         // Decode and fold before any rule: `%40`, `&#64;`, fullwidth `＠`, zero-width characters and look-alikes must not
-        // carry a value past the rules. Decoding only shrinks the text, folding is cut again below.
-        $text = self::cut(self::canonical($text));
+        // carry a value past the rules (bounded: see canonical()).
+        $text = self::canonical(self::cut($text));
 
         // Input '<' and '>' (and any stray stand-ins) become inert so only our own placeholders are '<...>'.
         $text = strtr($text, [self::LT => "\u{FFFD}", self::GT => "\u{FFFD}"]);
@@ -192,30 +191,49 @@ final class Normalizer
     }
 
     /**
-     * What the rules see: one pass of percent- and HTML-entity decoding (punctuation only), format characters
-     * (`\p{Cf}`: zero-width, bidi, BOM, soft hyphen) removed, NFKC folding (fullwidth `＠`, `﹫`, ligatures), and the
-     * ideographic full stops that NFKC leaves alone. ext-intl is optional: without it only the fullwidth ASCII block
-     * and the small commercial at are folded.
+     * What the rules see, reached by a bounded fixed point (at most 4 rounds, each cut to the cap): format characters
+     * (`\p{Cf}`: zero-width, bidi, BOM, soft hyphen) removed, NFKC folding (fullwidth `＠`, `﹫`, ligatures), the
+     * ideographic / fullwidth full stops between label characters made '.', then one pass of percent decoding (delimiters
+     * and valid UTF-8 sequences) and of HTML-entity decoding. Nested encodings (`%2540`, `&#37;40`, `%EF%BC%A0`, a
+     * zero-width space inside `%40`) settle within the rounds. ext-intl is optional: without it only the fullwidth ASCII
+     * block and the small commercial at are folded.
      *
      * @internal public so the no-intl path can be tested
      */
     public static function canonical(string $text, ?bool $intl = null): string
     {
-        $text = (string) preg_replace_callback('/%(2[1-4]|2[6-9a-f]|3[a-f]|40|5[b-d]|7[b-d])/i', static fn (array $m): string => chr((int) hexdec($m[1])), $text);
-        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $intl ??= class_exists(\Normalizer::class);
         $strip = static fn (string $t): string => (string) preg_replace('/\p{Cf}+/u', '', $t);
-        $text = $strip($text);
 
-        if (($intl ?? class_exists(\Normalizer::class)) === true) {
-            // The ellipsis the path placeholder writes (`<PATH>/…/a/b`) would fold to three dots on the second scan: keep it.
-            $folded = \Normalizer::normalize(str_replace("\u{2026}", "\u{E002}", $text), \Normalizer::FORM_KC);
-            $text = is_string($folded) ? str_replace("\u{E002}", "\u{2026}", $strip($folded)) : $text;
-        } else {
-            $text = (string) preg_replace_callback('/[\x{FF01}-\x{FF5E}]/u', static fn (array $m): string => chr((int) mb_ord($m[0], 'UTF-8') - 0xFEE0), $text);
-            $text = strtr($text, ["\u{3000}" => ' ', "\u{FE6B}" => '@', "\u{FE52}" => '.']);
+        for ($round = 0; $round < 4; ++$round) {
+            $before = $text;
+            $text = $strip($text);
+
+            if ($intl) {
+                // The ellipsis the path placeholder writes (`<PATH>/…/a/b`) would fold to three dots on the second scan: keep it.
+                $folded = \Normalizer::normalize(str_replace("\u{2026}", "\u{E002}", $text), \Normalizer::FORM_KC);
+                $text = is_string($folded) ? str_replace("\u{E002}", "\u{2026}", $strip($folded)) : $text;
+            } else {
+                $text = (string) preg_replace_callback('/[\x{FF01}-\x{FF5E}]/u', static fn (array $m): string => chr((int) mb_ord($m[0], 'UTF-8') - 0xFEE0), $text);
+                $text = strtr($text, ["\u{3000}" => ' ', "\u{FE6B}" => '@', "\u{FE52}" => '.']);
+            }
+            // Full stops a browser treats as '.', but only between label characters (a CJK sentence stop is left alone).
+            $text = (string) preg_replace('/(?<=[\p{L}\p{N}])[\x{3002}\x{FF61}\x{FF0E}](?=[\p{L}\p{N}])/u', '.', $text);
+
+            $text = (string) preg_replace_callback('/%(?:2[1-9a-f]|3[a-f]|40|5[b-d]|7[b-d])|(?:%[c-f][0-9a-f](?:%[89ab][0-9a-f]){1,3})/i', static function (array $m): string {
+                $d = rawurldecode($m[0]);
+
+                return preg_match('//u', $d) === 1 ? $d : $m[0];
+            }, $text);
+            $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $text = self::cut($text);
+
+            if ($text === $before) {
+                break;
+            }
         }
 
-        return $text;
+        return $strip($text);
     }
 
     /** @return list<array{string, string|callable(array<int|string,string>): string}> */
