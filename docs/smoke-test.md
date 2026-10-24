@@ -78,10 +78,9 @@ After step 3 (config) run `watcher check` instead of hand-written curl calls:
 php bin/watcher check --config=docs/examples/smoke.config.php
 ```
 
-It checks the Loki query, the Anthropic models list (including the `Authorization: Bearer` scheme the PHP SDK sends),
+It checks the Loki query, the Anthropic models list (with the `x-api-key` scheme the analyzer sends),
 the three model ids and prices, the state store and the webhook syntax, and prints PASS/FAIL per line. Add
-`--post-test` to post one labelled message to Slack. If `provider_auth` fails with "package scheme (Authorization:
-Bearer) rejected (HTTP 401) but x-api-key works", stop and report it: the analyzer needs a code change.
+`--post-test` to post one labelled message to Slack. If `provider_auth` fails with "x-api-key rejected (HTTP 401)", the key is wrong or revoked.
 
 Fallback when `check` itself is the problem (free, read-only):
 

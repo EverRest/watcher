@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **BREAKING:** the Anthropic SDK is no longer installed. `anthropic-ai/sdk` moved to `suggest` and `require-dev`, `php-http/discovery` left `require` (the Composer plugin prompt is gone; `allow-plugins` stays for dev installs), and the default client is the built-in `AnthropicHttpClient`. To roll back, set `analysis.client = sdk` and `composer require anthropic-ai/sdk`. `check` now tries `x-api-key` first and `provider_auth` passes on it alone. Product release label **v0.1.63** (`VERSION`).
 - Own Anthropic client (lane H), step 3: `analysis.client` (`http` default, `sdk` rollback) picks the client in `Factory::analyzer`; `sdk` without `anthropic-ai/sdk` installed is an `InvalidConfig` naming `analysis.client` at config load. Product release label **v0.1.62** (`VERSION`).
 - Own Anthropic client (lane H), step 2: `AnthropicHttpClient` (Guzzle, fixed `https://api.anthropic.com/v1/messages`, `x-api-key`, no redirects, TLS verified, bounded reply, no client retry, errors name only the class or HTTP code) with recorded fixtures for 401, 429, 500, 529, refusal, max_tokens, pause_turn and a non-JSON body. Not wired yet. Product release label **v0.1.61** (`VERSION`).
 - Own Anthropic client (lane H), step 1: the analyzer now talks to a `MessagesClient`; the SDK call moved unchanged into `SdkMessagesClient`. No behaviour change. Product release label **v0.1.60** (`VERSION`).

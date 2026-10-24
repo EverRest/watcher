@@ -118,17 +118,12 @@ final class Doctor
 
             return [CheckResult::fail('provider_auth', $reason), CheckResult::skip('models', 'provider auth failed')];
         }
-        $bearer = $probe['bearer'] ?? 'error';
         $apiKey = $probe['x-api-key'] ?? 'error';
-        if ($bearer !== 200) {
-            $auth = $apiKey === 200
-                ? CheckResult::fail('provider_auth', 'package scheme (Authorization: Bearer) rejected (HTTP ' . $bearer . ') but x-api-key works: the analyzer needs a code change')
-                : CheckResult::fail('provider_auth', $bearer === 'timeout' && $apiKey === 'timeout' ? 'timeout' : 'no scheme accepted (HTTP ' . $bearer . '/' . $apiKey . ')');
-
-            return [$auth, CheckResult::skip('models', 'provider auth failed')];
+        if ($apiKey !== 200) {
+            return [CheckResult::fail('provider_auth', $apiKey === 'timeout' ? 'timeout' : 'x-api-key rejected (HTTP ' . $apiKey . ')'), CheckResult::skip('models', 'provider auth failed')];
         }
 
-        return [CheckResult::pass('provider_auth', 'package scheme accepted'), $this->models($ids)];
+        return [CheckResult::pass('provider_auth', 'x-api-key accepted'), $this->models($ids)];
     }
 
     /** @param list<string> $ids */

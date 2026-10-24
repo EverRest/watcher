@@ -167,7 +167,7 @@ final class AnthropicHttpClientTest extends TestCase
     /** @return array<string, array{int}> */
     public static function authStatuses(): array
     {
-        return ['401' => [401], '403' => [403]];
+        return ['HTTP 401' => [401], 'HTTP 403' => [403]];
     }
 
     /** @dataProvider failingStatuses */
@@ -189,7 +189,7 @@ final class AnthropicHttpClientTest extends TestCase
     /** @return array<string, array{int, string}> */
     public static function failingStatuses(): array
     {
-        return ['429' => [429, 'error-429.json'], '500' => [500, 'error-500.json'], '529' => [529, 'error-529.json']];
+        return ['rate limited' => [429, 'error-429.json'], 'server error' => [500, 'error-500.json'], 'overloaded' => [529, 'error-529.json']];
     }
 
     public function testARedirectIsAFailureNotFollowed(): void
