@@ -58,7 +58,7 @@ settings, `notify.digest.webhook`.
 | `selection.growth_factor` | `3.0` | A group "grew" when its count is at least this many times the previous window's (`> 1`). Also triggers the level-anomaly pass and dependency line reads. |
 | `selection.top_n` | `50` | Candidates kept per run. |
 | `selection.top_m` | `10` | Groups deep-analysed per run (`<= top_n`). |
-| `watch_rules` | `[]` | `name => matcher`. A matching group is a candidate whatever its level. Only the **name** leaves the service. Plain-literal `template` rules and RE2-safe `error_type` rules are also sent to the backend as search filters so matching lines below `read_min_level` are read; other rules are matched only on lines that were read. |
+| `watch_rules` | `[]` | `name => matcher`. A matching group is a candidate whatever its level. Only the **name** leaves the service. Plain-literal `template` rules and RE2-safe `error_type` rules are also sent to Loki as search filters; Datadog gets only patterns that are a single plain word (`\w+`), and one pattern it cannot express switches its server-side filter off (the client still applies it). Either way matching lines below `read_min_level` are read; other rules are matched only on lines that were read. |
 | `mute` | `[]` | List of `['fingerprint' => '...']` or a matcher, each with optional `'until' => 'YYYY-MM-DD'` (inclusive, UTC; `null` = forever). Muted groups never reach a model. A `field` mute hides a group only when **every** event of the group matches; if some do not, the group stays and the digest says `N of M events match mute #i` (counts only). |
 
 A **matcher** has exactly one of `template` (regex on the masked template), `error_type` (regex), or `field` with exactly

@@ -158,7 +158,7 @@ Every digest ends with a cost line: tokens in/out/cached, model per step, approx
 
 - `mute`: by fingerprint or matcher (`template`, `error_type`, `field`), optionally until a date. Muted groups never
   reach a model; the digest shows a count.
-- `watch_rules`: named matchers that raise a matching group's priority; only the rule name leaves the service. Plain-literal `template` rules and RE2-safe `error_type` rules are also sent to the log backend as search filters, so a matching line below `read_min_level` is still read; other rules (non-literal templates, `field`) are matched only on the lines that were read.
+- `watch_rules`: named matchers that raise a matching group's priority; only the rule name leaves the service. Plain-literal `template` rules and RE2-safe `error_type` rules are also sent to Loki as search filters (Datadog gets only plain-word literals; one pattern it cannot express switches its server-side filter off), so a matching line below `read_min_level` is still read; other rules (non-literal templates, `field`) are matched only on the lines that were read.
 - Dedupe: a group already reported is omitted unless it grew again.
 
 ## Failures and exit codes
