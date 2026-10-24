@@ -331,7 +331,7 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertSame('first', $events[0]->message);
         $this->assertSame(Level::Error, $events[1]->level);
         $this->assertSame('[structured line too large, content withheld]', $events[1]->message);
-        $this->assertSame(1, $source->readDiagnostics()['truncated_structured'] ?? 0);
+        $this->assertSame(1, ($source instanceof LokiSource ? $source->readDiagnostics() : [])['truncated_structured'] ?? 0);
         foreach ($events as $e) {
             $this->assertStringNotContainsString('leak', $e->message);
         }
