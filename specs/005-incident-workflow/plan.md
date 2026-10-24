@@ -82,3 +82,10 @@ required". Order of releases follows the task phases: each phase may ship alone.
 | Partial multi-destination delivery repeats posts on retry | per-destination markers written after delivery (FR-022) |
 | Report reads a huge or hostile file | line length cap, file size cap from the sink, allowlist parse, counts of skipped lines |
 | 013 not landed when Phase 5 starts | Phase 5 is gated on 013's `FileSink` and schema; phases 1-4 do not depend on it |
+
+## Order and versions on hot files
+
+`Watcher.php`, `WatchConfig.php`, `Factory.php`, `Notify/*` and `Keys.php` are edited by 013, 014 and (pending) 009/010. This spec
+lands after whichever of them is already on `main`; every HOT task re-reads the file and rebases on it (tasks.md table).
+Each phase is its own MINOR bump relative to the then-current `VERSION` on `main` (never a number reserved here), with its
+own CHANGELOG entry. The weekly report (Phase 4) additionally waits for 013 (FR-029, T020a).

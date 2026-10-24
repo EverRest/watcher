@@ -92,7 +92,8 @@ open for the owner (spec.md O1-O5); planning proceeds on them.
 ## R8. Fleet
 
 - `known_issues`, `drafts`, `notify.routes` and `report.weekly` are per-service blocks that a service entry replaces as a
-  whole (the `observe` rule of 013). `fleet:report` is a loop over entries, one message per service; no combined report in v1.
+  whole (the `observe` rule of 013). Reason: `FleetConfig` merges defaults with `array_replace_recursive`, which merges
+  lists index by index, so a shared route list and a service route list would be mixed. `digest: combined` + routes is rejected. `fleet:report` is a loop over entries, one message per service; no combined report in v1.
 
 ## R9. Inventory for the deferred amendment (D1), so it can be argued later
 

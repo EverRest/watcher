@@ -169,8 +169,10 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 - A fingerprint in `known_issues` that never occurs: nothing is shown; `check` reports entries not seen for
   `state.retention` as an informational line.
 - Two entries for one fingerprint: both keys are shown, in configuration order.
-- Fleet: `known_issues`, `drafts` and `notify.routes` are per service (a service entry replaces the shared block as a
-  whole, as `observe` does); the fleet combined digest is unchanged.
+- Fleet: `known_issues`, `drafts`, `notify.routes` and `report` are per service and a service entry replaces the shared
+  block **as a whole** (the fleet merge uses `array_replace_recursive`, which would otherwise merge two lists element by
+  element). With `digest: combined`, `notify.routes` is rejected at start (`notify.routes is not supported with digest combined`):
+  the combined digest is built from collected service messages and has no per-severity destinations in v1.
 - Reference count of a known group is written only after the digest is delivered, like verdicts (`BufferedStateStore`).
 - A finding with several fingerprints, one of them known: it is known only if **every** fingerprint is known and below
   threshold; otherwise it follows the normal path and shows the keys it has.
@@ -185,7 +187,7 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 **Known issues**
 
 - **FR-001**: `known_issues` is a list of `{fingerprint, ticket, status?, until?}` (contracts/config.md). `fingerprint`
-  uses the rule of `mute[].fingerprint`; `ticket` is opaque text validated by pattern; `status` is `open` (default) or
+  is 12 to 64 lowercase hex characters and matches a group whose fingerprint **starts with** it (the digest prints only the first 12; `mute[].fingerprint` is an exact full match, so its rule cannot be reused); `ticket` is opaque text validated by pattern; `status` is `open` (default) or
   `resolved`; `until` is a UTC date, inclusive, as for `mute`.
 - **FR-002**: For each group matching an open, unexpired entry the package MUST keep a reference count in its own state
   (key with expiry `state.retention`, renewed on each sighting). The group MUST NOT become a candidate while
@@ -197,7 +199,8 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 - **FR-005**: Known groups MUST be shown in one compact line (cap 10 entries plus `N more`) with ticket key, level and
   count; they MUST be counted in the JSON summary (`known`) and MUST remain in the snapshot so growth is comparable.
 - **FR-006**: Suppression by a known entry MUST be code-decided from configuration and counts (Principle IV); the model
-  never sees, selects or influences it.
+  never sees, selects or influences it. Ticket keys are configured text and MUST NOT enter any model input, any state value,
+  any spec-013 event or any log line; they appear only in the known line, finding labels, drafts and the report's join.
 - **FR-007**: Configuration errors (bad key pattern, bad fingerprint, unknown `status`, duplicate pair) MUST fail at start
   naming the key path and never the value.
 
@@ -227,6 +230,9 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 
 **Weekly report**
 
+- **FR-029**: **Dependency, not assumption**: the weekly report requires spec 013 (`FileSink`, `watcher.event.v1`, fields
+  listed in contracts/weekly-report.md). Until 013 is implemented the report tasks are blocked and `report.weekly.enabled`
+  is rejected at start with `report.weekly needs spec 013 (observe.file)`; known issues, drafts and routes do not depend on 013.
 - **FR-030**: `watcher report [--week=YYYY-Www] [--dry-run] [--json]` reads the `observe.file` JSONL files (and rotations)
   and builds the report of contracts/weekly-report.md. It reads no log source and no state store except the sent marker.
 - **FR-031**: Parsing MUST use a field allowlist per event type and the 013 patterns; unknown fields, text fields and
@@ -242,8 +248,9 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 - **FR-040**: v1 MUST NOT open a listening socket, accept inbound requests, create or change anything in a tracker, chat
   thread or monitored system, or hold a credential beyond the existing notifier destinations. Any such addition requires a
   ratified amendment first (D1, D2).
-- **FR-041**: Each feature has its own flag per spec 012 (`known_issues.enabled`, `drafts.enabled`, `notify.routes` empty,
-  `report.weekly.enabled`) and `WATCHER_*` variables; defaults are today's behaviour.
+- **FR-041**: Each feature has its own flag per spec 012 (`known_issues.enabled`, `drafts.enabled`, `notify.routes_enabled`,
+  `report.weekly.enabled`) and `WATCHER_*` variables; defaults are today's behaviour. The master switch `enabled` false
+  makes `report` return `disabled` like the other commands, and the new flags are registered in the flags architecture test.
 - **FR-042**: The privacy corpus is extended in the same change as the first outbound text (drafts, route messages, report).
 
 ### Key Entities
@@ -275,7 +282,7 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 - Ticket keys are opaque (`ABC-123`, `#4521`); the package does not know any tracker.
 - The Operator learns a fingerprint from the digest (12 hex characters) and records it in configuration; changing
   configuration is a deployment, which is accepted for v1 (that is the cost of having no control channel).
-- Spec 011 is implemented (drivers). Spec 013 is implemented for the weekly report only; known issues, drafts and routes do
+- Spec 011 is implemented (drivers). Spec 013 is a hard dependency of the weekly report only (FR-029); known issues, drafts and routes do
   not depend on it. Spec 012's flag pattern applies. Spec 014 (several runs per day) changes windows, not this feature:
   known and draft markers are keyed by window end, so they work per run.
 - The notice destination already exists and is the default for drafts and the report.

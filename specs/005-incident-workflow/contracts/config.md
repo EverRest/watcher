@@ -9,7 +9,7 @@ with `Watcher\Config\Env`). Errors name the key path, never the value.
 |---|---|---|---|
 | `known_issues.enabled` | bool | true (inert with no entries) | `WATCHER_KNOWN_ISSUES_ENABLED`; false = no read, no state write, no line |
 | `known_issues.entries` | list | `[]` | each: |
-| `.fingerprint` | string | required | same rule as `mute[].fingerprint` (12-hex digest form or full) |
+| `.fingerprint` | string | required | `^[0-9a-f]{12,64}$`; a group matches when its fingerprint starts with it (the digest prints 12 characters; `mute[].fingerprint` is an exact full match and is not reused) |
 | `.ticket` | string | required | `^[A-Za-z0-9][A-Za-z0-9._#-]{0,39}$`; no URL, no whitespace |
 | `.status` | `open`\|`resolved` | `open` | |
 | `.until` | `YYYY-MM-DD` | none | UTC, inclusive (as `mute`) |
@@ -27,7 +27,9 @@ Environment: `WATCHER_KNOWN_ISSUES` is **not** provided for the entries (fingerp
 | `drafts.max_per_run` | int 1..20 | 5 | `WATCHER_DRAFTS_MAX_PER_RUN` |
 | `drafts.destination` | destination block | the notice destination | same shape and validation as `notify.digest` |
 
-Enabled with no destination and notice disabled: rejected (`drafts.destination required`).
+Enabled with no `drafts.destination` and `notify.notice.enabled` false (spec 012): rejected (`drafts.destination required`). Drafts
+are also skipped when `notify.digest.enabled` is false (no analysis, no findings). Drafts and the report never send to a
+disabled destination.
 
 ## `notify.routes`
 
@@ -46,7 +48,9 @@ Enabled with no destination and notice disabled: rejected (`drafts.destination r
 | `severity` | non-empty list of severities, no value in two routes |
 | `to` | destination block as `notify.digest`; must differ from the digest destination and from other routes (`sameAs`) |
 
-At most 5 routes. Empty or absent = unchanged. Secrets in `to` are masked everywhere (spec 011 FR-011). No env form for
+At most 5 routes. Empty or absent = unchanged. `WatchConfig::notify()` currently accepts only `digest` and `notice`; `routes`
+and `routes_enabled` are added to that list. Flag (spec 012): `notify.routes_enabled` (`WATCHER_ROUTES_ENABLED`, default true,
+inert without routes). Routes are inert when `notify.digest.enabled` is false (no digest, nothing to split). Secrets in `to` are masked everywhere (spec 011 FR-011). No env form for
 `routes` (secrets come from `WATCHER_*` variables read inside the destination block).
 
 ## `report.weekly`
@@ -59,7 +63,7 @@ At most 5 routes. Empty or absent = unchanged. Secrets in `to` are masked everyw
 
 ## Validation messages (exact)
 
-`known_issues.entries[2].ticket invalid` · `known_issues.entries[0].status must be open or resolved` ·
+`known_issues.entries[2].ticket invalid` · `known_issues.entries[1].fingerprint must be 12 to 64 hex characters` · `known_issues.entries[0].status must be open or resolved` ·
 `drafts.destination required` · `notify.routes[1].to must differ from notify.digest` ·
 `notify.routes[0].severity overlaps notify.routes[1]` · `report.weekly needs observe.file enabled with retention_days >= 8`.
 

@@ -56,7 +56,7 @@ not the last line of output.
   and the selector branch. (FR-003, Principle IV)
 - [ ] T004 [US1] **HOT `src/Config/WatchConfig.php`.** `tests/Unit/Config/IncidentConfigTest.php` (red, known part): every key
   and message of contracts/config.md for `known_issues` (pattern, status, until, duplicates, max 200, strict booleans,
-  `WATCHER_KNOWN_ISSUES_ENABLED`), key path in every message, value never. Then `WatchConfig` builds `KnownIssue[]`. (FR-001, FR-007, FR-041)
+  `WATCHER_KNOWN_ISSUES_ENABLED`), key path in every message, value never; fingerprint `^[0-9a-f]{12,64}$` with starts-with matching. Register `known_issues.enabled` in `tests/Unit/FeatureFlagsArchitectureTest.php` and the env table of `docs/configuration.md`. Then `WatchConfig` builds `KnownIssue[]`. (FR-001, FR-007, FR-041)
 - [ ] T005 [P] [US1] `tests/Unit/Notify/KnownLineTest.php` (red): contracts/known-issues.md line format, cap, escaping of the
   ticket key by driver, nothing but key/level/count. Then the renderer helper (file edited in T008). Test file only here.
 - [ ] T006 [US1] `tests/Unit/State/KnownKeysTest.php` (red; runs in the shared state-store contract suite): `Keys::KNOWN`
@@ -64,7 +64,7 @@ not the last line of output.
 - [ ] T007 [US1] `tests/EndToEnd/KnownIssuesTest.php` (red, written before touching `Watcher`): `testKnownGroupMakesNoModelCall`
   (fake analyzer records 0 calls for the group), `testGrownKnownIsReported` (label, `ref` updated only after delivery),
   `testResolvedIsRegression`, `testExpiredEntryNote`, `testMuteWins`, `testSnapshotKeepsKnownGroups`, `testDisabledIsByteIdentical`
-  (golden vs previous output), `testRefNotWrittenWhenDeliveryFails`. Plus `tests/EndToEnd/CostTest::testKnownIssuesUseFewerTokens`
+  (golden vs previous output), `testRefNotWrittenWhenDeliveryFails`, `testTicketKeyNeverInModelInputStateOrEvents` (scan `CompactPayload`, system prompt, every `RecordingStateStore` write, JSON summary), `testPrefixMatchOf12Chars`. Plus `tests/EndToEnd/CostTest::testKnownIssuesUseFewerTokens`
   (token-budget fixture, Principle V). (SC-001)
 - [ ] T008 [US1] **HOT `src/Watcher.php`, `src/Notify/{DigestData,DigestRenderer}.php`, `src/Select/*`.** Wire after
   `$mute->filter(...)`: partition, pass `known_grown` reasons to the selector, add known lines and labels to `DigestData`,
@@ -83,7 +83,7 @@ not the last line of output.
 ## Phase 2: Routing by severity (US3, P2)
 
 - [ ] T012 [US3] **HOT `WatchConfig.php`, `Factory.php`.** `tests/Unit/Config/IncidentConfigTest.php` routes part (red):
-  shape, name pattern/uniqueness, overlap of severities, `to` validated by the digest destination code, `must differ from
+  `routes` and `routes_enabled` accepted by `notify()` (currently `only(['digest','notice'])`), `digest: combined` + routes rejected, inert when `notify.digest.enabled` is false, flag registered in `FeatureFlagsArchitectureTest`, shape, name pattern/uniqueness, overlap of severities, `to` validated by the digest destination code, `must differ from
   notify.digest`, max 5, secrets never in messages; `tests/Unit/WatcherFromConfigTest.php` additions: routes build
   `Destination`s through the existing `RoutingNotifier`. Then both files. (FR-020, FR-023, FR-041)
 - [ ] T013 [P] [US3] `tests/Unit/Incident/RouteTableTest.php` (red): first match wins, unmatched -> default, each finding
@@ -125,8 +125,9 @@ not the last line of output.
 
 ## Phase 4: Weekly report (US4, P3; gated on spec 013 `FileSink` and schema)
 
+- [ ] T020a [US4] **Gate**: confirm spec 013 has landed (`src/Observe/FileSink.php`, `docs/schema/watcher.event.v1.schema.json`); if not, stop this phase. Add `tests/Unit/Report/EventFieldsDriftTest.php` (red): the fields `EventLog` reads exist in 013's `EventSchema` for `run`, `group`, `finding`. (FR-029)
 - [ ] T021 [P] [US4] `tests/Unit/Report/EventLogTest.php` (red) with `tests/Fixtures/report/week-2026-W43.jsonl` and bad-line
-  fixtures: allowlist parse; text fields ignored even when present; wrong schema/type/pattern/other service skipped and
+  fixtures: allowlist parse; `dry_run: true` and skipped outcomes ignored; retried window: spend summed, groups taken from the latest `ts` only; text fields ignored even when present; wrong schema/type/pattern/other service skipped and
   counted; rotated files read in order; line length cap; missing/unreadable file -> exception naming the setting; read-only
   (file untouched). Then `src/Report/EventLog.php`. (FR-030, FR-031)
 - [ ] T022 [P] [US4] `tests/Unit/Report/WeeklyReportTest.php` (red): recurring (distinct days, tie-break), stopped after a
@@ -138,11 +139,13 @@ not the last line of output.
   `report.weekly needs observe.file enabled with retention_days >= 8`, ranges, env) and `tests/EndToEnd/ReportTest.php`
   (red): `testSentOncePerWeek`, `testNoRunsSendsNothing`, `testMissingFileFailsLoud` (non-zero, nothing sent),
   `testFailedDeliveryDoesNotMarkSent`, `testDryRunPrintsOnly`, `testJsonHasNoText`, `testTextFieldsIgnored`,
-  `testWeekOption`. Then config, `Keys::REPORTSENT`, command `report` (`--week`, `--dry-run`, `--json`). (FR-030..FR-034, SC-004)
+  `testWeekOption`, `testMasterSwitchOffReturnsDisabled` (extend `tests/Unit/DisabledCommandsTest.php`), `testRejectedWithoutSpec013`. Then config, the command table in `Cli/Application.php` (options `--week=`, `--dry-run`, `--json`), `Keys::REPORTSENT`, command `report` (`--week`, `--dry-run`, `--json`). (FR-030..FR-034, SC-004)
 - [ ] T024 [US4] Docs and dashboards link: `docs/operations.md` (cron line, why 8 days retention, coverage caveat),
   `docs/privacy.md`, `docs/configuration.md`.
 - [ ] T025 [US4] **HOT `src/Fleet/{FleetConfig,FleetRunner}.php`, `Cli/Application.php`.** `tests/Unit/Fleet/FleetReportTest.php`
-  (red): per-service blocks replace shared ones as a whole; `fleet:report` loops entries; one message per service;
+  (red): per-service blocks replace shared ones as a whole (a shared route list and a service route list are NOT merged
+  index by index, the default `array_replace_recursive` would); `digest: combined` with `notify.routes` rejected
+  (`notify.routes is not supported with digest combined`); `fleet:report` loops entries; one message per service;
   error prefixes (`services[1] (bff-a): ...`); a failing service does not stop the rest and the exit code is non-zero. Then the
   two classes plus `fleet:report`. Also covers fleet use of `known_issues`, `drafts`, `notify.routes` (per-service blocks).
 

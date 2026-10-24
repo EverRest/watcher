@@ -2,6 +2,9 @@
 
 Built by `watcher report` from `watcher.event.v1` lines of the `observe.file` sink (spec 013, contracts/event-schema.v1.md).
 
+**Depends on** spec 013 (`docs/schema/watcher.event.v1.schema.json`, `observe.file.path|max_files|retention_days`). The
+field names below are 013's; a drift test compares them with 013's `EventSchema` allowlists once 013 lands.
+
 ## Input read (allowlist; everything else is dropped and counted)
 
 | Event | Fields used |
@@ -10,6 +13,10 @@ Built by `watcher report` from `watcher.event.v1` lines of the `observe.file` si
 | `run` | `outcome`, `release`, `muted`, `groups_total`, `tokens_in`, `tokens_out`, `tokens_cached`, `cost_usd`, `findings_by_severity` |
 | `group` | `fingerprint` (12 hex), `level`, `count`, `trend`, `watch_rules` |
 | `finding` | `fingerprint`, `severity` |
+
+`run` events with `dry_run: true` or an outcome other than reported, quiet, baselined or failed are ignored. A window retried
+after a failure produces several `run` events with different `run_id`: spend is summed over all of them (it was spent), but
+recurring, stopped and noisiest use, per `(window_end, fingerprint)`, only the `group` event of the latest `ts`.
 
 Lines with another `schema`, an unknown `event_type`, a bad pattern, or another service@environment are skipped (the last
 silently, the others counted in `N lines skipped`). Text fields (`title`, `evidence`, ...) are never read.
@@ -35,7 +42,7 @@ Coverage: top 20 groups per run · 0 lines skipped
 
 - ISO week in UTC; default is the last complete week; `--week=YYYY-Www` selects another.
 - Lists are `report.weekly.top` long (default 5); ties break by fingerprint asc.
-- "known: KEY" comes from `known_issues` configuration only (join on fingerprint).
+- "known: KEY" comes from `known_issues` configuration only (join: event fingerprint, 12 characters, starts-with match).
 - No `run` event with outcome reported, quiet or baselined in the week: nothing is sent.
 - Sent once per week and service@environment: marker `rsent:<service>:<isoWeek>`, expiry 14 days. A failed delivery does
   not write the marker.
