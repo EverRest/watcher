@@ -21,11 +21,26 @@ final class AnthropicHttpClient implements MessagesClient
     private const VERSION = '2023-06-01';
     private const STOPS = ['end_turn', 'max_tokens', 'refusal', 'pause_turn'];
 
+    /** The key lives in a closure, not a property, so var_export() (which ignores __debugInfo) cannot print it. */
+    private readonly \Closure $apiKey;
+
     public function __construct(
-        #[\SensitiveParameter] private readonly string $apiKey,
+        #[\SensitiveParameter] string $apiKey,
         private readonly ClientInterface $http,
         private readonly int $timeout = 60,
     ) {
+        $this->apiKey = static fn (): string => $apiKey;
+    }
+
+    /** @return array<string, string> */
+    public function __debugInfo(): array
+    {
+        return ['apiKey' => '[redacted]'];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException('AnthropicHttpClient is not serialisable.');
     }
 
     public function create(string $model, int $maxTokens, string $system, string $user, array $schema, bool $thinking): ModelReply
@@ -43,7 +58,7 @@ final class AnthropicHttpClient implements MessagesClient
 
         try {
             $response = $this->http->request('POST', self::URL, [
-                'headers' => ['x-api-key' => $this->apiKey, 'anthropic-version' => self::VERSION, 'Accept' => 'application/json'],
+                'headers' => ['x-api-key' => ($this->apiKey)(), 'anthropic-version' => self::VERSION, 'Accept' => 'application/json'],
                 'json' => $body,
                 'http_errors' => false,
                 'allow_redirects' => false,
