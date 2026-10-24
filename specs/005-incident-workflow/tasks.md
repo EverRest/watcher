@@ -62,9 +62,9 @@ not the last line of output.
 - [ ] T006 [US1] `tests/Unit/State/KnownKeysTest.php` (red; runs in the shared state-store contract suite): `Keys::KNOWN`
   with `state.retention` expiry renewed per sighting, URL-encoded components. Then `src/State/Keys.php` (**HOT**, re-read first). (FR-002, Principle I expiry)
 - [ ] T007 [US1] `tests/EndToEnd/KnownIssuesTest.php` (red, written before touching `Watcher`): `testKnownGroupMakesNoModelCall`
-  (fake analyzer records 0 calls for the group), `testGrownKnownIsReported` (label, `ref` updated only after delivery),
+  (fake analyzer records 0 calls for the group), `testGrownKnownIsReported` (label; `ref` never changes afterwards, still reported on the next run: `testRefNeverRecomputed`),
   `testResolvedIsRegression`, `testExpiredEntryNote`, `testMuteWins`, `testSnapshotKeepsKnownGroups`, `testDisabledIsByteIdentical`
-  (golden vs previous output), `testRefNotWrittenWhenDeliveryFails`, `testTicketKeyNeverInModelInputStateOrEvents` (scan `CompactPayload`, system prompt, every `RecordingStateStore` write, JSON summary), `testPrefixMatchOf12Chars`. Plus `tests/EndToEnd/CostTest::testKnownIssuesUseFewerTokens`
+  (golden vs previous output), `testFirstSightRefNotWrittenWhenDeliveryFails`, `testTicketKeyNeverInModelInputStateOrEvents` (scan `CompactPayload`, system prompt, every `RecordingStateStore` write, JSON summary), `testPrefixMatchOf12Chars`. Plus `tests/EndToEnd/CostTest::testKnownIssuesUseFewerTokens`
   (token-budget fixture, Principle V). (SC-001)
 - [ ] T008 [US1] **HOT `src/Watcher.php`, `src/Notify/{DigestData,DigestRenderer}.php`, `src/Select/*`.** Wire after
   `$mute->filter(...)`: partition, pass `known_grown` reasons to the selector, add known lines and labels to `DigestData`,
@@ -86,7 +86,7 @@ not the last line of output.
   `routes` and `routes_enabled` accepted by `notify()` (currently `only(['digest','notice'])`), `digest: combined` + routes rejected, inert when `notify.digest.enabled` is false, flag registered in `FeatureFlagsArchitectureTest`, shape, name pattern/uniqueness, overlap of severities, `to` validated by the digest destination code, `must differ from
   notify.digest`, max 5, secrets never in messages; `tests/Unit/WatcherFromConfigTest.php` additions: routes build
   `Destination`s through the existing `RoutingNotifier`. Then both files. (FR-020, FR-023, FR-041)
-- [ ] T013 [P] [US3] `tests/Unit/Incident/RouteTableTest.php` (red): first match wins, unmatched -> default, each finding
+- [ ] T013 [P] [US3] `tests/Unit/Incident/RouteTableTest.php` (red): first match wins in configuration order, catch-all last (`to` omitted = default), config without catch-all rejected, defensive unmatched -> default digest with a notice, each finding
   once, stable order, empty route absent from the result. Then `src/Incident/{Route,RouteTable}.php`. (FR-020)
 - [ ] T014 [US3] **HOT `Watcher.php` delivery block, `DigestData`, `DigestRenderer`, `Keys.php`.**
   `tests/EndToEnd/RoutingTest.php` (red first): `testEachFindingOnce`, `testEmptyRouteSendsNothing`,
@@ -139,7 +139,7 @@ not the last line of output.
   `report.weekly needs observe.file enabled with retention_days >= 8`, ranges, env) and `tests/EndToEnd/ReportTest.php`
   (red): `testSentOncePerWeek`, `testNoRunsSendsNothing`, `testMissingFileFailsLoud` (non-zero, nothing sent),
   `testFailedDeliveryDoesNotMarkSent`, `testDryRunPrintsOnly`, `testJsonHasNoText`, `testTextFieldsIgnored`,
-  `testWeekOption`, `testMasterSwitchOffReturnsDisabled` (extend `tests/Unit/DisabledCommandsTest.php`), `testRejectedWithoutSpec013`. Then config, the command table in `Cli/Application.php` (options `--week=`, `--dry-run`, `--json`), `Keys::REPORTSENT`, command `report` (`--week`, `--dry-run`, `--json`). (FR-030..FR-034, SC-004)
+  `testWeekOption`, `testBareReportFails`, `testMasterSwitchOffReturnsDisabled` (extend `tests/Unit/DisabledCommandsTest.php`), `testRejectedWithoutSpec013`. Then config, the command table in `Cli/Application.php` (options `--week=`, `--dry-run`, `--json`), `Keys::REPORTSENT`, command `report --weekly` (`--week`, `--dry-run`, `--json`; bare `report` fails) and `src/Laravel/ReportCommand.php` (`watcher:report`) registered in `WatcherServiceProvider` with a test beside the existing Laravel command tests. (FR-030..FR-034, SC-004)
 - [ ] T024 [US4] Docs and dashboards link: `docs/operations.md` (cron line, why 8 days retention, coverage caveat),
   `docs/privacy.md`, `docs/configuration.md`.
 - [ ] T025 [US4] **HOT `src/Fleet/{FleetConfig,FleetRunner}.php`, `Cli/Application.php`.** `tests/Unit/Fleet/FleetReportTest.php`

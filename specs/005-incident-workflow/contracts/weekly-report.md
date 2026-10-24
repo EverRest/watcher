@@ -1,6 +1,6 @@
 # Contract: weekly report
 
-Built by `watcher report` from `watcher.event.v1` lines of the `observe.file` sink (spec 013, contracts/event-schema.v1.md).
+Built by `watcher report --weekly` from `watcher.event.v1` lines of the `observe.file` sink (spec 013, contracts/event-schema.v1.md).
 
 **Depends on** spec 013 (`docs/schema/watcher.event.v1.schema.json`, `observe.file.path|max_files|retention_days`). The
 field names below are 013's; a drift test compares them with 013's `EventSchema` allowlists once 013 lands.

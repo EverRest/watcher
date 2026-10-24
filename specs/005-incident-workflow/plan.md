@@ -12,7 +12,7 @@ Scenarios: [quickstart.md](quickstart.md). Order: [tasks.md](tasks.md).
 Four independent increments on the existing pipeline, none with inbound traffic or tracker access: (1) `KnownIssues`
 removes operator-listed groups from candidate selection until they grow, and labels findings with their ticket key; (2)
 `TicketDraft` renders a fixed-layout text per finding and sends it to a destination after the digest; (3) `RouteTable`
-splits the findings of a digest across destinations by severity using the existing drivers; (4) `watcher report` builds a
+splits the findings of a digest across destinations by severity using the existing drivers; (4) `watcher report --weekly` builds a
 weekly message from the spec-013 event file. The four core contracts are unchanged; no new contract is introduced.
 
 ## Technical Context

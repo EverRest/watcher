@@ -10,7 +10,7 @@ Config shapes: [contracts/config.md](contracts/config.md). Text layouts: [contra
 | `KnownIssue` | immutable value | `fingerprint`, `ticket`, `resolved: bool`, `until: ?string` from `known_issues`. |
 | `KnownIssues` | service | `partition(list<ProblemGroup>, DateTimeImmutable $now): KnownResult` using `KnownReferences`; pure apart from the state read. |
 | `KnownResult` | immutable value | `kept` (groups to select from), `lines` (`list<KnownLine>`), `grown` (fingerprints -> `known_grown`), `labels` (fingerprint -> label text), counts. |
-| `KnownReferences` | state wrapper | `get/put` of the reference count with expiry; writes through the run's `BufferedStateStore`. |
+| `KnownReferences` | state wrapper | `get/put` of the reference count with expiry; writes (first sight only) through the run's `BufferedStateStore`. |
 | `TicketDraft` | pure builder | `Finding` + `RedactedGroup` + release + links + known key -> `Message` with one `draft` section. |
 | `DraftPlan` | pure | selects and orders findings (severity desc, count desc, fingerprint asc), applies `max_per_run`, skips already-sent markers. |
 | `RouteTable` | pure | ordered `Route{name, severities, Destination}`; `assign(list<Finding>): array<routeIndex|'default', list<Finding>>`. |
@@ -36,7 +36,7 @@ stored: log text, finding text, draft text, ticket keys (keys live in configurat
 
 - Known (suppressed): entry open, `until` null or >= today UTC, `status` open, `count < growth_factor * ref` (a missing
   `ref` is set to `count` at first sight).
-- `known_grown`: same but `count >= growth_factor * ref`; after delivery `ref := count`.
+- `known_grown`: same but `count >= growth_factor * ref`; `ref` is never recomputed (O5); it is written once at first sight.
 - Route assignment: first route with `finding.severity in route.severities`; else default.
 - Report week: ISO week in UTC, `window_end` of `run` events decides the day.
 - Recurring: distinct days (by `window_end` date) a fingerprint appears in `group` events; top 5 by days, then summed count.

@@ -1,8 +1,8 @@
 # Research: Incident Workflow (v1)
 
 Only decisions where more than one design was reasonable. Facts are from the code as of 2026-10-24 (`src/Select/MuteList.php`,
-`src/Analyze/VerdictCache.php`, `src/Notify/*`, `src/Watcher.php`, `src/State/Keys.php`). Decisions marked **(assumed)** are
-open for the owner (spec.md O1-O5); planning proceeds on them.
+`src/Analyze/VerdictCache.php`, `src/Notify/*`, `src/Watcher.php`, `src/State/Keys.php`). Decisions marked **(owner)** were
+taken by the owner on 2026-10-24 (spec.md, "Owner decisions").
 
 ## R1. Why v1 fits Principle II without an amendment
 
@@ -17,9 +17,9 @@ open for the owner (spec.md O1-O5); planning proceeds on them.
 
 ## R2. Where the "count at link time" comes from
 
-- **Decision (assumed, O5)**: the package records the count the first time it sees an open entry's fingerprint in the
+- **Decision (owner, O5)**: the package records the count the first time it sees an open entry's fingerprint in the
   retention period (`known:<service>:<fp>` = `{ref, seen}`), renews the expiry on each sighting, and compares with
-  `selection.growth_factor * ref`. After a `known_grown` finding is delivered, `ref` becomes the current count.
+  `selection.growth_factor * ref`. `ref` is written once, at first sight, and is never recomputed (owner decision O5). Consequence, accepted: a group that stays above the threshold is reported on every run until the Operator removes or reopens the entry or it falls below; that is loud on purpose (the problem is much larger than when it was linked).
 - **Why**: configuration is static text; the Operator cannot know the count at the time they link. Reusing
   `selection.growth_factor` adds no key and matches how `reported` markers work (`Keys::reported`, `atCount`).
 - **Alternative**: a `count` field in each entry. Rejected: asks the Operator for a number they do not have, and goes stale.
@@ -48,10 +48,10 @@ open for the owner (spec.md O1-O5); planning proceeds on them.
 
 ## R5. Drafts: where they go and how they look
 
-- **Decision (assumed, O2)**: one message per finding, sent after the digest to `drafts.destination` (default: notice
+- **Decision (owner, O2)**: one message per finding, sent after the digest to `drafts.destination` (default: notice
   destination). Separate messages can each be copied whole; a block inside the digest cannot be cut off by the digest's
   size cap and splitting (spec 011 splits at section boundaries and numbers parts).
-- **Decision (assumed, O4)**: a new section kind `draft`, rendered as a code block by `SlackText`, `TelegramText`
+- **Decision (owner, O4)**: a new section kind `draft`, rendered as a code block by `SlackText`, `TelegramText`
   (`<pre>` with HTML escaping) and `DiscordText` (fenced, with the defang of spec 011 FR-007 and the fence character
   neutralised). Reusing `notice` would render labels and values with channel markup escapes that corrupt a paste.
   Cost: three formatter changes (hot files), covered by the spec 011 injection corpus.
@@ -62,8 +62,10 @@ open for the owner (spec.md O1-O5); planning proceeds on them.
 
 ## R6. Routing semantics
 
-- **Decision (assumed, O3)**: first matching route wins, one destination per finding, default digest takes the rest. A
-  finding appears once (SC-003), the default Reader sees `N finding(s) routed to <name>`.
+- **Decision (owner, O3)**: first matching route wins, in configuration order, one destination per finding. A catch-all
+  last route is required when routes are enabled (`to` omitted = the default digest destination); an unmatched finding at
+  runtime fails closed to the default digest destination with a notice. A finding appears once (SC-003); the default Reader
+  sees `N finding(s) routed to <name>` for findings sent elsewhere.
 - **Alternative**: copy to every match. Rejected: duplicates, and the rule "which is the source of truth" becomes unclear.
 - **Alternative**: route by service. Rejected: fleet service entries already override `notify` per service (spec 011 US3).
 - **Mentions (D4)**: the first draft had configured mentions. Spec 011 FR-006 sets Discord `allowed_mentions.parse: []`
@@ -76,7 +78,7 @@ open for the owner (spec.md O1-O5); planning proceeds on them.
 
 ## R7. Weekly report: command or part of `run`
 
-- **Decision (assumed, O1)**: a command `watcher report`, called weekly by the host's scheduler, idempotent per ISO week via
+- **Decision (owner, O1)**: a command `watcher report --weekly` (Laravel: `watcher:report --weekly`), called weekly by the host's scheduler, idempotent per ISO week via
   a marker. `run` is untouched, so the largest hot file (`Watcher.php`) gets no report logic and a malformed event file can
   never fail a run.
 - **Alternative**: send from `Watcher::conclude` on the first run of a new ISO week, like `heartbeat.weekly_summary`.
@@ -94,6 +96,10 @@ open for the owner (spec.md O1-O5); planning proceeds on them.
 - `known_issues`, `drafts`, `notify.routes` and `report.weekly` are per-service blocks that a service entry replaces as a
   whole (the `observe` rule of 013). Reason: `FleetConfig` merges defaults with `array_replace_recursive`, which merges
   lists index by index, so a shared route list and a service route list would be mixed. `digest: combined` + routes is rejected. `fleet:report` is a loop over entries, one message per service; no combined report in v1.
+
+## R11. Post-release and on-demand runs (D6)
+
+Not in 005. Spec 014 owns schedules and windows; the integrator adds the roadmap row.
 
 ## R9. Inventory for the deferred amendment (D1), so it can be argued later
 

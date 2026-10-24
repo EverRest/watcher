@@ -61,8 +61,8 @@ regression with the key.
    count recorded the first time it was seen, **When** the run executes, **Then** the group is shown only in the compact
    known line (key, level, count), is not a candidate, and no triage or analysis call is made for it.
 2. **Given** the same group at or above that threshold, **When** the run executes, **Then** it is a candidate with reason
-   `known_grown`, goes through the normal pipeline, and its finding shows `known, grown · ABC-123`; the recorded
-   reference count becomes the current count once the digest is delivered.
+   `known_grown`, goes through the normal pipeline, and its finding shows `known, grown · ABC-123`; the reference count is not
+   recomputed (O5), so it is reported again on every run while the count stays at or above the threshold.
 3. **Given** an entry with `status: resolved` and the group appears, **When** the run executes, **Then** the group is
    handled by the normal pipeline and its finding shows `regression of ABC-123 (marked resolved)`. The Operator removes
    or reopens the entry; the package never edits configuration.
@@ -120,17 +120,20 @@ a line saying two findings were routed; each finding appears in exactly one plac
 
 **Acceptance Scenarios**:
 
-1. **Given** `notify.routes` with entries `{name, severity: [...], to: <destination>}`, **When** a digest is built, **Then**
-   each finding goes to the first route whose severity list contains its severity, and to the default digest destination
-   when none does.
+1. **Given** `notify.routes` with entries `{name, severity: [...], to: <destination>}` in order and a last catch-all entry
+   `{name, to?}` (no `severity`; `to` omitted = the default digest destination), **When** a digest is built, **Then** each
+   finding goes to the first route, in configuration order, whose severity list contains its severity, otherwise to the
+   catch-all. Routes without a catch-all are rejected at start. A finding that would still match nothing (defence in depth)
+   goes to the default digest destination with a notice, never dropped.
 2. **Given** a route with no matching finding, **Then** it receives nothing (no empty message).
-3. **Given** findings were routed away, **Then** the default digest shows `N finding(s) routed to <route name>` (the name
-   is configured text), so a Reader of the default channel is never misled.
+3. **Given** findings were routed to a destination other than the default digest destination, **Then** the default digest
+   shows `N finding(s) routed to <route name>` (the name is configured text), so a Reader of the default channel is never
+   misled; findings the catch-all sends to the default destination need no such line.
 4. **Given** a route destination fails, **Then** a delivery-failure notice is posted and the other destinations are still
    attempted; on a retry of the same window a destination that already received its message is not posted to again.
 5. **Given** no `notify.routes`, **Then** output and delivery equal the previous release.
-6. **Given** `notify.routes` names the same destination as the default digest, **Then** it is rejected at start (a route to
-   the same place changes nothing and hides a mistake).
+6. **Given** a non-catch-all route names the same destination as the default digest or as another route, **Then** it is
+   rejected at start (a route to the same place changes nothing and hides a mistake).
 
 ---
 
@@ -148,7 +151,7 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 **Acceptance Scenarios**:
 
 1. **Given** `report.weekly.enabled` and the 013 `file` sink with `retention_days` of at least 8, **When**
-   `watcher report` runs (the host scheduler calls it weekly), **Then** one message for the last complete ISO week is sent
+   `watcher report --weekly` runs (the host scheduler calls it weekly), **Then** one message for the last complete ISO week is sent
    to `report.weekly.destination` (default: the notice destination), with the blocks of contracts/weekly-report.md.
 2. **Given** the report for that week was already sent, **When** the command runs again, **Then** nothing is sent and the
    exit code is 0, with `report <week> already sent` on stderr.
@@ -192,8 +195,9 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 - **FR-002**: For each group matching an open, unexpired entry the package MUST keep a reference count in its own state
   (key with expiry `state.retention`, renewed on each sighting). The group MUST NOT become a candidate while
   `count < selection.growth_factor * reference`.
-- **FR-003**: At or above that threshold the group MUST become a candidate with reason `known_grown`; after delivery the
-  reference count MUST be set to the current count.
+- **FR-003**: At or above that threshold the group MUST become a candidate with reason `known_grown`. The reference count is
+  written once, at first sight, and MUST NOT be recomputed or raised afterwards (owner decision O5); it is dropped only by
+  expiry (`state.retention` without a sighting) or by the Operator removing the entry.
 - **FR-004**: A matching `resolved` entry, or an expired one, MUST NOT suppress anything; the finding carries the label of
   contracts/known-issues.md.
 - **FR-005**: Known groups MUST be shown in one compact line (cap 10 entries plus `N more`) with ticket key, level and
@@ -219,7 +223,9 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 **Routing**
 
 - **FR-020**: `notify.routes` is an ordered list of `{name, severity, to}`; `to` has the shape of `notify.digest` and is
-  validated by the same code. First matching route wins; default digest takes the rest.
+  validated by the same code. First matching route in configuration order wins. The last entry MUST be a catch-all (no
+  `severity`; `to` optional, omitted = the default digest destination); without it start fails. Anything unmatched at runtime
+  fails closed to the default digest destination with a notice (owner decision O3).
 - **FR-021**: A route message carries the header and the routed finding sections only (no stats, cost, notices or footer);
   the default digest keeps everything else plus the `routed` line.
 - **FR-022**: Delivery of each destination is independent; a delivered marker per `(service, window, route index)`
@@ -233,7 +239,7 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 - **FR-029**: **Dependency, not assumption**: the weekly report requires spec 013 (`FileSink`, `watcher.event.v1`, fields
   listed in contracts/weekly-report.md). Until 013 is implemented the report tasks are blocked and `report.weekly.enabled`
   is rejected at start with `report.weekly needs spec 013 (observe.file)`; known issues, drafts and routes do not depend on 013.
-- **FR-030**: `watcher report [--week=YYYY-Www] [--dry-run] [--json]` reads the `observe.file` JSONL files (and rotations)
+- **FR-030**: `watcher report --weekly [--week=YYYY-Www] [--dry-run] [--json]` reads the `observe.file` JSONL files (and rotations)
   and builds the report of contracts/weekly-report.md. It reads no log source and no state store except the sent marker.
 - **FR-031**: Parsing MUST use a field allowlist per event type and the 013 patterns; unknown fields, text fields and
   invalid lines are dropped and counted, never passed through (Principle I).
@@ -301,12 +307,13 @@ and noisiest groups and cost totals that equal hand-computed figures; a second i
 - **D6 — Post-release run and on-demand "last N hours" run**: own spec after 014; roadmap row to be added by the owner.
 - **D7 — Generic webhook and e-mail notifiers**: covered for machines by spec 013's `http` sink; e-mail unspecified.
 
-## Open decisions for the owner (defaults are assumed in this pack)
+## Owner decisions (2026-10-24)
 
-- **O1** Weekly report as a separate command called weekly by the host scheduler (assumed) rather than from inside `run`
-  (see research.md R7).
-- **O2** Drafts as separate messages to a destination (assumed) rather than inside the digest (R5).
-- **O3** Routes: first match wins, one destination per finding (assumed) rather than copy to every match (R6).
-- **O4** New preformatted section kind `draft` in the three formatters (assumed) rather than reusing `notice` (R5).
-- **O5** Known-issue reference count is the count at first sight in this retention period (assumed) rather than a count
-  written in configuration (R2).
+Given by the integrator on the owner's behalf; they replace the assumed defaults of the first review.
+
+- **O1** The weekly report is a separate command, `watcher report --weekly` (Laravel: `watcher:report --weekly`), not part of `run` (research R7).
+- **O2** Ticket drafts are separate messages, never inside the digest (R5).
+- **O3** Routes are first-match-wins in configuration order; a catch-all last route is required when routes are enabled; anything unmatched fails closed to the default digest destination (R6).
+- **O4** A new `draft` section kind is accepted in the Slack, Telegram and Discord formatters, through the existing escapers (R5).
+- **O5** The known-issue reference count is taken at first sight and is not recomputed (R2).
+- **D6** Post-release and on-demand runs are not in 005; spec 014 owns schedules; the integrator adds the roadmap row.

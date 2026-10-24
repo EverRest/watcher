@@ -23,9 +23,10 @@ Tests: `tests/Unit/Incident/TicketDraftTest`, `DraftPlanTest`, `tests/Unit/Notif
 
 ## S3. Routing (US3, SC-003)
 
-1. `notify.routes => [['name' => 'oncall', 'severity' => ['critical','error'], 'to' => <driver block>]]`.
+1. `notify.routes => [['name' => 'oncall', 'severity' => ['critical','error'], 'to' => <driver block>], ['name' => 'team']]`
+   (the last entry is the catch-all; no `to` = the default digest destination).
 2. Run with one critical and two warn findings: `oncall` gets one message, default digest shows the warns and
-   `1 finding routed to oncall`.
+   `1 finding routed to oncall`. Remove the catch-all: start fails with `notify.routes needs a last catch-all route`.
 
 Tests: `tests/Unit/Incident/RouteTableTest`, `tests/Unit/Config/RoutesConfigTest`,
 `tests/EndToEnd/RoutingTest::{testEachFindingOnce,testEmptyRouteSendsNothing,testRetrySkipsDelivered,testNoRoutesByteIdentical,testRouteFailureOthersContinue}`.
@@ -33,7 +34,7 @@ Tests: `tests/Unit/Incident/RouteTableTest`, `tests/Unit/Config/RoutesConfigTest
 ## S4. Weekly report (US4, SC-004)
 
 1. 013 file sink on, `retention_days >= 8`, `report => ['weekly' => ['enabled' => true]]`.
-2. Cron: `0 7 * * 1 php vendor/bin/watcher report`. Try `--week=2026-W43 --dry-run` first.
+2. Cron: `0 7 * * 1 php vendor/bin/watcher report --weekly`. Try `--week=2026-W43 --dry-run` first.
 3. Run twice: second prints `report 2026-W43 already sent` and posts nothing.
 
 Tests: `tests/Unit/Report/EventLogTest`, `WeeklyReportTest` (fixture `tests/Fixtures/report/week-2026-W43.jsonl`),

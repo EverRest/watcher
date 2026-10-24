@@ -45,8 +45,10 @@ disabled destination.
 | Key | Rule |
 |---|---|
 | `name` | `^[a-z0-9][a-z0-9_-]{0,31}$`, unique; shown in the digest line |
-| `severity` | non-empty list of severities, no value in two routes |
-| `to` | destination block as `notify.digest`; must differ from the digest destination and from other routes (`sameAs`) |
+| `severity` | non-empty list of severities, no value in two routes; **omitted only on the last entry, the catch-all** |
+| `to` | destination block as `notify.digest`; must differ from the digest destination and from other routes (`sameAs`). On the catch-all it may be omitted = the default digest destination |
+
+Order = configuration order; first match wins; the last entry must be the catch-all (owner decision O3).
 
 At most 5 routes. Empty or absent = unchanged. `WatchConfig::notify()` currently accepts only `digest` and `notice`; `routes`
 and `routes_enabled` are added to that list. Flag (spec 012): `notify.routes_enabled` (`WATCHER_ROUTES_ENABLED`, default true,
@@ -65,9 +67,9 @@ inert without routes). Routes are inert when `notify.digest.enabled` is false (n
 
 `known_issues.entries[2].ticket invalid` · `known_issues.entries[1].fingerprint must be 12 to 64 hex characters` · `known_issues.entries[0].status must be open or resolved` ·
 `drafts.destination required` · `notify.routes[1].to must differ from notify.digest` ·
-`notify.routes[0].severity overlaps notify.routes[1]` · `report.weekly needs observe.file enabled with retention_days >= 8`.
+`notify.routes[0].severity overlaps notify.routes[1]` · `notify.routes needs a last catch-all route (no severity)` · `notify.routes[0].severity is required except on the last route` · `report.weekly needs observe.file enabled with retention_days >= 8`.
 
 ## CLI
 
-`watcher report [--week=YYYY-Www] [--dry-run] [--json]` (fleet: `fleet:report`). Exit 0 sent / already sent / no runs;
+`watcher report --weekly [--week=YYYY-Www] [--dry-run] [--json]` (fleet: `fleet:report --weekly`; Laravel: `watcher:report --weekly`, a thin command like `src/Laravel/StatusCommand.php`). `--weekly` is required (a bare `report` fails with `report needs --weekly`, so other periods can be added without changing the meaning). Exit 0 sent / already sent / no runs;
 non-zero on invalid config or unreadable event file. `run` gains no new flag; `--dry-run` prints drafts.
