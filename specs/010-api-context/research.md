@@ -20,7 +20,7 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 - **File**: `is_file` + `is_readable`; `filesize() > max_bytes` -> `too_large`; read with `fread($h, max_bytes + 1)` and refuse
   if more than `max_bytes` came back (file may grow between `filesize` and read). `php://`, `phar://`, `data:`, `file://`
   and any scheme in the string are refused at config validation (a path must not contain `://`).
-- **URL**: `https` only (spec Assumption; owner question O1 for in-cluster `http`). Guzzle `GET`, `stream => true`,
+- **URL**: `https` only (spec Assumption; owner decision D1: no in-cluster `http`). Guzzle `GET`, `stream => true`,
   `allow_redirects => ['max' => 3, 'protocols' => ['https'], 'strict' => true]`, connect 5 s, total 15 s (same options
   family as `Factory::httpOptions()`), `Accept: application/json`, `decode_content => true`. The cap applies to the **decoded**
   stream (a gzip bomb is a size problem, not a transport one): read chunks until `max_bytes + 1` and abort. `Content-Length`
@@ -58,7 +58,7 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   error otherwise). `put($key, $value, $ttl)` is called on the unbuffered `$this->state` (a cache, not run state: a failed
   run must not discard it).
 - **Reads**: `get()` hit -> no source access (SC-004). Miss -> source -> reducer -> `put`.
-- **Spec tension (O2)**: FR-004 wants the last unexpired entry when the source fails; with expiry = TTL the entry is only
+- **Spec tension (resolved, D2)**: FR-004 wants the last unexpired entry when the source fails; with expiry = TTL the entry is only
   absent when expired, so the fallback never fires. Options: (a) literal FR-003 (chosen: zero stale-on-error); (b) store with
   `2 x ttl` and a `readAt` field, refresh when `readAt + ttl` is past, fall back to the entry up to `2 x ttl`. (b) is ~15
   lines and gives the behaviour FR-004 describes; it needs the owner to relax FR-003's "equal to TTL". Not built without the
@@ -139,8 +139,7 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 
 - None. Guzzle (present), `json_decode`, `hash`, `Redactor`, `StateStore`.
 
-## Open owner decisions (carry into the report)
+## Decisions (2026-10-24, resolved by the owner)
 
-- **O1**: `https` only (spec) vs also `http` for in-cluster URLs (`http://orders-api:3000/openapi.json`). Plan follows the
-  spec; an Operator without TLS in-cluster must download the file (e.g. in CI) instead.
-- **O2**: relax FR-003 to `2 x ttl` storage so FR-004's stale-on-error fallback can ever apply (research R4).
+- **D1 (URL scheme)**: `https` only, as in the spec. In-cluster services export `openapi.json` in CI and use a file source. An explicit `allow_insecure_http` flag may be added later if needed.
+- **D2 (cache fallback)**: FR-003 stays literal (entry lives exactly the TTL). FR-004's stale-on-error fallback does not apply; on failure one notice is shown and the feature is skipped for that run. No `2 x ttl` storage.

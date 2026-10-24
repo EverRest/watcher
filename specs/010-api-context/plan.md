@@ -48,7 +48,7 @@ fixtures `tests/Fixtures/api_context/*.json`; the SC-002 case table is a data fi
 | Principle | Gate | Result |
 |---|---|---|
 | I. Privacy fails closed | New field class (endpoint summary, tag, operationId) is an allowlisted addition (owner decision): cut to `summary_cap` (80), masked by `Redactor::redactText` at reduction (cache is clean) **and** again when the line is built; any `null` from the redactor drops the value. The reader keeps six named keys per operation; examples, schemas, parameters, bodies, descriptions, server variables, extensions are never copied out of the decoded array. Cache holds no raw document. Privacy corpus extended **before** the reducer (T002). | Pass |
-| II. Read-only | `GET` only (`ArchitectureTest` pins it, T011). `https` only (O1), redirects <= 3 and https-only, no request body. Own-state `put` of the cache is allowed. | Pass |
+| II. Read-only | `GET` only (`ArchitectureTest` pins it, T011). `https` only (D1), redirects <= 3 and https-only, no request body. Own-state `put` of the cache is allowed. | Pass |
 | III. Test-first | Every implementation task has a red test task first (T006/T007 before T008/T009, T010-T013 before T014-T018, T019-T021 before T022-T024). Matching table >= 30 cases (SC-002). | Pass |
 | IV. Code decides | Route extraction, matching, cap and order are code; the model never picks an endpoint; the prompt says the line is documentation, not evidence (FR-016). | Pass |
 | V. Token discipline | Off by default; <= 25 tokens per endpoint (model field trimmed to fit), <= 5 by default; `ep` only in analysis/escalation, not triage; first context dropped when over budget (`Budget::fitEndpoints` runs before the other fitters). Token-budget fixture T028. | Pass |
@@ -64,8 +64,7 @@ StateStore, Redactor-factory)` and handed to `Watcher` as one nullable argument.
    ships JSON only; SC-006 is met with a JSON nesting/size bomb fixture plus "a YAML document is refused in < 1 s". The spec
    text should be amended when YAML is added (it is not edited in this change: docs-only lane).
 2. FR-003 says cache expiry equals the TTL; FR-004 says "use the last unexpired cached result when the source cannot be
-   read". With expiry = TTL and "read only on a miss", the fallback can never apply. Plan follows FR-003 literally and states
-   that FR-004's fallback is vacuous until owner decision O2 is answered (research R4).
+   read". With expiry = TTL and "read only on a miss", the fallback can never apply. Plan follows FR-003 literally; FR-004's fallback does not apply (owner decision D2, research R4).
 3. Spec FR-007 lists six placeholders; `<USER>` also exists in the `Normalizer` and is treated like them (R5).
 
 ## Project Structure

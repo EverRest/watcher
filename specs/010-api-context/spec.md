@@ -231,3 +231,5 @@ cached result and every outbound payload contain none of them; the second run wi
 ## Owner decisions (2026-10-24)
 
 Endpoint summaries are an allowlisted addition (masked, capped to 80 characters). Start with JSON OpenAPI documents; YAML only if the plan justifies the new dependency under Principle VIII. Matching is limited to HTTP routes in masked templates; ties attach nothing.
+
+Resolved at planning (2026-10-24): URLs are `https` only. The cache entry expires exactly at the TTL, so FR-004's fallback to a stale entry does not apply; when the source cannot be read and no entry exists, one visible notice is shown and the feature is skipped for that run.
