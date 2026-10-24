@@ -71,6 +71,7 @@ final class WatchConfigTest extends TestCase
         self::assertSame(Level::Warning, $c->source['read_min_level']);
         self::assertSame('text', $c->source['level_mode']);
         self::assertSame(200000, $c->source['event_cap']);
+        self::assertSame(16, $c->source['max_response_mb']);
         self::assertSame(20000, $c->source['anomaly_cap']);
         self::assertSame(5000, $c->source['group_cap']);
         self::assertSame(0.6, $c->analysis['confidence_threshold']);
@@ -190,6 +191,8 @@ final class WatchConfigTest extends TestCase
             'zero top_n' => [self::with(['selection' => ['top_n' => 0]]), 'selection.top_n'],
             'negative retention' => [self::with(['state' => ['retention' => -1]]), 'state.retention'],
             'zero group_cap' => [self::with(['source' => ['group_cap' => 0]]), 'source.group_cap'],
+            'max_response_mb 0' => [self::with(['source' => ['max_response_mb' => 0]]), 'source.max_response_mb'],
+            'max_response_mb 65' => [self::with(['source' => ['max_response_mb' => 65]]), 'source.max_response_mb'],
             'string event_cap' => [self::with(['source' => ['event_cap' => '10']]), 'source.event_cap'],
             'bad run_at' => [self::with(['schedule' => ['run_at' => '25:00']]), 'schedule.run_at'],
             'bad timezone' => [self::with(['schedule' => ['timezone' => 'Mars/Base']]), 'schedule.timezone'],

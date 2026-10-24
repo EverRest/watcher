@@ -90,6 +90,7 @@ final class Factory
                 clock: $clock,
                 levelMode: $c->source['level_mode'] === 'all' ? 'all' : 'status',
                 newestFirst: ($dd['newest_first'] ?? false) === true,
+                maxResponseBytes: self::maxResponseBytes($c),
             );
         }
         /** @var array<string, mixed> $loki */
@@ -107,7 +108,13 @@ final class Factory
             is_string($tenant) ? $tenant : null,
             levelMode: (string) $c->source['level_mode'],
             allowInsecure: ($loki['allow_insecure'] ?? false) === true,
+            maxResponseBytes: self::maxResponseBytes($c),
         );
+    }
+
+    private static function maxResponseBytes(WatchConfig $c): int
+    {
+        return (is_int($c->source['max_response_mb'] ?? null) ? $c->source['max_response_mb'] : 16) * 1024 * 1024;
     }
 
     public static function state(WatchConfig $c, ClockInterface $clock): StateStore

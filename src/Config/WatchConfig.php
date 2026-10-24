@@ -398,7 +398,7 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function source(array $s): array
     {
-        self::only($s, ['driver', 'loki', 'datadog', 'stream_tags', 'read_min_level', 'anomaly_cap', 'group_cap', 'event_cap', 'level_mode'], 'source');
+        self::only($s, ['driver', 'loki', 'datadog', 'stream_tags', 'read_min_level', 'anomaly_cap', 'group_cap', 'event_cap', 'level_mode', 'max_response_mb'], 'source');
         $driver = self::str($s, 'driver', 'source.driver');
         if ($driver === 'loki') {
             $loki = self::section($s, 'loki');
@@ -446,6 +446,7 @@ final class WatchConfig implements \JsonSerializable
             'anomaly_cap' => self::posInt($s, 'anomaly_cap', 20000, 'source.anomaly_cap'),
             'group_cap' => self::posInt($s, 'group_cap', 5000, 'source.group_cap'),
             'event_cap' => self::posInt($s, 'event_cap', 200000, 'source.event_cap'),
+            'max_response_mb' => self::maxResponseMb($s),
             'level_mode' => self::levelMode($s),
             'stream_tags' => $tags,
         ]);
@@ -979,6 +980,17 @@ final class WatchConfig implements \JsonSerializable
         unset($value['enabled']);
 
         return [$value, $on];
+    }
+
+    /** @param array<array-key, mixed> $s */
+    private static function maxResponseMb(array $s): int
+    {
+        $v = self::posInt($s, 'max_response_mb', 16, 'source.max_response_mb');
+        if ($v > 64) {
+            throw new InvalidConfig('source.max_response_mb must be between 1 and 64');
+        }
+
+        return $v;
     }
 
     /** @param array<array-key, mixed> $from */

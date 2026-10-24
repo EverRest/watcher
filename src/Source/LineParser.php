@@ -50,7 +50,7 @@ final class LineParser
     public const MAX_RECORD_BYTES = 65536;
     public const MAX_RECORD_LINES = 200; // also what a crash trace may absorb beyond its head
     /** Longest JSON line decoded whole (json_decode is linear; the cap bounds memory). */
-    private const MAX_JSON_BYTES = 262144;
+    private const MAX_JSON_BYTES = ReadFilter::MAX_LINE_BYTES;
     /** Tail of a Laravel record whose context JSON holds raw line breaks: `[stacktrace]` and the line that closes the string (`"} []`). */
     private const STRUCTURED_TAIL = '/^(?:\[stacktrace\]|"\s*[}\],])/';
 

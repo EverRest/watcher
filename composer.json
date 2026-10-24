@@ -11,7 +11,7 @@
         "source": "https://github.com/EverRest/watcher"
     },
     "require": {
-        "php": "^8.1",
+        "php": "^8.2",
         "anthropic-ai/sdk": "^1.1",
         "guzzlehttp/guzzle": "^7.15.2",
         "php-http/discovery": "^1.12",
@@ -19,7 +19,7 @@
         "psr/log": "^2.0 || ^3.0"
     },
     "require-dev": {
-        "brianium/paratest": "^7.3",
+        "brianium/paratest": "^7.3.2",
         "illuminate/console": "^10.0 || ^11.0",
         "illuminate/support": "^10.0 || ^11.0",
         "laravel/pint": "^1.13",
@@ -38,7 +38,7 @@
     "bin": ["bin/watcher"],
     "config": {
         "allow-plugins": { "php-http/discovery": false },
-        "platform": { "php": "8.1.99" },
+        "platform": { "php": "8.2.99" },
         "sort-packages": true
     },
     "scripts": {

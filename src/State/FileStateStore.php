@@ -6,6 +6,7 @@ namespace Watcher\State;
 
 use JsonException;
 use Psr\Clock\ClockInterface;
+use Watcher\Config\InvalidConfig;
 use RuntimeException;
 
 /**
@@ -42,7 +43,7 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
             return 0;
         }
         // ponytail: marker is written before the sweep, so a backlog above maxFiles drains one batch per day.
-        $this->writeNew($marker, (string) $now, true);
+        $this->writeAtomic($marker, (string) $now);
         $deadline = microtime(true) + $maxSeconds;
         $removed = 0;
         $names = @scandir($this->dir) ?: [];
@@ -51,8 +52,8 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
                 break;
             }
             $path = $this->dir . '/' . $name;
-            if (is_link($path) || (is_file($path) === false)) {
-                continue; // only regular files are ever opened or removed (A4-11)
+            if (! $this->isRegularFile($path)) {
+                continue; // only regular files are ever opened or removed (A4-11); lstat, never following a link
             }
             if (preg_match('/^[0-9a-f]{64}\.json$/D', $name) === 1) {
                 $removed += $this->purgeRecord($path, $now);
@@ -77,11 +78,9 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
     /** Deletes an expired record under its key lock, so a concurrent put is never undone. A held lock means skip. */
     private function purgeRecord(string $path, int $now): int
     {
-        if (is_link($path . '.lock')) {
-            return 0;
-        }
-        $handle = @fopen($path . '.lock', 'c');
-        if ($handle === false) {
+        try {
+            $handle = $this->openSidecar($path . '.lock');
+        } catch (RuntimeException) {
             return 0;
         }
         try {
@@ -105,8 +104,9 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
         if (! $this->abandoned($path, $now)) {
             return 0;
         }
-        $handle = @fopen($path, 'c');
-        if ($handle === false || is_link($path)) {
+        try {
+            $handle = $this->openSidecar($path);
+        } catch (RuntimeException) {
             return 0;
         }
         try {
@@ -220,16 +220,13 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
     private function lock(string $lockPath): mixed
     {
         for ($attempt = 0; $attempt < 10; $attempt++) {
-            $this->refuseLink($lockPath);
-            $handle = fopen($lockPath, 'c');
-            if ($handle === false || ! flock($handle, LOCK_EX)) {
+            $handle = $this->openSidecar($lockPath);
+            if (! flock($handle, LOCK_EX)) {
+                fclose($handle);
                 throw new RuntimeException('Cannot lock state key');
             }
-            @chmod($lockPath, 0600);
-            clearstatcache(true, $lockPath);
-            $held = fstat($handle);
-            $path = @stat($lockPath);
-            if ($held !== false && $path !== false && $held['ino'] === $path['ino'] && $held['dev'] === $path['dev']) {
+            // The path may have been unlinked (purge) or swapped while we waited: it must still be the file we hold.
+            if ($this->sameFile($handle, $lockPath)) {
                 return $handle;
             }
             fclose($handle);
@@ -266,39 +263,96 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
     /** @param array{value: array<mixed>, owner: ?string, expires_at: int} $record */
     private function write(string $key, array $record): void
     {
-        $tmp = $this->path($key) . '.' . bin2hex(random_bytes(4)) . '.tmp';
-        $json = json_encode($record, JSON_THROW_ON_ERROR);
-        // A full disk can fail or short-write: never rename a partial file over the good record.
-        $this->writeNew($tmp, $json);
-        if (! @rename($tmp, $this->path($key))) {
+        $this->writeAtomic($this->path($key), json_encode($record, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Replaces $target with $contents: written to a random-named temp file created exclusively (never opened by a
+     * final path, mode 0600 via umask), then renamed over it. rename() replaces a planted symlink, it never follows it.
+     * Fails closed with 'state write failed'.
+     */
+    private function writeAtomic(string $target, string $contents): void
+    {
+        $tmp = $target . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        $old = umask(0077);
+        try {
+            $handle = @fopen($tmp, 'x');
+        } finally {
+            umask($old);
+        }
+        if ($handle === false) {
+            throw new RuntimeException('state write failed');
+        }
+        $ok = fwrite($handle, $contents) === strlen($contents);
+        $ok = fclose($handle) && $ok;
+        // A full disk can fail or short-write: never rename a partial file over the good one.
+        if (! $ok || ! @rename($tmp, $target)) {
             @unlink($tmp);
             throw new RuntimeException('state write failed');
         }
     }
 
     /**
-     * Creates $path (never following a symlink, mode 0600) and writes $contents. $replace: the file may already exist
-     * (the purge marker); it is then rewritten in place after the symlink check. Fails closed with 'state write failed'.
+     * Opens a lock sidecar for flock without ever truncating or following a link. PHP's 'x' mode follows a dangling
+     * symlink on some platforms, so an absent sidecar is created as a private temp file hard-linked into place
+     * (link() fails if anything, a symlink included, is already there). It is then opened ('c' does not truncate)
+     * only after lstat shows a regular file we own, and re-checked with fstat against a fresh lstat.
+     *
+     * @return resource
      */
-    private function writeNew(string $path, string $contents, bool $replace = false): void
+    private function openSidecar(string $path)
     {
-        $this->refuseLink($path);
-        $handle = @fopen($path, $replace ? 'c' : 'x');
+        clearstatcache(true, $path);
+        if (@lstat($path) === false) {
+            $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
+            $old = umask(0077);
+            try {
+                $created = @fopen($tmp, 'x');
+            } finally {
+                umask($old);
+            }
+            if ($created === false) {
+                throw new RuntimeException('Cannot lock state key');
+            }
+            fclose($created);
+            @link($tmp, $path); // losing the race is fine: the winner's file is verified below
+            @unlink($tmp);
+            clearstatcache(true, $path);
+        }
+        $st = @lstat($path);
+        if ($st === false || ($st['mode'] & 0170000) !== 0100000
+            || (function_exists('posix_geteuid') && $st['uid'] !== posix_geteuid())) {
+            throw new RuntimeException('state path is a symlink');
+        }
+        $handle = @fopen($path, 'c');
         if ($handle === false) {
-            throw new RuntimeException('state write failed');
+            throw new RuntimeException('Cannot lock state key');
         }
-        try {
-            @chmod($path, 0600);
-            if ($replace) {
-                ftruncate($handle, 0);
-            }
-            if (fwrite($handle, $contents) !== strlen($contents)) {
-                @unlink($path);
-                throw new RuntimeException('state write failed');
-            }
-        } finally {
+        if (! $this->sameFile($handle, $path, true)) {
             fclose($handle);
+            throw new RuntimeException('state path is a symlink');
         }
+
+        return $handle;
+    }
+
+    /** @param resource $handle */
+    private function sameFile($handle, string $path, bool $single = false): bool
+    {
+        clearstatcache(true, $path);
+        $held = fstat($handle);
+        $now = @lstat($path);
+
+        return $held !== false && $now !== false && ($now['mode'] & 0170000) === 0100000
+            && $held['dev'] === $now['dev'] && $held['ino'] === $now['ino'] && $held['nlink'] === $now['nlink']
+            && (! $single || $held['nlink'] === 1);
+    }
+
+    private function isRegularFile(string $path): bool
+    {
+        $st = @lstat($path);
+
+        return $st !== false && ($st['mode'] & 0170000) === 0100000;
     }
 
     /** A state path that is a symlink is never read, locked or written through: someone else planted it. */
@@ -309,7 +363,13 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
         }
     }
 
-    /** The directory holds locks and spend counters: group or world write access lets another user forge them. */
+    /**
+     * The directory holds locks and spend counters. Refused: one another user owns (it could forge them) and a
+     * world-writable one without the sticky bit. Group-writable and owned by us is allowed (a Laravel `storage` folder);
+     * the files themselves are always 0600. The message names the setting, never its value.
+     *
+     * @throws InvalidConfig
+     */
     private function assertDirectory(): void
     {
         clearstatcache(true, $this->dir);
@@ -317,8 +377,9 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
         if ($perms === false) {
             return;
         }
-        if (($perms & 0022) !== 0) {
-            throw new RuntimeException('state.file.path must not be writable by group or others (chmod 0700)');
+        $foreign = function_exists('posix_geteuid') && @fileowner($this->dir) !== posix_geteuid();
+        if ($foreign || (($perms & 0002) !== 0 && ($perms & 01000) === 0)) {
+            throw new InvalidConfig('state.file.path must be owned by the user running watcher and not world-writable (chmod 0700, or 0770 for a shared group)');
         }
     }
 }

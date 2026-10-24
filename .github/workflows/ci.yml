@@ -19,11 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        php: ['8.2', '8.3', '8.4', '8.5']
         deps: [locked]   # the main matrix runs on composer.lock
         include:
           # Consumers ignore our lock: also test the oldest and the newest versions composer.json admits.
-          - { php: '8.1', deps: lowest }
+          - { php: '8.2', deps: lowest }
           - { php: '8.5', deps: highest }
     services:
       redis:
@@ -69,6 +69,12 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -76,7 +82,7 @@ jobs:
       - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.3'
-          extensions: mbstring, dom, pdo_sqlite
+          extensions: mbstring, dom, pdo_sqlite, redis
           coverage: pcov
       - id: cache
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
@@ -86,6 +92,8 @@ jobs:
           key: composer-cov-${{ hashFiles('composer.lock') }}
       - run: composer install --no-interaction --prefer-dist
       - run: composer coverage
+        env:
+          WATCHER_TEST_REDIS: 127.0.0.1:6379
       - run: php scripts/coverage-floor.php 92
       - run: cat build/coverage/summary.txt | tail -n 12 >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

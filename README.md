@@ -32,7 +32,7 @@ Nothing new to report means zero model calls. The first run only records a basel
 
 ## Requirements
 
-- PHP ^8.1. Support matrix: CI tests PHP 8.1 to 8.5. PHP 8.1 is past its security support (ended December 2025) and 8.2 ends in December 2026; use 8.3 or newer in production, 8.1 is kept only as the declared minimum and may be dropped in a minor release.
+- PHP ^8.2. Support matrix: CI tests PHP 8.2 to 8.5. PHP 8.2 security support ends in December 2026; use 8.3 or newer in production. PHP 8.1 support was dropped in 0.1.2.
 - Optional extensions: `ext-redis` (Redis state), `ext-pdo` plus a driver (PDO state).
 - A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
 - Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11; CI tests the oldest and the newest versions Composer resolves, on top of the locked set); the core has no framework dependency. Laravel 10 no longer receives security fixes upstream, prefer 11. Lumen is unmaintained upstream: the adapter has no Lumen-specific test, so treat Lumen as best effort.
@@ -154,7 +154,7 @@ Use **read-only** credentials. The package only issues query requests (enforced 
 
 | Driver | Requests | Credential |
 |--------|----------|------------|
-| `loki` | `GET /loki/api/v1/query`, `GET /loki/api/v1/query_range` | Bearer token or basic auth with query-only rights; optional `X-Scope-OrgID` tenant. `url` may be a Loki base URL or a Grafana datasource proxy URL. |
+| `loki` | `GET /loki/api/v1/query`, `GET /loki/api/v1/query_range` | Bearer token or basic auth with query-only rights; optional `X-Scope-OrgID` tenant. `https` is required; plain `http` only with `allow_insecure: true` and a loopback, private-network (RFC 1918) or cluster-local host (see docs/operations.md). `url` may be a Loki base URL or a Grafana datasource proxy URL. |
 | `datadog` | `POST /api/v2/logs/analytics/aggregate`, `POST /api/v2/logs/events/search` (read-only queries sent as POST) | API key plus an application key limited to the `logs_read_data` scope. Set `site` (e.g. `datadoghq.eu`). |
 
 `source.stream_tags` selects which logs belong to the service. Only levels at or above `source.read_min_level`

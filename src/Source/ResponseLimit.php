@@ -21,13 +21,13 @@ final class ResponseLimit
      *        name the cause (the HTTP layer only reports a failed request)
      * @return array{on_headers: \Closure(mixed): void, decode_content: bool}
      */
-    public static function options(\ArrayObject $tripped): array
+    public static function options(\ArrayObject $tripped, int $max = self::MAX_BYTES): array
     {
         return [
-            'on_headers' => static function (mixed $r) use ($tripped): void {
-                if ($r instanceof ResponseInterface && (int) $r->getHeaderLine('Content-Length') > self::MAX_BYTES) {
+            'on_headers' => static function (mixed $r) use ($tripped, $max): void {
+                if ($r instanceof ResponseInterface && (int) $r->getHeaderLine('Content-Length') > $max) {
                     $tripped['large'] = true;
-                    throw new SourceUnavailable('response too large');
+                    throw new SourceUnavailable('response too large', true);
                 }
             },
             'decode_content' => true,
@@ -38,11 +38,11 @@ final class ResponseLimit
      * @return array<mixed>
      * @throws SourceUnavailable
      */
-    public static function decode(ResponseInterface $response, string $name): array
+    public static function decode(ResponseInterface $response, string $name, int $max = self::MAX_BYTES): array
     {
         $body = $response->getBody();
-        if ((int) $response->getHeaderLine('Content-Length') > self::MAX_BYTES || ($body->getSize() ?? 0) > self::MAX_BYTES) {
-            throw new SourceUnavailable($name . ' response too large');
+        if ((int) $response->getHeaderLine('Content-Length') > $max || ($body->getSize() ?? 0) > $max) {
+            throw new SourceUnavailable($name . ' response too large', true);
         }
         $data = json_decode((string) $body, true, self::JSON_DEPTH);
 

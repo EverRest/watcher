@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Watcher\Analyze;
 
+use Watcher\Reduce\Normalizer;
+
 /**
  * Plain-PHP validation of decoded model JSON against analyzer-output.schema.json, plus the length
  * limits the provider cannot enforce. Over-long free text is truncated, anything else is rejected.
@@ -33,6 +35,25 @@ final class OutputValidator
         '/\brotate\s+all\b[^.!?\n]*/iu',
         '/\b(?:sudo|chmod|chown|mkfs)\b[^.!?\n]*/iu',
         '/\bdrop\s+(?:table|database|schema)\b[^.!?\n]*/iu',
+        '/\btruncate\s+table\b[^.!?\n]*/iu',
+        '/\bdelete\s+from\b[^.!?\n]*/iu',
+        '/\bkubectl\s+(?:delete|exec|apply|patch|scale|replace|edit|drain|cordon|rollout\s+undo)\b[^.!?\n]*/iu',
+        '/\bsystemctl\s+(?:stop|restart|disable|mask|kill|isolate)\b[^.!?\n]*/iu',
+        '/\bservice\s+[\w.@-]+\s+(?:stop|restart)\b[^.!?\n]*/iu',
+        '/\b(?:iptables|ip6tables|nft)\s+(?:-[FXZ]\b|flush\b)[^.!?\n]*/iu',
+        '/\bufw\s+(?:disable|reset)\b[^.!?\n]*/iu',
+        '/\b(?:curl|wget)\b[^\n]*?(?:\s-[a-z]*[dF]\s*\S*@|--(?:data[\w-]*|form|post-file|upload-file)\b|\s-T\b)[^.!?\n]*/iu', // upload of a local file
+        '/\b(?:nc|ncat|netcat)\s(?:[^\n]*?\s)?-[a-z]*e\b[^.!?\n]*/iu',
+        '/\bdd\s+if=[^.!?\n]*/iu',
+        '/\b(?:shutdown|reboot|halt|poweroff)\s+(?:-\w+|now|\+?\d+)\b[^.!?\n]*/iu',
+        '/\b(?:and|then|run|execute)\s+(?:a\s+)?(?:reboot|halt|poweroff|shutdown)\s*(?=[.!?;,]|$)/iu',
+        '/\b(?:killall|pkill)\b[^.!?\n]*/iu',
+        '/\bkill\s+-(?:9|KILL|SIGKILL)\b[^.!?\n]*/iu',
+        '~>\s*/dev/(?!null\b)[^.!?\n]*~iu',
+        '/\bgit\s+(?:push\b[^.!?\n]*?(?:--force|\s-f\b)|reset\s+--hard|clean\s+-[a-z]*f)[^.!?\n]*/iu',
+        '/\bdocker\s+(?:container\s+|image\s+|system\s+|volume\s+)?(?:rm|rmi|stop|kill|prune)\b[^.!?\n]*/iu',
+        '/\bbase64\s+(?:-d|--decode)\b[^.!?\n]*/iu',
+        '/\b(?:python3?|perl|ruby)\s+-[ce]\b[^.!?\n]*/iu',
     ];
 
     /** The no-URL rule of the prompts, enforced on every text field: links, www. hosts and e-mail addresses. */
@@ -73,10 +94,8 @@ final class OutputValidator
             }
             $verdicts[$g] = $row['v'];
         }
-        // Exactly one verdict per group that was sent: a skipped group is not "nothing to look at", it is invalid output.
-        if (count($verdicts) !== count(array_unique($allowed))) {
-            throw InvalidModelOutput::at('verdicts', 'must hold exactly one verdict per group');
-        }
+        // A group with no verdict is not invalid output: the router treats it as `interesting` (fail closed) and counts it.
+        // Duplicates and unknown fingerprints stay invalid.
 
         return ['verdicts' => $verdicts];
     }
@@ -219,13 +238,16 @@ final class OutputValidator
             throw InvalidModelOutput::at($path, 'must be a string');
         }
         $v = mb_strlen($v) > $max ? mb_substr($v, 0, $max - 1) . '…' : $v;
-        foreach (self::LINKS as $re) {
+        // The rules also run on the canonical text (format characters stripped, NFKC, percent and entity decoded): that is what the
+        // Redactor and the renderers produce downstream, so `r<ZWSP>m -rf` must not pass here and be repaired there (R-6).
+        $canon = Normalizer::canonical($v);
+        $rules = $advice ? [...self::LINKS, ...self::COMMANDS] : self::LINKS;
+        foreach ($rules as $re) {
             $v = (string) preg_replace($re, self::WITHHELD, $v);
+            $canon = (string) preg_replace($re, self::WITHHELD, $canon);
         }
-        if ($advice) {
-            foreach (self::COMMANDS as $re) {
-                $v = (string) preg_replace($re, self::WITHHELD, $v);
-            }
+        if (str_contains($canon, self::WITHHELD)) {
+            $v = $canon;
         }
 
         return str_contains($v, self::WITHHELD) ? rtrim((string) preg_replace('/(?:\[withheld\]\s*){2,}/u', self::WITHHELD . ' ', $v)) : $v;

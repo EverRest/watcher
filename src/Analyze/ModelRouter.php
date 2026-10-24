@@ -66,11 +66,11 @@ final class ModelRouter
             }
         }
         // Fail closed: the cheap filter saves money on low-level groups, it does not get to veto an error or a watch rule.
-        // A noise/known verdict, or no verdict at all for a group that was sent, becomes "interesting" for those.
+        // A noise/known verdict becomes "interesting" for those; a group that was sent and got no verdict at all does for every group.
         $coerced = 0;
         foreach ($fresh as $g) {
             $v = $verdicts[$g->fingerprint] ?? null;
-            if ($v !== 'interesting' && VerdictCache::mustNotBeSilenced($g) && ($v !== null || isset($sent[$g->fingerprint]))) {
+            if ($v !== 'interesting' && ($v === null ? isset($sent[$g->fingerprint]) : VerdictCache::mustNotBeSilenced($g))) {
                 $verdicts[$g->fingerprint] = 'interesting';
                 ++$coerced;
             }
