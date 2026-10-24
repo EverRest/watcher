@@ -501,4 +501,43 @@ final class DoctorTest extends TestCase
         self::assertStringNotContainsString(self::TOKEN, $out);
         self::assertStringNotContainsString('-100123', $out);
     }
+
+    /** @return array<string, array{array<string, mixed>, bool, bool, string}> */
+    public static function stateWarningCases(): array
+    {
+        $file = ['driver' => 'file', 'file' => ['path' => '/tmp/x']];
+
+        return [
+            'file in kubernetes' => [$file, true, true, 'state.driver=file inside Kubernetes'],
+            'file outside kubernetes' => [$file, false, true, ''],
+            'redis in kubernetes' => [['driver' => 'redis', 'redis' => []], true, true, ''],
+            'redis without zlib' => [['driver' => 'redis', 'redis' => []], false, false, 'ext-zlib'],
+            'redis without zlib, compression off' => [['driver' => 'redis', 'redis' => ['compress_min_bytes' => 0]], false, false, ''],
+            'pdo without zlib' => [['driver' => 'pdo', 'pdo' => ['dsn' => 'x']], false, false, ''],
+        ];
+    }
+
+    /** @param array<string, mixed> $state */
+    #[DataProvider('stateWarningCases')]
+    public function testStateWarnings(array $state, bool $kubernetes, bool $zlib, string $expected): void
+    {
+        $text = implode('; ', Doctor::stateWarnings($state, $kubernetes, $zlib));
+
+        $expected === '' ? self::assertSame('', $text) : self::assertStringContainsString($expected, $text);
+    }
+
+    public function testAFileStoreInKubernetesPassesWithAWarningPrefix(): void
+    {
+        $d = new Doctor(self::config(), $this->source, $this->store, self::catalog(['bearer' => 200, 'x-api-key' => 200], ['m-small', 'm-mid', 'm-big']), $this->notifier, $this->clock, true);
+        $state = self::byName($d->run())['state'];
+
+        self::assertSame('pass', $state->status);
+        self::assertStringStartsWith('warning: ', $state->reason);
+        self::assertStringContainsString('redis', $state->reason);
+    }
+
+    public function testNoWarningOutsideKubernetes(): void
+    {
+        self::assertSame('', self::byName($this->doctor()->run())['state']->reason);
+    }
 }

@@ -16,6 +16,8 @@ use Watcher\Source\LineParser;
 use Watcher\Source\LogSource;
 use Watcher\Source\SourceUnavailable;
 use Watcher\State\Keys;
+use Watcher\State\StateStore;
+use Watcher\State\UnreadableCounter;
 use Watcher\Tests\Fakes\FailingStateStore;
 use Watcher\Tests\Fakes\FakeLogSource;
 use Watcher\Tests\Fakes\InMemoryStateStore;
@@ -197,5 +199,58 @@ final class RunSummaryTest extends TestCase
             }
         }
         self::assertStringContainsString('source_unavailable', $blobs[1]);
+    }
+
+    public function testUnreadableStateEntriesAreSurfacedAsACount(): void
+    {
+        $h = self::ready();
+        $h->state = new class ($h->state) implements StateStore, UnreadableCounter {
+            public function __construct(private readonly StateStore $inner)
+            {
+            }
+
+            public function unreadableEntries(): int
+            {
+                return 3;
+            }
+
+            public function get(string $key): ?array
+            {
+                return $this->inner->get($key);
+            }
+
+            public function put(string $key, array $value, int $ttlSeconds): void
+            {
+                $this->inner->put($key, $value, $ttlSeconds);
+            }
+
+            public function acquire(string $key, string $owner, int $ttlSeconds): bool
+            {
+                return $this->inner->acquire($key, $owner, $ttlSeconds);
+            }
+
+            public function release(string $key, string $owner): void
+            {
+                $this->inner->release($key, $owner);
+            }
+
+            public function increment(string $key, float $by, int $ttlSeconds): float
+            {
+                return $this->inner->increment($key, $by, $ttlSeconds);
+            }
+        };
+
+        $d = self::data($h->watcher(self::source())->run());
+
+        self::assertSame(3, $d->stats?->stateUnreadable);
+        self::assertStringContainsString('"state_unreadable":3', (new JsonSummary())->render($d));
+    }
+
+    public function testNoUnreadableEntriesLeavesTheJsonLineUnchanged(): void
+    {
+        $d = self::data(self::ready()->watcher(self::source())->run());
+
+        self::assertSame(0, $d->stats?->stateUnreadable);
+        self::assertStringNotContainsString('state_unreadable', (new JsonSummary())->render($d));
     }
 }

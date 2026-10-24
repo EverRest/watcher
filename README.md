@@ -33,7 +33,7 @@ Nothing new to report means zero model calls. The first run only records a basel
 ## Requirements
 
 - PHP ^8.2. Support matrix: CI tests PHP 8.2 to 8.5. PHP 8.2 security support ends in December 2026; use 8.3 or newer in production. PHP 8.1 support was dropped in 0.1.2.
-- Optional extensions: `ext-redis` (Redis state), `ext-pdo` plus a driver (PDO state).
+- Optional: `ext-redis` or `predis/predis` (Redis state, the default driver), `ext-zlib` (compresses large Redis values), `ext-pdo` plus a driver (PDO state).
 - A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
 - Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11; CI tests the oldest and the newest versions Composer resolves, on top of the locked set); the core has no framework dependency. Laravel 10 no longer receives security fixes upstream, prefer 11. Lumen is unmaintained upstream: the adapter has no Lumen-specific test, so treat Lumen as best effort.
 
@@ -75,10 +75,11 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
    | `watcher run` | `--config=<file>` `[--now=<ISO-8601>]` `[--dry-run [--estimate]]` `[--json]` |
    | `watcher check` | `--config=<file>` `[--post-test]` `[--json]` (`--post-test` posts one labelled message per destination) |
    | `watcher status` | `--config=<file>` `[--json]` |
+   | `watcher state:get <key>` | `--config=<file>`; read-only debug view, `<key>` is `heartbeat`, `last-snapshot`, `snapshot:<window end>` or `run:<window end>` (strings redacted, cut to 200 characters; exit 1 when nothing is stored) |
 
    With `--json`, stdout is exactly one JSON line and every human line goes to stderr. A dry run never posts, writes
    state or records spend. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
-   {--post-test} {--json}`, `watcher:status {--json}`.
+   {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`.
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
    `watcher:run` command and merges `config/watcher.php`, which reads `WATCHER_*` environment variables.
@@ -167,9 +168,9 @@ State holds fingerprints, counters, cached verdicts, spend and run records. Ever
 
 | Driver | Notes |
 |--------|-------|
-| `redis` | Needs `ext-redis`. Pass `host/port/password/database`, or inject a connected `\Redis` as `state.redis.instance`. |
+| `redis` | **The default.** Needs `ext-redis` or `predis/predis` (`state.redis.client`: `auto`, `phpredis`, `predis`). Pass `host/port/password/database`, or inject a connected client as `state.redis.instance`. Every key has a TTL; values over `state.redis.compress_min_bytes` (512) are zlib-compressed. |
 | `pdo` | Any PDO DSN. The table is **never created implicitly**: run `Watcher\State\PdoStateStore::createTableSql($driver, $table)` once (sqlite, mysql, pgsql) in a migration. |
-| `file` | **Single runner only.** No cross-process guarantees; use it for one host or development. |
+| `file` | **Single runner only.** No cross-process guarantees; use it for one host or development. In Kubernetes a pod-local directory loses history (`watcher check` warns). |
 
 ## Scheduling
 

@@ -51,6 +51,18 @@ final class ArchitectureTest extends TestCase
         return [...self::files('src'), ...self::files('config'), self::ROOT . '/README.md'];
     }
 
+    public function testRedisStateStoreWritesOnlyThroughTheTtlGuard(): void
+    {
+        $src = (string) file_get_contents(self::ROOT . '/src/State/RedisStateStore.php');
+        self::assertSame(0, preg_match('/->(incrbyfloat|hset|setnx|setex|psetex|append|incr|decr)\(/i', $src), 'a Redis command that can create a key without a TTL');
+        self::assertSame(1, substr_count($src, '->set('), 'one SET call, inside the guarded writer');
+        self::assertMatchesRegularExpression('/private function write\([^{]*\{[^}]*->set\(/s', $src, 'the only SET is inside write()');
+        foreach (['PhpRedisClient', 'PredisClient'] as $adapter) {
+            $a = (string) file_get_contents(self::ROOT . "/src/State/Redis/{$adapter}.php");
+            self::assertSame(0, preg_match('/(->|\'|")(incrbyfloat|hset|setnx|setex)\b/i', $a), $adapter . ' issues a key-creating command without a TTL');
+        }
+    }
+
     public function testNoModelIdUnderSrcOrConfig(): void
     {
         self::assertSame([], self::grep([...self::files('src'), ...self::files('src', 'md'), ...self::files('src', 'json'), ...self::files('config')], '/claude-/i'));
@@ -215,7 +227,7 @@ final class ArchitectureTest extends TestCase
 
         self::assertSame(1, preg_match("/'redis'\\s*=>\\s*\\[(?<body>[^\\]]*)\\]/s", $text, $m), 'state.redis block not found');
         preg_match_all("/'(\\w+)'\\s*=>/", $m['body'] ?? '', $keys);
-        self::assertSame([], array_diff($keys[1], ['instance', 'host', 'port', 'password', 'database']), 'state.redis holds a key WatchConfig does not read');
+        self::assertSame([], array_diff($keys[1], ['instance', 'host', 'port', 'password', 'database', 'client', 'compress_min_bytes', 'read_timeout', 'prefix', 'username']), 'state.redis holds a key WatchConfig does not read');
 
         self::assertSame(1, preg_match("/'pdo'\\s*=>\\s*\\[(?<body>[^\\]]*)\\]/s", $text, $p), 'state.pdo block not found');
         preg_match_all("/'(\\w+)'\\s*=>/", $p['body'] ?? '', $pk);

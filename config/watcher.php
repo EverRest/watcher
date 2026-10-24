@@ -98,13 +98,16 @@ return [
     ],
 
     'state' => [
-        'driver' => env('WATCHER_STATE', 'redis'), // redis | pdo | file
+        'driver' => env('WATCHER_STATE', 'redis'), // redis (default, the only one that survives a CronJob pod) | pdo | file
         'retention' => 2592000,                    // seconds (30 days)
         'redis' => [                               // an injected \Redis ('instance') wins over the connection keys
             'host' => env('WATCHER_REDIS_HOST', '127.0.0.1'),
             'port' => (int) env('WATCHER_REDIS_PORT', 6379),
             'password' => env('WATCHER_REDIS_PASSWORD'),
             'database' => (int) env('WATCHER_REDIS_DATABASE', 0),
+            'client' => env('WATCHER_REDIS_CLIENT', 'auto'),                              // auto | phpredis | predis
+            'compress_min_bytes' => (int) env('WATCHER_REDIS_COMPRESS_MIN_BYTES', 512),  // 0 = never compress
+            'prefix' => env('WATCHER_REDIS_PREFIX', 'watcher:'),                         // give each environment sharing a database its own
         ],
         // The table is never created implicitly: see PdoStateStore::createTableSql().
         'pdo' => ['dsn' => env('WATCHER_DB_DSN'), 'username' => env('WATCHER_DB_USERNAME'), 'password' => env('WATCHER_DB_PASSWORD'), 'table' => 'watcher_state'],

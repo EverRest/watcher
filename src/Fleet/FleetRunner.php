@@ -62,7 +62,7 @@ final class FleetRunner
         $clock ??= new SystemClock();
         $http = Factory::http();
         $first = $fleet->services[0]->config;
-        $state = Factory::state($first, $clock);
+        $state = Factory::state($first, $clock, $log);
         $analyzer = Factory::analyzer($first);
         $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
         $sources = [];

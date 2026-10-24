@@ -143,4 +143,18 @@ final class NotifyConfigTest extends TestCase
             }
         }
     }
+
+    public function testSecretsAreSortedLongestFirstAndUnique(): void
+    {
+        $raw = self::config(['digest' => ['webhook' => self::HOOK]]);
+        $raw['analysis']['api_key'] = 'sk-ant';
+        $raw['state'] = ['driver' => 'redis', 'redis' => ['password' => 'sk-ant-LONGER']];
+        $secrets = WatchConfig::fromArray($raw)->secrets();
+
+        self::assertLessThan(array_search('sk-ant', $secrets, true), array_search('sk-ant-LONGER', $secrets, true));
+        $lengths = array_map('strlen', $secrets);
+        $sorted = $lengths;
+        rsort($sorted);
+        self::assertSame($sorted, $lengths);
+    }
 }
