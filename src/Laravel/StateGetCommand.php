@@ -34,6 +34,10 @@ final class StateGetCommand extends Command
             $this->error($e->getMessage());
 
             return 2;
+        } catch (\Throwable $e) {
+            $this->error('state unavailable (' . $e::class . ')'); // class only: a driver message can carry host and credentials
+
+            return 1;
         }
         if ($text === null) {
             $this->error('state:get: no entry stored for that key');

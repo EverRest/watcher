@@ -58,4 +58,13 @@ final class StateGetCommandTest extends TestCase
         self::assertSame(2, $this->exec(static fn () => throw new InvalidArgumentException('state:get: not a logical key'))[0]);
         self::assertSame(2, $this->exec(static fn () => throw new InvalidConfig('x'))[0]);
     }
+
+    public function testAnUnavailableStoreIsExitOneWithTheClassNameOnly(): void
+    {
+        [$code, $out, $err] = $this->exec(static fn () => throw new \RuntimeException('connect to 10.0.0.5 as hunter2 failed'));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('state unavailable (RuntimeException)', $out . $err);
+        self::assertStringNotContainsString('hunter2', $out . $err);
+    }
 }
