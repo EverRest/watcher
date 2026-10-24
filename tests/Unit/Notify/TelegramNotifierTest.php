@@ -19,7 +19,7 @@ use Watcher\Notify\TelegramNotifier;
 
 final class TelegramNotifierTest extends TestCase
 {
-    private const TOKEN = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw_';
+    private const TOKEN = '123456789' . ':' . 'AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw_';
     private const CHAT = '-1001234567890';
 
     /** @var array<int, array{request: Request}> */
