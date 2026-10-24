@@ -192,7 +192,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         }
 
         $parsed = $this->parser->parse(is_string($attrs['message'] ?? null) ? $attrs['message'] : '', $time);
-        $level = $parsed->level === Level::Info && is_string($attrs['status'] ?? null) ? Level::parse($attrs['status']) : $parsed->level;
+        $level = ($parsed->level === Level::Info || $this->parser->lastParseFailed) && is_string($attrs['status'] ?? null) ? Level::parse($attrs['status']) : $parsed->level;
 
         return new LogEvent($time, $level, $parsed->message, $parsed->errorType, $parsed->frames, $parsed->fields, $labels);
     }

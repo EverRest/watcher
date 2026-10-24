@@ -257,6 +257,53 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertFalse($source->lastReadTruncated());
     }
 
+    public function testPlainLinesAfterAJsonRecordAreNotSwallowedByIt(): void
+    {
+        $source = $this->makeSourceWithLines([
+            '{"message":"attacker marker","level":"error"}',
+            'Payment gateway unreachable, orders failing',
+            'Database connection pool exhausted',
+        ]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertCount(3, $events);
+        $this->assertSame('Payment gateway unreachable, orders failing', $events[1]->message);
+    }
+
+    public function testAStreamWithALevelLabelNeverAppendsAnUnrecognisedLine(): void
+    {
+        $values = [
+            [$this->ns(self::BASE_NS), 'FATAL boom {"a":1}'],
+            [$this->ns(self::BASE_NS + 1), 'something the app printed'],
+            [$this->ns(self::BASE_NS + 2), '    at Foo.bar (x.js:1:1)'],
+        ];
+        $source = $this->source([$this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [
+            ['stream' => ['app' => 'svc', 'level' => 'error'], 'values' => $values],
+        ]]])]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertCount(2, $events);
+        $this->assertSame(Level::Error, $events[1]->level); // the stream label, not a quiet Info
+    }
+
+    public function testAFloodOfIndentedLinesIsCutIntoBoundedRecords(): void
+    {
+        $lines = ['[2026-10-22 10:00:00] production.ERROR: head {}'];
+        for ($i = 0; $i < 450; ++$i) {
+            $lines[] = '    at frame' . $i;
+        }
+        $source = $this->makeSourceWithLines($lines);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 1000)));
+
+        $this->assertGreaterThanOrEqual(3, count($events));
+    }
+
     public function testPlainUnstructuredLinesBecomeOneEventEach(): void
     {
         $source = $this->makeSourceWithLines(\Watcher\Tests\Unit\Source\EventAssemblerTest::fixtureLines('plain_mixed.log'));

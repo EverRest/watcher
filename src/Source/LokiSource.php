@@ -238,10 +238,11 @@ final class LokiSource implements LogSource, ReadDiagnostics
         $open = []; // stream key => index into $out
         foreach ($entries as [$ts, $line, $labels]) {
             $stream = json_encode($labels);
+            $line = $parser->capLine($line);
             if (!isset($open[$stream]) && $parser->isOrphanTrace($line, isset($labels['level']))) {
                 continue;
             }
-            if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1])) {
+            if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1], isset($labels['level']))) {
                 $out[$open[$stream]][1] .= "\n" . $line;
                 continue;
             }
@@ -257,7 +258,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
     {
         $time = (new DateTimeImmutable('@' . intdiv($ts, 1_000_000_000)))->setTimezone(new DateTimeZone('UTC'));
         $parsed = $this->parser->parse($line, $time);
-        $level = $parsed->level === Level::Info && isset($labels['level']) ? Level::parse($labels['level']) : $parsed->level;
+        $level = ($parsed->level === Level::Info || $this->parser->lastParseFailed) && isset($labels['level']) ? Level::parse($labels['level']) : $parsed->level;
 
         return new LogEvent($parsed->time, $level, $parsed->message, $parsed->errorType, $parsed->frames, $parsed->fields, $labels);
     }
