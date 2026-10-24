@@ -78,7 +78,7 @@ final class FakesTest extends TestCase
                 $call();
                 self::fail('expected SourceUnavailable');
             } catch (SourceUnavailable) {
-                self::assertTrue(true);
+                $this->addToAssertionCount(1);
             }
         }
     }

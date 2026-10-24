@@ -63,9 +63,9 @@ jobs:
         env:
           WATCHER_TEST_REDIS: 127.0.0.1:6379
       - run: composer stan
-        if: matrix.php == '8.3' && matrix.deps == 'locked'
+        if: (matrix.php == '8.3' && matrix.deps == 'locked') || matrix.deps == 'highest'   # highest resolves Guzzle 8
       - run: composer style
-        if: matrix.php == '8.3' && matrix.deps == 'locked'
+        if: (matrix.php == '8.3' && matrix.deps == 'locked') || matrix.deps == 'highest'   # highest resolves Guzzle 8
 
   coverage:
     runs-on: ubuntu-latest

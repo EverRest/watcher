@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\ProviderSchema;
 use Watcher\Analyze\TriageRequest;
@@ -37,9 +38,11 @@ final class AnthropicAnalyzerTriageTest extends TestCase
     private function analyzer(array $responses): AnthropicAnalyzer
     {
         $stack = HandlerStack::create(new MockHandler($responses));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
-        return new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]);
+        return new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])));
     }
 
     private static function request(): TriageRequest
@@ -138,7 +141,7 @@ final class AnthropicAnalyzerTriageTest extends TestCase
             $this->analyzer([self::json('error-529.json', 529), self::json('error-529.json', 529), self::json('error-529.json', 529)])->triage(self::request());
             self::fail('expected AnalyzerFailed');
         } catch (AnalyzerFailed $e) {
-            self::assertSame('provider unavailable', $e->getMessage());
+            self::assertSame('provider unavailable (HTTP 529)', $e->getMessage());
             self::assertNull($e->getPrevious());
         }
     }

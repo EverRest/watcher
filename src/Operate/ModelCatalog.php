@@ -13,12 +13,12 @@ interface ModelCatalog
     /**
      * Calls the models list with each auth scheme.
      *
-     * @return array<string, int|string> scheme ('bearer' = the one the SDK uses, 'x-api-key') => HTTP status, or 'timeout' / 'error'
+     * @return array<string, int|string> scheme ('x-api-key' = the one the analyzer sends, 'bearer' = the old SDK scheme) => HTTP status, or 'timeout' / 'error'
      */
     public function probe(): array;
 
     /**
-     * Model ids of the last probe (from the scheme that worked, 'bearer' first); probes first when nothing was probed yet.
+     * Model ids of the last probe (from the scheme that worked, 'x-api-key' first); probes first when nothing was probed yet.
      *
      * @return list<string>
      */

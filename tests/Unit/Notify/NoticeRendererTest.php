@@ -152,4 +152,11 @@ final class NoticeRendererTest extends TestCase
         self::assertStringNotContainsString('hunter2', $out);
         self::assertStringNotContainsString('abc', $out);
     }
+
+    public function testOverlappingSecretsAreMaskedLongestFirst(): void
+    {
+        $text = (new NoticeRenderer(['overlap-', 'overlap-LONGSECRET']))->failure('svc', 'stg', 'source', 'bad overlap-LONGSECRET here')->text;
+
+        self::assertStringNotContainsString('LONGSECRET', $text);
+    }
 }

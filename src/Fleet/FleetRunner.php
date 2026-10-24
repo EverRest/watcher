@@ -62,7 +62,7 @@ final class FleetRunner
         $clock ??= new SystemClock();
         $http = Factory::http();
         $first = $fleet->services[0]->config;
-        $state = Factory::state($first, $clock);
+        $state = Factory::state($first, $clock, $log);
         $analyzer = Factory::analyzer($first);
         $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
         $sources = [];
@@ -189,7 +189,7 @@ final class FleetRunner
         $to = $this->destination();
         $quiet = array_map(static fn (ServiceResult $r): string => $r->service, array_filter($results, static fn (ServiceResult $r): bool => $r->outcome === RunOutcome::Quiet->value));
         $message = $to === null || $this->notifier === null ? null : (new CombinedDigest())->build($this->config->name, $seam->digests(), array_values($quiet));
-        if ($message === null || $to === null || $this->notifier === null) {
+        if ($message === null) {
             return null;
         }
         if ($dryRun) {

@@ -27,6 +27,12 @@ final class RedactorTest extends TestCase
     }
 
     /** @param list<string> $frames */
+    private function mk(Redactor $r, ?string $type, array $frames): RedactedGroup
+    {
+        return $r->redact($this->group('Lock wait', $type, $frames));
+    }
+
+    /** @param list<string> $frames */
     private function group(?string $template, ?string $type = 'RuntimeException', array $frames = ['/app/Foo.php:12']): ProblemGroup
     {
         $t = new DateTimeImmutable('2026-01-01T00:00:00+00:00');
@@ -186,19 +192,18 @@ final class RedactorTest extends TestCase
     public function testDigitsSurviveOnlyInsideIdentifiers(): void
     {
         $r = $this->redactor();
-        $mk = fn (?string $type, array $frames): RedactedGroup => $r->redact($this->group('Lock wait', $type, $frames));
 
         // Digits attached to letters are part of a name: kept.
-        $ok = $mk('App\\Http2Exception', ['/var/www/html/app/v2/Http2Handler.php:12']);
+        $ok = $this->mk($r, 'App\\Http2Exception', ['/var/www/html/app/v2/Http2Handler.php:12']);
         self::assertSame('App\\Http2Exception', $ok->errorType);
         self::assertSame(['…/app/v<N>/Http2Handler.php:12'], $ok->frames);
 
         // A numeric path segment (a tenant or customer id) is cut away or masked, never sent.
-        $bad = $mk('X', ['/var/www/tenants/48213/app/X.php:12', '/srv/1234567890/y.php:3', '/var/www/html/app/Z.php:7']);
+        $bad = $this->mk($r, 'X', ['/var/www/tenants/48213/app/X.php:12', '/srv/1234567890/y.php:3', '/var/www/html/app/Z.php:7']);
         self::assertSame(['…/app/X.php:12', '…/app/Z.php:7'], $bad->frames);
 
         // A purely numeric error type is not a class name: dropped.
-        self::assertNull($mk('1234567890', [])->errorType);
+        self::assertNull($this->mk($r, '1234567890', [])->errorType);
     }
 
     /** @return array<string, array{string, ?string}> */

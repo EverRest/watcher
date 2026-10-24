@@ -39,6 +39,7 @@ final class Doctor
         private readonly ?ModelCatalog $catalog,
         private readonly Notifier $notifier,
         private readonly ClockInterface $clock,
+        private readonly bool $kubernetes = false,
     ) {
     }
 
@@ -118,17 +119,12 @@ final class Doctor
 
             return [CheckResult::fail('provider_auth', $reason), CheckResult::skip('models', 'provider auth failed')];
         }
-        $bearer = $probe['bearer'] ?? 'error';
         $apiKey = $probe['x-api-key'] ?? 'error';
-        if ($bearer !== 200) {
-            $auth = $apiKey === 200
-                ? CheckResult::fail('provider_auth', 'package scheme (Authorization: Bearer) rejected (HTTP ' . $bearer . ') but x-api-key works: the analyzer needs a code change')
-                : CheckResult::fail('provider_auth', $bearer === 'timeout' && $apiKey === 'timeout' ? 'timeout' : 'no scheme accepted (HTTP ' . $bearer . '/' . $apiKey . ')');
-
-            return [$auth, CheckResult::skip('models', 'provider auth failed')];
+        if ($apiKey !== 200) {
+            return [CheckResult::fail('provider_auth', $apiKey === 'timeout' ? 'timeout' : 'x-api-key rejected (HTTP ' . $apiKey . ')'), CheckResult::skip('models', 'provider auth failed')];
         }
 
-        return [CheckResult::pass('provider_auth', 'package scheme accepted'), $this->models($ids)];
+        return [CheckResult::pass('provider_auth', 'x-api-key accepted'), $this->models($ids)];
     }
 
     /** @param list<string> $ids */
@@ -178,7 +174,32 @@ final class Doctor
         $this->store->release($lock, $id);
 
         // The scratch keys expire after SCRATCH_TTL: StateStore has no delete.
-        return $first && !$second ? CheckResult::pass('state') : CheckResult::fail('state', 'lock not exclusive');
+        if (!$first || $second) {
+            return CheckResult::fail('state', 'lock not exclusive');
+        }
+        $warnings = self::stateWarnings($this->config->state, $this->kubernetes, extension_loaded('zlib'));
+
+        return CheckResult::pass('state', $warnings === [] ? '' : 'warning: ' . implode('; ', $warnings));
+    }
+
+    /**
+     * Setups that work but lose data or space; shown as a `warning:` on a passing state check.
+     *
+     * @param array<string, mixed> $state
+     * @return list<string>
+     */
+    public static function stateWarnings(array $state, bool $kubernetes, bool $zlib): array
+    {
+        $out = [];
+        if (($state['driver'] ?? null) === 'file' && $kubernetes) {
+            $out[] = 'state.driver=file inside Kubernetes (KUBERNETES_SERVICE_HOST is set): a pod-local directory loses history on every new pod; use state.driver=redis (docs/operations.md)';
+        }
+        $redis = is_array($state['redis'] ?? null) ? $state['redis'] : [];
+        if (($state['driver'] ?? null) === 'redis' && ($redis['compress_min_bytes'] ?? 512) !== 0 && !$zlib) {
+            $out[] = 'ext-zlib is not loaded: Redis values are stored uncompressed';
+        }
+
+        return $out;
     }
 
     private function notifier(): CheckResult

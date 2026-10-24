@@ -127,7 +127,7 @@ final class DependencyContextReaderTest extends TestCase
         $own = new FakeLogSource(['error' => 1]);
         $other = new FakeLogSource(['error' => 9]);
         $decl = $this->declared('a', 'b');
-        $decl['b']['source'] = 'other';
+        $decl['b'] = ['stream_tags' => ['app' => 'b'], 'source' => 'other'];
         $res = $this->reader->read('svc', $decl, fn (string $n) => $n === 'b' ? $other : $own, $this->plan(), $this->window, 5000);
 
         self::assertCount(1, $other->callsTo('totals'));

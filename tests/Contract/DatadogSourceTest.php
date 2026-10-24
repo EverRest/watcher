@@ -476,7 +476,9 @@ final class DatadogSourceTest extends LogSourceContractTest
     private function source(array $responses, int $retryBudget = 120, int $pagingBudget = 300, ?ClockInterface $clock = null, string $levelMode = 'status', bool $newestFirst = false): DatadogSource
     {
         $stack = HandlerStack::create(new MockHandler($responses));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new DatadogSource(
             new Client(['handler' => $stack]),

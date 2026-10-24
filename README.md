@@ -33,7 +33,7 @@ Nothing new to report means zero model calls. The first run only records a basel
 ## Requirements
 
 - PHP ^8.2. Support matrix: CI tests PHP 8.2 to 8.5. PHP 8.2 security support ends in December 2026; use 8.3 or newer in production. PHP 8.1 support was dropped in 0.1.2.
-- Optional extensions: `ext-redis` (Redis state), `ext-pdo` plus a driver (PDO state).
+- Optional: `ext-redis` or `predis/predis` (Redis state, the default driver), `ext-zlib` (compresses large Redis values), `ext-pdo` plus a driver (PDO state).
 - A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
 - Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11; CI tests the oldest and the newest versions Composer resolves, on top of the locked set); the core has no framework dependency. Laravel 10 no longer receives security fixes upstream, prefer 11. Lumen is unmaintained upstream: the adapter has no Lumen-specific test, so treat Lumen as best effort.
 
@@ -45,13 +45,8 @@ Nothing new to report means zero model calls. The first run only records a basel
 composer require everrest/watcher
 ```
 
-Composer may ask whether to trust the `php-http/discovery` plugin. It is a dependency of the Anthropic SDK, and this
-package does not need it (Guzzle is already required and provides the HTTP client); answer no, or decline it up front
-(also in CI):
-
-```bash
-composer config allow-plugins.php-http/discovery false
-```
+The Anthropic SDK is optional: the default client (`analysis.client = http`) talks to the API over Guzzle. Only the rollback
+`analysis.client = sdk` needs `composer require anthropic-ai/sdk`.
 
 Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.providers`); in Lumen register
 `Watcher\Laravel\WatcherServiceProvider` by hand in `bootstrap/app.php`. Without a framework use `vendor/bin/watcher`.
@@ -75,10 +70,11 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
    | `watcher run` | `--config=<file>` `[--now=<ISO-8601>]` `[--dry-run [--estimate]]` `[--json]` |
    | `watcher check` | `--config=<file>` `[--post-test]` `[--json]` (`--post-test` posts one labelled message per destination) |
    | `watcher status` | `--config=<file>` `[--json]` |
+   | `watcher state:get <key>` | `--config=<file>`; read-only debug view, `<key>` is `heartbeat`, `last-snapshot`, `snapshot:<window end>` or `run:<window end>` (strings redacted, cut to 200 characters; exit 1 when nothing is stored) |
 
    With `--json`, stdout is exactly one JSON line and every human line goes to stderr. A dry run never posts, writes
    state or records spend. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
-   {--post-test} {--json}`, `watcher:status {--json}`.
+   {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`.
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
    `watcher:run` command and merges `config/watcher.php`, which reads `WATCHER_*` environment variables.
@@ -167,9 +163,9 @@ State holds fingerprints, counters, cached verdicts, spend and run records. Ever
 
 | Driver | Notes |
 |--------|-------|
-| `redis` | Needs `ext-redis`. Pass `host/port/password/database`, or inject a connected `\Redis` as `state.redis.instance`. |
+| `redis` | **The default.** Needs `ext-redis` or `predis/predis` (`state.redis.client`: `auto`, `phpredis`, `predis`). Pass `host/port/password/database`, or inject a connected client as `state.redis.instance`. Every key has a TTL; values over `state.redis.compress_min_bytes` (512) are zlib-compressed. |
 | `pdo` | Any PDO DSN. The table is **never created implicitly**: run `Watcher\State\PdoStateStore::createTableSql($driver, $table)` once (sqlite, mysql, pgsql) in a migration. |
-| `file` | **Single runner only.** No cross-process guarantees; use it for one host or development. |
+| `file` | **Single runner only.** No cross-process guarantees; use it for one host or development. In Kubernetes a pod-local directory loses history (`watcher check` warns). |
 
 ## Scheduling
 
@@ -259,7 +255,7 @@ decided in code from names, placeholders and times; it makes no model call and w
 
 - The Grafana Explore URL shape and the Datadog response shapes are not verified against live systems; sources are
   tested against recorded fixtures only.
-- The `Authorization` header and request format the Anthropic SDK sends were not verified against the live API.
+- The request format of the built-in Anthropic client (`x-api-key`, structured output) was tested against recorded fixtures only, not the live API.
 - At most `source.group_cap` (5000) distinct problem groups are held per run; on a day with more distinct messages the rest
   is grouped as one "other" group per level and the digest says so. Watch-rule matches are exempt up to twice the cap.
 - Cluster templates group by word similarity, not exact shape (`grouping.similarity`); two different problems with very similar wording can still share a template, and fingerprints do not depend on it. A name identical in every event of a cluster is not detectable (see `docs/privacy.md`).

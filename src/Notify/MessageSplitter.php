@@ -54,24 +54,24 @@ final class MessageSplitter
      */
     private static function pack(array $sections, array $full, int $limit, string $cutMarker): array
     {
-        $parts = [['texts' => [], 'count' => 0]];
+        $parts = [];
+        $texts = [];
         $size = 0;
         foreach ($full as $i => $text) {
             if (mb_strlen($text) > $limit) {
                 $text = self::cut($sections[$i], $text, $limit, $cutMarker);
             }
-            $cur = count($parts) - 1;
-            $add = mb_strlen($text) + ($parts[$cur]['texts'] === [] ? 0 : 2);
-            if ($parts[$cur]['texts'] !== [] && $size + $add > $limit) {
-                $parts[] = ['texts' => [], 'count' => 0];
-                ++$cur;
+            $add = mb_strlen($text) + ($texts === [] ? 0 : 2);
+            if ($texts !== [] && $size + $add > $limit) {
+                $parts[] = ['texts' => $texts, 'count' => count($texts)];
+                $texts = [];
                 $size = 0;
                 $add = mb_strlen($text);
             }
-            $parts[$cur]['texts'][] = $text;
-            ++$parts[$cur]['count'];
+            $texts[] = $text;
             $size += $add;
         }
+        $parts[] = ['texts' => $texts, 'count' => count($texts)];
 
         return $parts;
     }

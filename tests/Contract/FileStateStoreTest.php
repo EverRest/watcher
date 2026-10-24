@@ -197,7 +197,7 @@ final class FileStateStoreTest extends StateStoreContractTest
 
     public function testOtherStoresAreNotPurgeable(): void
     {
-        self::assertNotInstanceOf(Purgeable::class, new \Watcher\Tests\Fakes\InMemoryStateStore($this->clock));
+        self::assertNotContains(Purgeable::class, class_implements(new \Watcher\Tests\Fakes\InMemoryStateStore($this->clock)) ?: []);
     }
 
     public function testAWaiterOnARemovedSidecarReopensAndStillGetsMutualExclusion(): void

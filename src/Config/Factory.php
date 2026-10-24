@@ -14,6 +14,8 @@ use Redis;
 use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\AnthropicHttpClient;
+use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Notify\Notifier;
 use Watcher\Notify\RoutingNotifier;
@@ -30,7 +32,14 @@ use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
+use Watcher\Operate\StateInspector;
+use Watcher\Privacy\Redactor;
+use Watcher\Reduce\Normalizer;
+use Watcher\State\Redis\PhpRedisClient;
+use Watcher\State\Redis\PredisClient;
+use Watcher\State\Redis\RedisClient;
 use Watcher\State\RedisStateStore;
+use Watcher\State\UnreadableCounter;
 use Watcher\State\RenewableLock;
 use RuntimeException;
 use Watcher\State\StateStore;
@@ -117,13 +126,19 @@ final class Factory
         return (is_int($c->source['max_response_mb'] ?? null) ? $c->source['max_response_mb'] : 16) * 1024 * 1024;
     }
 
-    public static function state(WatchConfig $c, ClockInterface $clock): StateStore
+    public static function state(WatchConfig $c, ClockInterface $clock, ?LoggerInterface $log = null): StateStore
     {
         /** @var array<string, mixed> $st */
         $st = $c->state;
 
         return match ($st['driver']) {
-            'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(self::redis(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock)),
+            'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(
+                self::redisClient(is_array($st['redis'] ?? null) ? $st['redis'] : []),
+                $clock,
+                is_string($st['redis']['prefix'] ?? null) ? $st['redis']['prefix'] : 'watcher:',
+                is_int($st['redis']['compress_min_bytes'] ?? null) ? $st['redis']['compress_min_bytes'] : 512,
+                $log,
+            )),
             // The table is never created here: run PdoStateStore::createTableSql($driver, $table) once, in a migration.
             // Lazy like Redis: a connect failure on a trigger that is not due must not fail it.
             'pdo' => self::lazy(static fn (): StateStore => new PdoStateStore(self::pdo($st['pdo']), $clock, (string) ($st['pdo']['table'] ?? 'watcher_state'))),
@@ -140,11 +155,71 @@ final class Factory
         return (is_int($t) || is_float($t)) && $t > 0 ? (float) $t : 5.0;
     }
 
-    /** @param array<string, mixed> $r */
-    private static function redis(array $r): Redis
+    /**
+     * `state.redis.client`: auto (ext-redis when loaded, else Predis), phpredis or predis. Throws when the choice is not installed.
+     *
+     * @return 'phpredis'|'predis'
+     */
+    public static function pickRedisClient(string $mode, bool $extensionLoaded, bool $predisInstalled): string
     {
-        if (($r['instance'] ?? null) instanceof Redis) {
-            return $r['instance'];
+        if ($mode === 'phpredis' && !$extensionLoaded) {
+            throw new RuntimeException('state.redis.client=phpredis needs ext-redis');
+        }
+        if ($mode === 'predis' && !$predisInstalled) {
+            throw new RuntimeException('state.redis.client=predis needs predis/predis (composer require predis/predis)');
+        }
+        if ($mode === 'auto' && !$extensionLoaded && !$predisInstalled) {
+            throw new RuntimeException('state.redis: install ext-redis or predis/predis');
+        }
+
+        return $mode === 'predis' || ($mode === 'auto' && !$extensionLoaded) ? 'predis' : 'phpredis';
+    }
+
+    /** An injected client: a \Redis, anything already speaking RedisClient, or else a Predis client. */
+    public static function wrapRedisInstance(#[\SensitiveParameter] object $instance): RedisClient
+    {
+        return match (true) {
+            $instance instanceof RedisClient => $instance,
+            $instance instanceof Redis => new PhpRedisClient($instance),
+            default => new PredisClient($instance),
+        };
+    }
+
+    /**
+     * predis/predis is only a `suggest`: the name comes from a method so phpstan does not look for the class.
+     */
+    private static function predisClass(): string
+    {
+        return 'Predis\\Client';
+    }
+
+    /**
+     * #[\SensitiveParameter] (PHP 8.2+, ignored on 8.1) keeps `$r`, password included, out of exception traces.
+     *
+     * @param array<string, mixed> $r
+     */
+    private static function redisClient(#[\SensitiveParameter] array $r): RedisClient
+    {
+        if (is_object($r['instance'] ?? null)) {
+            return self::wrapRedisInstance($r['instance']);
+        }
+        $predisClass = self::predisClass();
+        $pick = self::pickRedisClient(is_string($r['client'] ?? null) ? $r['client'] : 'auto', class_exists(Redis::class), class_exists($predisClass));
+        if ($pick === 'predis') {
+            try {
+                return new PredisClient(new $predisClass(array_filter([
+                    'scheme' => str_starts_with((string) ($r['host'] ?? ''), 'tls://') ? 'tls' : 'tcp',
+                    'host' => (string) preg_replace('~^tls://~', '', (string) ($r['host'] ?? '127.0.0.1')),
+                    'port' => (int) ($r['port'] ?? 6379),
+                    'database' => (int) ($r['database'] ?? 0),
+                    'username' => isset($r['username'], $r['password']) ? (string) $r['username'] : null,
+                    'password' => isset($r['password']) ? (string) $r['password'] : null,
+                    'timeout' => 5.0,
+                    'read_write_timeout' => self::redisReadTimeout($r),
+                ], static fn (mixed $v): bool => $v !== null)));
+            } catch (\Throwable) {
+                throw new RuntimeException('state.redis: cannot create the predis client'); // never echo the driver message (may carry the password)
+            }
         }
         $redis = new Redis();
         try {
@@ -158,7 +233,7 @@ final class Factory
             throw new RuntimeException('state.redis: cannot connect or authenticate'); // never echo the driver message (may carry the password)
         }
 
-        return $redis;
+        return new PhpRedisClient($redis);
     }
 
     /** @param array<string, mixed> $p */
@@ -177,7 +252,7 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore, RenewableLock {
+        return new class ($make) implements StateStore, RenewableLock, UnreadableCounter {
             private ?StateStore $store = null;
 
             public function __construct(private readonly Closure $make)
@@ -216,6 +291,11 @@ final class Factory
                 return $store instanceof RenewableLock && $store->renew($key, $owner, $ttlSeconds);
             }
 
+            public function unreadableEntries(): int
+            {
+                return $this->store instanceof UnreadableCounter ? $this->store->unreadableEntries() : 0; // never connects just to count
+            }
+
             private function store(): StateStore
             {
                 return $this->store ??= ($this->make)();
@@ -229,11 +309,13 @@ final class Factory
             throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
         }
 
+        $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
+        $key = (string) $c->analysis['api_key'];
+
         return new AnthropicAnalyzer(
-            (string) $c->analysis['api_key'],
-            new Client(self::analyzerHttpOptions($c->schedule['lock_ttl'])),
-            null,
-            self::analyzerRequestOptions(),
+            $c->analysis['client'] === 'sdk'
+                ? new SdkMessagesClient($key, new Client($options), null, self::analyzerRequestOptions())
+                : new AnthropicHttpClient($key, new Client($options), $options['timeout']),
             $c->on('advice'),
         );
     }
@@ -278,7 +360,22 @@ final class Factory
         $clock ??= new SystemClock();
         $http ??= self::http();
 
-        return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock);
+        return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '');
+    }
+
+    /**
+     * For `watcher state:get`: reads one logical key of the configured store, redacted. No other collaborator is built.
+     *
+     * @param array<string, mixed> $config
+     * @throws InvalidConfig
+     */
+    public static function stateInspector(array $config, ?ClockInterface $clock = null): StateInspector
+    {
+        $c = WatchConfig::fromArray($config);
+        $normalizer = new Normalizer($c->on('dependencies') ? array_map('strval', array_keys($c->dependencies)) : [], $c->dependencyDomains, extraPatterns: $c->redactionPatterns);
+        $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
+
+        return new StateInspector(self::state($c, $clock ?? new SystemClock()), new Redactor($normalizer, $c->redactionPatterns, $pathMap), $c->stateKey, $c->secrets());
     }
 
     /**

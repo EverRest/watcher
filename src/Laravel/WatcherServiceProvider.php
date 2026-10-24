@@ -68,11 +68,15 @@ final class WatcherServiceProvider extends ServiceProvider
                 );
             },
         );
+        $this->app->bind(
+            StateGetCommand::class,
+            static fn ($app): StateGetCommand => new StateGetCommand(static fn (string $key): ?string => Factory::stateInspector((array) $app->make('config')->get('watcher'))->render($key)),
+        );
     }
 
     public function boot(): void
     {
-        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, FleetCommand::class]);
+        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, StateGetCommand::class, FleetCommand::class]);
         if (method_exists($this->app, 'basePath')) {
             $this->publishes([self::CONFIG => $this->app->basePath('config/watcher.php')], 'watcher-config');
         }

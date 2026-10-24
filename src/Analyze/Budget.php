@@ -90,7 +90,7 @@ final class Budget
             }
             $top = $deps[$at[0]]->topErrors;
             unset($top[$at[1]]);
-            $deps[$at[0]] = $deps[$at[0]]->withTopErrors(array_values($top));
+            array_splice($deps, $at[0], 1, [$deps[$at[0]]->withTopErrors(array_values($top))]); // splice, not assign: keeps $deps a list
         }
 
         return $deps;

@@ -70,7 +70,7 @@ final class DryRunTest extends TestCase
 
         $real = $h->watcher(self::source())->run();
         self::assertSame(RunOutcome::Reported, $real->outcome);
-        $digest = $h->notifier->sent[array_key_last($h->notifier->sent)]['message']->text;
+        $digest = $h->notifier->last()['message']->text;
         self::assertStringContainsString($digest, $this->out);
     }
 

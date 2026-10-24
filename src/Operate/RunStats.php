@@ -19,6 +19,9 @@ final class RunStats
 
     public int $oversizedLines = 0;
 
+    /** State entries that could not be decoded and were read as missing (Redis store). */
+    public int $stateUnreadable = 0;
+
     public int $candidates = 0;
 
     public int $findings = 0;
@@ -39,7 +42,7 @@ final class RunStats
     /** Source pages fetched, when the source reports it. */
     public ?int $pages = null;
 
-    /** @param 'triage'|'analyze'|'escalate' $step */
+    /** @param string $step 'triage'|'analyze'|'escalate'; anything else is refused */
     public function addUsage(string $step, Usage $usage): void
     {
         if (! isset($this->calls[$step])) {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit\Source;
 
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\ServerException;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
@@ -58,6 +59,22 @@ final class RetryTest extends TestCase
                 self::assertNull($e->getPrevious());
                 self::assertSame('x request failed (' . ConnectException::class . ')', $e->getMessage());
             }
+        }
+    }
+
+    /** Guzzle 7 asks RequestException::hasResponse(), Guzzle 8 has no such method: the check must hold on both. */
+    public function testAFailureThatCarriesAResponseIsNotRetried(): void
+    {
+        $request = new Request('POST', 'https://x.invalid');
+        $failure = new ServerException('boom', $request, new Response(500));
+        $retry = $this->retry();
+
+        try {
+            $retry->send($this->sender([$failure, new Response(200)]), 'x', false);
+            self::fail('expected SourceUnavailable');
+        } catch (SourceUnavailable) {
+            self::assertSame(1, $this->calls);
+            self::assertSame([], $this->slept);
         }
     }
 

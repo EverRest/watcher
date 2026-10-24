@@ -30,7 +30,10 @@ final class SourceGuardsTest extends TestCase
         return new Window(new DateTimeImmutable('@' . self::T0), new DateTimeImmutable('@' . (self::T0 + 86400)));
     }
 
-    /** @param list<Response> $responses */
+    /**
+     * @param list<Response> $responses
+     * @param-out MockHandler $mock
+     */
     private function loki(array $responses, ?FrozenClock $clock = null, int $pagingBudget = 300, int $maxPages = 1000, ?MockHandler &$mock = null): LokiSource
     {
         $mock = new MockHandler($responses);
@@ -130,8 +133,41 @@ final class SourceGuardsTest extends TestCase
         $src->totals($this->window(), new StreamSelector(['app' => 's']));
     }
 
+    /** The abort is a failure that carries a response on Guzzle 7 (RequestException) and 8 (ResponseException): no retry, no backoff. */
+    public function testAHeadersAbortIsAttemptedExactlyOnceWithoutBackoff(): void
+    {
+        $big = static fn (): Response => new Response(200, ['Content-Length' => (string) (ResponseLimit::MAX_BYTES + 1)], '{}');
+        $sleeps = [];
+        $sleeper = static function (int $s) use (&$sleeps): void {
+            $sleeps[] = $s;
+        };
+        $window = $this->window();
+
+        $mock = new MockHandler([$big(), $big(), $big()]);
+        $loki = new LokiSource(new Client(['handler' => HandlerStack::create($mock)]), 'https://loki.test', 't', sleeper: $sleeper);
+        try {
+            $loki->totals($window, new StreamSelector(['app' => 's']));
+            $this->fail('expected the abort');
+        } catch (SourceUnavailable $e) {
+            $this->assertTrue($e->tooLarge);
+        }
+        $this->assertCount(2, $mock, 'loki: one response consumed');
+
+        $mock = new MockHandler([$big(), $big(), $big()]);
+        $dd = new DatadogSource(new Client(['handler' => HandlerStack::create($mock)]), 'datadoghq.com', 'a', 'b', sleeper: $sleeper);
+        try {
+            $dd->totals($window, new StreamSelector(['service' => 's']));
+            $this->fail('expected the abort');
+        } catch (SourceUnavailable $e) {
+            $this->assertTrue($e->tooLarge);
+        }
+        $this->assertCount(2, $mock, 'datadog: one response consumed');
+        $this->assertSame([], $sleeps, 'no backoff');
+    }
+
     public function testTheHeadersHookAbortsOnlyAboveTheCapAndSaysWhy(): void
     {
+        /** @var \ArrayObject<string, bool> $tripped */
         $tripped = new \ArrayObject();
         $hook = ResponseLimit::options($tripped, 1000)['on_headers'];
 
@@ -175,6 +211,7 @@ final class SourceGuardsTest extends TestCase
             $src->totals($this->window(), new StreamSelector(['service' => 's']));
         } catch (SourceUnavailable) {
         }
+        $this->assertIsArray($hist);
         $this->assertCount(1, $hist);
         $this->assertFalse($hist[0]['options']['allow_redirects']);
         $this->assertTrue($hist[0]['options']['verify']);

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Watcher\Config;
 
 use Watcher\Notify\Destination;
+use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Level;
+use Watcher\State\Redis\RedisClient;
 
 /**
  * Validated, default-filled, immutable configuration (contracts/configuration.md).
@@ -458,7 +460,7 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function analysis(array $a): array
     {
-        self::only($a, ['provider', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage', 'advice'], 'analysis');
+        self::only($a, ['provider', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage', 'advice'], 'analysis');
         self::str($a, 'api_key', 'analysis.api_key');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
@@ -478,6 +480,14 @@ final class WatchConfig implements \JsonSerializable
             }
         }
 
+        $client = self::optStr($a, 'client', 'http', 'analysis.client');
+        if (!in_array($client, ['http', 'sdk'], true)) {
+            throw new InvalidConfig('analysis.client must be http or sdk');
+        }
+        if ($client === 'sdk' && !SdkMessagesClient::available()) {
+            throw new InvalidConfig('analysis.client is sdk but anthropic-ai/sdk is not installed: run composer require anthropic-ai/sdk, or set analysis.client to http');
+        }
+
         $prices = self::prices(self::section($a, 'prices'), $models);
         $percents = $a['budget_alert_percents'] ?? [25, 50, 75, 90];
         $tokenLimit = $a['daily_token_limit'] ?? null;
@@ -490,6 +500,7 @@ final class WatchConfig implements \JsonSerializable
 
         return array_merge($a, $limits, [
             'provider' => self::optStr($a, 'provider', 'anthropic', 'analysis.provider'),
+            'client' => $client,
             'models' => $models,
             'confidence_threshold' => $conf,
             'escalation_cap' => self::posInt($a, 'escalation_cap', 3, 'analysis.escalation_cap'),
@@ -564,10 +575,24 @@ final class WatchConfig implements \JsonSerializable
     /** @param array<string, mixed> $r an injected `instance` wins; otherwise host/port/password/database build one */
     private static function redis(array $r): void
     {
-        self::only($r, ['instance', 'host', 'port', 'username', 'password', 'database'], 'state.redis');
+        self::only($r, ['instance', 'host', 'port', 'username', 'password', 'database', 'client', 'compress_min_bytes', 'read_timeout', 'prefix'], 'state.redis');
+        if (array_key_exists('prefix', $r) && (!is_string($r['prefix']) || preg_match('/^[A-Za-z0-9_.:-]{1,64}$/D', $r['prefix']) !== 1)) {
+            throw new InvalidConfig('state.redis.prefix must be 1 to 64 characters of letters, digits and _ . : -');
+        }
+        if (!in_array($r['client'] ?? 'auto', ['auto', 'phpredis', 'predis'], true)) {
+            throw new InvalidConfig('state.redis.client must be auto, phpredis or predis');
+        }
+        $min = $r['compress_min_bytes'] ?? 512;
+        if (!is_int($min) || $min < 0) {
+            throw new InvalidConfig('state.redis.compress_min_bytes must be an integer of 0 or more (0 = never compress)');
+        }
+        if (isset($r['read_timeout']) && (!(is_int($r['read_timeout']) || is_float($r['read_timeout'])) || $r['read_timeout'] <= 0)) {
+            throw new InvalidConfig('state.redis.read_timeout must be a positive number of seconds');
+        }
         if (array_key_exists('instance', $r)) {
-            if (!$r['instance'] instanceof \Redis) {
-                throw new InvalidConfig('state.redis.instance must be a \\Redis instance');
+            $i = $r['instance'];
+            if (!($i instanceof \Redis || $i instanceof RedisClient || is_a($i, 'Predis\\ClientInterface'))) {
+                throw new InvalidConfig('state.redis.instance must be a \\Redis, a Predis client or a ' . RedisClient::class);
             }
 
             return;
@@ -737,7 +762,11 @@ final class WatchConfig implements \JsonSerializable
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
         ];
 
-        return array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+        $secrets = array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+        // Longest first: masking `sk-ant` before `sk-ant-SECRET` would leave `-SECRET` behind. (usort is stable in PHP 8.)
+        usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        return $secrets;
     }
 
     /** @return array<string, array<string, mixed>> */

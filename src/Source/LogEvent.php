@@ -29,6 +29,6 @@ final class LogEvent
         public readonly array $fields,
         public readonly array $labels,
     ) {
-        $this->frames = array_slice(array_values($frames), 0, self::MAX_FRAMES);
+        $this->frames = array_slice($frames, 0, self::MAX_FRAMES);
     }
 }

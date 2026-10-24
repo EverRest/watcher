@@ -1,6 +1,36 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 — 2026-10-24 — Redis state and own Anthropic client
+
+Product release label **v0.1.3** (`VERSION`). Redis becomes the primary state store, the Anthropic client is built in, the SSRF host classifier is shared, PHPStan moves to 2.x and Guzzle 8 is accepted.
+
+**BREAKING / UPGRADE**
+- Anthropic SDK is now optional. `anthropic-ai/sdk` (and `php-http/discovery`, with its Composer plugin prompt) left `require`; the default `analysis.client = http` needs neither. Consumers who relied on the SDK being installed must `composer require anthropic-ai/sdk` and set `analysis.client = sdk`, or switch to `analysis.client = http` (the default).
+- New `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`, unchanged): set it to keep environments that share one Redis database apart. Existing keys keep working with the default.
+- A decoded Redis state value is capped at 4 MB (also refused at write with `StateValueTooLarge`); large values are stored compressed (`z1:` + zlib). A version before 0.1.3 reads `z1:` values as missing: set `compress_min_bytes` to `0` before rolling back (`docs/operations.md`).
+- A Redis TTL of 0 or less now throws instead of being clamped to 1 second.
+- `guzzlehttp/guzzle` constraint widened to `^7.15.2 || ^8.3` (additive for consumers on 7).
+- `phpstan/phpstan` is `^2.3` (dev only).
+
+### Redis state (Redis becomes the primary store)
+- Added: Redis is the default and recommended state driver (shipped `config/watcher.php` and the example use it). New `state.redis.client` (`WATCHER_REDIS_CLIENT`: `auto`, `phpredis`, `predis`): `ext-redis` when loaded, else `predis/predis` (`^2.0 || ^3.0`, a `suggest`); an injected `\Redis`, Predis client or `Watcher\State\Redis\RedisClient` still wins as `state.redis.instance`. `username` (ACL) and `tls://` hosts work with both clients. Kubernetes guidance in `docs/operations.md` ("Where to keep state").
+- Added: compression of large values written with `put`: above `state.redis.compress_min_bytes` (default 512, `0` = off) a value is stored as `z1:` + zlib. Counters and locks are never compressed; a decoded value is capped at 4 MB (`StateCodec::MAX_BYTES`; inflated in 1 KB slices with a running cap, JSON depth 64, so a decompression bomb costs at most the cap) and an unreadable entry (corrupt, truncated, over the cap) reads as missing and is counted as `state_unreadable` in the JSON summary. Old uncompressed values keep reading. Rollback warning: a version without this change reads `z1:` values as missing (run records and baselines are lost for that window, no crash); before rolling back set `compress_min_bytes` to `0`, wait one retention period or delete the package's keys by prefix, then roll back (`docs/operations.md`, "Rollback / disabling"). Needs `ext-zlib`; without it nothing is compressed and `watcher check` warns.
+- Added: `watcher state:get <key>` (Laravel: `watcher:state-get`), a read-only view of the package's own state keys with strings redacted and long values cut; any other key is refused (exit 2), nothing stored is exit 1.
+- Added: `watcher check` warns (still `pass`) when the driver is `file` and `KUBERNETES_SERVICE_HOST` is set, because a pod's local disk loses history with the pod.
+- Changed: every Redis write carries a TTL by construction, in milliseconds (`SET ... PX`, `PEXPIRE`), through one guarded writer; a zero or negative TTL throws. The spend counter is a single Lua script (`INCRBYFLOAT` + `PEXPIRE`) so a key can no longer exist without an expiry. `RedisStateStore` still implements `RenewableLock`.
+- Changed: an injected phpredis client that uses a serializer is refused (`state.redis.instance must not use a serializer`; it broke lock renew and release); the Redis password no longer appears in exception trace arguments (`#[\SensitiveParameter]`); `watcher state:get` exits 1 with `state unavailable (<class>)` when the store is down; configured secrets are masked longest first, so overlapping secrets leave no suffix.
+- Changed (review of the Redis branch): the decoded structure is budgeted before `json_decode` (4 MB, 100,000 elements, 16,000 arrays/objects; a `[0],` bomb is now reported unreadable instead of an uncatchable memory fatal), a value the reader would refuse is refused at write (`StateValueTooLarge`), trailing bytes after a zlib stream are always refused, a failed `GET` fails closed (phpredis `false` with an error, Predis error object), an injected phpredis with compression is refused, `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`) separates environments on one database, and a lost run lock stops the run (`lock_lost`) instead of only logging. Documented: `maxmemory-policy noeviction`, and that the daily budget check is check-then-add, so parallel runs of one service can overshoot it by up to one step each.
+- Fixed: `state.redis.read_timeout` is now accepted by config validation next to the new keys.
+
+### Own Anthropic client (lane H)
+- Own Anthropic client (lane H), review fixes: the `check` models probe no longer follows redirects (the `x-api-key` header would travel with them), verifies TLS and bounds the reply; non-integer or negative cache token counts in a model reply are an invalid reply instead of silently counting as 0.
+- Own Anthropic client (lane H), step 3: `analysis.client` (`http` default, `sdk` rollback) picks the client in `Factory::analyzer`; `sdk` without `anthropic-ai/sdk` installed is an `InvalidConfig` naming `analysis.client` at config load.
+- Own Anthropic client (lane H), step 2: `AnthropicHttpClient` (Guzzle, fixed `https://api.anthropic.com/v1/messages`, `x-api-key`, no redirects, TLS verified, bounded reply, no client retry, errors name only the class or HTTP code) with recorded fixtures for 401, 429, 500, 529, refusal, max_tokens, pause_turn and a non-JSON body. Not wired yet.
+- Own Anthropic client (lane H), step 1: the analyzer now talks to a `MessagesClient`; the SDK call moved unchanged into `SdkMessagesClient`. No behaviour change.
+
+### Security and dependencies
+- `SecureUrl::internalHost()` is the one SSRF host classifier, opt-in through `SecureUrl::problem($url, $allowInsecure, refuseInternal: true, allowPrivate: false)`; Loki and Slack validation is unchanged. It refuses loopback, 0/8, RFC 1918, link-local, 100.64/10, multicast and reserved IPv4 in every numeric spelling, and IPv6 ::/96, ULA, link-local, site-local, multicast, NAT64 (both prefixes), Teredo, with the IPv4 inside v4-mapped and 6to4 addresses classified. It also refuses `*.svc`, `*.cluster.local` and `*.internal` names (admitted by `allowPrivate`), `instance-data`, 192.0.0.0/24, 192.0.2.0/24, 198.18/15, 198.51.100/24, 203.0.113/24, SIIT `::ffff:0:0:0/96` (embedded IPv4 decoded) and any non-ASCII host. One trailing dot is stripped; an empty label, a `%zone` or an unparsable ':' host is refused.
+- Guzzle 8 is accepted next to 7 (`^7.15.2 || ^8.3`). `Retry` no longer calls `RequestException::hasResponse()` (removed in 8) and the Anthropic model catalog reports any PSR network failure as `timeout` (8 splits a read timeout out of `ConnectException`). CI's lowest leg covers Guzzle 7.15.2, the locked leg 7.16, the highest leg 8.3.
 
 ## 0.1.2 — 2026-10-24 — Security release
 

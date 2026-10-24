@@ -58,10 +58,11 @@ final class PdoStateStoreTest extends StateStoreContractTest
         $store = new PdoStateStore($this->pdo, $this->clock, 'watcher_state', 2);
         $store->put('old', ['v' => 1], 10);
         $this->advance(10);
-        self::assertSame(1, $this->rowCount());
+        $rows = [$this->rowCount()];
         $store->put('new', ['v' => 2], 60); // 2nd write triggers purge
+        $rows[] = $this->rowCount();
 
-        self::assertSame(1, $this->rowCount());
+        self::assertSame([1, 1], $rows, 'the expired row was still there before the purge; only the new one after');
         self::assertSame(['v' => 2], $store->get('new'));
     }
 

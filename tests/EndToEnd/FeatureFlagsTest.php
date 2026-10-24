@@ -304,7 +304,7 @@ final class FeatureFlagsTest extends TestCase
             $h->nextWindow();
             $h->analyzer->inputTokens = 100000;
             $rec->calls = [];
-            $h->notifier->sent = [];
+            $h->notifier->forget();
             $h->watcher(self::src([...self::alpha(), ...self::beta()]))->run();
             $alerts = array_filter($h->notifier->sent, static fn (array $s): bool => str_contains($s['message']->text, 'budget'));
             $alertKeys = array_filter($rec->calls, static fn (array $c): bool => str_starts_with($c[1], Keys::ALERT . ':'));

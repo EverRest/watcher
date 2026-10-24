@@ -114,8 +114,10 @@ spec:
             - name: watcher
               image: registry.example.com/orders-api-watcher:1.0.0   # your image with the package installed
               command: ["php", "vendor/bin/watcher", "run", "--config=/etc/watcher/config.php"]
-              envFrom: [{secretRef: {name: watcher-secrets}}]
+              envFrom: [{secretRef: {name: watcher-secrets}}]   # WATCHER_REDIS_PASSWORD lives here
               env:
+                - {name: WATCHER_STATE, value: redis}                # the default; see "Where to keep state" below
+                - {name: WATCHER_REDIS_HOST, value: redis.cache.svc}
                 - {name: WATCHER_RELEASE, value: "1.52.2"}           # from CI
                 - {name: WATCHER_COMMIT, value: "abc1234"}
               volumeMounts: [{name: config, mountPath: /etc/watcher}]
@@ -125,6 +127,46 @@ spec:
 The ConfigMap holds the config file (no secrets: it reads `getenv()`), the Secret holds the keys. Egress needed: your
 log backend, `api.anthropic.com`, the channel host (`hooks.slack.com`, `api.telegram.org`, `discord.com` / `discordapp.com`), and Redis or the database if used. A failed Job (exit 1 or 2) is
 also a signal for your cluster alerting.
+
+#### Where to keep state (Kubernetes)
+
+Use **Redis**. It is the default driver and the only one that fits a CronJob: every run is a new pod, and what the
+next run needs (baseline snapshots, the run lock, spend counters, reported markers, the heartbeat) must outlive it.
+
+```yaml
+env:
+  - {name: WATCHER_STATE, value: redis}
+  - {name: WATCHER_REDIS_HOST, value: redis.cache.svc}   # a Service in the cluster, or a managed Redis
+  - {name: WATCHER_REDIS_PORT, value: "6379"}
+  - {name: WATCHER_REDIS_DATABASE, value: "3"}           # keep it apart from the app's data
+  # WATCHER_REDIS_PASSWORD comes from the Secret (envFrom)
+```
+
+Why not the default `emptyDir` (or any container-local path) with `state.driver=file`: it is deleted with the pod, so
+every run starts as a first run (a baseline, no comparison, no "already reported" memory, and the daily budget counter
+restarts from zero). `watcher check` reports `pass` with a `warning:` on the state line when the driver is `file`
+and `KUBERNETES_SERVICE_HOST` is set, so this setup is visible before the first run.
+
+A PersistentVolumeClaim keeps the history and is the fallback when there is no Redis, with these limits:
+
+- **One replica, one scheduler.** The file store has no cross-process lock. `concurrencyPolicy: Forbid` and a
+  `ReadWriteOnce` claim keep two pods apart on most clusters, but nothing in the package enforces it.
+- The directory must be mode `0700` and owned by the pod user (a group-writable mount, as many CSI drivers create by
+  default, is refused; use an init container or `fsGroup` with a `0700` subdirectory).
+- A volume is per cluster and zone; a pod that is rescheduled to another zone cannot mount it.
+
+Redis connection failures are lazy: a trigger that is not in its run hour never connects. The Redis client is `ext-redis`
+when loaded, else `predis/predis` (`composer require predis/predis`, `^2.0 || ^3.0`); force one with `WATCHER_REDIS_CLIENT=phpredis|predis`.
+
+**Redis requirements.**
+
+- **`maxmemory-policy noeviction`** (or a `volatile-*` policy on an instance that holds only data with TTLs you accept losing). `allkeys-*` policies can evict the spend counters, the run lock and the delivered markers, which makes the budget cap and the duplicate-digest protection fail open.
+- **One key prefix per environment.** Two environments (or two tenants) with the same `service` on one Redis database share locks, spend and markers. Give each its own `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`) or its own database.
+- An injected `\Redis` must use no serializer and no compression (`SERIALIZER_NONE`, `COMPRESSION_NONE`); it is refused otherwise.
+- **Size budget.** A stored value may be at most 4 MB of JSON, 100,000 elements and 16,000 arrays/objects (`StateCodec`), so the worst accepted value decodes to about 16 MB of PHP memory. Larger values are refused at write (`StateValueTooLarge`, the run fails visibly) instead of being written and read back as missing. A snapshot passes up to roughly 90,000 groups; the default `source.group_cap` is 5,000.
+- **Errors fail closed.** A failed `GET` (a phpredis `false` with an error, a Predis error reply) raises and the run fails; only a missing key reads as missing.
+- **Lost lock.** If the run lock is found expired or taken when it is renewed, the run stops at that checkpoint (reason `lock_lost`, host log and exit code 1, no digest). With asynchronous Redis replication a failover can lose a lock; the delivered marker still prevents a second digest for the same window.
+- **Budget overshoot.** The daily budget check reads the spend and the call adds to it afterwards (the increment itself is atomic), so parallel runs of one service (different windows, a dry run next to a real run, fleet siblings) can each pass the check against the same total. The overshoot is bounded by the number of parallel runs times the cost of one step; it is not a hard cap under concurrency.
 
 ### Notification channels
 
@@ -144,11 +186,13 @@ fails with `HTTP 429`.
 
 | Driver | Use when | Notes |
 |---|---|---|
-| `redis` | normal choice, several app replicas | every key has a TTL; the lock is a compare-and-delete script |
+| `redis` | **the default**: Kubernetes, several app replicas | every key has a TTL; the lock is a compare-and-delete script; `ext-redis` or `predis/predis`; large values are compressed |
 | `pdo` | you have a DB and no Redis | create the table once: `PdoStateStore::createTableSql('mysql')`; tested on SQLite only |
 | `file` | one runner, one host | **never** with several replicas or pods without a shared volume and a single scheduler |
 
 **File store:** the directory must be owned by the user running watcher and must not be world-writable unless it has the sticky bit (create it `0700`; a group-writable `0775` Laravel `storage` folder owned by that user is fine, and files are still written `0600`). A refused directory fails the run (notice `config failed: state.file.path ...`) and `watcher check`, naming `state.file.path` and never its value, symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race. The daily budget check is read-then-book, so concurrent runs of the same service can overshoot it by one step each (the lock prevents that for one service; Redis `INCRBYFLOAT` reservation is not implemented).
+
+**Every Redis key has a TTL, by construction.** `RedisStateStore` has one `SET` (always `PX`), the counter is a single Lua script that runs `INCRBYFLOAT` and `PEXPIRE` together (a bare `INCRBYFLOAT` would leave the key immortal), and the lock renew uses `PEXPIRE`. A TTL of zero or less is refused with an `InvalidArgumentException` that names the key kind (`run`, `spend`, ...), never the key. A test runs random put / increment / acquire / renew / release sequences against the store (and a real server when `WATCHER_TEST_REDIS` is set) and fails if any key ever exists without one. Values the store itself never writes (anything your app puts under the `watcher:` prefix) are not covered.
 
 State holds counters, fingerprints, verdicts, reported markers, run records, spend counters and alert markers, each with
 `state.retention` (30 days) except: spend and alert keys 2 days, weekly heartbeat counters 14 days, `noise`/`known` verdicts
@@ -164,6 +208,13 @@ A plain-http Loki such as `http://loki.monitoring.svc:3100` is refused by defaul
 https ingress or a service mesh and use the `https` URL; reach it through a port-forward or loopback sidecar (`http://127.0.0.1:3100`) with
 `source.loki.allow_insecure: true`; or, when the network between the pod and Loki is yours to trust, set `allow_insecure: true` with the
 in-cluster URL (`*.svc`, `*.cluster.local`) or an RFC 1918 address. `allow_insecure` is a trust decision, never a default, and never works for a public host.
+
+### Proxies and the internal-address check
+
+Sources that fetch from a URL they were given (metrics, Sentry, an OpenAPI spec) refuse literal internal addresses and in-cluster names
+(`SecureUrl::internalHost`; names are not resolved). Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
+proxy the connection goes where the proxy decides, so the check does not cover it. Loki and Slack keep working behind a proxy and are not
+changed; where a proxy must not be used, leave those variables unset for the process.
 
 ## Availability guards
 
@@ -269,6 +320,7 @@ otherwise, change `service` to start a new baseline.
 |---|---|
 | Nothing ever arrives | `outcome=` line in the Job log: `skipped_not_due` means the trigger is outside the `run_at` hour; `quiet` means nothing qualified |
 | Digest is empty-ish or all `<*>` | clusters below `min_group_events_for_text` send no text; a rare problem can only show error type and frames |
+| What does the store hold for a window? | `watcher state:get heartbeat --config=...` (also `last-snapshot`, `snapshot:2026-10-24T06:00:00Z`, `run:2026-10-24T06:00:00Z`; Laravel `php artisan watcher:state-get heartbeat`). Read-only; every string is redacted, secrets masked and long values cut to 200 characters; any other key (a raw Redis key, a glob, another service) is refused with exit 2; exit 1 means nothing is stored |
 | `skipped_locked` every time | a crashed run left a lock (it expires after `lock_ttl`, 15 min) or two schedulers are running |
 | Digest says "cluster cap hit" | more distinct messages than `source.group_cap`: usually an unmasked id in a message; the overflow is counted but not analysed. Raise `group_cap` (memory grows with it) or fix the message |
 | Digest says "read quality: …" | the source's parser guessed or dropped something: events whose level word it could not read (taken as info), stack-frame lines that arrived with no open record (a page or stream starting mid-trace), multi-line JSON messages cut to their first line. Counts only; Loki and Datadog report it. A large number means the log format is not what the parser expects: check the `level` field spelling or the line shape |
@@ -316,3 +368,10 @@ own `environment` (fleet validation rejects a duplicate `service@environment`).
 
 Set `WATCHER_ENABLED=0` (the run then touches nothing), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
 nothing in your service or its logs; state can stay or be deleted.
+
+**Rolling back to a release without Redis compression.** An older release cannot decode `z1:` values: it reads them as **missing**, with no crash.
+Every value above 512 bytes (snapshots, run records, verdict blobs) is then lost for that window: a run record reads as "not run yet" (a possible
+duplicate digest) and the baseline is gone (the next run baselines again). Roll back safely in this order: (1) set `state.redis.compress_min_bytes: 0`
+and deploy; (2) wait one retention period (`state.retention`) so the compressed entries expire, or delete the package's keys by prefix
+(`watcher:*`, or your configured prefix; scan, then delete in batches); (3) only then roll back the release. `watcher check` does not warn about this:
+compression is on by default, so the warning would be on every install.

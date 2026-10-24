@@ -109,7 +109,7 @@ final class AvailabilityTest extends TestCase
         self::assertSame('truncated:deadline', $result->summaryData?->reason);
         $texts = implode("\n", self::notices($h));
         self::assertStringContainsString('deadline', $texts);
-        self::assertLessThan(100, $result->summaryData?->stats?->eventsRead ?? 0);
+        self::assertLessThan(100, $result->summaryData?->stats->eventsRead ?? 0);
         // R-3: a cut window is not final: no run record, so the next trigger can read it again.
         self::assertNull($h->state->get($runKey), 'a cut window leaves no done record');
         self::assertNotNull($h->state->get($partialKey));
@@ -238,6 +238,45 @@ final class AvailabilityTest extends TestCase
 
         self::assertNotEmpty($probe->renewed);
         self::assertStringStartsWith('lock:', $probe->renewed[0]);
+    }
+
+    public function testALostLockStopsTheRunAtTheNextCheckpointInsteadOfWarning(): void
+    {
+        $h = new Harness();
+        $probe = new ProbeStateStore(new InMemoryStateStore($h->clock));
+        $h->state = $probe;
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+        $probe->loseLock = true;
+        $analyses = new \stdClass();
+        $analyses->n = 0;
+        $slow = new class ($h->clock, $h->analyzer, $analyses) implements \Watcher\Analyze\Analyzer {
+            public function __construct(private readonly FrozenClock $clock, private readonly EchoAnalyzer $inner, private readonly \stdClass $count)
+            {
+            }
+
+            public function triage(\Watcher\Analyze\TriageRequest $req): \Watcher\Analyze\TriageResult
+            {
+                $this->clock->advance('+500 seconds'); // more than half of lock_ttl gone: the next checkpoint renews
+
+                return $this->inner->triage($req);
+            }
+
+            public function analyze(\Watcher\Analyze\AnalysisRequest $req): \Watcher\Analyze\AnalysisResult
+            {
+                $this->count->n++;
+
+                return $this->inner->analyze($req);
+            }
+        };
+        $before = count($h->notifier->sent);
+
+        $r = (new Watcher(\Watcher\Config\WatchConfig::fromArray($h->config()), self::source(self::alpha(9)), $probe, $slow, $h->notifier, $h->clock))->run();
+
+        self::assertSame(RunOutcome::Failed, $r->outcome);
+        self::assertSame('lock_lost', $r->summaryData?->reason);
+        self::assertSame(0, $analyses->n, 'no model call after the lock was lost');
+        self::assertCount($before, $h->notifier->sent, 'no digest from a run that no longer owns the window');
     }
 
     public function testADryRunRefusesToStartWhenTheRealDailyCapIsAlreadyReached(): void

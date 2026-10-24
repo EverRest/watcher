@@ -12,24 +12,29 @@
     },
     "require": {
         "php": "^8.2",
-        "anthropic-ai/sdk": "^1.1",
-        "guzzlehttp/guzzle": "^7.15.2",
-        "php-http/discovery": "^1.12",
+        "guzzlehttp/guzzle": "^7.15.2 || ^8.3",
         "psr/clock": "^1.0",
+        "psr/http-client": "^1.0",
+        "psr/http-message": "^1.1 || ^2.0",
         "psr/log": "^2.0 || ^3.0"
     },
     "require-dev": {
+        "anthropic-ai/sdk": "^1.1",
         "brianium/paratest": "^7.3.2",
         "illuminate/console": "^10.0 || ^11.0",
         "illuminate/support": "^10.0 || ^11.0",
         "laravel/pint": "^1.13",
-        "phpstan/phpstan": "^1.11",
+        "php-http/discovery": "^1.12",
+        "phpstan/phpstan": "^2.3",
         "phpunit/phpunit": "^10.5 || ^11.0",
         "vlucas/phpdotenv": "^5.7"
     },
     "suggest": {
+        "anthropic-ai/sdk": "Only for the rollback `analysis.client = sdk`; the default client needs no SDK",
         "ext-intl": "NFKC folding of look-alike characters before redaction (optional; a small fallback covers fullwidth ASCII)",
-        "ext-redis": "Redis state store",
+        "ext-redis": "Redis state store (default driver)",
+        "predis/predis": "Redis state store without ext-redis (^2.0 || ^3.0), state.redis.client=predis",
+        "ext-zlib": "Compression of large Redis state values",
         "ext-pdo": "PDO state store",
         "illuminate/support": "Lumen/Laravel adapter"
     },

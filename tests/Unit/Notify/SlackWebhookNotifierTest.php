@@ -29,7 +29,9 @@ final class SlackWebhookNotifierTest extends TestCase
     {
         $this->history = [];
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new SlackWebhookNotifier(new Client(['handler' => $stack]));
     }

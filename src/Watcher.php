@@ -61,6 +61,7 @@ use Watcher\Reduce\ProblemGroup;
 use Watcher\Reduce\Reducer;
 use Watcher\Schedule\FatalGuard;
 use Watcher\Schedule\RunGate;
+use Watcher\Schedule\LockLost;
 use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\SystemClock;
 use Watcher\Schedule\Window;
@@ -79,6 +80,7 @@ use Watcher\State\Keys;
 use Watcher\State\Purgeable;
 use Watcher\State\RenewableLock;
 use Watcher\State\StateStore;
+use Watcher\State\UnreadableCounter;
 
 /** Single entry point (FR-033). US1 pipeline: no run_at gate, triage, budgets, watch rules, dependencies or deploy info yet. */
 final class Watcher
@@ -209,7 +211,7 @@ final class Watcher
         return new self(
             $c,
             Factory::source($c, $http, $clock),
-            Factory::state($c, $clock),
+            Factory::state($c, $clock, $hostLog),
             Factory::analyzer($c),
             Factory::notifier($http, $c->schedule['lock_ttl']),
             $clock,
@@ -296,6 +298,8 @@ final class Watcher
             return $this->failWithNotice('config', $e->getMessage(), 'invalid_config');
         } catch (AnalyzerFailed $e) {
             return $this->failWithNotice('analysis', $e->getMessage(), $e->refused ? 'analysis_refused' : 'analysis_failed');
+        } catch (LockLost $e) {
+            return $this->fail($e->getMessage(), 'lock_lost'); // host log and exit code only: the new owner reports the window
         } catch (DeliveryFailed $e) {
             // The channel that just failed cannot carry the news: host log and exit code only.
             return $this->fail($e->getMessage(), 'delivery_failed');
@@ -338,8 +342,10 @@ final class Watcher
             if ($this->state->renew($this->lockKey, $this->lockOwner, $ttl)) {
                 $this->lockRenewedAt = $now;
             } else {
-                $this->hostLog?->warning('run lock was lost before it could be renewed', ['service' => $this->config->service]);
+                throw new LockLost('run lock was lost before it could be renewed'); // another runner may own the window now
             }
+        } catch (LockLost $e) {
+            throw $e;
         } catch (Throwable $e) {
             $this->hostLog?->warning('run lock renewal failed: ' . $e::class, ['service' => $this->config->service]);
         }
@@ -384,6 +390,7 @@ final class Watcher
         $stats = $skipped ? null : $this->stats;
         $took = (float) $this->clock->now()->format('U.u') - (float) $this->startedAt->format('U.u');
         $this->stats->durationMs = max(0, (int) round($took * 1000));
+        $this->stats->stateUnreadable = $this->realState instanceof UnreadableCounter ? $this->realState->unreadableEntries() : 0;
         $this->record($outcome);
         if ($this->estimator !== null) {
             $this->printEstimate($this->estimator);

@@ -67,7 +67,7 @@ final class DigestTest extends TestCase
         self::assertCount(2, $lines);
         $levels = array_map(static fn (array $a): Level => $a[2]->minLevel, $lines);
         self::assertContains(Level::Info, $levels);
-        $infoPass = $lines[array_search(Level::Info, $levels, true)];
+        $infoPass = array_values(array_filter($lines, static fn (array $a): bool => $a[2]->minLevel === Level::Info))[0];
         self::assertSame(100, $infoPass[2]->eventCap); // anomaly_cap from the test config
         self::assertStringContainsString('info ×6 vs previous window', $h->sentTexts()[1]);
         $templates = array_map(static fn ($g) => $g->errorType ?? strtolower($g->level->name), $h->analyzer->requests[0]->groups);

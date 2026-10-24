@@ -43,7 +43,11 @@ final class ReadFilter
         $this->stopCheck = $check;
     }
 
-    /** True (and the reason is recorded) when the run's deadline or memory guard says stop; sources call it between pages and per event. */
+    /**
+     * True (and the reason is recorded) when the run's deadline or memory guard says stop; sources call it between pages and per event.
+     *
+     * @phpstan-impure the stop hook reads a clock and the call records the reason, so two calls can differ
+     */
     public function shouldStop(): bool
     {
         $reason = $this->stopCheck === null ? null : ($this->stopCheck)();

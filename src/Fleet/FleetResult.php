@@ -62,7 +62,7 @@ final class FleetResult
         $cost = 0.0;
         foreach ($this->services as $s) {
             $stats = $s->result?->summaryData?->stats;
-            $spent = $stats->costUsd ?? $s->result?->usage?->costUsd ?? 0.0;
+            $spent = $stats->costUsd ?? $s->result?->usage->costUsd ?? 0.0;
             $cost += $spent;
             $services[] = [
                 'service' => $s->service,

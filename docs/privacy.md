@@ -124,6 +124,14 @@ only the triage result is read back. The SQL driver purges expired rows on every
 the table for a while. Raw lines, field values and unmasked templates are not stored. The file driver names files by
 the hash of the key.
 
+**Redis.** The expiry above is set by Redis itself on every key and cannot be skipped: the store refuses a write without a positive TTL, and
+the run lock, counters and markers get theirs in the same command (see [operations.md](operations.md#state)). Values larger than
+`state.redis.compress_min_bytes` (512) are stored zlib-compressed (`z1:` prefix). Compression is storage encoding only, not protection: it changes
+nothing about what is stored or who can read it, so the Redis instance needs the same access control either way. `watcher state:get` is the
+read-only debug view of a state entry: every string is passed through the redactor and the configured secrets mask and cut to 200 characters,
+and it refuses any key that is not one of the package's own logical keys. An entry that cannot be decoded is treated as missing and counted (`state_unreadable` in the JSON summary, when above 0); the
+host log gets the key kind (`snap`, `run`, ...) only, never the key or any content.
+
 ## What reaches host logs and exit output
 
 The one-line summary on stdout and `watcher [error] ...` lines on stderr carry messages only, with line breaks and
