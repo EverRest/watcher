@@ -158,6 +158,13 @@ Reset a service (forces a new baseline): change `service`, or delete its keys. R
 `watcher:<kind>:<service>:...` (kinds: `snap` (also per dependency), `verdict`, `reported`, `run`, `lock`, `spend`, `alert`, `exhausted`); file state is
 a directory of hashed file names, so wipe the whole directory.
 
+## Loki over plain http inside a private network
+
+A plain-http Loki such as `http://loki.monitoring.svc:3100` is refused by default: `https` is required. Options, safest first: put Loki behind an
+https ingress or a service mesh and use the `https` URL; reach it through a port-forward or loopback sidecar (`http://127.0.0.1:3100`) with
+`source.loki.allow_insecure: true`; or, when the network between the pod and Loki is yours to trust, set `allow_insecure: true` with the
+in-cluster URL (`*.svc`, `*.cluster.local`) or an RFC 1918 address. `allow_insecure` is a trust decision, never a default, and never works for a public host.
+
 ## Availability guards
 
 A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.

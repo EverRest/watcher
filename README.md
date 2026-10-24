@@ -154,7 +154,7 @@ Use **read-only** credentials. The package only issues query requests (enforced 
 
 | Driver | Requests | Credential |
 |--------|----------|------------|
-| `loki` | `GET /loki/api/v1/query`, `GET /loki/api/v1/query_range` | Bearer token or basic auth with query-only rights; optional `X-Scope-OrgID` tenant. `url` may be a Loki base URL or a Grafana datasource proxy URL. |
+| `loki` | `GET /loki/api/v1/query`, `GET /loki/api/v1/query_range` | Bearer token or basic auth with query-only rights; optional `X-Scope-OrgID` tenant. `https` is required; plain `http` only with `allow_insecure: true` and a loopback, private-network (RFC 1918) or cluster-local host (see docs/operations.md). `url` may be a Loki base URL or a Grafana datasource proxy URL. |
 | `datadog` | `POST /api/v2/logs/analytics/aggregate`, `POST /api/v2/logs/events/search` (read-only queries sent as POST) | API key plus an application key limited to the `logs_read_data` scope. Set `site` (e.g. `datadoghq.eu`). |
 
 `source.stream_tags` selects which logs belong to the service. Only levels at or above `source.read_min_level`

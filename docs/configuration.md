@@ -41,7 +41,7 @@ settings, `notify.digest.webhook`.
 | `source.loki.url` | required for loki | Loki base URL, or Grafana's data-source proxy `https://<grafana>/api/datasources/proxy/uid/<uid>`. Requests append `/loki/api/v1/...`. |
 | `source.loki.auth` | none | `['type' => 'bearer', 'token' => ...]` or `['type' => 'basic', 'user' => ..., 'password' => ...]`. A **read-only** credential. |
 | `source.loki.tenant` | null | Sent as `X-Scope-OrgID` for multi-tenant Loki. |
-| `source.loki.allow_insecure` | `false` | The Loki URL must be `https` with a host and no credentials in the URL. `true` additionally allows plain `http` for a **loopback** host only (`localhost`, `127.x.x.x`, `::1`). Redirects are never followed; TLS verification is always on. |
+| `source.loki.allow_insecure` | `false` | The Loki URL must have a host and no credentials in the URL. `https` is required. Plain `http` is refused unless `allow_insecure: true` is set AND the host is loopback (`localhost`, `127.x`, `::1`), a private-network address (RFC 1918: `10/8`, `172.16/12`, `192.168/16`) or a cluster-local name (`*.svc`, `*.svc.cluster.local`, `*.cluster.local`). A public host is never accepted over `http`. `allow_insecure` is an explicit trust decision about the network between watcher and Loki (the bearer or basic credential travels in clear text); it is never a default. Redirects are never followed; TLS verification is always on. |
 | `source.datadog.site` | `datadoghq.com` | e.g. `datadoghq.eu`; requests go to `https://api.<site>`. |
 | `source.datadog.api_key`, `source.datadog.app_key` | required for datadog | The application key needs only the `logs_read_data` scope. |
 | `source.stream_tags` | `[]` | Labels that select this service's logs, e.g. `['app' => 'orders-api', 'env' => 'prod']`. Loki selector `{app="..",env=".."}`, Datadog query `app:.. env:..`. |
@@ -108,7 +108,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 |---|---|---|
 | `notify.digest.driver` | `slack` | `slack`, `telegram` or `discord`. |
 | `notify.digest.webhook` | required for slack, discord | Slack incoming webhook, or `https://discord.com/api/webhooks/<id>/<token>` (`discordapp.com` also accepted). |
-| `notify.digest.allow_insecure` | `false` | Slack only (same for `notify.notice`): the webhook must be `https` with a host and no credentials; `true` allows plain `http` for a loopback host only. Redirects are never followed. |
+| `notify.digest.allow_insecure` | `false` | Slack only (same for `notify.notice`): the webhook must be `https` with a host and no credentials; `true` allows plain `http` for a loopback, private-network or cluster-local host only (same rule as `source.loki.allow_insecure`). Redirects are never followed. |
 | `notify.digest.bot_token` | required for telegram | Bot API token (`123456:ABC...`). Read it from the environment. |
 | `notify.digest.chat_id` | required for telegram | Integer or `@channel` name; a supergroup id is negative. |
 | `notify.digest.thread_id` | none | Telegram forum topic id (positive integer). Discord has no equivalent. |
