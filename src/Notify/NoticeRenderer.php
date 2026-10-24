@@ -59,7 +59,7 @@ final class NoticeRenderer
             }
         }
         // A credential in a header or query shape, whether or not it is one of the configured values.
-        $reason = (string) preg_replace('/\b((?:proxy-)?authorization|x-api-key|api[-_]?key|app[-_]?key|access[-_]?token|token|passw(?:or)?d|secret)\b(["\']?\s*[:=]\s*["\']?)(?:(?:bearer|basic)\s+)?[^\s"\',;}]+/i', '$1$2[redacted]', $reason);
+        $reason = (string) preg_replace('/(?<![a-z0-9])((?:proxy-)?authorization|x-api-key|api[-_]?key|app[-_]?key|access[-_]?token|token|passw(?:or)?d|secret)\b(["\']?\s*[:=]\s*["\']?)(?:(?:bearer|basic)\s+)?[^\s"\',;}]+/i', '$1$2[redacted]', $reason);
         $reason = (string) preg_replace('/\bbearer\s+[\w.~+\/=-]{6,}/i', 'bearer [redacted]', $reason);
         $reason = (string) preg_replace('~\b[a-z][a-z0-9+.-]*://\S+~i', '[url]', $reason);
         $reason = (string) preg_replace('/[\w-]{24,}/', '[redacted]', $reason);

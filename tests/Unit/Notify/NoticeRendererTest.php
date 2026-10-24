@@ -92,11 +92,13 @@ final class NoticeRendererTest extends TestCase
             'retry with api_key=abc123 failed',
             'bad password: hunter2 for user',
             'got Bearer tok_123.456 back',
+            'env TELEGRAM_BOT_TOKEN=bot-777 rejected',
+            'refresh_token: rt-8899 expired',
         ];
         foreach ($reasons as $reason) {
             $text = (new NoticeRenderer())->failure('svc', 'stg', 'source', $reason)->text;
 
-            foreach (['abc.def', 'dXNlcjpwYXNz', 'k-12345', 'abc123', 'hunter2', 'tok_123'] as $leak) {
+            foreach (['abc.def', 'dXNlcjpwYXNz', 'k-12345', 'abc123', 'hunter2', 'tok_123', 'bot-777', 'rt-8899'] as $leak) {
                 self::assertStringNotContainsString($leak, $text, $reason);
             }
             self::assertStringContainsString('[redacted]', $text, $reason);
