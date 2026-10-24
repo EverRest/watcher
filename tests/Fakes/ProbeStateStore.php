@@ -16,6 +16,9 @@ final class ProbeStateStore implements StateStore, RenewableLock
 
     public ?string $failPutPrefix = null;
 
+    /** Renew answers false (the lock expired or was taken by another runner). */
+    public bool $loseLock = false;
+
     public function __construct(private readonly StateStore $inner)
     {
     }
@@ -51,6 +54,9 @@ final class ProbeStateStore implements StateStore, RenewableLock
     public function renew(string $key, string $owner, int $ttlSeconds): bool
     {
         $this->renewed[] = $key;
+        if ($this->loseLock) {
+            return false;
+        }
 
         return $this->inner instanceof RenewableLock && $this->inner->renew($key, $owner, $ttlSeconds);
     }
