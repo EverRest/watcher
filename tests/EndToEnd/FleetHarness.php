@@ -10,6 +10,7 @@ use Psr\Log\LoggerInterface;
 use Watcher\Config\WatchConfig;
 use Watcher\Fleet\FleetConfig;
 use Watcher\Fleet\FleetRunner;
+use Watcher\Fleet\FleetSeam;
 use Watcher\Fleet\ServiceEntry;
 use Watcher\Notify\Notifier;
 use Watcher\Operate\RunOptions;
@@ -39,6 +40,9 @@ final class FleetHarness
     /** @var array<string, FakeLogSource> */
     public array $sources = [];
 
+    /** What the fleet itself posts (combined digest, fleet budget notices). */
+    public FakeNotifier $fleetNotifier;
+
     /** Called after each service ran, with its name (e.g. to advance the clock). */
     public ?Closure $afterService = null;
 
@@ -59,6 +63,7 @@ final class FleetHarness
         $this->clock = new FrozenClock(new DateTimeImmutable('2026-10-08T06:00:00+00:00'));
         $this->state = new InMemoryStateStore($this->clock);
         $this->analyzer = new EchoAnalyzer();
+        $this->fleetNotifier = new FakeNotifier();
         foreach ($names as $n) {
             $this->notifiers[$n] = new FakeNotifier();
             $this->sources[$n] = new FakeLogSource();
@@ -106,15 +111,15 @@ final class FleetHarness
     /** The factory FleetRunner takes: one Watcher per entry over the shared state and analyzer. */
     public function watcherFor(): Closure
     {
-        return function (ServiceEntry $e, RunOptions $options, ?object $seam = null): callable {
+        return function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null): callable {
             $name = $e->name();
 
-            return function (?DateTimeImmutable $now) use ($e, $options, $name): RunResult {
+            return function (?DateTimeImmutable $now) use ($e, $options, $name, $seam): RunResult {
                 if (isset($this->crash[$name])) {
                     throw $this->crash[$name];
                 }
-                $result = (new Watcher($e->config, $this->sources[$name], $this->state, $this->analyzer, $this->notifiers[$name], $this->clock, $this->hostLog, $options, static function (string $text): void {
-                }))->run($now);
+                $result = (new Watcher($e->config, $this->sources[$name], $this->state, $this->analyzer, $seam?->notifierFor($name, $this->notifiers[$name]) ?? $this->notifiers[$name], $this->clock, $this->hostLog, $options, static function (string $text): void {
+                }, $seam))->run($now);
                 if ($this->afterService !== null) {
                     ($this->afterService)($name);
                 }
@@ -126,7 +131,7 @@ final class FleetHarness
 
     public function runner(?StateStore $fleetState = null): FleetRunner
     {
-        return new FleetRunner(FleetConfig::fromArray($this->fleetArray()), $this->watcherFor(), $fleetState ?? $this->state, $this->clock, $this->hostLog);
+        return new FleetRunner(FleetConfig::fromArray($this->fleetArray()), $this->watcherFor(), $fleetState ?? $this->state, $this->clock, $this->hostLog, $this->fleetNotifier);
     }
 
     /**

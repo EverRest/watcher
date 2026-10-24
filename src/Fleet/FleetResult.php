@@ -13,7 +13,7 @@ final class FleetResult
      * @param list<object> $correlated CorrelatedFinding objects (empty until correlation exists)
      * @param bool|null $correlatedPosted null = nothing to post
      * @param bool|null $combinedPosted null = not in combined mode, or nothing to post
-     * @param float|null $fleetCostTodayUsd fleet counter after the run; null when no fleet budget is configured
+     * @param float|null $fleetCostTodayUsd fleet counter after the run (counted even without a fleet cap; 0 in a dry run)
      */
     public function __construct(
         public readonly string $fleet,

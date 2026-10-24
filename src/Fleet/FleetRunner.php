@@ -12,6 +12,10 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
+use Watcher\Notify\Destination;
+use Watcher\Notify\Message;
+use Watcher\Notify\Notifier;
+use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\RunOptions;
 use Watcher\RunOutcome;
@@ -27,9 +31,11 @@ use Watcher\State\StateStore;
 final class FleetRunner
 {
     /**
-     * @param Closure(ServiceEntry, RunOptions, ?object): (callable(?DateTimeImmutable): RunResult) $watcherFor
-     *        builds the runnable for one entry; the third argument is the fleet seam (always null until FleetSeam exists)
-     * @param StateStore $state the store shared by the fleet; only the fleet heartbeat is written through it here
+     * @param Closure(ServiceEntry, RunOptions, ?FleetSeam): (callable(?DateTimeImmutable): RunResult) $watcherFor
+     *        builds the runnable for one entry; the third argument is the fleet seam of this run (pass it to the Watcher and
+     *        take its notifier from `$seam->notifierFor()`)
+     * @param StateStore $state the store shared by the fleet: fleet counters, fleet alerts and the fleet heartbeat
+     * @param Notifier|null $notifier what the fleet itself posts (budget notices, combined digest); null = posts nothing
      */
     public function __construct(
         private readonly FleetConfig $config,
@@ -37,6 +43,7 @@ final class FleetRunner
         private readonly StateStore $state,
         private readonly ClockInterface $clock,
         private readonly ?LoggerInterface $log = null,
+        private readonly ?Notifier $notifier = null,
     ) {
     }
 
@@ -61,19 +68,20 @@ final class FleetRunner
             $sources[$e->name()] = Factory::source($e->config, $http, $clock);
         }
 
-        $watcherFor = static fn (ServiceEntry $e, RunOptions $options, ?object $seam = null): callable => (new Watcher(
+        $watcherFor = static fn (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null): callable => (new Watcher(
             $e->config,
             $sources[$e->name()],
             $state,
             $analyzer,
-            $notifier,
+            $seam?->notifierFor($e->name(), $notifier) ?? $notifier,
             $clock,
             $log,
             $options,
             $out,
+            $seam,
         ))->run(...);
 
-        return new self($fleet, $watcherFor, $state, $clock, $log);
+        return new self($fleet, $watcherFor, $state, $clock, $log, $notifier);
     }
 
     /**
@@ -90,6 +98,11 @@ final class FleetRunner
         $now ??= $startedAt; // one instant for the whole trigger
         $deadline = $this->config->timeBudgetSeconds === null ? null : $startedAt->modify('+' . $this->config->timeBudgetSeconds . ' seconds');
 
+        // A dry run reads the fleet counters but never writes them, and the fleet posts nothing.
+        $b = $this->config->budget;
+        $budget = new FleetBudget($options->dryRun ? new DryRunStateStore($this->state) : $this->state, $this->clock, new DateTimeZone($this->config->timezone), $this->config->name, $b['daily_budget_usd'], $b['daily_token_limit'], $b['alert_percents']);
+        $seam = new FleetSeam($budget, $this->config->digest === 'combined');
+
         $results = [];
         foreach ($this->config->inOrder() as $entry) {
             if ($only !== [] && !in_array($entry->name(), $only, true)) {
@@ -99,19 +112,73 @@ final class FleetRunner
                 $results[] = ServiceResult::skippedTime($entry->name());
                 continue;
             }
-            $results[] = $this->runOne($entry, $now, $options);
+            $before = $budget->today();
+            $results[] = $this->runOne($entry, $now, $options, $seam);
+            if (!$options->dryRun) {
+                $this->alert($budget, $before);
+            }
         }
+        $combinedPosted = $options->dryRun ? null : $this->postCombined($seam, $results);
         if (!$options->dryRun) {
             $this->heartbeat($results, $startedAt);
         }
 
-        return new FleetResult($this->config->name, $results);
+        return new FleetResult($this->config->name, $results, [], null, $combinedPosted, $budget->today()['usd']);
     }
 
-    private function runOne(ServiceEntry $entry, DateTimeImmutable $now, RunOptions $options): ServiceResult
+    /** Where the fleet's own messages go: its notice destination, else its digest one; null = nowhere. */
+    private function destination(): ?Destination
+    {
+        $webhook = $this->config->notify['notice']['webhook'] ?? $this->config->notify['digest']['webhook'] ?? null;
+
+        return $this->notifier !== null && is_string($webhook) ? new Destination($webhook) : null;
+    }
+
+    /** @param array{usd: float, tokens: int} $before */
+    private function alert(FleetBudget $budget, array $before): void
+    {
+        $to = $this->destination();
+        $alert = $to === null ? null : $budget->alert($before, $budget->today());
+        if ($to === null || $alert === null || $this->notifier === null) {
+            return;
+        }
+        try {
+            $text = $alert->noticeText('fleet ' . $this->config->name);
+            $this->notifier->send(new Message($text, [['kind' => 'notice', 'text' => $text]]), $to);
+        } catch (Throwable $e) {
+            $budget->release($alert);
+            $this->log?->warning('fleet budget alert not delivered: ' . $e->getMessage(), ['fleet' => $this->config->name]);
+        }
+    }
+
+    /**
+     * Posts the combined digest once the services are done; null when there was nothing to post (not combined, or no service reported).
+     *
+     * @param list<ServiceResult> $results
+     */
+    private function postCombined(FleetSeam $seam, array $results): ?bool
+    {
+        $to = $this->destination();
+        $quiet = array_map(static fn (ServiceResult $r): string => $r->service, array_filter($results, static fn (ServiceResult $r): bool => $r->outcome === RunOutcome::Quiet->value));
+        $message = $to === null || $this->notifier === null ? null : (new CombinedDigest())->build($this->config->name, $seam->digests(), array_values($quiet));
+        if ($message === null || $to === null || $this->notifier === null) {
+            return null;
+        }
+        try {
+            $this->notifier->send($message, $to);
+
+            return true;
+        } catch (Throwable $e) {
+            $this->log?->warning('combined digest not delivered: ' . $e->getMessage(), ['fleet' => $this->config->name]);
+
+            return false;
+        }
+    }
+
+    private function runOne(ServiceEntry $entry, DateTimeImmutable $now, RunOptions $options, FleetSeam $seam): ServiceResult
     {
         try {
-            return ServiceResult::ran($entry->name(), (($this->watcherFor)($entry, $options, null))($now));
+            return ServiceResult::ran($entry->name(), (($this->watcherFor)($entry, $options, $seam))($now));
         } catch (Throwable $e) {
             $this->log?->warning('service failed: ' . $e::class, ['service' => $entry->name()]); // class only, never the message
 

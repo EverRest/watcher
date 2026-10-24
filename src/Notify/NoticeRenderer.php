@@ -23,9 +23,10 @@ final class NoticeRenderer
         return $this->notice('❌', $service, $environment, $kind . ' failed: ' . $this->reason($reason));
     }
 
-    public function budgetExhausted(string $service, string $environment): Message
+    /** @param string|null $cap 'fleet' or 'service': which cap was hit; null outside a fleet */
+    public function budgetExhausted(string $service, string $environment, ?string $cap = null): Message
     {
-        return $this->notice('⚠️', $service, $environment, 'budget exhausted: triage only today');
+        return $this->notice('⚠️', $service, $environment, 'budget exhausted' . ($cap === null ? '' : " ($cap cap)") . ': triage only today');
     }
 
     /**

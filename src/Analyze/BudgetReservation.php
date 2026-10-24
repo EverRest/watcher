@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Watcher\Analyze;
 
+use Watcher\Fleet\FleetSeam;
+
 /**
  * Per-step check against the hard daily cap: a step runs only if its worst case still fits in what is left.
  * "Left" is read from Spend each time, and every call is booked there as it returns, so what this run already paid is included.
@@ -16,6 +18,7 @@ final class BudgetReservation
         private readonly CostCalculator $calculator,
         private readonly float $dailyBudgetUsd,
         private readonly ?int $dailyTokenLimit,
+        private readonly ?FleetSeam $fleet = null,
     ) {
     }
 
@@ -26,7 +29,12 @@ final class BudgetReservation
             return false;
         }
 
-        return $today['usd'] + $this->worstCase($model, $inputTokens, $maxOutputTokens) <= $this->dailyBudgetUsd + 1e-9;
+        $worst = $this->worstCase($model, $inputTokens, $maxOutputTokens);
+        if ($this->fleet !== null && !$this->fleet->allows($worst, $inputTokens + $maxOutputTokens)) {
+            return false; // the fleet's remaining counts as well as the service's
+        }
+
+        return $today['usd'] + $worst <= $this->dailyBudgetUsd + 1e-9;
     }
 
     private function worstCase(string $model, int $in, int $out): float

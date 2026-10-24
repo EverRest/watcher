@@ -34,6 +34,14 @@ final class NoticeRendererTest extends TestCase
         self::assertSame('⚠️ watcher · svc · stg — budget exhausted: triage only today', $m->text);
     }
 
+    public function testBudgetExhaustedNamesTheCap(): void
+    {
+        $r = new NoticeRenderer();
+
+        self::assertSame('⚠️ watcher · svc · stg — budget exhausted (fleet cap): triage only today', $r->budgetExhausted('svc', 'stg', 'fleet')->text);
+        self::assertSame('⚠️ watcher · svc · stg — budget exhausted (service cap): triage only today', $r->budgetExhausted('svc', 'stg', 'service')->text);
+    }
+
     public function testUnknownKindIsAGenericRunFailure(): void
     {
         $m = (new NoticeRenderer())->failure('svc', 'stg', 'whatever', 'internal error (PDOException)');

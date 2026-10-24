@@ -25,6 +25,7 @@ use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\UnknownModelPrice;
 use Watcher\Analyze\Usage;
+use Watcher\Fleet\FleetSeam;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
@@ -131,6 +132,7 @@ final class Watcher
         private readonly ?LoggerInterface $hostLog = null,
         ?RunOptions $options = null,
         mixed $out = null,
+        private readonly ?FleetSeam $fleet = null,
     ) {
         $this->clock = $clock ?? new SystemClock();
         $this->options = $options ?? RunOptions::default();
@@ -596,14 +598,16 @@ final class Watcher
         $tz = new \DateTimeZone($c->schedule['timezone']);
         $spend = new Spend($this->state, $this->clock, $tz, $service);
         $notice = $this->noticeDestination();
-        $triageOnly = $spend->exhausted($c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']);
+        // Which cap stopped the analysis; only named in a fleet, where there are two of them.
+        $cap = $spend->exhausted($c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']) ? 'service' : $this->fleet?->exhaustedCap();
+        $triageOnly = $cap !== null;
 
         $buffer = new BufferedStateStore($this->state); // verdicts and reported markers: kept only once the digest is delivered
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
         $checkpoint = new TriageCheckpoint($this->state, $service, $endKey);
-        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->stats, $c->analysis['models']), new VerdictCache($buffer, $service, $retention), $this->routerSettings($serviceContext), $checkpoint);
-        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']);
+        $router = new ModelRouter(self::metered(self::redacting($this->analyzer, $redactor), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->stats, $c->analysis['models'], $this->fleet), new VerdictCache($buffer, $service, $retention), $this->routerSettings($serviceContext), $checkpoint);
+        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet);
         try {
             $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
         } catch (AnalyzerFailed $e) {
@@ -633,7 +637,7 @@ final class Watcher
 
         if ($triageOnly && $routed->triaged > 0) {
             try {
-                $this->noticeOnce('exhausted:' . rawurlencode($service) . ':' . $spend->day(), $this->notices()->budgetExhausted($service, $environment), $notice);
+                $this->noticeOnce('exhausted:' . rawurlencode($service) . ':' . $spend->day(), $this->notices()->budgetExhausted($service, $environment, $this->fleet === null ? null : $cap), $notice);
             } catch (Throwable $e) {
                 $this->hostLog?->warning('budget notice not delivered: ' . $e->getMessage(), ['service' => $service]);
             }
@@ -766,14 +770,14 @@ final class Watcher
      * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 with one warning.
      */
     /** @param array<string, string> $models */
-    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = []): Analyzer
+    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = [], ?FleetSeam $fleet = null): Analyzer
     {
-        return new class ($inner, $spend, $calculator, $log, $stats, $models) implements Analyzer {
+        return new class ($inner, $spend, $calculator, $log, $stats, $models, $fleet) implements Analyzer {
             /** @var array<string, true> */
             private array $warned = [];
 
             /** @param array<string, string> $models configured model per step, to tell an escalation from the main analysis */
-            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models)
+            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models, private readonly ?FleetSeam $fleet = null)
             {
             }
 
@@ -826,8 +830,10 @@ final class Watcher
                 $cost = 0.0;
                 try {
                     $this->spend->add($u, $cost = $this->calculator->cost($u));
+                    $this->fleet?->book($u, $cost);
                 } catch (UnknownModelPrice) {
                     $this->spend->add($u, 0.0);
+                    $this->fleet?->book($u, 0.0);
                     if (!isset($this->warned[$u->model])) {
                         $this->warned[$u->model] = true;
                         $this->log?->warning('paid analyzer call has no price configured; recorded at cost 0', ['model' => $u->model]);
