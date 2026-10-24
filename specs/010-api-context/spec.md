@@ -10,11 +10,16 @@
 
 ## Overview
 
-A finding like `POST /orders/<ID>/refund failed: timeout` tells the Reader the route but not what it is for or who calls
+A finding like `POST /refunds/<N> failed: timeout` tells the Reader the route but not what it is for or who calls
 it. The service's own OpenAPI document often answers in one line ("Refund an order", tag `payments`, deprecated or not).
 Adding that line costs tokens on every run, and the model usually does not need it; so this feature is small, strictly
 bounded and **off by default**. When enabled, it reads one API description, matches the routes that appear in selected
 groups, and attaches a one-line summary per endpoint, capped per run and counted in the token budget.
+
+**Hard limit (planning review)**: the Normalizer rewrites any absolute path of 3 or more segments to `<PATH>/…/<last two>`
+**before** it masks ids, so only routes of **at most 2 segments** (`GET /orders/<N>`, `GET /health`) can ever match. A
+documented route such as `/orders/{id}/refund` cannot be matched from a masked template; this version does not guess (see
+research R11 for the upgrade path).
 
 **Actors**
 
@@ -27,8 +32,8 @@ groups, and attaches a one-line summary per endpoint, capped per run and counted
 ### User Story 1 - One line of meaning for an endpoint in a finding (Priority: P1)
 
 For a selected group whose template or top frames name an HTTP route, the digest shows, under the finding, a short line
-such as `POST /orders/{id}/refund — Refund an order [payments] (deprecated)`. The same line is part of the compact model
-input for that group.
+such as `GET /orders/{id} — Get an order [orders] (deprecated)` (routes of at most 2 segments, see Overview). The model
+gets a shorter `ep` field for that group in analysis and escalation, not in triage; the digest line is the full one.
 
 **Why this priority**: it is the whole feature; without it nothing is delivered.
 
@@ -37,9 +42,10 @@ placeholders; each group gets the expected line, and an unmatched route gets non
 
 **Acceptance Scenarios**:
 
-1. **Given** the feature is enabled and the OpenAPI source is readable, **When** a selected group contains a route with a
-   method and a path (for example `POST /orders/<ID>/refund` after masking), **Then** the matching operation's summary,
-   first tag, operationId and deprecation flag are attached to the group and shown as one line in the digest.
+1. **Given** the feature is enabled and the OpenAPI source is readable, **When** a selected group contains a route of at
+   most 2 segments with a method and a path (for example `GET /orders/<N>` after masking), **Then** the matching
+   operation's summary, first tag and deprecation flag are attached to the group and shown as one line in the digest
+   (the operationId only as the fallback of AC2).
 2. **Given** an operation has no `summary`, **When** the line is built, **Then** the operationId is shown instead; when
    neither exists the endpoint has no line.
 3. **Given** a route matches no operation, **When** the group is processed, **Then** nothing is attached and nothing is
@@ -54,8 +60,9 @@ placeholders; each group gets the expected line, and an unmatched route gets non
 
 ### User Story 2 - Routes match despite masking (Priority: P1)
 
-A masked route (`/orders/<ID>/refund`, `/users/<N>`, `/files/<PATH>`) and an OpenAPI template (`/orders/{id}/refund`,
-`/users/{userId}`) are recognised as the same endpoint, with method taken into account.
+A masked route of at most 2 segments (`/orders/<ID>`, `/users/<N>`) and an OpenAPI template (`/orders/{id}`,
+`/users/{userId}`) are recognised as the same endpoint, with method taken into account. A route of 3 or more segments
+reaches the matcher as `<PATH>/…/<last two>` and is unmatchable (Overview).
 
 **Why this priority**: the Normalizer has already replaced the real values with placeholders; matching must work on that
 form or it will never match.
@@ -69,13 +76,13 @@ form or it will never match.
    (case-sensitive).
 2. **Given** the OpenAPI template has a base path from `servers[].url` or a configured `base_path`, **When** matching, **Then**
    the base path is stripped from the template side, and from the route side if present.
-3. **Given** two operations match the same masked route, **When** one is more specific (more literal segments), **Then** the
-   more specific wins; if equal specificity remains, nothing is attached and the ambiguity is not guessed.
+3. **Given** a masked route, **When** exactly one operation matches, **Then** it is attached; **When** more than one
+   (equal shape, e.g. `/a/{x}` and `/a/{y}`) matches, **Then** nothing is attached and the ambiguity is not guessed.
 4. **Given** a route with a trailing slash, query string or version prefix configured as ignorable, **When** matching,
    **Then** query string and trailing slash are ignored, and prefixes listed in `api_context.ignore_prefixes` are stripped.
 5. **Given** the method is absent from the log text, **When** matching, **Then** a match is made only if exactly one
    method exists for that path; otherwise nothing is attached.
-6. **Given** a path segment that the Normalizer replaced with `<PATH>` or `<TOKEN>` covering several segments, **When**
+6. **Given** a path segment that the Normalizer replaced with `<PATH>` covering several segments, **When**
    matching, **Then** the route is treated as unmatchable and nothing is attached (no partial guess).
 
 ---
@@ -94,7 +101,7 @@ cached result and every outbound payload contain none of them; the second run wi
 **Acceptance Scenarios**:
 
 1. **Given** a local file path or an `https` URL, **When** the document is read, **Then** the operation is `GET` only,
-   timeouts and a size cap (default 2 MB) apply, redirects are limited, and a larger document is refused with a visible
+   timeouts and a size cap (default 1 MB) apply, redirects are limited, and a larger document is refused with a visible
    notice.
 2. **Given** a parsed document, **When** it is reduced, **Then** only `method`, `path template`, `operationId`, `summary`,
    the first `tags` entry and the `deprecated` flag per operation are kept; examples, schemas, parameters, request and
@@ -104,8 +111,9 @@ cached result and every outbound payload contain none of them; the second run wi
    notifier or the model.
 4. **Given** the reduced result, **When** it is stored, **Then** it is stored in the state store with an expiry equal to the
    TTL; the raw document is never persisted.
-5. **Given** the source is unreachable, invalid or oversize, **When** a run happens, **Then** the last good cached result is
-   used if it has not expired; otherwise the feature is skipped with one visible notice, and the log findings are unaffected.
+5. **Given** the source is unreachable, invalid or oversize, **When** a run happens, **Then** the feature is skipped with
+   one visible notice and the log findings are unaffected (a stale cached result is not used: the entry expires exactly at
+   the TTL, owner decision D2).
 6. **Given** a URL needs credentials, **When** configured, **Then** the credential comes from the host environment and is
    never logged, echoed or sent anywhere except in that request.
 
@@ -118,6 +126,8 @@ cached result and every outbound payload contain none of them; the second run wi
 - A summary contains a person name or an e-mail (copy-paste in documentation): the masking pass handles patterns it knows;
   the cap and the "owner is responsible for summaries" statement are the documented limit.
 - A path has an `operationId` only: it is shown; nothing is invented.
+- A route of 3 or more segments (`POST /orders/8812/refund`): the Normalizer has already rewritten it to
+  `<PATH>/…/<N>/refund`, so it is unmatchable and nothing is attached (Overview, research R11).
 - A route appears only in the stack frames (a controller path rather than a URL): not matched in this version; only HTTP
   route text in the masked template is used.
 - Very large OpenAPI documents (thousands of operations): the size cap refuses the read; the Operator supplies a smaller
@@ -134,25 +144,26 @@ cached result and every outbound payload contain none of them; the second run wi
 **Source and cache**
 
 - **FR-001**: The package MUST be able to read an OpenAPI 2.0, 3.0 or 3.1 document, JSON or YAML, from a local file path or a
-  URL, read-only (`GET` for URLs), with timeouts, a size cap (default 2 MB) and a redirect limit.
+  URL, read-only (`GET` for URLs), with timeouts, a size cap (default 1 MB, 1,048,576 bytes) and a redirect limit.
 - **FR-002**: The reader MUST reduce the document at the boundary to operations of `{method, path template, operationId,
   summary, first tag, deprecated}` and MUST drop every other part (examples, schemas, parameters, bodies, descriptions,
   server variables, extensions).
 - **FR-003**: The reduced result MUST be cached in the state store keyed by service and source identity, with an expiry equal
   to `api_context.ttl` (default 24 hours); the raw document MUST NOT be persisted.
-- **FR-004**: When the source cannot be read, the last unexpired cached result MUST be used; otherwise the feature MUST be
-  skipped with one visible notice and MUST NOT fail the run.
+- **FR-004**: When the source cannot be read, the feature MUST be skipped with one visible notice and MUST NOT fail the
+  run. (There is no stale fallback: the cache entry expires exactly at the TTL, owner decision D2.)
 - **FR-005**: Source credentials MUST come from the host environment or configuration and MUST NOT appear in notices, logs,
   digests or model input.
 
 **Matching**
 
 - **FR-006**: A route MUST be extracted only from the masked template text of a selected group (a method followed by a
-  path that starts with `/`, or a bare path), never from raw events.
+  path that starts with `/`, or a bare path), never from raw events. Only routes of at most 2 segments can survive the Normalizer.
 - **FR-007**: Matching MUST be by method and path template: literal segments compare equal (case-sensitive); a Normalizer
   placeholder in the route (`<ID>`, `<N>`, `<TOKEN>`, `<EMAIL>`, `<NAME>`, `<STR>`) matches exactly one `{param}` segment;
   `<PATH>` or any placeholder standing for several segments makes the route unmatchable.
-- **FR-008**: The more specific template (more literal segments) MUST win; an unresolved tie MUST attach nothing.
+- **FR-008**: A match MUST attach only when exactly one operation matches the route; more than one match (equal shape)
+  MUST attach nothing.
 - **FR-009**: Base path from `servers` or `api_context.base_path` and prefixes in `api_context.ignore_prefixes` MUST be
   stripped before comparison; query strings and trailing slashes MUST be ignored.
 - **FR-010**: With no method in the text, a match MUST be made only if the path has exactly one operation.
@@ -197,12 +208,12 @@ cached result and every outbound payload contain none of them; the second run wi
   (125 per run at the default cap) and 0 output tokens; with the feature disabled the model input is byte-identical to the
   previous release on the existing end-to-end fixture.
 - **SC-004**: Within the TTL, a second run makes 0 reads of the source (cache hit), and the reduced cache entry for a
-  2 MB document is under 100 KB.
+  document at `max_bytes` (1 MB) is under 100 KB.
 - **SC-005**: A document over the size cap, malformed, or an unreachable URL produces one visible notice and unchanged log
   findings (end-to-end test with fakes).
 - **SC-006**: A YAML bomb fixture (deep aliases) is refused within 1 second and bounded memory (under 32 MB).
 - **SC-007**: A Reader can tell what an endpoint in a finding is for from the digest alone for 100% of fixture groups whose
-  route is documented.
+  route is documented (a documented route has at most 2 segments).
 
 ## Token Budget Impact
 
@@ -233,3 +244,14 @@ cached result and every outbound payload contain none of them; the second run wi
 Endpoint summaries are an allowlisted addition (masked, capped to 80 characters). Start with JSON OpenAPI documents; YAML only if the plan justifies the new dependency under Principle VIII. Matching is limited to HTTP routes in masked templates; ties attach nothing.
 
 Resolved at planning (2026-10-24): URLs are `https` only. The cache entry expires exactly at the TTL, so FR-004's fallback to a stale entry does not apply; when the source cannot be read and no entry exists, one visible notice is shown and the feature is skipped for that run.
+
+## Amended 2026-10-24 (planning review)
+
+- **Overview**, **US1** (intro, AC1), **US2** (intro), **Edge Cases**, **FR-006**, **SC-007**: the 2-segment limit. The Normalizer rewrites 3+-segment absolute paths to `<PATH>/…/<last two>` before masking ids, so only routes of at most 2 segments can match; no guessing (research R11). Examples changed to 2-segment routes.
+- **US1 intro**: the model gets the shorter `ep` field in analysis and escalation only, not in triage.
+- **US1 AC1**: "operationId is attached" reworded: operationId only as the fallback of AC2.
+- **US2 AC3** and **FR-008**: specificity can never fire (a route Literal never matches a template Param); replaced by "exactly one operation matches; more than one (equal shape) attaches nothing".
+- **US2 AC6**: `<TOKEN>` removed (a single-segment Param).
+- **US3 AC1**, **FR-001**, **SC-004**: `max_bytes` default 1 MB (1,048,576); measured: a 2 MB flat JSON decodes to 144 MB. SC-004 now reads "a document at `max_bytes`".
+- **US3 AC5** and **FR-004**: no stale fallback (expiry = TTL, owner decision D2).
+- **FR-001 / Edge Cases / SC-006** still say YAML: drift recorded in plan.md (JSON first, owner decision); the YAML text is not rewritten here.

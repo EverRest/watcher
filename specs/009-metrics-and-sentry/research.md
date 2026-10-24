@@ -11,7 +11,7 @@ recorded fixture or golden test, not by a live call.
   interface MetricSource {
       /** @throws SourceUnavailable network, auth, timeout, malformed body, non-success status */
       public function instant(string $query, DateTimeImmutable $at): MetricResult;
-      /** @throws SourceUnavailable; refuses (InvalidArgumentException) when ($end-$start)/$stepSeconds > $maxPoints */
+      /** @throws SourceUnavailable; refuses with SourceUnavailable('too_large') when ($end-$start)/$stepSeconds > $maxPoints */
       public function range(string $query, DateTimeImmutable $start, DateTimeImmutable $end, int $stepSeconds): MetricResult;
   }
   final class MetricResult { /** @param list<float> $values finite samples only, one per series (instant) or per sample (range, single series) */
@@ -29,8 +29,9 @@ recorded fixture or golden test, not by a live call.
   implementers) is unaffected, and get their own coverage test (T008, T027).
 - **Why numbers-in, numbers-out**: the interface returns plain floats and a series count. Labels are dropped **inside the
   adapter**, so no caller can leak one by forgetting to drop it (Principle I, "drop at the boundary"). Only label names
-  in the adapter's constructor allowlist survive, as raw strings capped at 5 distinct values; `MetricsReader` passes them
-  through the `Normalizer` before they can be shown.
+  in the adapter's constructor allowlist survive, as raw strings capped at 5 distinct values. `MetricsReader` applies two
+  layers before one can be shown: `Normalizer` (a value the Normalizer changed is dropped) and `Redactor::redactText`
+  (null drops the value).
 - **Why `series` is returned**: the `aggregate` rule needs "how many series came back" to report `ambiguous` (spec edge case)
   without keeping the series.
 - **Alternatives**: one `query(string, Window): float` (hides ambiguity and the aggregate); returning the decoded Prometheus
@@ -60,7 +61,7 @@ recorded fixture or golden test, not by a live call.
   - `values === []` (empty vector, all NaN/Inf filtered out by the adapter) = **no data** (`null`), never `0`.
   - `series > 1` and `aggregate` omitted = `ambiguous` -> metric skipped, digest shows `<name>: ambiguous (N series)`.
   - A single series needs no aggregate.
-- **Reconciliation of the spec**: spec edge case says "default `sum` for rates, `max` for latency" but a definition has no
+- **Reconciliation of the spec**: the spec edge case (now amended to match) once said "default `sum` for rates, `max` for latency" but a definition has no
   kind. There is no safe implicit default: `sum` on a latency or `max` on a ratio is a wrong number shown with confidence.
   So: no implicit default; the shipped docs examples declare `aggregate: sum` (error ratio) and `aggregate: max` (p95). This
   is a stricter reading of the same edge case; flagged in plan "Spec drift" and in the open decisions.
@@ -69,7 +70,7 @@ recorded fixture or golden test, not by a live call.
   cover the same length. SC-002 (<= 2 queries per metric) holds.
 - **Range (`mode: range`)**: one `range()` from `{baseline_start}` to `{end}` with
   `step = max(60, ceil((end - baseline_start) / metrics.max_points))`; `max_points` default 500, so a 48 h span gives a step
-  of 346 s -> 500 samples. The adapter refuses client-side when `(end-start)/step > max_points` (spec edge case). Samples are
+  of 346 s -> 500 samples. The adapter refuses client-side with `SourceUnavailable('too_large')` when `(end-start)/step > max_points` (spec edge case). Samples are
   partitioned by timestamp into baseline `[baseline_start, baseline_end)` and current `[start, end]`; `aggregate` applies
   per partition. **Single series only** (`series > 1` = ambiguous). Range exists because FR-001 requires the capability and
   some backends bill per query; it is the less-used path and the only place a `ponytail`-style ceiling lives.
@@ -112,8 +113,8 @@ recorded fixture or golden test, not by a live call.
 ## R6. Metric context in the compact payload
 
 - **Carrier**: the model input is built in five places that all call `CompactPayload::encode($groups, $deps)`
-  (`Watcher.php:626` truncation, `AnthropicAnalyzer.php:131`, `ModelRouter.php:177`, `EstimatingAnalyzer.php:31,48`,
-  `Budget::fitDependencies` at `Budget.php:69`). A new immutable `Analyze\PayloadExtras` (`?MetricsContext $metrics`,
+  (`Watcher.php:626` truncation, `AnthropicAnalyzer.php:131`, `ModelRouter.php:177`, `EstimatingAnalyzer.php:31` and `:48`,
+  `Budget::fitDependencies` at `Budget.php:69`: six `encode` call sites). A new immutable `Analyze\PayloadExtras` (`?MetricsContext $metrics`,
   `array $endpoints` fp => line; the endpoints half belongs to spec 010) is carried by `TriageRequest` and `AnalysisRequest`
   as one new optional constructor argument and passed to `encode($groups, $deps = [], ?PayloadExtras $extras = null)`. One
   parameter instead of one per feature; null keeps every existing call and golden byte-identical.
@@ -136,8 +137,9 @@ recorded fixture or golden test, not by a live call.
 
 - **Endpoint**: `GET {sentry.base_url}/api/0/projects/{organization}/{project}/issues/` with query
   `query=is:unresolved lastSeen:>={start-iso}`, `sort=freq`, `limit=min(100, max_issues)`, `statsPeriod=` omitted,
-  `groupStatsPeriod=24h` (window <= 24 h) or `14d` (longer), `Authorization: Bearer {token}`. Paging follows the `Link`
-  header `rel="next"; results="true"` until `max_issues` issues. **UNVERIFIED** against a live Sentry (parameter names
+  `groupStatsPeriod=24h` (hourly buckets) or `14d` (daily buckets), `Authorization: Bearer {token}`. Paging follows the `Link`
+  header `rel="next"; results="true"` until `max_issues` issues. **Stop rules**: stop when the next cursor equals the
+  current one, when a page is empty, or after `ceil(max_issues/100)+2` requests (request cap). **UNVERIFIED** against a live Sentry (parameter names
   from public API documentation): pinned by `tests/Fixtures/sentry/issues_page.json`, `issues_page2.json`.
 - **Field allowlist** (FR-011), explicit pick, type-checked; everything else is never read into an object:
 
@@ -159,9 +161,13 @@ recorded fixture or golden test, not by a live call.
   endpoint, which FR-010 forbids. The id is Sentry's own, stable for the group's life, and is what the issue URL uses.
   **Spec FR-013 reads "hash or id"**, so this is within it.
 - **Window count** (**UNVERIFIED**, owner decision D1): the list's `count` is lifetime and would make every old issue look
-  "grown". The windowed count is the sum of `stats` buckets with `bucket_ts` in `[start, end)` (hourly for
-  `groupStatsPeriod=24h`, daily for `14d`). Buckets are whole: the count can be off by at most the first/last bucket;
-  documented. If `stats` is missing or malformed the issue is dropped (cannot be compared honestly), not guessed.
+  "grown". `groupStatsPeriod` is relative to now, so windowed counts are valid only when `window.end` lies within the stats
+  period (24h with hourly buckets, 14d with daily buckets); otherwise the source throws
+  `SourceUnavailable('window_too_old')` and the digest shows `Sentry unavailable (window_too_old)`. The windowed count is
+  the sum of `stats` buckets that **overlap** the window (`ts + bucketLen > start && ts < end`), not only buckets whose
+  timestamp is inside it (a sub-hour window would otherwise count 0). Buckets are whole: the count can be off by at most
+  the first/last bucket; documented. If `stats` is missing or malformed the issue is dropped (cannot be compared honestly),
+  not guessed, counted, and the digest states `N Sentry issues dropped` (`DigestExtras` field; Principle VII).
 - **New / grown / level**: `firstSeen >= window start` -> new comes from `GroupStatus` via the snapshot, **not** from
   Sentry's `firstSeen`: a group is "new" when its fingerprint was absent from the previous snapshot (the existing rule). A
   Sentry issue first seen in the window is by definition absent. A regression (it had no events yesterday) is also absent from
@@ -184,7 +190,7 @@ recorded fixture or golden test, not by a live call.
 
 ## R9. Trace ids: capture, validation, links
 
-- **Capture**: trace id comes from `LogEvent::$fields[<trace_field>]` (config `links.tempo.trace_field` or
+- **Capture**: trace id comes from the raw `LogEvent::$fields[<trace_field>]` (owner decision D5) (config `links.tempo.trace_field` or
   `links.datadog_apm.trace_field`, default `trace_id`). A `?Closure(LogEvent, string $fingerprint): void` is added to
   `Reducer` (called right after `$fp` is computed, `Reducer.php:75`); `TraceIdCollector` keeps, per fingerprint, the id of
   the earliest event by `LogEvent::$time` (FR-017: at most one id per group). Valid iff
@@ -245,7 +251,7 @@ recorded fixture or golden test, not by a live call.
 
 - Two independent checks added to `Doctor` (run only when the section exists): `metrics` = `instant('vector(1)', now)`,
   pass iff one finite value `1.0`; `sentry` = `issues(Window 5 min, limit 1)` pass iff no exception. Reasons come from a
-  fixed vocabulary (`unreachable`, `unauthorized`, `timeout`, `bad_response`); never the URL, token or query. No post, no
+  fixed vocabulary (`unreachable`, `unauthorized`, `timeout`, `bad_response`, `rate_limited`, `too_large`, `window_too_old`); never the URL, token or query. No post, no
   model call. With `--json` they appear in the existing check list.
 
 ## R14. Dependencies
@@ -258,3 +264,4 @@ recorded fixture or golden test, not by a live call.
 - **D2 (aggregate)**: no implicit default; more than one series without `aggregate` = `ambiguous`, skipped. Accepted.
 - **D3 (Datadog trace URL)**: search form `apm/traces?query=trace_id:<id>` accepted; verified in T052.
 - **D4 (anomaly level)**: synthetic group is `Level::Warning`, reason weight 5, no extra display tag. Accepted.
+- **D5 (trace id egress, resolved at planning by the owner's delegate: approved)**: a validated trace id may leave the service only inside the link URL of the digest; it comes from raw `LogEvent::$fields` and appears nowhere else (Principle I).

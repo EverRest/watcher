@@ -45,7 +45,7 @@ as `LokiSource` uses). A 401/403 is `SourceUnavailable('unauthorized')`, not ret
 
 ## Failure vocabulary (no URL, no token, no query, no body)
 
-`unreachable` | `unauthorized` | `timeout` | `bad_response` | `rate_limited` | `too_large`. The adapter exception message
+`unreachable` | `unauthorized` | `timeout` | `bad_response` | `rate_limited` | `too_large` (range over `max_points`) | `window_too_old` (Sentry window outside the stats period: 24h hourly, 14d daily). The adapter exception message
 is exactly one of these tokens; the digest line is `Metrics unavailable (<token>)` / `Sentry unavailable (<token>)`.
 
 ## Compact payload
@@ -60,6 +60,8 @@ Metrics: error rate 0.4% (was 0.1%, +300%) · p95 820 ms (was 310 ms, +165%)
 Metrics: p95 820 ms (no baseline)
 Metrics unavailable (timeout)
 Sentry unavailable (unauthorized)
+Sentry unavailable (window_too_old)
+3 Sentry issues dropped
 2 metric anomalies not shown (limit 3)
 ```
 Per Sentry finding: `Sentry: https://sentry.example/organizations/acme/issues/1234567/ (regression)`.

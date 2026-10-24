@@ -24,6 +24,14 @@ each exit 0 (read `$?`, not tail output).
 | 17 | `watcher check` with fakes | two new checks pass/fail with a reason, no post, no tokens, < 10 s (SC-008) | `tests/Unit/Operate/DoctorTest.php` |
 | 18 | `--json` | counts of metric queries, Sentry requests/issues, attributable tokens; keys absent when not configured | `tests/EndToEnd/RunSummaryTest.php` |
 | 19 | Token-budget fixture | metrics <= 60 input tokens/service; Sentry group cost within 5% of a log group; default unchanged | `tests/Unit/Analyze/BudgetTest.php`, `tests/EndToEnd/CostTest.php` |
+| 20 | Invalid config: unknown placeholder, bad `type`, > 6 queries, bad Sentry slug, non-http `base_url`, `enabled: false` with a bad value | fails before any external call, names the key path, no value (FR-019, FR-002) | `tests/Unit/Config/WatchConfigTest.php` |
+| 21 | Sentry run, recorded requests | only `GET` of the issues path; no events/users/tags/breadcrumb/attachment endpoint; no request body (US3 AC6) | `tests/Unit/Issues/SentryIssueSourceTest.php`, `tests/Unit/ArchitectureTest.php` |
+| 22 | Seeded metrics and Sentry tokens in the privacy corpus | token in no digest, log line, notice, `--json` or model input (FR-020) | `tests/EndToEnd/PrivacyTest.php` |
+| 23 | Nothing configured, Sentry and trace links included | digest, requests and token use byte-identical to the previous release (SC-005) | `tests/EndToEnd/DigestTest.php`, `tests/EndToEnd/CostTest.php` |
+| 24 | Failing metrics backend and failing Sentry, trace ids in events | identical log findings, one unavailable line each; trace id only inside the link URL (SC-006, SC-007) | `tests/EndToEnd/MetricsTest.php`, `tests/EndToEnd/TraceLinksTest.php` |
+| 25 | Fleet run (`FleetRunner`) and fleet `check` with metrics, Sentry and trace links configured on two services | each service gets its metrics line, Sentry entries and trace links; `check` rows include `metrics` and `sentry` per service | `tests/EndToEnd/FleetTest.php` |
+| 26 | Sentry window older than the stats period; issue with malformed `stats` | `Sentry unavailable (window_too_old)`; `N Sentry issues dropped` note | `tests/Unit/Issues/SentryIssueSourceTest.php`, `tests/EndToEnd/SentryTest.php` |
+| 27 | Allowlisted label holding an e-mail or `customer-4711` | value dropped (Normalizer changed it / Redactor nulls it); other values kept | `tests/Unit/Metrics/MetricsReaderTest.php` |
 
 Manual check against a live system is **not** part of this plan; the UNVERIFIED shapes (Grafana proxy path, Sentry
 parameters and `stats`, Explore and Datadog URLs) are listed in research.md and are verified in task T052 by the Operator.
