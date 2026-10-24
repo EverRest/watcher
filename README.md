@@ -27,10 +27,10 @@ Nothing new to report means zero model calls. The first run only records a basel
 
 ## Requirements
 
-- PHP ^8.1.
+- PHP ^8.1. Support matrix: CI tests PHP 8.1 to 8.5. PHP 8.1 is past its security support (ended December 2025) and 8.2 ends in December 2026; use 8.3 or newer in production, 8.1 is kept only as the declared minimum and may be dropped in a minor release.
 - Optional extensions: `ext-redis` (Redis state), `ext-pdo` plus a driver (PDO state).
 - A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
-- Lumen/Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11); the core has no framework dependency.
+- Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11; CI tests the oldest and the newest versions Composer resolves, on top of the locked set); the core has no framework dependency. Laravel 10 no longer receives security fixes upstream, prefer 11. Lumen is unmaintained upstream: the adapter has no Lumen-specific test, so treat Lumen as best effort.
 
 ## Installation
 
@@ -40,11 +40,12 @@ Nothing new to report means zero model calls. The first run only records a basel
 composer require everrest/watcher
 ```
 
-Composer asks once whether to trust the `php-http/discovery` plugin. It is a dependency of the Anthropic SDK, not of this
-package; answer yes, or allow it up front (also needed in CI):
+Composer may ask whether to trust the `php-http/discovery` plugin. It is a dependency of the Anthropic SDK, and this
+package does not need it (Guzzle is already required and provides the HTTP client); answer no, or decline it up front
+(also in CI):
 
 ```bash
-composer config allow-plugins.php-http/discovery true
+composer config allow-plugins.php-http/discovery false
 ```
 
 Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.providers`); in Lumen register

@@ -16,3 +16,8 @@
 /CLAUDE.md export-ignore
 /.gitattributes export-ignore
 /.gitignore export-ignore
+/composer.lock export-ignore
+/docs/publishing.md export-ignore
+/docs/development.md export-ignore
+/docs/repository-settings.md export-ignore
+/docs/badges export-ignore

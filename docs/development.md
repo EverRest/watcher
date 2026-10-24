@@ -31,4 +31,11 @@ Both shields.io and the Actions badge render only for a public repository (or a 
 
 ## CI
 
-`ci.yml` runs on branches and pull requests: matrix PHP 8.1 to 8.5 with parallel tests; on 8.3 also `composer validate --strict`, `composer audit --locked`, phpstan and pint. A `coverage` job (PHP 8.3, pcov) uploads the Cobertura / Clover / HTML report as the `coverage` artifact. The job then runs `php scripts/coverage-floor.php 92` and fails when line coverage in `cobertura.xml` drops below **92%** (measured 96.5% on 2026-10-24; raise the number in `ci.yml` as coverage grows). `phpunit.xml.dist` sets `cacheDirectory` (paratest's coverage cache warm-up exits 1 without it) and `memory_limit=1G` (merging worker coverage exhausts the 128M default).
+`ci.yml` runs on branches and pull requests: matrix PHP 8.1 to 8.5 on `composer.lock` with parallel tests, plus two extra legs that ignore the lock because consumers do (PHP 8.1 with `composer update --prefer-lowest --prefer-stable`, PHP 8.5 with the highest versions `composer.json` admits, which is where Laravel 11 is exercised; both run `composer audit --no-dev` too); on 8.3 also `composer validate --strict`, `composer audit --locked`, phpstan and pint. A `coverage` job (PHP 8.3, pcov) uploads the Cobertura / Clover / HTML report as the `coverage` artifact. The job then runs `php scripts/coverage-floor.php 92` and fails when line coverage in `cobertura.xml` drops below **92%** (measured 96.5% on 2026-10-24; raise the number in `ci.yml` as coverage grows). `phpunit.xml.dist` sets `cacheDirectory` (paratest's coverage cache warm-up exits 1 without it) and `memory_limit=1G` (merging worker coverage exhausts the 128M default).
+
+## Supported versions
+
+- PHP: 8.1 to 8.5 are tested. 8.1 is past security support (December 2025) and 8.2 ends December 2026; raising the minimum to `^8.2` is a minor-release decision.
+- Laravel: `illuminate/*` ^10 or ^11. 10 gets no upstream security fixes. Lumen is unmaintained upstream and has no dedicated test.
+- Composer floors in `composer.json` must be versions CI really passes on: the lowest leg resolves them. Raise a floor when the lowest leg fails or when `composer audit --no-dev` reports an advisory at it (this is why Guzzle is `^7.15.2`).
+- Commits must use the public identity (see `publishing.md`); `make hooks` installs a pre-commit check for it.

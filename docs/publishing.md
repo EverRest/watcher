@@ -21,7 +21,7 @@ Package: `everrest/watcher`, repository `https://github.com/EverRest/watcher` (p
 
 1. Merge to `main` with the changelog promoted (step 5 above).
 2. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
-3. `.github/workflows/release.yml` runs the full CI gate (`ci.yml`) for the tag; only when it passes does it create the GitHub Release (`gh release create`, generated notes). A failed gate creates no release.
+3. `.github/workflows/release.yml` runs the full CI gate (`ci.yml`) for the tag; only when it passes, and only when the tagged commit is an ancestor of `origin/main`, does it create the GitHub Release (`gh release create --verify-tag`, generated notes, a build-provenance attestation for the `git archive` tarball; tags containing `-`, such as `v0.2.0-rc1`, become pre-releases). A failed gate or a tag off `main` creates no release. Packagist builds from the tag itself, so also protect `v*` tags (see `repository-settings.md`): the workflow cannot stop someone with write access from pushing a tag, it only refuses to release it.
 4. The webhook makes Packagist pick up `v0.1.0` within a minute; check https://packagist.org/packages/everrest/watcher. `composer.json` carries no `version` field on purpose: the tag is the version, and `main` resolves to `0.1.x-dev` (branch alias).
 5. Verify in a scratch directory: `composer require everrest/watcher` (not in this repository).
 
@@ -33,3 +33,11 @@ owner's decision and is not done here; if the names matter, rewrite before the f
 keep what was public. The unredacted originals of the changed documents are kept outside the repository by the owner.
 Tokens that the audit mentions as committed in other (private) repositories are not in this one; they should be
 rotated regardless.
+
+## Commit identity
+
+Commits must use the public identity `EverRest <EverRest@users.noreply.github.com>`
+(`git config user.name EverRest; git config user.email EverRest@users.noreply.github.com` in this clone, and
+enable "Keep my email address private" and "Block command line pushes that expose my email" on GitHub). `scripts/git-hooks/pre-commit`
+refuses a commit when the e-mail is empty or ends with a domain listed in `.git/hooks/blocked-author-domains`
+(one domain per line, optional, never committed; add the domains of any employer or private mail you must not expose).

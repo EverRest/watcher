@@ -1,28 +1,62 @@
 #!/usr/bin/env bash
-# Pre-commit: refuse ignored/secret files and secret-looking additions, then lint staged PHP.
+# Pre-commit: refuse a non-public author identity, ignored/secret files and secret-looking additions, then lint staged PHP.
 # Install: scripts/install-hooks.sh (copies this file to .git/hooks; touches no git config).
+# File names are handled NUL-separated, so names with spaces or glob characters are checked like any other.
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 1
 fail=0
-staged=$(git diff --cached --name-only --diff-filter=ACM)
-[ -z "$staged" ] && exit 0
+
+# 0. Author identity: never empty, never on a blocked domain (one per line in the optional, untracked
+#    .git/hooks/blocked-author-domains; '#' starts a comment). Checks the configured and the effective author e-mail.
+blocklist="$(git rev-parse --git-path hooks)/blocked-author-domains"
+configured=$(git config user.email || true)
+effective=$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -n 's/^[^<]*<\([^>]*\)>.*/\1/p')
+for email in "$configured" "$effective"; do
+  if [ -z "$email" ]; then
+    echo "pre-commit: author e-mail is empty; set git config user.email to the public identity (docs/publishing.md)" >&2; fail=1; continue
+  fi
+  [ -f "$blocklist" ] || continue
+  lower=$(printf '%s' "$email" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r domain || [ -n "$domain" ]; do
+    domain=$(printf '%s' "${domain%%#*}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    [ -z "$domain" ] && continue
+    case "$lower" in
+      *"@$domain" | *".$domain")
+        echo "pre-commit: author e-mail ends with a blocked domain ($domain); use the public identity (docs/publishing.md)" >&2; fail=1 ;;
+    esac
+  done < "$blocklist"
+done
+
+staged=()
+while IFS= read -r -d '' f; do staged+=("$f"); done < <(git diff --cached --name-only -z --diff-filter=ACM)
+[ "${#staged[@]}" -eq 0 ] && exit "$fail"
 
 # 1. Force-added files that .gitignore says must not be tracked.
-ignored=$(printf '%s\n' "$staged" | git check-ignore --no-index --stdin 2>/dev/null)
-if [ -n "$ignored" ]; then
-  echo "pre-commit: staged files match .gitignore (git add -f?):" >&2; printf '  %s\n' $ignored >&2; fail=1
+ignored=()
+while IFS= read -r -d '' f; do ignored+=("$f"); done < <(printf '%s\0' "${staged[@]}" | git check-ignore --no-index --stdin -z 2>/dev/null)
+if [ "${#ignored[@]}" -gt 0 ]; then
+  echo "pre-commit: staged files match .gitignore (git add -f?):" >&2; printf '  %s\n' "${ignored[@]}" >&2; fail=1
 fi
 
 # 2. Files that never belong in the repo, even if .gitignore is edited.
-bad=$(printf '%s\n' "$staged" | grep -E '(^|/)(\.env(\..*)?|auth\.json|id_rsa|id_ed25519)$|\.(pem|key|p12)$|(^|/)vendor/|\.DS_Store$|settings\.local\.json$' | grep -v '\.env\.example$')
-if [ -n "$bad" ]; then
-  echo "pre-commit: forbidden files staged:" >&2; printf '  %s\n' $bad >&2; fail=1
+bad=()
+for f in "${staged[@]}"; do
+  if printf '%s\n' "$f" | grep -qE '(^|/)(\.env(\..*)?|auth\.json|id_rsa|id_ed25519)$|\.(pem|key|p12)$|(^|/)vendor/|\.DS_Store$|settings\.local\.json$' \
+    && ! printf '%s\n' "$f" | grep -q '\.env\.example$'; then
+    bad+=("$f")
+  fi
+done
+if [ "${#bad[@]}" -gt 0 ]; then
+  echo "pre-commit: forbidden files staged:" >&2; printf '  %s\n' "${bad[@]}" >&2; fail=1
 fi
 
 # 3. Secret-looking added lines outside tests/, docs/ and specs/ (fixtures there are synthetic).
-scan=$(printf '%s\n' "$staged" | grep -vE '^(tests|docs|specs|\.specify)/' )
-if [ -n "$scan" ]; then
-  hits=$(git diff --cached -U0 -- $scan | grep -E '^\+[^+]' | grep -E 'sk-ant-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|glpat-[A-Za-z0-9_-]{15,}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35}')
+scan=()
+for f in "${staged[@]}"; do
+  case "$f" in tests/* | docs/* | specs/* | .specify/*) ;; *) scan+=("$f") ;; esac
+done
+if [ "${#scan[@]}" -gt 0 ]; then
+  hits=$(git --literal-pathspecs diff --cached -U0 -- "${scan[@]}" | grep -E '^\+[^+]' | grep -E 'sk-ant-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|glpat-[A-Za-z0-9_-]{15,}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35}')
   if [ -n "$hits" ]; then
     echo "pre-commit: secret-looking text in staged changes (redacted):" >&2
     printf '%s\n' "$hits" | cut -c1-40 | sed 's/$/.../' >&2; fail=1
@@ -30,27 +64,28 @@ if [ -n "$scan" ]; then
 fi
 
 # 4. Style of staged PHP files (fast); full phpstan/phpunit run in CI and by hand.
-php_files=$(printf '%s\n' "$staged" | grep -E '\.php$')
-if [ -n "$php_files" ] && [ -x vendor/bin/pint ]; then
-  # shellcheck disable=SC2086
-  vendor/bin/pint --test $php_files >/dev/null 2>&1 || { echo "pre-commit: pint failed; run: vendor/bin/pint" >&2; fail=1; }
+php_files=()
+for f in "${staged[@]}"; do
+  case "$f" in *.php) php_files+=("$f") ;; esac
+done
+if [ "${#php_files[@]}" -gt 0 ] && [ -x vendor/bin/pint ]; then
+  vendor/bin/pint --test "${php_files[@]}" >/dev/null 2>&1 || { echo "pre-commit: pint failed; run: vendor/bin/pint" >&2; fail=1; }
 fi
 
 # 5. Refresh README badges (cheap: no test run; coverage uses the last build/coverage report if any).
 # Re-stage only badge files the commit did not already have unstaged edits in, so nothing unreviewed slips in.
 if [ "$fail" -eq 0 ] && command -v php >/dev/null 2>&1; then
-  badge_files="README.md $(ls docs/badges/*.svg 2>/dev/null)"
-  # shellcheck disable=SC2086
-  dirty_before=$(git diff --name-only -- $badge_files)
+  badge_files=(README.md)
+  for f in docs/badges/*.svg; do [ -e "$f" ] && badge_files+=("$f"); done
+  dirty_before=$(git diff --name-only -z -- "${badge_files[@]}" | tr '\0' '\n')
   php scripts/badges.php >/dev/null || { echo "pre-commit: scripts/badges.php failed" >&2; exit 1; }
-  # shellcheck disable=SC2086
-  for f in $(git diff --name-only -- $badge_files) $(git ls-files --others --exclude-standard docs/badges); do
-    if printf '%s\n' "$dirty_before" | grep -qx "$f"; then
+  while IFS= read -r -d '' f; do
+    if printf '%s\n' "$dirty_before" | grep -qxF -- "$f"; then
       echo "pre-commit: $f has unstaged edits; badge change left unstaged" >&2
     else
       git add -- "$f"
     fi
-  done
+  done < <(git diff --name-only -z -- "${badge_files[@]}"; git ls-files -z --others --exclude-standard docs/badges)
 fi
 
-exit $fail
+exit "$fail"

@@ -3,11 +3,18 @@
 
 declare(strict_types=1);
 
+$autoloaded = false;
 foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'] as $autoload) {
     if (is_file($autoload)) {
         require $autoload;
+        $autoloaded = true;
         break;
     }
+}
+
+if (!$autoloaded) {
+    fwrite(STDERR, "watcher: Composer autoloader not found; run `composer install` first.\n");
+    exit(1);
 }
 
 exit((new Watcher\Cli\Application(

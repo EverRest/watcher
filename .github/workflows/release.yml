@@ -18,9 +18,26 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # only to create the release; uses the built-in GITHUB_TOKEN, no other secret
+      contents: write       # create the release with the built-in GITHUB_TOKEN, no other secret
+      attestations: write   # build provenance for the release archive
+      id-token: write       # OIDC token for the attestation
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # A tag pushed from an unreviewed branch must not become a release.
+      - name: Tag commit must be on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Build release archive
+        run: git archive --format=tar.gz --prefix="watcher-${GITHUB_REF_NAME}/" -o "watcher-${GITHUB_REF_NAME}.tar.gz" "$GITHUB_SHA"
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: watcher-${{ github.ref_name }}.tar.gz
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          flags=(--verify-tag --title "$GITHUB_REF_NAME" --generate-notes)
+          case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" "watcher-${GITHUB_REF_NAME}.tar.gz" "${flags[@]}"

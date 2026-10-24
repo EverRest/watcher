@@ -3,6 +3,16 @@
 ## Unreleased
 - Notices and digests (Lane D review leftovers): model text can no longer format (`*`, `_`, `~`) or spoof `:emoji:` on any channel; IDN, IDNA-dot and `xn--` hosts are defanged while code identifiers such as `Mailer.send` stay copyable; failure notices mask every configured credential (`WatchConfig::secrets()`) and Authorization-like values; the digest gets a "read quality" line (unknown levels, orphan trace lines, cut multi-line messages) from the optional `ReadDiagnostics` interface (Loki, Datadog); `Retry` no longer chains Guzzle exceptions (their message carries the URL). Product release label **v0.1.1** (`VERSION`).
 
+### Security
+- Raised dependency floors to versions that are advisory-free and that CI actually passes on: `guzzlehttp/guzzle` ^7.15.2, `psr/log` ^2.0 || ^3.0 (the 1.x line was incompatible with `StderrLogger`), and `php-http/discovery` ^1.12 is now a direct requirement (the SDK alone allowed 1.9, which breaks it).
+- CI also tests the lowest (PHP 8.1, `--prefer-lowest`) and highest (PHP 8.5) dependency sets, because consumers ignore `composer.lock`, and audits the resolved runtime set.
+- GitHub Actions are pinned to commit SHAs, checkouts no longer persist credentials, the Composer cache is exact-key only, Dependabot is enabled for Actions and Composer.
+- The release workflow refuses a tag that is not on `main`, marks `-rc`/`-beta` tags as pre-releases, verifies the tag and attaches a build-provenance attestation for the source archive.
+- README: decline the unneeded `php-http/discovery` Composer plugin (`allow-plugins.php-http/discovery false`).
+- Added `SECURITY.md`, CODEOWNERS, secret-scanning path exclusions and a repository-settings checklist; documented the supported PHP/Laravel matrix.
+- The pre-commit hook handles file names with spaces and globs (they were skipped by the secret scan) and refuses an empty or blocklisted author e-mail.
+- `bin/watcher` exits with a clear error when no Composer autoloader is found.
+
 ### Docs
 - Installation: note about the `php-http/discovery` Composer plugin prompt (a dependency of the Anthropic SDK).
 
