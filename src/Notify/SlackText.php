@@ -13,7 +13,7 @@ final class SlackText
     /**
      * Top-level domains of three or more ASCII letters that Slack links (two-letter ones are all treated as TLDs;
      * non-ASCII and `xn--` ones are matched separately). A code identifier such as `Mailer.send` is not a host and
-     * stays copyable. ponytail: a hand-kept list, a rare gTLD missing here is not defanged; refresh from the IANA list if one matters.
+     * stays copyable. ponytail: a hand-kept list; a TLD missing here is still defanged when the host is all lowercase, so only a capitalised host on a rare gTLD slips through.
      */
     private const TLDS = 'com|net|org|edu|gov|mil|int|info|biz|name|pro|mobi|asia|tel|xxx|jobs|travel|museum|aero|coop|cat|post'
         . '|app|dev|cloud|online|site|tech|store|shop|blog|news|live|link|click|top|club|space|website|email|page|xyz|icu|vip'
@@ -50,11 +50,14 @@ final class SlackText
         $s = str_replace(['@', '://'], ["@\u{200B}", ":\u{200B}//"], $s);
         $s = (string) preg_replace("/\\bwww($dot)/iu", "www\u{200B}$1", $s);
 
-        return (string) preg_replace(
+        $s = (string) preg_replace(
             "/([\\p{L}\\p{M}\\p{N}-]$dot)(?!(?:" . self::FILE_EXT . ")\\b)(?=(?:[a-z]{2}|" . self::TLDS . ")\\b|[\\p{L}\\p{M}]*[^\\x00-\\x7F][\\p{L}\\p{M}]*\\b|xn--[a-z0-9-]{2,}\\b)/iu",
             "$1\u{200B}",
             $s,
         );
+
+        // A TLD missing from the list still fails closed when both labels are lowercase (`mailer.send`); `Mailer.send` and `foo.sendAll` read as code.
+        return (string) preg_replace("/(?<![\\p{L}\\p{N}-])([a-z0-9-]+$dot)(?!(?:" . self::FILE_EXT . ")\\b)(?=[a-z]{3,24}\\b)/u", "$1\u{200B}", $s);
     }
 
     /** Undoes {@see escape()} for the plain-text fallback of a message. */

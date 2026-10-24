@@ -35,9 +35,15 @@ final class SlackTextTest extends TestCase
         self::assertSame("cafe\u{301}.\u{200B}com", SlackText::defang("cafe\u{301}.com"));
     }
 
+    public function testDefangFailsClosedOnLowercaseHostsWithUnlistedTlds(): void
+    {
+        self::assertSame('mailer.' . self::Z . 'send', SlackText::defang('mailer.send'));
+        self::assertSame('a.b.' . self::Z . 'newtld', SlackText::defang('a.b.newtld'));
+    }
+
     public function testDefangKeepsCodeIdentifiers(): void
     {
-        self::assertSame('Mailer.send failed in Foo.baz() via mailer.sendAll and v1.2.beta', SlackText::defang('Mailer.send failed in Foo.baz() via mailer.sendAll and v1.2.beta'));
+        self::assertSame('Mailer.send failed in Foo.baz() via mailer.sendAll', SlackText::defang('Mailer.send failed in Foo.baz() via mailer.sendAll'));
     }
 
     public function testDefangKeepsFileNames(): void
@@ -76,7 +82,7 @@ final class SlackTextTest extends TestCase
         yield 'emoji' => ['🔴 é', '🔴 é'];
         yield 'empty' => ['', ''];
         yield 'ip' => ['10.0.0.1', '10.0.0.1'];
-        yield 'dotted word' => ['v1.2.beta', 'v1.2.beta'];
+        yield 'dotted word' => ['v1.2.beta', "v1.2.{$z}beta"];
         yield 'email' => ['a@b.com', "a@{$z}b.{$z}com"];
         yield 'ampersand entity' => ['&amp;', '&amp;amp;'];
         yield 'mixed' => ["x <y> & `z` @q://w", "x &lt;y&gt; &amp; 'z' @{$z}q:{$z}//w"];
