@@ -38,12 +38,15 @@ final class Spend
         $day = $this->day();
         $ttl = Keys::ttl(Keys::SPEND, 0, 0);
         $tokens = $usage->inputTokens + $usage->outputTokens + $usage->cacheReadTokens + $usage->cacheWriteTokens;
-        if ($this->pendingDay !== '' && $this->pendingDay !== $day) {
-            $this->release(); // the reservation belongs to an earlier day: give it back there, book the real cost today
-        }
-        $this->store->increment(Keys::spendUsd($this->service, $day), $costUsd - $this->pendingUsd, $ttl);
-        $this->store->increment(Keys::spendTokens($this->service, $day), (float) $tokens - $this->pendingTokens, $ttl);
+        // Take the reservation before touching the store: a failure half way leaves an over-count, never a second return of it.
+        [$pendingUsd, $pendingTokens, $pendingDay] = [$this->pendingUsd, $this->pendingTokens, $this->pendingDay];
         $this->pendingUsd = $this->pendingTokens = 0.0;
+        if ($pendingDay !== '' && $pendingDay !== $day) {
+            $this->giveBack($pendingDay, $pendingUsd, $pendingTokens); // an earlier day's reservation goes back there; today books the real cost
+            $pendingUsd = $pendingTokens = 0.0;
+        }
+        $this->store->increment(Keys::spendUsd($this->service, $day), $costUsd - $pendingUsd, $ttl);
+        $this->store->increment(Keys::spendTokens($this->service, $day), (float) $tokens - $pendingTokens, $ttl);
     }
 
     /**
@@ -76,10 +79,14 @@ final class Spend
         if ($this->pendingUsd === 0.0 && $this->pendingTokens === 0.0) {
             return;
         }
-        $day = $this->pendingDay;
-        $ttl = Keys::ttl(Keys::SPEND, 0, 0);
-        [$usd, $tokens] = [$this->pendingUsd, $this->pendingTokens];
+        [$usd, $tokens, $day] = [$this->pendingUsd, $this->pendingTokens, $this->pendingDay];
         $this->pendingUsd = $this->pendingTokens = 0.0;
+        $this->giveBack($day, $usd, $tokens);
+    }
+
+    private function giveBack(string $day, float $usd, float $tokens): void
+    {
+        $ttl = Keys::ttl(Keys::SPEND, 0, 0);
         $this->store->increment(Keys::spendUsd($this->service, $day), -$usd, $ttl);
         $this->store->increment(Keys::spendTokens($this->service, $day), -$tokens, $ttl);
     }
