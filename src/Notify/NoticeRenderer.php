@@ -18,7 +18,7 @@ final class NoticeRenderer
     /** @param string $kind source|analysis, anything else reads as a generic run failure */
     public function failure(string $service, string $environment, string $kind, string $reason): Message
     {
-        $kind = in_array($kind, ['source', 'analysis'], true) ? $kind : 'run';
+        $kind = in_array($kind, ['source', 'analysis', 'config'], true) ? $kind : 'run';
 
         return $this->notice('❌', $service, $environment, $kind . ' failed: ' . $this->reason($reason));
     }

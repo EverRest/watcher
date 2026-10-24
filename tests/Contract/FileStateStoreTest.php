@@ -7,6 +7,7 @@ namespace Watcher\Tests\Contract;
 use Psr\Clock\ClockInterface;
 use RuntimeException;
 use Watcher\State\FileStateStore;
+use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\State\Purgeable;
 use Watcher\State\StateStore;
 
@@ -243,20 +244,52 @@ final class FileStateStoreTest extends StateStoreContractTest
         self::assertSame(0700, fileperms($this->dir) & 0777);
     }
 
-    public function testADirectoryWritableByGroupOrOthersIsRefusedByNameWithoutItsPath(): void
+    public function testAWorldWritableDirectoryWithoutTheStickyBitIsRefusedByNameWithoutItsPath(): void
     {
         mkdir($this->dir, 0700, true);
-        chmod($this->dir, 0770);
+        chmod($this->dir, 0777);
         try {
             $this->store->put('k', ['v' => 1], 60);
             self::fail('expected a refusal');
-        } catch (RuntimeException $e) {
+        } catch (\Watcher\Config\InvalidConfig $e) {
             self::assertStringContainsString('state.file.path', $e->getMessage());
             self::assertStringNotContainsString($this->dir, $e->getMessage());
         } finally {
             chmod($this->dir, 0700);
         }
         self::assertSame([], glob($this->dir . '/*.json') ?: []);
+    }
+
+    public function testAGroupWritableDirectoryOwnedByTheUserIsAllowedAndFilesStayPrivate(): void
+    {
+        mkdir($this->dir, 0700, true);
+        chmod($this->dir, 0775); // the usual Laravel storage mode
+        $this->store->put('k', ['v' => 1], 60);
+
+        self::assertSame(['v' => 1], $this->store->get('k'));
+        self::assertSame(0600, fileperms($this->stateFile('k')) & 0777);
+        chmod($this->dir, 0700);
+    }
+
+    public function testAStickyWorldWritableDirectoryOwnedByTheUserIsAllowed(): void
+    {
+        mkdir($this->dir, 0700, true);
+        chmod($this->dir, 01777);
+        $this->store->put('k', ['v' => 1], 60);
+
+        self::assertSame(['v' => 1], $this->store->get('k'));
+        chmod($this->dir, 0700);
+    }
+
+    public function testADirectoryNotOwnedByTheRunningUserIsRefused(): void
+    {
+        if (!function_exists('posix_geteuid') || posix_geteuid() === 0 || fileowner('/usr') === posix_geteuid()) {
+            self::markTestSkipped('needs a non-root user and a directory owned by someone else');
+        }
+        $store = new FileStateStore('/usr', new FrozenClock(new \DateTimeImmutable('2026-10-08T06:00:00Z')), 900);
+        $this->expectException(\Watcher\Config\InvalidConfig::class);
+        $this->expectExceptionMessage('state.file.path');
+        $store->put('k', ['v' => 1], 60);
     }
 
     public function testASymlinkedPurgeMarkerIsNotWrittenThrough(): void

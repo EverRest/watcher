@@ -165,6 +165,8 @@ final class Doctor
             $this->store->put($key, ['probe' => $id], self::SCRATCH_TTL);
             $this->store->increment($counter, 1.0, self::SCRATCH_TTL);
             $this->store->increment($counter, 2.0, self::SCRATCH_TTL);
+        } catch (\Watcher\Config\InvalidConfig $e) {
+            return CheckResult::fail('state', $e->getMessage()); // names the setting, never its value
         } catch (Throwable) {
             return CheckResult::fail('state', 'write failed'); // the driver message can carry a DSN or password
         }

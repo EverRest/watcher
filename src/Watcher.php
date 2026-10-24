@@ -291,6 +291,9 @@ final class Watcher
             return $this->locked($window);
         } catch (SourceUnavailable $e) {
             return $this->failWithNotice('source', $e->getMessage(), 'source_unavailable');
+        } catch (Config\InvalidConfig $e) {
+            // A state directory the store refuses: the message names the setting only, so it is safe to show.
+            return $this->failWithNotice('config', $e->getMessage(), 'invalid_config');
         } catch (AnalyzerFailed $e) {
             return $this->failWithNotice('analysis', $e->getMessage(), $e->refused ? 'analysis_refused' : 'analysis_failed');
         } catch (DeliveryFailed $e) {

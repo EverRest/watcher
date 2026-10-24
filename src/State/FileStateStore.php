@@ -6,6 +6,7 @@ namespace Watcher\State;
 
 use JsonException;
 use Psr\Clock\ClockInterface;
+use Watcher\Config\InvalidConfig;
 use RuntimeException;
 
 /**
@@ -309,7 +310,13 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
         }
     }
 
-    /** The directory holds locks and spend counters: group or world write access lets another user forge them. */
+    /**
+     * The directory holds locks and spend counters. Refused: one another user owns (it could forge them) and a
+     * world-writable one without the sticky bit. Group-writable and owned by us is allowed (a Laravel `storage` folder);
+     * the files themselves are always 0600. The message names the setting, never its value.
+     *
+     * @throws InvalidConfig
+     */
     private function assertDirectory(): void
     {
         clearstatcache(true, $this->dir);
@@ -317,8 +324,9 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
         if ($perms === false) {
             return;
         }
-        if (($perms & 0022) !== 0) {
-            throw new RuntimeException('state.file.path must not be writable by group or others (chmod 0700)');
+        $foreign = function_exists('posix_geteuid') && @fileowner($this->dir) !== posix_geteuid();
+        if ($foreign || (($perms & 0002) !== 0 && ($perms & 01000) === 0)) {
+            throw new InvalidConfig('state.file.path must be owned by the user running watcher and not world-writable (chmod 0700, or 0770 for a shared group)');
         }
     }
 }
