@@ -116,6 +116,57 @@ final class NewestShareTest extends TestCase
         return $out;
     }
 
+    public function testADatadogTailThatIsTooLargeShrinksItsPageLikeTheHeadDoes(): void
+    {
+        $source = $this->tooLargeSource(self::eventsIn(5000, 4750), static fn (array $b): bool => $b['sort'] === '-timestamp' && $b['page']['limit'] > 1000);
+
+        $events = $this->read($source, 1000);
+
+        $this->assertNotEmpty(array_filter($events, static fn (LogEvent $e): bool => str_contains($e->message, 'IncidentPayment')));
+        $this->assertArrayHasKey('pages_shrunk', $source->readDiagnostics());
+    }
+
+    public function testADatadogTailThatCannotFitTheResponseCapDegradesToATruncatedReadInsteadOfFailing(): void
+    {
+        $source = $this->tooLargeSource(self::eventsIn(5000, 4750), static fn (array $b): bool => $b['sort'] === '-timestamp');
+        $filter = new ReadFilter(Level::Error, [], 1000);
+
+        $events = iterator_to_array($source->lines($this->window(), new StreamSelector(['app' => 'svc']), $filter), false);
+
+        $this->assertCount(800, $events, 'the head that was already read is kept');
+        $this->assertTrue($source->lastReadTruncated());
+        $this->assertSame('cap', $filter->truncationReason);
+    }
+
+    public function testDatadogEventsInTheSameMillisecondAsTheSeamAreReportedAsACut(): void
+    {
+        $events = self::eventsIn(900, 900);
+        $events[800][0] = $events[799][0]; // the event that trips the cap shares its time with the last one kept
+        $source = $this->source('datadog', $events);
+
+        $this->read($source, 1000);
+
+        $this->assertTrue($source->lastReadTruncated());
+    }
+
+    /**
+     * @param list<array{int, string}>      $events
+     * @param callable(array<mixed>): bool $tooLarge decides, from the request body, that the reply is over the response cap
+     */
+    private function tooLargeSource(array $events, callable $tooLarge): DatadogSource
+    {
+        $handler = static function (RequestInterface $r, array $o) use ($events, $tooLarge) {
+            $body = json_decode((string) $r->getBody(), true);
+            if ($tooLarge($body)) {
+                return Create::promiseFor(new Response(200, [], (string) json_encode(['data' => [], 'pad' => str_repeat('x', 300_000)])));
+            }
+
+            return Create::promiseFor(self::datadog($r, $events));
+        };
+
+        return new DatadogSource(new Client(['handler' => $handler]), 'datadoghq.eu', 'k', 'a', maxResponseBytes: 200_000);
+    }
+
     /** @param list<array{int, string}> $events */
     private function source(string $kind, array $events): LogSource
     {
