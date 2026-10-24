@@ -132,10 +132,12 @@ return [
     ],
 
     'state' => [
-        'driver' => 'redis',                             // required: redis | pdo | file
+        'driver' => 'redis',                             // required; redis is the default choice (in Kubernetes the only one that keeps history): redis | pdo | file
         'retention' => 2592000,                          // seconds every stored item lives, default 30 days
         'redis' => [                                     // an injected \Redis in 'instance' wins over the connection keys
             'host' => '127.0.0.1', 'port' => 6379, 'password' => null, 'database' => 0,
+            'client' => 'auto',                          // auto (ext-redis, else predis/predis) | phpredis | predis
+            'compress_min_bytes' => 512,                 // values larger than this are zlib-compressed; 0 = never
         ],
         'pdo' => [                                       // table is NEVER created implicitly: see PdoStateStore::createTableSql()
             'dsn' => getenv('WATCHER_DB_DSN'), 'username' => null, 'password' => null, 'table' => 'watcher_state',

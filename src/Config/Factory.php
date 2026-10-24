@@ -30,6 +30,9 @@ use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
+use Watcher\State\Redis\PhpRedisClient;
+use Watcher\State\Redis\PredisClient;
+use Watcher\State\Redis\RedisClient;
 use Watcher\State\RedisStateStore;
 use Watcher\State\RenewableLock;
 use RuntimeException;
@@ -116,7 +119,7 @@ final class Factory
         $st = $c->state;
 
         return match ($st['driver']) {
-            'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(self::redis(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock)),
+            'redis' => self::lazy(static fn (): StateStore => new RedisStateStore(self::redisClient(is_array($st['redis'] ?? null) ? $st['redis'] : []), $clock)),
             // The table is never created here: run PdoStateStore::createTableSql($driver, $table) once, in a migration.
             // Lazy like Redis: a connect failure on a trigger that is not due must not fail it.
             'pdo' => self::lazy(static fn (): StateStore => new PdoStateStore(self::pdo($st['pdo']), $clock, (string) ($st['pdo']['table'] ?? 'watcher_state'))),
@@ -133,11 +136,60 @@ final class Factory
         return (is_int($t) || is_float($t)) && $t > 0 ? (float) $t : 5.0;
     }
 
-    /** @param array<string, mixed> $r */
-    private static function redis(array $r): Redis
+    /**
+     * `state.redis.client`: auto (ext-redis when loaded, else Predis), phpredis or predis. Throws when the choice is not installed.
+     *
+     * @return 'phpredis'|'predis'
+     */
+    public static function pickRedisClient(string $mode, bool $extensionLoaded, bool $predisInstalled): string
     {
-        if (($r['instance'] ?? null) instanceof Redis) {
-            return $r['instance'];
+        if ($mode === 'phpredis' && !$extensionLoaded) {
+            throw new RuntimeException('state.redis.client=phpredis needs ext-redis');
+        }
+        if ($mode === 'predis' && !$predisInstalled) {
+            throw new RuntimeException('state.redis.client=predis needs predis/predis (composer require predis/predis)');
+        }
+        if ($mode === 'auto' && !$extensionLoaded && !$predisInstalled) {
+            throw new RuntimeException('state.redis: install ext-redis or predis/predis');
+        }
+
+        return $mode === 'predis' || ($mode === 'auto' && !$extensionLoaded) ? 'predis' : 'phpredis';
+    }
+
+    /** An injected client: a \Redis, anything already speaking RedisClient, or else a Predis client. */
+    public static function wrapRedisInstance(object $instance): RedisClient
+    {
+        return match (true) {
+            $instance instanceof RedisClient => $instance,
+            $instance instanceof Redis => new PhpRedisClient($instance),
+            default => new PredisClient($instance),
+        };
+    }
+
+    /** @param array<string, mixed> $r */
+    private static function redisClient(array $r): RedisClient
+    {
+        if (is_object($r['instance'] ?? null)) {
+            return self::wrapRedisInstance($r['instance']);
+        }
+        /** @var class-string $predisClass predis/predis is only a `suggest`: phpstan must not look for it */
+        $predisClass = 'Predis\\Client';
+        $pick = self::pickRedisClient(is_string($r['client'] ?? null) ? $r['client'] : 'auto', class_exists(Redis::class), class_exists($predisClass));
+        if ($pick === 'predis') {
+            try {
+                return new PredisClient(new $predisClass(array_filter([
+                    'scheme' => str_starts_with((string) ($r['host'] ?? ''), 'tls://') ? 'tls' : 'tcp',
+                    'host' => (string) preg_replace('~^tls://~', '', (string) ($r['host'] ?? '127.0.0.1')),
+                    'port' => (int) ($r['port'] ?? 6379),
+                    'database' => (int) ($r['database'] ?? 0),
+                    'username' => isset($r['username'], $r['password']) ? (string) $r['username'] : null,
+                    'password' => isset($r['password']) ? (string) $r['password'] : null,
+                    'timeout' => 5.0,
+                    'read_write_timeout' => self::redisReadTimeout($r),
+                ], static fn (mixed $v): bool => $v !== null)));
+            } catch (\Throwable) {
+                throw new RuntimeException('state.redis: cannot create the predis client'); // never echo the driver message (may carry the password)
+            }
         }
         $redis = new Redis();
         try {
@@ -151,7 +203,7 @@ final class Factory
             throw new RuntimeException('state.redis: cannot connect or authenticate'); // never echo the driver message (may carry the password)
         }
 
-        return $redis;
+        return new PhpRedisClient($redis);
     }
 
     /** @param array<string, mixed> $p */
@@ -271,7 +323,7 @@ final class Factory
         $clock ??= new SystemClock();
         $http ??= self::http();
 
-        return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock);
+        return new Doctor($c, self::source($c, $http, $clock), self::state($c, $clock), self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '');
     }
 
     /**

@@ -94,10 +94,12 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 | Key | Default | Notes |
 |---|---|---|
-| `state.driver` | required | `redis`, `pdo` or `file`. **`file` is valid for a single runner only.** |
+| `state.driver` | required (set it to `redis`: the shipped `config/watcher.php` and the example do) | `redis`, `pdo` or `file`. **`file` is valid for a single runner only**, and in Kubernetes it loses history with every pod (see operations.md, "Where to keep state"). |
 | `state.retention` | `2592000` | Seconds every stored item lives (30 days). Fingerprints, counters, verdicts and findings; never raw logs. |
 | `state.redis.read_timeout` | `5` | Seconds a Redis call waits for a reply (the PHP socket default is 60). |
-| `state.redis.{host,port,username,password,database}` | `127.0.0.1`, `6379`, null, null, `0` | `username` + `password` authenticate as a Redis 6 ACL user. A `tls://host` value of `host` connects over TLS (phpredis); plain `AUTH` is otherwise sent in clear. Or inject a connected `\Redis` as `state.redis.instance` (it wins). Every key carries a TTL. |
+| `state.redis.client` | `auto` | `auto` (`ext-redis` when loaded, else `predis/predis`), `phpredis` or `predis`. Predis is a `suggest`, not a requirement. |
+| `state.redis.compress_min_bytes` | `512` | Values written with `put` that are larger than this are stored as `z1:` + zlib (level 6) bytes. `0` turns compression off. Counters, locks and markers are never compressed. Needs `ext-zlib` (without it nothing is compressed and `watcher check` warns). Old uncompressed values keep reading. |
+| `state.redis.{host,port,username,password,database}` | `127.0.0.1`, `6379`, null, null, `0` | `username` + `password` authenticate as a Redis 6 ACL user. A `tls://host` value of `host` connects over TLS (phpredis); plain `AUTH` is otherwise sent in clear. Or inject a connected `\Redis`, a Predis client or a `Watcher\State\Redis\RedisClient` as `state.redis.instance` (it wins). Every key carries a TTL. |
 | `state.pdo.{dsn,username,password,table}` | dsn required; table `watcher_state` | MySQL, PostgreSQL or SQLite. The table is **never created implicitly**: create it with `Watcher\State\PdoStateStore::createTableSql('mysql'\|'pgsql'\|'sqlite')`. |
 | `state.file.path` | required for file | Writable directory; the package creates it with mode 0700 when it is missing, an existing directory keeps its mode, so keep it private to the service user. File names are hashes of the keys. |
 
@@ -275,6 +277,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_STATE`, `WATCHER_STATE_PATH` | `state.driver`, `state.file.path` |
 | `WATCHER_RUN_DEADLINE` | `schedule.run_deadline` (seconds; shipped `config/watcher.php` only) |
 | `WATCHER_REDIS_{HOST,PORT,PASSWORD,DATABASE}` | `state.redis.*` |
+| `WATCHER_REDIS_CLIENT`, `WATCHER_REDIS_COMPRESS_MIN_BYTES` | `state.redis.client`, `state.redis.compress_min_bytes` (shipped `config/watcher.php`) |
 | `WATCHER_DB_{DSN*,USERNAME,PASSWORD}` | `state.pdo.*` |
 | `WATCHER_SLACK_WEBHOOK*` | `notify.digest.webhook` (Telegram and Discord: `bot_token`, `chat_id`, `webhook` the same way) |
 | `WATCHER_SERVICE_CONTEXT` | `service_context` |

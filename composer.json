@@ -29,7 +29,9 @@
     },
     "suggest": {
         "ext-intl": "NFKC folding of look-alike characters before redaction (optional; a small fallback covers fullwidth ASCII)",
-        "ext-redis": "Redis state store",
+        "ext-redis": "Redis state store (default driver)",
+        "predis/predis": "Redis state store without ext-redis (^2.0 || ^3.0), state.redis.client=predis",
+        "ext-zlib": "Compression of large Redis state values",
         "ext-pdo": "PDO state store",
         "illuminate/support": "Lumen/Laravel adapter"
     },

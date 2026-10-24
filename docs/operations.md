@@ -114,8 +114,10 @@ spec:
             - name: watcher
               image: registry.example.com/orders-api-watcher:1.0.0   # your image with the package installed
               command: ["php", "vendor/bin/watcher", "run", "--config=/etc/watcher/config.php"]
-              envFrom: [{secretRef: {name: watcher-secrets}}]
+              envFrom: [{secretRef: {name: watcher-secrets}}]   # WATCHER_REDIS_PASSWORD lives here
               env:
+                - {name: WATCHER_STATE, value: redis}                # the default; see "Where to keep state" below
+                - {name: WATCHER_REDIS_HOST, value: redis.cache.svc}
                 - {name: WATCHER_RELEASE, value: "1.52.2"}           # from CI
                 - {name: WATCHER_COMMIT, value: "abc1234"}
               volumeMounts: [{name: config, mountPath: /etc/watcher}]
@@ -125,6 +127,36 @@ spec:
 The ConfigMap holds the config file (no secrets: it reads `getenv()`), the Secret holds the keys. Egress needed: your
 log backend, `api.anthropic.com`, the channel host (`hooks.slack.com`, `api.telegram.org`, `discord.com` / `discordapp.com`), and Redis or the database if used. A failed Job (exit 1 or 2) is
 also a signal for your cluster alerting.
+
+#### Where to keep state (Kubernetes)
+
+Use **Redis**. It is the default driver and the only one that fits a CronJob: every run is a new pod, and what the
+next run needs (baseline snapshots, the run lock, spend counters, reported markers, the heartbeat) must outlive it.
+
+```yaml
+env:
+  - {name: WATCHER_STATE, value: redis}
+  - {name: WATCHER_REDIS_HOST, value: redis.cache.svc}   # a Service in the cluster, or a managed Redis
+  - {name: WATCHER_REDIS_PORT, value: "6379"}
+  - {name: WATCHER_REDIS_DATABASE, value: "3"}           # keep it apart from the app's data
+  # WATCHER_REDIS_PASSWORD comes from the Secret (envFrom)
+```
+
+Why not the default `emptyDir` (or any container-local path) with `state.driver=file`: it is deleted with the pod, so
+every run starts as a first run (a baseline, no comparison, no "already reported" memory, and the daily budget counter
+restarts from zero). `watcher check` reports `pass` with a `warning:` on the state line when the driver is `file`
+and `KUBERNETES_SERVICE_HOST` is set, so this setup is visible before the first run.
+
+A PersistentVolumeClaim keeps the history and is the fallback when there is no Redis, with these limits:
+
+- **One replica, one scheduler.** The file store has no cross-process lock. `concurrencyPolicy: Forbid` and a
+  `ReadWriteOnce` claim keep two pods apart on most clusters, but nothing in the package enforces it.
+- The directory must be mode `0700` and owned by the pod user (a group-writable mount, as many CSI drivers create by
+  default, is refused; use an init container or `fsGroup` with a `0700` subdirectory).
+- A volume is per cluster and zone; a pod that is rescheduled to another zone cannot mount it.
+
+Redis connection failures are lazy: a trigger that is not in its run hour never connects. The Redis client is `ext-redis`
+when loaded, else `predis/predis` (`composer require predis/predis`, `^2.0 || ^3.0`); force one with `WATCHER_REDIS_CLIENT=phpredis|predis`.
 
 ### Notification channels
 
@@ -144,7 +176,7 @@ fails with `HTTP 429`.
 
 | Driver | Use when | Notes |
 |---|---|---|
-| `redis` | normal choice, several app replicas | every key has a TTL; the lock is a compare-and-delete script |
+| `redis` | **the default**: Kubernetes, several app replicas | every key has a TTL; the lock is a compare-and-delete script; `ext-redis` or `predis/predis`; large values are compressed |
 | `pdo` | you have a DB and no Redis | create the table once: `PdoStateStore::createTableSql('mysql')`; tested on SQLite only |
 | `file` | one runner, one host | **never** with several replicas or pods without a shared volume and a single scheduler |
 

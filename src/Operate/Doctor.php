@@ -39,6 +39,7 @@ final class Doctor
         private readonly ?ModelCatalog $catalog,
         private readonly Notifier $notifier,
         private readonly ClockInterface $clock,
+        private readonly bool $kubernetes = false,
     ) {
     }
 
@@ -176,7 +177,32 @@ final class Doctor
         $this->store->release($lock, $id);
 
         // The scratch keys expire after SCRATCH_TTL: StateStore has no delete.
-        return $first && !$second ? CheckResult::pass('state') : CheckResult::fail('state', 'lock not exclusive');
+        if (!$first || $second) {
+            return CheckResult::fail('state', 'lock not exclusive');
+        }
+        $warnings = self::stateWarnings($this->config->state, $this->kubernetes, extension_loaded('zlib'));
+
+        return CheckResult::pass('state', $warnings === [] ? '' : 'warning: ' . implode('; ', $warnings));
+    }
+
+    /**
+     * Setups that work but lose data or space; shown as a `warning:` on a passing state check.
+     *
+     * @param array<string, mixed> $state
+     * @return list<string>
+     */
+    public static function stateWarnings(array $state, bool $kubernetes, bool $zlib): array
+    {
+        $out = [];
+        if (($state['driver'] ?? null) === 'file' && $kubernetes) {
+            $out[] = 'state.driver=file inside Kubernetes (KUBERNETES_SERVICE_HOST is set): a pod-local directory loses history on every new pod; use state.driver=redis (docs/operations.md)';
+        }
+        $redis = is_array($state['redis'] ?? null) ? $state['redis'] : [];
+        if (($state['driver'] ?? null) === 'redis' && ($redis['compress_min_bytes'] ?? 512) !== 0 && !$zlib) {
+            $out[] = 'ext-zlib is not loaded: Redis values are stored uncompressed';
+        }
+
+        return $out;
     }
 
     private function notifier(): CheckResult
