@@ -776,7 +776,11 @@ final class Watcher
         $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->stats, $c->analysis['models'], $this->fleet), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
         $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet);
         try {
-            $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
+            try {
+                $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
+            } finally {
+                $spend->release(); // a step reserved but never called (or a non-analyzer error) must not hold budget
+            }
         } catch (AnalyzerFailed $e) {
             // The window was read: keep it as the next window's comparison base. Normally no RunRecord, so the next trigger retries;
             // but a refusal, or a second failure of this window, is recorded as failed so hourly triggers do not re-bill it endlessly.
@@ -1132,6 +1136,8 @@ final class Watcher
             {
                 if ($e->usage !== null) {
                     $this->book($e->usage, $step);
+                } else {
+                    $this->spend->release(); // nothing was billed: give the reserved worst case back (M2)
                 }
 
                 return $e;

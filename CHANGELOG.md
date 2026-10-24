@@ -3,6 +3,7 @@
 ## Unreleased — residual availability (lane J, planned 0.2.1; temporary block, the integrator moves it)
 
 - Added: a capped read keeps a newest share (A4-03). One fifth of `source.event_cap` (`ReadFilter::tailCap()`, 0 below a cap of 5) is reserved: the oldest-first read stops at 80%, then Loki (`direction=backward`) and Datadog (`sort=-timestamp`) read the newest events after the last one kept and yield them oldest to newest. Also after a spent `pages`/`time` budget (two more pages at most). If the backward read reaches back to where the forward read stopped, nothing was lost and the read is not reported as truncated.
+- Changed: the daily budget is reserved atomically on Redis (M2). `BudgetReservation::allows()` now goes through `Spend::reserve()`, which on a store implementing the new optional `State\ReservableCounters` (Redis; the lazy store wrapper forwards it) runs one Lua script that checks the USD and token caps and adds the step's worst case with `INCRBYFLOAT` and `PEXPIRE` in the same script. `Spend::add()` settles it to the real cost (only the difference is added), `Spend::release()` gives it back when a call failed with no billed usage or the router ends; parallel runs of one service cannot both pass the check. File, PDO, dry-run and in-memory stores keep the plain check-then-book path. The fleet cap is still check-only.
 
 ## 0.1.3 — 2026-10-24 — Redis state and own Anthropic client
 
