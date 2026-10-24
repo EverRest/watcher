@@ -748,7 +748,11 @@ final class WatchConfig implements \JsonSerializable
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
         ];
 
-        return array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+        $secrets = array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+        // Longest first: masking `sk-ant` before `sk-ant-SECRET` would leave `-SECRET` behind. (usort is stable in PHP 8.)
+        usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        return $secrets;
     }
 
     /** @return array<string, array<string, mixed>> */

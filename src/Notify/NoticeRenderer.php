@@ -10,9 +10,14 @@ final class NoticeRenderer
     private const MAX_REASON = 200;
     private const MIN_SECRET = 8;
 
+    /** @var list<string> */
+    private readonly array $secrets;
+
     /** @param list<string> $secrets exact values ({@see \Watcher\Config\WatchConfig::secrets()}) to mask on top of the generic scrubbing */
-    public function __construct(#[\SensitiveParameter] private readonly array $secrets = [])
+    public function __construct(#[\SensitiveParameter] array $secrets = [])
     {
+        usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a)); // longest first, so a prefix secret cannot leave its suffix
+        $this->secrets = $secrets;
     }
 
     /** @param string $kind source|analysis, anything else reads as a generic run failure */

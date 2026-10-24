@@ -21,13 +21,18 @@ final class StateInspector
 
     private const WINDOW_END = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/D';
 
+    /** @var list<string> */
+    private readonly array $secrets;
+
     /** @param list<string> $secrets WatchConfig::secrets() */
     public function __construct(
         private readonly StateStore $store,
         private readonly Redactor $redactor,
         private readonly string $service,
-        private readonly array $secrets = [],
+        array $secrets = [],
     ) {
+        usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a)); // longest first, so a prefix secret cannot leave its suffix
+        $this->secrets = $secrets;
     }
 
     /**

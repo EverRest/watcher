@@ -135,4 +135,14 @@ final class StateInspectorTest extends TestCase
         self::assertIsArray($decoded);
         self::assertSame(['0123456789ab' => 4], $decoded['groups']);
     }
+
+    public function testOverlappingSecretsAreMaskedLongestFirstInValuesAndKeys(): void
+    {
+        $store = new RecordingStateStore(new InMemoryStateStore(new FrozenClock(new DateTimeImmutable('2026-10-24T09:00:00Z'))));
+        $store->put('hb:orders', ['sk-ant-SECRET' => 'x', 'note' => 'key sk-ant-SECRET end'], 60);
+        $text = (string) (new StateInspector($store, new Redactor(new Normalizer()), 'orders', ['sk-ant', 'sk-ant-SECRET']))->render('heartbeat');
+
+        self::assertStringNotContainsString('SECRET', $text);
+        self::assertStringNotContainsString('-SECRET', $text);
+    }
 }
