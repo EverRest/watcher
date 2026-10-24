@@ -60,7 +60,7 @@ credentials, anything from `fields`.
    kept from its first `vendor/`, `app/` or `src/` directory, at most the last three segments, and what was cut becomes
    `…/` (`/home/jsmith/app/X.php:12` -> `…/app/X.php:12`); no such directory: no frame. A segment that is not plain
    `[A-Za-z0-9_.-]` or looks random drops the frame; digits are masked. Line numbers and file names are kept.
-5. **Model output scrub:** everything the model writes (title, evidence, cause, action) is scanned the same way before it
+5. **Model output scrub:** everything the model writes (title, evidence, cause, action, `how_to_check`, every `related_checks` entry) is scanned the same way before it
    is shown, stored or cached; plain numbers are kept.
 
 ## What is sent to your notification channel
@@ -72,7 +72,7 @@ reasons and the stored heartbeat, and never appear in logs, summaries, `check` o
 inert on Telegram and Discord too (HTML and Markdown escaped, links and mentions broken up; Discord posts with
 `allowed_mentions.parse` empty and embeds suppressed). Retention at Telegram or Discord is theirs.
 
-The digest and notices: finding titles, evidence, hypothesis and suggested action written by the model from the masked
+The digest and notices: finding titles, evidence, hypothesis, suggested action, a `Check:` line (what to look at to confirm or refute the hypothesis) and an optional `Related:` line (other groups or declared dependencies worth checking, only names that were in the model input) written by the model from the masked
 input; 12-character fingerprints; counts and trends; token and cost figures; release names; and optional links built by
 the package (log-query links from configured base URLs, tags, level, time range and a masked template fragment; code links
 from your repository URL, commit and a mapped file path). Text from the model has Slack mentions and links disabled
@@ -129,6 +129,7 @@ new value in the model payload is the group status `expected` (alongside `new`, 
 - **JSON `message` values keep their first physical line** (as text records do). The rest is dropped, never promoted to
   the message; the exception class and frames are still read from the whole text first. The count is
   `LineParser::$messageTailsDropped`.
+- **Advice fields.** `how_to_check` and `related_checks` are model text like the rest: scrubbed, escaped in every channel (no link, mention or domain survives) and, for `related_checks`, dropped entry by entry when they cite a fingerprint or dependency that was not in the input. The model sees only masked templates, so the prompt forbids reproduction steps; `how_to_check` says what to look at, not how to trigger the problem.
 - **Model wording.** The model never sees personal data from masked input, but its text is still free text. The scrub
   catches the patterns above, not arbitrary words.
 - **Field-based rules.** A `field`+`equals` watch rule or mute reads field values inside the process to decide; only the

@@ -208,6 +208,7 @@ final class Factory
             new Client(self::analyzerHttpOptions($c->schedule['lock_ttl'])),
             null,
             self::analyzerRequestOptions(),
+            $c->on('advice'),
         );
     }
 

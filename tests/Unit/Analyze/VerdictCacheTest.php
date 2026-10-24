@@ -61,6 +61,24 @@ final class VerdictCacheTest extends TestCase
         self::assertSame('T', ($cache->get('fp1') ?? [])['finding']['title'] ?? null);
     }
 
+    public function testAdviceFieldsAreStoredAndAnOldEntryWithoutThemStillLoads(): void
+    {
+        $cache = new VerdictCache($this->store, 'svc', 100);
+        $cache->put('fp1', 'interesting', 5, new Finding(['fp1'], FindingKind::Bug, Severity::Error, 'T', 'E', 'C', 'A', 0.5, false, 'look at X', ['fp1 too']));
+        $f = ($cache->get('fp1') ?? [])['finding'] ?? [];
+        self::assertSame('look at X', $f['how_to_check'] ?? null);
+        self::assertSame(['fp1 too'], $f['related_checks'] ?? null);
+
+        // written by an older version: no advice keys
+        $this->store->put(Keys::verdict('svc', 'old'), ['triage' => 'interesting', 'atCount' => 3, 'finding' => [
+            'fingerprints' => ['old'], 'kind' => 'bug', 'severity' => 'error', 'title' => 'T', 'evidence' => 'E',
+            'suspected_cause' => 'C', 'suggested_action' => 'A', 'confidence' => 0.5, 'escalated' => false,
+        ]], 100);
+        $old = $cache->get('old');
+        self::assertSame('T', $old['finding']['title'] ?? null);
+        self::assertTrue($cache->isReusable(self::group(3, 'old', Level::Error), 2.0));
+    }
+
     public function testReusableBelowGrowthFactorTimesAtCount(): void
     {
         $cache = new VerdictCache($this->store, 'svc', 100);

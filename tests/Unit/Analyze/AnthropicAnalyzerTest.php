@@ -98,6 +98,30 @@ final class AnthropicAnalyzerTest extends TestCase
         self::assertStringNotContainsString('"maximum"', (string) json_encode($body['output_config']));
     }
 
+    public function testAdviceFlagControlsPromptAndSchemaInTheRequest(): void
+    {
+        $this->analyzer([self::json('message-valid.json')])->analyze(self::request());
+        $on = $this->body();
+        self::assertStringContainsString('how_to_check', implode("\n", array_column($on['system'], 'text')));
+        self::assertStringContainsString('related_checks', (string) json_encode($on['output_config']));
+
+        $this->history = [];
+        $stack = HandlerStack::create(new MockHandler([self::json('message-valid.json')]));
+        $stack->push(Middleware::history($this->history));
+        (new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0], false))->analyze(self::request());
+        $off = $this->body();
+        self::assertStringNotContainsString('how_to_check', (string) json_encode($off));
+        self::assertStringNotContainsString('related_checks', (string) json_encode($off));
+        self::assertSame(ProviderSchema::for('analysis', false), $off['output_config']['format']['schema']);
+    }
+
+    public function testAnalysisOutputCapGrowsWithGroupsOnlyWhenAdviceIsOn(): void
+    {
+        self::assertSame(4000, AnthropicAnalyzer::analysisOutputCap(4000, 3, true), 'few groups: configured cap stands');
+        self::assertSame(450 * 10 + 300, AnthropicAnalyzer::analysisOutputCap(4000, 10, true), 'top_m findings with advice need more than 4000');
+        self::assertSame(4000, AnthropicAnalyzer::analysisOutputCap(4000, 10, false), 'advice off: exactly as before');
+    }
+
     public function testSystemBlockCarriesRulesAndServiceContext(): void
     {
         $this->analyzer([self::json('message-valid.json')])->analyze(self::request());

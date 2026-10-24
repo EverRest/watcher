@@ -41,7 +41,9 @@
               "evidence": { "type": "string", "maxLength": 240 },
               "suspected_cause": { "type": "string", "maxLength": 240 },
               "suggested_action": { "type": "string", "maxLength": 200 },
-              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "how_to_check": { "type": "string", "maxLength": 200 },
+              "related_checks": { "type": "array", "maxItems": 3, "items": { "type": "string", "maxLength": 80 } }
             }
           }
         }

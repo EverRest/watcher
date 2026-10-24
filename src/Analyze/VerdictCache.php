@@ -68,6 +68,8 @@ final class VerdictCache
                 'suggested_action' => $finding->suggestedAction,
                 'confidence' => $finding->confidence,
                 'escalated' => $finding->escalated,
+                'how_to_check' => $finding->howToCheck,
+                'related_checks' => $finding->relatedChecks,
             ];
         }
         $this->store->put(Keys::verdict($this->service, $fingerprint), $value, $ttl ?? $this->retention);

@@ -5,7 +5,8 @@
          colors="true"
          failOnRisky="true"
          failOnWarning="true"
-         failOnEmptyTestSuite="false">
+         failOnEmptyTestSuite="false"
+         cacheDirectory=".phpunit.cache">
     <testsuites>
         <testsuite name="Unit"><directory>tests/Unit</directory></testsuite>
         <testsuite name="Contract">
@@ -17,5 +18,6 @@
         <testsuite name="EndToEnd"><directory>tests/EndToEnd</directory></testsuite>
     </testsuites>
     <groups><exclude><group>perf</group></exclude></groups>
+    <php><ini name="memory_limit" value="1G"/></php>
     <source><include><directory>src</directory></include></source>
 </phpunit>

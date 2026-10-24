@@ -64,6 +64,23 @@ final class ProviderSchemaTest extends TestCase
         self::assertSame(['g', 'v'], $t['required']);
     }
 
+    public function testAdviceFieldsAreOptionalStringsInTheProviderSchema(): void
+    {
+        $item = ProviderSchema::for('analysis')['properties']['findings']['items'];
+        self::assertSame('string', $item['properties']['how_to_check']['type']);
+        self::assertSame('array', $item['properties']['related_checks']['type']);
+        self::assertSame('string', $item['properties']['related_checks']['items']['type']);
+        self::assertNotContains('how_to_check', $item['required']);
+        self::assertNotContains('related_checks', $item['required']);
+        self::assertFalse(self::keys($item['properties']['how_to_check'], 'maxLength'));
+    }
+
+    public function testAdviceOffOmitsTheFieldsAndEqualsThePreFeatureSchema(): void
+    {
+        $item = ProviderSchema::for('analysis', false)['properties']['findings']['items'];
+        self::assertSame(['fingerprints', 'kind', 'severity', 'title', 'evidence', 'suspected_cause', 'suggested_action', 'confidence'], array_keys($item['properties']));
+    }
+
     public function testUnknownDefThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);

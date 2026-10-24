@@ -90,12 +90,13 @@ final class ModelRouter
             $dropped = $notAnalysed = max(0, count($interesting) - $this->s->topM);
             $top = array_slice($interesting, 0, $this->s->topM);
             $topContext = self::remap($dependencyContext, $groups, $top);
+            $analyzeCap = AnthropicAnalyzer::analysisOutputCap($this->s->analyzeMaxTokens, count($top), $this->s->advice);
 
-            if ($reservation !== null && !$reservation->allows($this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext), $this->s->analyzeMaxTokens)) {
+            if ($reservation !== null && !$reservation->allows($this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext), $analyzeCap)) {
                 $notAnalysed = count($interesting);
             } else {
                 try {
-                    $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $this->s->analyzeMaxTokens, $topContext));
+                    $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext));
                 } catch (AnalyzerFailed $e) {
                     // Triage was paid for: keep its verdicts for the retry of this window.
                     if ($this->s->triageEnabled) {
@@ -122,13 +123,14 @@ final class ModelRouter
                             continue;
                         }
                         [$sub, $subContext] = $fit;
-                        if ($reservation !== null && !$reservation->allows($this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext), $this->s->escalateMaxTokens)) {
+                        $escalateCap = AnthropicAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
+                        if ($reservation !== null && !$reservation->allows($this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext), $escalateCap)) {
                             ++$skippedBudget;
                             $out[] = $f;
                             continue;
                         }
                         ++$escalations;
-                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $this->s->escalateMaxTokens, $subContext));
+                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext));
                         $usage['escalate'] = isset($usage['escalate']) ? $usage['escalate']->plus($again->usage) : $again->usage;
                         if ($again->findings !== []) {
                             foreach ($again->findings as $e) {
@@ -172,7 +174,7 @@ final class ModelRouter
      */
     private function inputTokens(string $kind, array $groups, array $context = []): int
     {
-        return Budget::estimateTokens(Budget::systemPrompt($kind, $this->s->serviceContext)) + Budget::estimateTokens(CompactPayload::encode($groups, $context));
+        return Budget::estimateTokens(Budget::systemPrompt($kind, $this->s->serviceContext, $this->s->advice)) + Budget::estimateTokens(CompactPayload::encode($groups, $context));
     }
 
     /**
@@ -190,7 +192,7 @@ final class ModelRouter
         if ($this->inputTokens('analyze', $groups, $context) <= $max) {
             return [$groups, $context];
         }
-        $context = Budget::fitDependencies($groups, $context, $max, Budget::estimateTokens(Budget::systemPrompt('analyze', $this->s->serviceContext)));
+        $context = Budget::fitDependencies($groups, $context, $max, Budget::estimateTokens(Budget::systemPrompt('analyze', $this->s->serviceContext, $this->s->advice)));
         if ($this->inputTokens('analyze', $groups, $context) <= $max) {
             return [$groups, $context];
         }

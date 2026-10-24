@@ -25,7 +25,7 @@ final class WatchConfig
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
-        'level_anomaly', 'escalation', 'triage', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest',
+        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -199,6 +199,7 @@ final class WatchConfig
         $flags['links.code'] = self::subFlag($links, 'code', 'links.code');
         $analysis = self::analysis(self::section($config, 'analysis'));
         $flags['triage'] = self::subFlag($analysis, 'triage', 'analysis.triage');
+        $flags['advice'] = self::subFlag($analysis, 'advice', 'analysis.advice');
         $heartbeat = self::heartbeat(self::section($config, 'heartbeat'), $interval);
         $flags['heartbeat'] = $heartbeat['enabled'];
         unset($heartbeat['enabled']);
@@ -413,7 +414,7 @@ final class WatchConfig
      */
     private static function analysis(array $a): array
     {
-        self::only($a, ['provider', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage'], 'analysis');
+        self::only($a, ['provider', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage', 'advice'], 'analysis');
         self::str($a, 'api_key', 'analysis.api_key');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');

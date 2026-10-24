@@ -103,7 +103,7 @@ final class Redactor
         }
     }
 
-    /** Scrubs the four model-written fields; a field that cannot be scanned becomes "[withheld]". */
+    /** Scrubs the model-written fields (title, evidence, cause, action, how_to_check, related_checks); a field that cannot be scanned becomes "[withheld]". */
     public function redactFinding(Finding $f): Finding
     {
         return new Finding(
@@ -116,6 +116,8 @@ final class Redactor
             $this->redactText($f->suggestedAction) ?? self::WITHHELD,
             $f->confidence,
             $f->escalated,
+            $f->howToCheck === '' ? '' : ($this->redactText($f->howToCheck) ?? self::WITHHELD),
+            array_map(fn (string $r): string => $this->redactText($r) ?? self::WITHHELD, $f->relatedChecks),
         );
     }
 

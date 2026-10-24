@@ -31,4 +31,4 @@ Both shields.io and the Actions badge render only for a public repository (or a 
 
 ## CI
 
-`ci.yml` runs on branches and pull requests: matrix PHP 8.1 to 8.5 with parallel tests; on 8.3 also `composer validate --strict`, `composer audit --locked`, phpstan and pint. A `coverage` job (PHP 8.3, pcov) uploads the Cobertura / Clover / HTML report as the `coverage` artifact. No coverage floor is enforced yet; add one once a CI run has published a number (set it a few points below).
+`ci.yml` runs on branches and pull requests: matrix PHP 8.1 to 8.5 with parallel tests; on 8.3 also `composer validate --strict`, `composer audit --locked`, phpstan and pint. A `coverage` job (PHP 8.3, pcov) uploads the Cobertura / Clover / HTML report as the `coverage` artifact. The job then runs `php scripts/coverage-floor.php 92` and fails when line coverage in `cobertura.xml` drops below **92%** (measured 96.5% on 2026-10-24; raise the number in `ci.yml` as coverage grows). `phpunit.xml.dist` sets `cacheDirectory` (paratest's coverage cache warm-up exits 1 without it) and `memory_limit=1G` (merging worker coverage exhausts the 128M default).

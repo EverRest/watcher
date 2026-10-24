@@ -23,14 +23,14 @@ final class AnthropicAnalyzer implements Analyzer
     private readonly OutputValidator $validator;
 
     /** @param array<string, mixed> $requestOptions SDK request options; the SDK defaults (2 retries) apply when empty */
-    public function __construct(string $apiKey, ClientInterface $http, ?string $baseUrl = null, array $requestOptions = [])
+    public function __construct(string $apiKey, ClientInterface $http, ?string $baseUrl = null, array $requestOptions = [], private readonly bool $advice = true)
     {
         $this->client = new SdkClient(
             apiKey: $apiKey,
             baseUrl: $baseUrl ?? 'https://api.anthropic.com', // never the SDK's ANTHROPIC_BASE_URL env fallback: key and data stay on Anthropic
             requestOptions: ['transporter' => $http] + $requestOptions,
         );
-        $this->validator = new OutputValidator();
+        $this->validator = new OutputValidator($advice);
     }
 
     public function triage(TriageRequest $req): TriageResult
@@ -55,6 +55,16 @@ final class AnthropicAnalyzer implements Analyzer
         return max($configured, 30 * $groups + 500);
     }
 
+    /**
+     * A finding is about 280 output tokens at its text limits (title 80 + evidence 240 + cause 240 + action 200 chars, JSON keys)
+     * and about 450 with how_to_check (200) and three related_checks (80 each). With advice on, the cap never falls below that
+     * worst case for one finding per group, so a full top_m of long findings is not cut off and retried; off, it is untouched.
+     */
+    public static function analysisOutputCap(int $configured, int $groups, bool $advice): int
+    {
+        return $advice ? max($configured, 450 * $groups + 300) : $configured;
+    }
+
     public function analyze(AnalysisRequest $req): AnalysisResult
     {
         $allowed = array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $req->groups);
@@ -65,7 +75,7 @@ final class AnthropicAnalyzer implements Analyzer
             $req->serviceContext,
             $req->model,
             $req->maxOutputTokens,
-            fn (array $data): array => $this->validator->analysis($data, $allowed),
+            fn (array $data): array => $this->validator->analysis($data, $allowed, array_map(static fn (DependencyContext $d): string => $d->name, $req->dependencyContext)),
             $req->dependencyContext,
         );
 
@@ -122,10 +132,10 @@ final class AnthropicAnalyzer implements Analyzer
                 model: $model,
                 // Adaptive thinking tokens count against max_tokens and triage needs none.
                 thinking: $kind === 'triage' ? ['type' => 'disabled'] : null,
-                outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for($kind)]],
+                outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for($kind, $this->advice)]],
                 system: [[
                     'type' => 'text',
-                    'text' => Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context),
+                    'text' => Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice),
                     'cacheControl' => ['type' => 'ephemeral'],
                 ]],
             );

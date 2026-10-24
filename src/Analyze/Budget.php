@@ -21,9 +21,14 @@ final class Budget
      *
      * @param 'triage'|'analyze' $kind escalation uses the analyze prompt
      */
-    public static function systemPrompt(string $kind, string $serviceContext): string
+    public static function systemPrompt(string $kind, string $serviceContext, bool $advice = true): string
     {
-        return (string) file_get_contents(__DIR__ . '/prompts/' . $kind . '.md') . "\n## Service context\n\n" . $serviceContext;
+        $prompt = (string) file_get_contents(__DIR__ . '/prompts/' . $kind . '.md');
+        if ($advice && $kind === 'analyze') {
+            $prompt .= "\n" . file_get_contents(__DIR__ . '/prompts/advice.md');
+        }
+
+        return $prompt . "\n## Service context\n\n" . $serviceContext;
     }
 
     /**

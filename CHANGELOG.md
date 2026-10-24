@@ -12,15 +12,16 @@
 - No flag for redaction, the normalizer or the allowlist (architecture test) and none for read-only behaviour; `analysis.enabled` is not provided.
 - With `enabled` true and no other new key, output and state are unchanged.
 
-## 0.1.0 — unreleased draft
+## 0.1.0 — 2026-10-24
 
-Not released yet: no tag exists and no date is claimed. The date is set when `v0.1.0` is tagged (docs/publishing.md).
+First public release (pre-1.0: the API may change; not yet validated against live systems).
 
 everrest/watcher reads one service's logs on a schedule (Loki or Datadog), fingerprints errors into groups, decides in plain code which deserve attention, asks Anthropic models (triage / analyze / escalate) to judge only those, and posts one digest to Slack, Telegram or Discord. Read-only: it never acts on a service and never stores raw log lines.
 
 - Scheduled digest, privacy allowlist and redaction, cost control with daily caps (spec 001).
 - Operability: `check`, `status`, `run --dry-run [--estimate] [--json]` (spec 002).
 - Fleet mode and cross-service correlation (spec 003).
+- Advice on findings: `how_to_check` (what to look at to confirm or refute the hypothesis, never reproduction steps) and `related_checks` (other groups or declared dependencies, entries citing anything not in the model input are dropped), shown as `Check:` and `Related:` in Slack, Telegram and Discord through the existing escapers; flag `analysis.advice.enabled` (`WATCHER_ADVICE_ENABLED`, default on). About +100 output tokens per finding.
 - Rolling and weekday baselines, better message templates (spec 004).
 - Telegram and Discord notifiers (spec 011).
 - Feature flags and environment toggles (spec 012).

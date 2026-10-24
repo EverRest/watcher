@@ -107,6 +107,90 @@ final class OutputValidatorTest extends TestCase
         self::assertSame(str_repeat('é', 80), $f->title);
     }
 
+    public function testAdviceFieldsAreOptionalAndDefaultEmpty(): void
+    {
+        $f = (new OutputValidator())->analysis(['findings' => [self::finding()]], ['fp1'])[0];
+        self::assertSame('', $f->howToCheck);
+        self::assertSame([], $f->relatedChecks);
+    }
+
+    public function testAdviceFieldsAreKept(): void
+    {
+        $f = (new OutputValidator())->analysis(['findings' => [self::finding([
+            'how_to_check' => 'Compare error rate with the deploy time',
+            'related_checks' => ['group aaaaaaaaaaaa errors too', 'payments dependency latency'],
+        ])]], ['aaaaaaaaaaaa1234', 'fp1'], ['payments'])[0];
+        self::assertSame('Compare error rate with the deploy time', $f->howToCheck);
+        self::assertSame(['group aaaaaaaaaaaa errors too', 'payments dependency latency'], $f->relatedChecks);
+    }
+
+    public function testHowToCheckIsTruncatedAt200(): void
+    {
+        $f = (new OutputValidator())->analysis(['findings' => [self::finding(['how_to_check' => str_repeat('h', 201)])]], ['fp1'])[0];
+        self::assertSame(200, mb_strlen($f->howToCheck));
+        self::assertStringEndsWith('…', $f->howToCheck);
+    }
+
+    /** @return array<string, array{array<string,mixed>}> */
+    public static function badAdvice(): array
+    {
+        return [
+            'how_to_check not string' => [['how_to_check' => 5]],
+            'related not list' => [['related_checks' => 'fp1']],
+            'related is object' => [['related_checks' => ['a' => 'fp1']]],
+            'related entry not string' => [['related_checks' => [5]]],
+            'more than three' => [['related_checks' => ['fp1 a', 'fp1 b', 'fp1 c', 'fp1 d']]],
+        ];
+    }
+
+    /** @param array<string,mixed> $over */
+    #[DataProvider('badAdvice')]
+    public function testRejectsBadAdvice(array $over): void
+    {
+        $this->expectException(InvalidModelOutput::class);
+        (new OutputValidator())->analysis(['findings' => [self::finding($over)]], ['fp1']);
+    }
+
+    public function testRelatedEntryOverLimitIsTruncatedTo80(): void
+    {
+        $f = (new OutputValidator())->analysis(['findings' => [self::finding(['related_checks' => ['fp1 ' . str_repeat('r', 100)]])]], ['fp1'])[0];
+        self::assertSame(80, mb_strlen($f->relatedChecks[0]));
+    }
+
+    public function testRelatedEntriesWithoutAKnownReferenceAreDropped(): void
+    {
+        $f = (new OutputValidator())->analysis(['findings' => [self::finding(['related_checks' => [
+            'check the cache cluster',            // references nothing from the payload
+            'group deadbeef0000 also fails',      // fingerprint not in the payload
+            'orders dependency errors',           // ok
+        ]])]], ['fp1', 'fp2'], ['orders'])[0];
+        self::assertSame(['orders dependency errors'], $f->relatedChecks);
+
+        $f = (new OutputValidator())->analysis(['findings' => [self::finding(['related_checks' => [
+            'fp1 and deadbeef0000',               // one known, one invented
+            'ghost service is slow',              // dependency not declared
+            'group fp1 grew',                     // ok
+        ]])]], ['fp1', 'fp2'], ['orders'])[0];
+        self::assertSame(['group fp1 grew'], $f->relatedChecks);
+    }
+
+    public function testRelatedWithNoDependenciesAndNoFingerprintsIsEmpty(): void
+    {
+        $f = (new OutputValidator())->analysis(['findings' => [self::finding(['related_checks' => ['look at everything'], 'how_to_check' => 'x'])]], ['fp1'])[0];
+        self::assertSame([], $f->relatedChecks);
+    }
+
+    public function testAdviceOffRejectsTheFields(): void
+    {
+        $this->expectException(InvalidModelOutput::class);
+        (new OutputValidator(false))->analysis(['findings' => [self::finding(['how_to_check' => 'x'])]], ['fp1']);
+    }
+
+    public function testAdviceOffStillAcceptsAPlainFinding(): void
+    {
+        self::assertCount(1, (new OutputValidator(false))->analysis(['findings' => [self::finding()]], ['fp1']));
+    }
+
     public function testTriage(): void
     {
         $r = (new OutputValidator())->triage(

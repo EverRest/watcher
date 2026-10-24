@@ -157,6 +157,15 @@ final class RedactorTest extends TestCase
         self::assertTrue($out->escalated);
     }
 
+    public function testRedactFindingScrubsTheAdviceFields(): void
+    {
+        $f = new Finding(['fp1'], FindingKind::Bug, Severity::Error, 't', 'e', 'c', 'a', 0.8, false, 'ask anna@example.com via 10.0.0.1', ["mail bob@example.com\xFF", 'fp1 at 10.0.0.2']);
+        $out = $this->redactor()->redactFinding($f);
+
+        self::assertSame('ask <EMAIL> via <IP>', $out->howToCheck);
+        self::assertSame(['[withheld]', 'fp1 at <IP>'], $out->relatedChecks);
+    }
+
     public function testModelTextKeepsPlainNumbersButStillMasksPersonalPatterns(): void
     {
         $r = $this->redactor();

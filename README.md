@@ -181,7 +181,7 @@ Failures are never silent: a source, analysis or internal failure posts a short 
 One message per service per run: a header (service, environment, window), findings grouped by severity
 (critical, error, warn, info), then a line for minor/low-confidence findings, remaining groups, muted count, truncation
 notices and a cost footer. A finding shows title, event count and trend (`new` or `up from N`), a 12-character
-fingerprint, evidence, a hypothesis (always labelled as such) and a suggested next step.
+fingerprint, evidence, a hypothesis (always labelled as such), a suggested next step, a `Check:` line saying what to look at to confirm or refute the hypothesis (never reproduction steps) and, when useful, a `Related:` line naming other groups or declared dependencies to look at next. `analysis.advice.enabled=false` turns the last two off and saves their output tokens.
 
 ## Several services (fleet)
 

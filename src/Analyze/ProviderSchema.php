@@ -31,17 +31,23 @@ final class ProviderSchema
 
     /**
      * @param 'triage'|'analysis'|string $def
+     * @param bool $advice false leaves out how_to_check / related_checks (analysis.advice.enabled)
      *
      * @return array<string, mixed>
      */
-    public static function for(string $def): array
+    public static function for(string $def, bool $advice = true): array
     {
         $defs = self::canonical()['$defs'] ?? [];
         if (!is_array($defs) || !isset($defs[$def]) || !is_array($defs[$def])) {
             throw new InvalidArgumentException("Unknown schema definition: $def");
         }
 
-        return self::strip($defs[$def]);
+        $schema = self::strip($defs[$def]);
+        if (!$advice) {
+            unset($schema['properties']['findings']['items']['properties']['how_to_check'], $schema['properties']['findings']['items']['properties']['related_checks']);
+        }
+
+        return $schema;
     }
 
     /**

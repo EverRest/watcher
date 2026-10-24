@@ -8,7 +8,11 @@ use InvalidArgumentException;
 
 final class Finding
 {
-    /** @param list<string> $fingerprints */
+    /**
+     * @param list<string> $fingerprints
+     * @param string       $howToCheck    what to look at to confirm or refute the hypothesis; '' = none
+     * @param list<string> $relatedChecks other groups / declared dependencies worth a look, at most 3
+     */
     public function __construct(
         public readonly array $fingerprints,
         public readonly FindingKind $kind,
@@ -19,6 +23,8 @@ final class Finding
         public readonly string $suggestedAction,
         public readonly float $confidence,
         public readonly bool $escalated = false,
+        public readonly string $howToCheck = '',
+        public readonly array $relatedChecks = [],
     ) {
         if ($fingerprints === []) {
             throw new InvalidArgumentException('A finding needs at least one fingerprint');
@@ -39,7 +45,9 @@ final class Finding
             $this->suspectedCause,
             $this->suggestedAction,
             $this->confidence,
-            true
+            true,
+            $this->howToCheck,
+            $this->relatedChecks
         );
     }
 }

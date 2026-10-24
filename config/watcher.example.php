@@ -95,6 +95,7 @@ return [
     'analysis' => [
         'provider' => 'anthropic',                       // only anthropic is available
         'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis (top_m, budget still apply)
+        'advice' => ['enabled' => Env::bool('WATCHER_ADVICE_ENABLED', true)], // false: no how_to_check / related_checks (fewer output tokens)
         'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),    // required
         'models' => [                                    // required: one id per tier, no defaults in code
             'triage' => getenv('WATCHER_MODEL_TRIAGE'),

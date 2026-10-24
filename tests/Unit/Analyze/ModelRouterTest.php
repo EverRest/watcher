@@ -52,7 +52,7 @@ final class ModelRouterTest extends TestCase
 
     private function router(int $topM = 10, int $cap = 2, bool $cache = true, int $escalateMaxInput = PHP_INT_MAX, ?Analyzer $analyzer = null, ?TriageCheckpoint $checkpoint = null): ModelRouter
     {
-        return new ModelRouter($analyzer ?? $this->fake, $this->cache, new RouterSettings('m-triage', 'm-analyze', 'm-escalate', 111, 222, 333, $topM, $cap, 0.6, 2.0, 'ctx', $escalateMaxInput), $checkpoint);
+        return new ModelRouter($analyzer ?? $this->fake, $this->cache, new RouterSettings('m-triage', 'm-analyze', 'm-escalate', 111, 222, 333, $topM, $cap, 0.6, 2.0, 'ctx', $escalateMaxInput, true, false), $checkpoint);
     }
 
     /** $100 per million tokens for triage, $200 for analysis, $100,000 for escalation: here triage costs about $0.11 and analysis about $0.29 at worst. */
@@ -96,6 +96,19 @@ final class ModelRouterTest extends TestCase
         self::assertSame([], $r->findings);
         self::assertSame([], $r->usageByStep);
         self::assertSame([0, 0, 0, 0], [$r->triaged, $r->reused, $r->escalations, $r->droppedByTopM]);
+    }
+
+    public function testAdviceRaisesTheAnalysisOutputCapToTheWorstCaseOfItsGroups(): void
+    {
+        $this->fake->triage = self::triage(['c' => 'interesting']);
+        $this->fake->analysis = self::analysis([self::finding('c')]);
+        $router = new ModelRouter($this->fake, $this->cache, new RouterSettings('m-triage', 'm-analyze', 'm-escalate', 111, 222, 333, 10, 2, 0.6, 2.0, 'ctx'), null);
+
+        $router->route([self::group('c')], false);
+
+        $an = $this->fake->requests[1];
+        self::assertInstanceOf(AnalysisRequest::class, $an);
+        self::assertSame(750, $an->maxOutputTokens, '450 per group + 300 beats the configured 222');
     }
 
     public function testRoutingTable(): void
@@ -430,7 +443,7 @@ final class ModelRouterTest extends TestCase
     /** @param list<DependencyContext> $deps */
     private static function inputOf(RedactedGroup $g, array $deps): int
     {
-        return Budget::estimateTokens(Budget::systemPrompt('analyze', 'ctx')) + Budget::estimateTokens(CompactPayload::encode([$g], $deps));
+        return Budget::estimateTokens(Budget::systemPrompt('analyze', 'ctx', false)) + Budget::estimateTokens(CompactPayload::encode([$g], $deps));
     }
 
     public function testEscalationSendingMoreThanTheLimitTrimsDependencyContextFirst(): void
@@ -460,7 +473,7 @@ final class ModelRouterTest extends TestCase
 
     public function testEscalationThatCannotFitIsSkippedWithACountedReason(): void
     {
-        $r = $this->escalate(Budget::estimateTokens(Budget::systemPrompt('analyze', 'ctx')));
+        $r = $this->escalate(Budget::estimateTokens(Budget::systemPrompt('analyze', 'ctx', false)));
 
         self::assertSame(1, $this->fake->analyzeCalls, 'no escalation call');
         self::assertSame([0, 1, 0], [$r->escalations, $r->escalationsSkippedSize, $r->escalationsSkippedBudget]);

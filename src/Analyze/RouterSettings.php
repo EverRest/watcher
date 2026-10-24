@@ -22,6 +22,8 @@ final class RouterSettings
         public readonly int $escalateMaxInputTokens = PHP_INT_MAX,
         /** analysis.triage.enabled: false = every fresh group goes straight to analysis, no triage call */
         public readonly bool $triageEnabled = true,
+        /** analysis.advice.enabled: false = the analysis prompt (and so the budget estimate) has no how_to_check / related_checks */
+        public readonly bool $advice = true,
     ) {
     }
 }

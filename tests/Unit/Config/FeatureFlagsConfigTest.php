@@ -83,6 +83,7 @@ final class FeatureFlagsConfigTest extends TestCase
             'level_anomaly' => [['level_anomaly' => ['enabled' => false]], 'level_anomaly', 'level_anomaly.enabled'],
             'escalation' => [['selection' => ['escalation' => ['enabled' => false]]], 'escalation', 'selection.escalation.enabled'],
             'triage' => [['analysis' => ['triage' => ['enabled' => false]]], 'triage', 'analysis.triage.enabled'],
+            'advice' => [['analysis' => ['advice' => ['enabled' => false]]], 'advice', 'analysis.advice.enabled'],
             'baseline' => [['baseline' => ['enabled' => false]], 'baseline', 'baseline.enabled'],
             'grouping' => [['grouping' => ['enabled' => false]], 'grouping', 'grouping.enabled'],
             'budget_alerts' => [['budget_alerts' => ['enabled' => false]], 'budget_alerts', 'budget_alerts.enabled'],
@@ -237,7 +238,7 @@ final class FeatureFlagsConfigTest extends TestCase
             }
         });
         $off = [];
-        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST'] as $name) {
+        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST'] as $name) {
             $off["WATCHER_{$name}_ENABLED"] = 'false';
         }
         self::withEnv($base + $off + ['WATCHER_ENABLED' => 'yes', 'WATCHER_ENVIRONMENT' => 'int'], function () use ($load): void {

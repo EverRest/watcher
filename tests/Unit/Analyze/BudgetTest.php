@@ -84,6 +84,18 @@ final class BudgetTest extends TestCase
         self::assertSame(0, $r->droppedCount);
     }
 
+    public function testAdvicePromptIsAppendedOnlyWhenOnAndForbidsReproductionSteps(): void
+    {
+        $base = (string) file_get_contents(__DIR__ . '/../../../src/Analyze/prompts/analyze.md') . "\n## Service context\n\nctx";
+        self::assertSame($base, Budget::systemPrompt('analyze', 'ctx', false), 'off: byte-identical to the prompt without the feature');
+        $on = Budget::systemPrompt('analyze', 'ctx');
+        self::assertStringContainsString('how_to_check', $on);
+        self::assertStringContainsString('related_checks', $on);
+        self::assertStringContainsString('reproduction', $on);
+        self::assertStringContainsString('Never invent', $on);
+        self::assertSame(Budget::systemPrompt('triage', 'ctx'), Budget::systemPrompt('triage', 'ctx', true), 'triage has no advice');
+    }
+
     public function testSystemPromptCarriesTheStepPromptAndTheServiceContext(): void
     {
         $triage = Budget::systemPrompt('triage', 'orders service, PHP 8');

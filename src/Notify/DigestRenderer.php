@@ -246,7 +246,18 @@ final class DigestRenderer
             $this->esc($f->evidence),
             $this->esc($f->suspectedCause),
             $this->esc($f->suggestedAction)
-        );
+        ) . $this->adviceLines($f);
+    }
+
+    /** `Check:` and `Related:` (model text, so escaped like the rest); nothing when the model gave none or analysis.advice is off. */
+    private function adviceLines(Finding $f): string
+    {
+        $out = $f->howToCheck === '' ? '' : "\n  Check: " . $this->esc($f->howToCheck);
+        if ($f->relatedChecks !== []) {
+            $out .= "\n  Related: " . implode(' · ', array_map($this->esc(...), $f->relatedChecks));
+        }
+
+        return $out;
     }
 
     /**

@@ -624,12 +624,12 @@ final class Watcher
             $candidates,
             $c->analysis['max_input_tokens'][$firstStep],
             static fn (array $cs): string => CompactPayload::encode(array_map(static fn ($cand) => $redactedBy[$cand->group->fingerprint], $cs)),
-            Budget::estimateTokens(Budget::systemPrompt($firstStep, $serviceContext)),
+            Budget::estimateTokens(Budget::systemPrompt($firstStep, $serviceContext, $c->on('advice'))),
         );
         $redacted = array_map(static fn ($cand) => $redactedBy[$cand->group->fingerprint], $truncation->kept);
 
         [$dependencies, $failedDependencies, $undeclared] = $this->readDependencies($window, $normalizer, $redactor, array_map(static fn (RedactedGroup $g): ?string => $g->template, $redacted));
-        $dependencies = Budget::fitDependencies($redacted, $dependencies, $c->analysis['max_input_tokens']['analyze'], Budget::estimateTokens(Budget::systemPrompt('analyze', $serviceContext)));
+        $dependencies = Budget::fitDependencies($redacted, $dependencies, $c->analysis['max_input_tokens']['analyze'], Budget::estimateTokens(Budget::systemPrompt('analyze', $serviceContext, $c->on('advice'))));
 
         $tz = new \DateTimeZone($c->schedule['timezone']);
         $spend = new Spend($this->state, $this->clock, $tz, $key);
@@ -973,6 +973,7 @@ final class Watcher
             $serviceContext,
             $a['max_input_tokens']['escalate'],
             $this->config->on('triage'),
+            $this->config->on('advice'),
         );
     }
 
