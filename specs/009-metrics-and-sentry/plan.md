@@ -62,7 +62,7 @@ and recorded Guzzle fixtures under `tests/Fixtures/prometheus/`, `tests/Fixtures
    the edge case describes), examples in docs show `sum` and `max` explicitly.
 2. Spec US3 calls for "the group fingerprint or hash"; the issue-list endpoint returns the group **id** and no hash.
    Fingerprint is `sentry:{id}` (FR-013 allows "hash or id"). See R7.
-3. Spec asks for the event count "in the window"; the issue list's `count` is lifetime. See R7 and owner decision O1.
+3. Spec asks for the event count "in the window"; the issue list's `count` is lifetime. See R7 and owner decision D1.
 
 ## Project Structure
 

@@ -158,7 +158,7 @@ recorded fixture or golden test, not by a live call.
 - **Fingerprint**: `'sentry:' . $id`. The list endpoint returns the group id and no hash; the hash needs the hashes
   endpoint, which FR-010 forbids. The id is Sentry's own, stable for the group's life, and is what the issue URL uses.
   **Spec FR-013 reads "hash or id"**, so this is within it.
-- **Window count** (**UNVERIFIED**, owner decision O1): the list's `count` is lifetime and would make every old issue look
+- **Window count** (**UNVERIFIED**, owner decision D1): the list's `count` is lifetime and would make every old issue look
   "grown". The windowed count is the sum of `stats` buckets with `bucket_ts` in `[start, end)` (hourly for
   `groupStatsPeriod=24h`, daily for `14d`). Buckets are whole: the count can be off by at most the first/last bucket;
   documented. If `stats` is missing or malformed the issue is dropped (cannot be compared honestly), not guessed.
@@ -201,7 +201,7 @@ recorded fixture or golden test, not by a live call.
     `LogLinkBuilder::esc`). Service name from `links.tempo.service_name` (default `service.name`).
   - Datadog APM: `{app_url}/apm/traces?query=` + rawurlencode(`trace_id:<id>` or `service:<svc>` + stream-tag `env:` when
     present) + `&start=<ms>&end=<ms>`. Datadog stores 64-bit ids as decimal in some UIs; the search form with `trace_id:`
-    accepts both forms per Datadog docs, so this avoids `/apm/trace/<id>` whose id format is stricter (owner decision O3).
+    accepts both forms per Datadog docs, so this avoids `/apm/trace/<id>` whose id format is stricter (owner decision D3).
 - **Selection of backend**: `links.tempo` wins over `links.datadog_apm` when both are set, same precedence as
   `LogLinkBuilder` (Grafana before Datadog). `links.datadog_apm` requires `links.datadog.app_url`.
 
@@ -252,11 +252,9 @@ recorded fixture or golden test, not by a live call.
 
 - None. Guzzle already issues the HTTP calls (`Factory::http()` options: timeouts, redirects limited as for Loki). JSON only.
 
-## Open owner decisions (carry into the report)
+## Decisions (2026-10-24, resolved by the owner)
 
-- **O1 (Sentry windowed count)**: windowed count = sum of `stats` buckets (hour/day granularity). Accept, or add the
-  events-stats endpoint (needs FR-010 widened)?
-- **O2 (Aggregate default)**: no implicit `aggregate` (ambiguous + skipped when >1 series). Accept, or keep spec's
-  "sum for rates / max for latency" via a `kind` field?
-- **O3 (Datadog trace URL)**: search URL `apm/traces?query=trace_id:` rather than `apm/trace/<id>` (id format risk). Accept?
-- **O4 (Anomaly level)**: synthetic group is `Level::Warning`, reason weight 5. Accept, or add a distinct display tag?
+- **D1 (Sentry windowed count)**: sum of `stats` buckets (hour/day granularity, error up to one bucket) accepted. FR-010 is not widened.
+- **D2 (aggregate)**: no implicit default; more than one series without `aggregate` = `ambiguous`, skipped. Accepted.
+- **D3 (Datadog trace URL)**: search form `apm/traces?query=trace_id:<id>` accepted; verified in T052.
+- **D4 (anomaly level)**: synthetic group is `Level::Warning`, reason weight 5, no extra display tag. Accepted.
