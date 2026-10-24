@@ -40,6 +40,7 @@ settings, `notify.digest.webhook`.
 | `source.loki.url` | required for loki | Loki base URL, or Grafana's data-source proxy `https://<grafana>/api/datasources/proxy/uid/<uid>`. Requests append `/loki/api/v1/...`. |
 | `source.loki.auth` | none | `['type' => 'bearer', 'token' => ...]` or `['type' => 'basic', 'user' => ..., 'password' => ...]`. A **read-only** credential. |
 | `source.loki.tenant` | null | Sent as `X-Scope-OrgID` for multi-tenant Loki. |
+| `source.loki.allow_insecure` | `false` | The Loki URL must be `https` with a host and no credentials in the URL. `true` additionally allows plain `http` for a **loopback** host only (`localhost`, `127.x.x.x`, `::1`). Redirects are never followed; TLS verification is always on. |
 | `source.datadog.site` | `datadoghq.com` | e.g. `datadoghq.eu`; requests go to `https://api.<site>`. |
 | `source.datadog.api_key`, `source.datadog.app_key` | required for datadog | The application key needs only the `logs_read_data` scope. |
 | `source.stream_tags` | `[]` | Labels that select this service's logs, e.g. `['app' => 'orders-api', 'env' => 'prod']`. Loki selector `{app="..",env=".."}`, Datadog query `app:.. env:..`. |
@@ -94,9 +95,9 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 |---|---|---|
 | `state.driver` | required | `redis`, `pdo` or `file`. **`file` is valid for a single runner only.** |
 | `state.retention` | `2592000` | Seconds every stored item lives (30 days). Fingerprints, counters, verdicts and findings; never raw logs. |
-| `state.redis.{host,port,password,database}` | `127.0.0.1`, `6379`, null, `0` | Or inject a connected `\Redis` as `state.redis.instance` (it wins). Every key carries a TTL. |
+| `state.redis.{host,port,username,password,database}` | `127.0.0.1`, `6379`, null, null, `0` | `username` + `password` authenticate as a Redis 6 ACL user. A `tls://host` value of `host` connects over TLS (phpredis); plain `AUTH` is otherwise sent in clear. Or inject a connected `\Redis` as `state.redis.instance` (it wins). Every key carries a TTL. |
 | `state.pdo.{dsn,username,password,table}` | dsn required; table `watcher_state` | MySQL, PostgreSQL or SQLite. The table is **never created implicitly**: create it with `Watcher\State\PdoStateStore::createTableSql('mysql'\|'pgsql'\|'sqlite')`. |
-| `state.file.path` | required for file | Writable directory; created (mode 0700) on first use. File names are hashes of the keys. |
+| `state.file.path` | required for file | Writable directory; the package creates it with mode 0700 when it is missing, an existing directory keeps its mode, so keep it private to the service user. File names are hashes of the keys. |
 
 ### `notify`
 
@@ -104,6 +105,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 |---|---|---|
 | `notify.digest.driver` | `slack` | `slack`, `telegram` or `discord`. |
 | `notify.digest.webhook` | required for slack, discord | Slack incoming webhook, or `https://discord.com/api/webhooks/<id>/<token>` (`discordapp.com` also accepted). |
+| `notify.digest.allow_insecure` | `false` | Slack only (same for `notify.notice`): the webhook must be `https` with a host and no credentials; `true` allows plain `http` for a loopback host only. Redirects are never followed. |
 | `notify.digest.bot_token` | required for telegram | Bot API token (`123456:ABC...`). Read it from the environment. |
 | `notify.digest.chat_id` | required for telegram | Integer or `@channel` name; a supergroup id is negative. |
 | `notify.digest.thread_id` | none | Telegram forum topic id (positive integer). Discord has no equivalent. |

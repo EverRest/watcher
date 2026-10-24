@@ -110,7 +110,7 @@ are read as events; lower levels are counted in totals only.
 ## State
 
 State holds fingerprints, counters, cached verdicts, spend and run records. Every item has an expiry
-(`state.retention`, default 30 days).
+(`state.retention`, default 30 days; spend and alert markers 2 days, `noise`/`known` verdicts 3 days, heartbeat records 3x retention; see `docs/privacy.md`).
 
 | Driver | Notes |
 |--------|-------|
@@ -133,7 +133,7 @@ Enforced in code, not by the model. The model never redacts and never chooses it
   placeholders such as `<N>`, `<ID>`, `<EMAIL>`), error type, at most 5 stack frames, counts and timestamps.
 - Clusters smaller than `redaction.min_group_events_for_text` (default 3) send no message text, because small
   clusters are the ones most likely to hold a single person's data.
-- Fail closed: any redaction error, unknown field or unparseable value is dropped, never passed through.
+- Fail closed per field or event: a field that cannot be scanned is dropped, and a line the rules cannot scan becomes `<UNSCANNABLE>` (it never fails the window). A shape no rule recognises is not an error and passes; see the limits in `docs/privacy.md`.
   Add your own patterns with `redaction.extra_patterns`.
 - Model output is scrubbed again before it is cached or shown.
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.

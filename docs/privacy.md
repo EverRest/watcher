@@ -14,8 +14,11 @@ log backend (Loki / Datadog)  --read-only queries-->  watcher (inside your servi
                                                           '-- Slack webhook   (digest and notices)
 ```
 
-Raw log lines are read into the memory of the watcher process. They are **never** written to disk by the package, never
-sent to the model and never sent to Slack.
+Raw log lines are read into the memory of the watcher process. The package itself writes none to disk, and sends none to the
+model or to your notification channel. One caveat sits below it: Guzzle keeps a response body in `php://temp`, which holds
+2 MB in memory and spills a larger response to a temporary file in the system temp directory (removed when the stream
+closes, left behind if the process is killed). A Loki page of 5000 lines can exceed 2 MB, so on a host where the temp
+directory is shared or not encrypted, treat the temp directory as part of the data flow.
 
 ## What is sent to the model provider (Anthropic)
 
@@ -36,10 +39,20 @@ credentials, anything from `fields`.
 
 ## How a message becomes a template
 
-1. **Pattern masking** (`src/Reduce/Normalizer.php`, one ordered table): emails -> `<EMAIL>`; URLs -> `<URL>` (path,
+0. **Canonical form first.** Before any rule runs the text is brought to a fixed point (at most 4 rounds, always cut to
+   4096 characters): format characters (`\p{Cf}`: zero-width, bidi overrides and isolates, BOM, soft hyphen) are removed,
+   NFKC folding is applied (fullwidth `＠`, `﹫`, ligatures; needs `ext-intl`, which is optional: without it only the fullwidth
+   ASCII block and `﹫` are folded), the ideographic and fullwidth full stops `。` `｡` `．` between letters or digits become `.`,
+   and one pass each of percent-decoding (punctuation such as `%40` `%3A` `%2F`, and valid UTF-8 sequences) and HTML-entity
+   decoding is applied. `john%40example.com`, `jsmith&#64;example.com`, `john＠example。com` and a zero-width space
+   inside a token are therefore seen by the rules as what a browser or Slack would show. The template is the folded text.
+   A line the rules cannot scan (invalid UTF-8, a regex failure) becomes the placeholder `<UNSCANNABLE>` for that event;
+   it never fails the window and is never sent raw.
+1. **Pattern masking** (`src/Reduce/Normalizer.php`, one ordered table): emails (including `user@host` with a single-label
+   host, quoted local parts and Unicode hosts) -> `<EMAIL>`; URLs -> `<URL>` (path,
    query, credentials and port always removed; the placeholder carries the declared dependency name only (`<URL:name>`, never a suffix) and only when the host equals it or is `name.<domain>` / `name.<label>.<domain>` for a configured `dependency_domains` entry; the digest only counts
-   undeclared call targets, never names them). Each message is cut at 4096 characters before these rules run, and a trailing partial token is dropped with the cut (no whitespace at all: empty text); UUIDs and long hex -> `<ID>`; IP addresses -> `<IP>`; JWT-like strings, known-prefix keys (`sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox*-`, `glpat-`, `AIza`), PEM private keys, ssh keys, credential headers (`Authorization`, `Proxy-Authorization`, `x-api-key`/`api-key`, `x-auth-token`, `Cookie`, `Set-Cookie`: only a known scheme word such as `Bearer`, `Digest` or `AWS4-HMAC-SHA256` is kept, the rest of the value up to the end of the line or closing quote is masked, commas and spaces included), a standalone `Bearer`/`Basic`/`Token` value (digits or `+/=`, mixed case of 12+ characters, or for `Basic` any base64-looking 8+ run that is not one plain word) and any other long random-looking run (20+ characters, mixed classes, entropy >= 3.5 bits per character; plain class and identifier names are kept) -> `<TOKEN>`. A run holding slashes is split into path segments only when it clearly is a path (rooted with `/`, `./`, `~/`, or at least two slashes), and then only while every kept segment is plain words (2+ letter words, at most 3 digits, no run of 6 consonants; a trailing date and CPU architecture names are allowed); otherwise the whole run is judged and masked whole, so a base64 secret cannot hide behind short segments, and a rooted path with one random segment among odd ones is masked whole. Known false positives, kept on purpose (doubt means masked): camelCase words of 12+ characters right after `token`/`basic`, and the rest of a line after a `cookie:`/`authorization:`-style label; digit-only 32/40/64-character hashes -> `<ID>`; bare host
-   names -> `<HOST>`; card-like numbers -> `<PAN>`; remaining digits -> `<N>`; long quoted strings -> `<STR>`. Placeholder-
+   undeclared call targets, never names them). Each message is cut at 4096 characters before these rules run, and a trailing partial token is dropped with the cut (no whitespace at all: empty text); UUIDs and long hex -> `<ID>`; IP addresses -> `<IP>`; JWT-like strings, known-prefix keys (`sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox*-`, `glpat-`, `AIza`), PEM private keys, ssh keys, credential headers (`Authorization`, `Proxy-Authorization`, `x-api-key`/`api-key`, `x-auth-token`, `Cookie`, `Set-Cookie`: only a known scheme word such as `Bearer`, `Digest` or `AWS4-HMAC-SHA256` is kept, the rest of the value up to the end of the line or closing quote is masked, commas and spaces included), a standalone `Bearer`/`Basic`/`Token` value (digits or `+/=`, mixed case of 12+ characters, or for `Basic` any base64-looking 8+ run that is not one plain word) and any other long random-looking run (20+ characters, mixed classes, entropy >= 3.5 bits per character; plain class and identifier names are kept) -> `<TOKEN>`. A run holding slashes is split into path segments only when it clearly is a path (rooted with `/`, `./`, `~/`, or at least two slashes), and then only while every kept segment is plain words (2+ letter words, at most 3 digits, no run of 6 consonants; a trailing date and CPU architecture names are allowed); otherwise the whole run is judged and masked whole, so a base64 secret cannot hide behind short segments, and a rooted path with one random segment among odd ones is masked whole. **Credentials by key name**, whatever the value (any length or case, quoted or not, also when the same value repeats in every event): the value of `password` / `passwd` / `pwd` / `passphrase` / `secret` / `client_secret` / `api_key` / `apikey` / `access_key` / `private_key` / `credentials` / `token` / `signature` keys (also as a suffix, `x_access_token`, and as `"key": "value"` JSON), of headers whose name contains `key`, `auth` or `sig` after `x-`/`dd-`, and of `?key=` `&sig=` `&auth=` query parameters, up to the next space, comma, semicolon, ampersand, quote or closing brace, becomes `<TOKEN>` and the key stays (DSN `password=...` included). The query string of a relative request line (`/search?q=...`) keeps its keys and every value becomes `<STR>`. Known false positives, kept on purpose (doubt means masked): camelCase words of 12+ characters right after `token`/`basic`, and the rest of a line after a `cookie:`/`authorization:`-style label; digit-only 32/40/64-character hashes -> `<ID>`; bare dotted host
+   names (labels may be Unicode letters, so IDN hosts count) -> `<HOST>` (a **single-label** host such as `db-prod:5432` is not masked); card-like numbers -> `<PAN>`; remaining digits -> `<N>`; long quoted strings -> `<STR>`. Placeholder-
    shaped text in the input is neutralised first, so log content cannot hide a value inside `<...>`.
 2. **Variation masking** (`src/Reduce/TemplateMiner.php`): events are first bucketed by level, error type, length and first
    frame, then clustered by similarity (a message joins a cluster when at least half of the cluster leader's literal
@@ -52,7 +65,8 @@ credentials, anything from `fields`.
    class and frames.
 4. **Second scan** (`src/Privacy/Redactor.php`): the template, error type and each frame are scanned again with the same
    table plus your `redaction.extra_patterns`. If anything fails to scan, the field is **dropped, never sent raw** (fail
-   closed). Digit runs inside identifiers are masked too (`Tenant_8812Exception` -> `Tenant_<N>Exception`) unless the
+   closed). "Fail closed" covers errors the code can see (invalid UTF-8, a regex that fails, an over-long line); a
+   message in a shape no rule recognises is not an error and passes unchanged (see the limits below). Digit runs inside identifiers are masked too (`Tenant_8812Exception` -> `Tenant_<N>Exception`) unless the
    identifier is a well-known token (`utf8`, `md5`, `sha256`, `base64`, `http2`, `ipv4`, `ipv6`, `x86_64`, `oauth2`,
    `s3`, `ec2`, `h264`; `Http2ConnectionTimeoutException` stays). **Frame paths are rewritten before they are sent:**
    with `repo.path_map` configured only the part below a configured container root is kept
@@ -67,8 +81,11 @@ credentials, anything from `fields`.
 
 Whichever channel you configure (Slack, Telegram or Discord) receives the same content, and nothing else leaves per
 channel: Slack gets the webhook POST, Telegram a `sendMessage` call to `api.telegram.org` (chat id in the body, bot token
-in the URL), Discord a webhook POST. The credentials (webhook, bot token, chat id) are secrets: they are masked in failure
-reasons and the stored heartbeat, and never appear in logs, summaries, `check` output or exception messages. Model text is
+in the URL), Discord a webhook POST. The credentials (webhook, bot token, chat id) are secrets: the exact configured values
+(8 characters or more) and credential shapes (`key=value`, `Authorization`, `Bearer`, URLs, long runs) are masked in failure
+reasons, in the stored heartbeat and in the host log, which gets the exception **class** and that masked message
+(`DeliveryFailed: ...`), never the raw message. Webhook URLs are checked at run time (https, a host, no credentials in the URL) so a malformed one is
+refused before the HTTP client can echo it. Slack and the sources do not follow redirects. Model text is
 inert on Telegram and Discord too (HTML and Markdown escaped, links and mentions broken up; Discord posts with
 `allowed_mentions.parse` empty and embeds suppressed). Retention at Telegram or Discord is theirs.
 
@@ -78,7 +95,15 @@ the package (log-query links from configured base URLs, tags, level, time range 
 from your repository URL, commit and a mapped file path). Text from the model has Slack mentions and links disabled
 (`@channel`, `<...|...>`, `scheme://`, `www.`, `host.tld` are broken up). Links we build are the only clickable URLs.
 Failure notices contain a short reason (for example `source failed: loki 401 Unauthorized`), never keys, webhook URLs,
-log lines or stack traces.
+log lines or stack traces. The reason can include the backend's HTTP reason phrase verbatim (up to 200 characters, escaped
+for the channel): a compromised log backend controls that text.
+
+**Fleet.** A fleet (see the README's fleet section) can post two things beyond a single service's digest: the
+**correlated finding** (the origin service's masked template, up to 300 characters in backticks, plus the names of the
+consuming services and event counts), and, with `digest: combined`, every service's digest in the fleet's own channel even
+when that service has its own `notify.digest`. A service whose digest is meant for a restricted audience is therefore
+visible to the fleet channel's audience. The services of one fleet share one trust domain (identical `analysis.api_key`
+and `state` are enforced); do not combine services with different audiences.
 
 ## What is sent to the log backend
 
@@ -89,14 +114,22 @@ content is sent back. Credentials should be read-only (Grafana Viewer role; Data
 ## What is stored (your state store)
 
 Counters per fingerprint, per-window totals, model verdicts, "already reported" markers, run records, daily spend and
-alert markers, and findings (the model's text, scrubbed as described above). Everything expires after `state.retention` (30 days; spend and
-alert markers 2 days). Raw lines, field values and unmasked templates are not stored. The file driver names files by
+alert markers, and findings (the model's text, scrubbed as described above). Every key has an expiry, but not all of them
+`state.retention` (30 days): spend and alert markers live 2 days; the weekly heartbeat counters 14 days; `noise` and `known`
+verdicts 3 days; heartbeat and trigger records 3 x `state.retention` (90 days by default; the failure reason in a heartbeat is
+masked, up to 200 characters). The verdict cache stores the model's scrubbed finding text for the retention period although
+only the triage result is read back. The SQL driver purges expired rows on every 50th write, so an expired row can remain in
+the table for a while. Raw lines, field values and unmasked templates are not stored. The file driver names files by
 the hash of the key.
 
 ## What reaches host logs and exit output
 
-The one-line summary on stdout and `watcher [error] ...` lines on stderr carry messages only, with line breaks removed.
-Exception objects are not logged, because the SDK's request (including the API key) hangs on them.
+The one-line summary on stdout and `watcher [error] ...` lines on stderr carry messages only, with line breaks and
+terminal control characters (ESC and the other C0 characters) removed. Exception objects are not logged, because the SDK's
+request (including the API key) hangs on them; delivery failures are logged as the exception class and a masked message.
+Config objects (`WatchConfig`, `FleetConfig`) show `[redacted]` for their credential sections in `var_dump`, `print_r`,
+`dd()` and `json_encode`, and the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes
+those arguments from stack traces).
 
 ## Similarity grouping and baselines (spec 004)
 
@@ -105,6 +138,12 @@ stored or sent. The digest's grouping and comparison lines are built from intege
 new value in the model payload is the group status `expected` (alongside `new`, `grown`, `unchanged`).
 
 ## Limits you must know
+
+- **Keyword-less secrets and bare names are not detected.** A credential is masked by its key name or its shape. A password
+  written as a bare word (`login failed for hunter2`), a value after a key that is not in the list above, a token under 20
+  characters after no key, a customer name inside SQL or Postgres detail text (`Key (name)=(Olena Shevchenko)`) or inside
+  a path segment (`/customers/olena-shevchenko/orders/12` keeps its plain words) is not recognised. A value identical in
+  every event of a cluster is kept by the variation masking (see the next item); only the key-name rule above removes it.
 
 - **A name that is identical in every event of a cluster is not detectable, and no code tries to guess proper names by shape.** If the same person appears 3 or more times
   with exactly the same surrounding words, the template can contain the name (similarity grouping does not change this:
@@ -144,6 +183,9 @@ new value in the model payload is the group status `expected` (alongside `new`, 
 
 - `tests/Fixtures/privacy/` holds a corpus of logs seeded with emails, names (Latin and Cyrillic), phones, tokens, IBANs,
   IPs, personal sub-domains, credentials in URLs and a dependency stream; `seeded-values.php` lists the seeded values (usernames and customer names in frame paths, ids glued to letters, digit-based patterns, JSON message tails included).
+- The corpus also holds keyword-less credentials (`password=`, DSN, JSON, form body, query), fullwidth and
+  zero-width emails, `%40` / `&#64;` / nested encodings, ideographic dots, IDN hosts and `user@bastion`;
+  `tests/EndToEnd/LongLinePrivacyTest.php` covers lines past the parser caps.
 - `tests/EndToEnd/PrivacyTest.php` runs the whole pipeline over it and fails if any seeded value appears in **any** request
   to the model (triage, analysis, dependency section, service context), any Slack message (raw, decoded once and twice)
   or any stored value. A control run proves the test sees leaks when the protection is switched off.

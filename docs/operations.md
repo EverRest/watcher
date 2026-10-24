@@ -149,7 +149,8 @@ fails with `HTTP 429`.
 | `file` | one runner, one host | **never** with several replicas or pods without a shared volume and a single scheduler |
 
 State holds counters, fingerprints, verdicts, reported markers, run records, spend counters and alert markers, each with
-`state.retention` (30 days; spend and alert keys 2 days). It never holds raw log lines.
+`state.retention` (30 days) except: spend and alert keys 2 days, weekly heartbeat counters 14 days, `noise`/`known` verdicts
+3 days, heartbeat and trigger records 3 x `state.retention`. It never holds raw log lines.
 
 Reset a service (forces a new baseline): change `service`, or delete its keys. Redis keys are
 `watcher:<kind>:<service>:...` (kinds: `snap` (also per dependency), `verdict`, `reported`, `run`, `lock`, `spend`, `alert`, `exhausted`); file state is

@@ -27,6 +27,7 @@
         "vlucas/phpdotenv": "^5.7"
     },
     "suggest": {
+        "ext-intl": "NFKC folding of look-alike characters before redaction (optional; a small fallback covers fullwidth ASCII)",
         "ext-redis": "Redis state store",
         "ext-pdo": "PDO state store",
         "illuminate/support": "Lumen/Laravel adapter"
