@@ -45,7 +45,13 @@ final class SlackTextTest extends TestCase
         yield 'file' => ['X.php:88', 'X.php:88'];
         yield 'forged link' => ['<http://evil.example|click>', "&lt;http:{$z}//evil.{$z}example|click&gt;"];
         yield 'forged mention' => ['<@123>', "&lt;@{$z}123&gt;"];
-        yield 'markdown' => ['**x** [y](z)', '**x** [y](z)'];
+        yield 'markdown' => ['**x** [y](z)', "\u{2217}\u{2217}x\u{2217}\u{2217} [y](z)"];
+        yield 'bold' => ['a *b* c', "a \u{2217}b\u{2217} c"];
+        yield 'italic' => ['an _italic_ word', "an \u{FF3F}italic\u{FF3F} word"];
+        yield 'strike' => ['a ~gone~ b', "a \u{223C}gone\u{223C} b"];
+        yield 'identifiers kept' => ['user_id __init__ ~/.cfg a_b_c', 'user_id __init__ ~/.cfg a_b_c'];
+        yield 'emoji spoof' => ['all :white_check_mark: ok', "all :{$z}white_check_mark: ok"];
+        yield 'clock kept' => ['at 12:30:45 on host:8080', 'at 12:30:45 on host:8080'];
         yield 'emoji' => ['🔴 é', '🔴 é'];
         yield 'empty' => ['', ''];
         yield 'ip' => ['10.0.0.1', '10.0.0.1'];
@@ -53,6 +59,11 @@ final class SlackTextTest extends TestCase
         yield 'email' => ['a@b.example', "a@{$z}b.{$z}example"];
         yield 'ampersand entity' => ['&amp;', '&amp;amp;'];
         yield 'mixed' => ["x <y> & `z` @q://w", "x &lt;y&gt; &amp; 'z' @{$z}q:{$z}//w"];
+    }
+
+    public function testPlainRestoresMrkdwnLookalikes(): void
+    {
+        self::assertSame('a *b* _c_ ~d~', SlackText::plain(SlackText::escape('a *b* _c_ ~d~')));
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('corpus')]

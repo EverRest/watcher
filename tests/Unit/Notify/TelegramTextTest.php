@@ -57,6 +57,11 @@ final class TelegramTextTest extends TestCase
         }
     }
 
+    public function testStarsInModelTextAreNotBold(): void
+    {
+        self::assertSame("pre \u{2217}x\u{2217} post", TelegramText::section('finding', 'pre ' . SlackText::escape('*x*') . ' post'));
+    }
+
     public function testForgedLinkTokenInModelTextIsText(): void
     {
         $source = 'x ' . SlackText::escape('<http://evil.example|click>') . ' y';

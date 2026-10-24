@@ -66,11 +66,9 @@ final class DiscordTextTest extends TestCase
         }
     }
 
-    public function testStarsInModelTextAreOnlyTheKnownBoldResidual(): void
+    public function testStarsInModelTextAreInert(): void
     {
-        // research R1/O3: SlackText::escape does not neutralise `*x*`, so it reads as bold (formatting only).
-        // The outer stars stay escaped, so nothing wider than the one word can be formatted.
-        self::assertSame('pre \\***x**\\* post', DiscordText::section('finding', 'pre ' . SlackText::escape('**x**') . ' post'));
+        self::assertSame("pre \u{2217}\u{2217}x\u{2217}\u{2217} post", DiscordText::section('finding', 'pre ' . SlackText::escape('**x**') . ' post'));
     }
 
     public function testModelTextAtLineStartIsInert(): void
