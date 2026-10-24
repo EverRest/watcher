@@ -35,8 +35,14 @@ final class FleetConfig
     ) {
     }
 
+    /** @return array<string, mixed> a dump shows no webhook or token */
+    public function __debugInfo(): array
+    {
+        return ['notify' => '[redacted]'] + get_object_vars($this);
+    }
+
     /** @param array<string, mixed> $config */
-    public static function fromArray(array $config): self
+    public static function fromArray(#[\SensitiveParameter] array $config): self
     {
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::KEYS, true)) {
@@ -47,7 +53,7 @@ final class FleetConfig
         if ($name === null) {
             throw new InvalidConfig('fleet is required');
         }
-        if (!is_string($name) || preg_match('/^[A-Za-z0-9._-]+$/', $name) !== 1) {
+        if (!is_string($name) || preg_match('/^[A-Za-z0-9._-]+$/D', $name) !== 1) {
             throw new InvalidConfig('fleet must be a name of letters, digits, dot, dash and underscore');
         }
 

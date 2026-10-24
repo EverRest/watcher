@@ -138,7 +138,7 @@ final class Doctor
         foreach (self::STEPS as $step) {
             $want = (string) $this->config->analysis['models'][$step];
             // An alias ("m-mid") is listed under its dated form ("m-mid-20250929").
-            $found = array_filter($ids, static fn (string $id): bool => $id === $want || preg_match('/^' . preg_quote($want, '/') . '-\d{8}$/', $id) === 1);
+            $found = array_filter($ids, static fn (string $id): bool => $id === $want || preg_match('/^' . preg_quote($want, '/') . '-\d{8}$/D', $id) === 1);
             if ($found === []) {
                 $bad[] = $step;
             }

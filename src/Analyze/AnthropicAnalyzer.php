@@ -23,7 +23,7 @@ final class AnthropicAnalyzer implements Analyzer
     private readonly OutputValidator $validator;
 
     /** @param array<string, mixed> $requestOptions SDK request options; the SDK defaults (2 retries) apply when empty */
-    public function __construct(string $apiKey, ClientInterface $http, ?string $baseUrl = null, array $requestOptions = [], private readonly bool $advice = true)
+    public function __construct(#[\SensitiveParameter] string $apiKey, ClientInterface $http, ?string $baseUrl = null, array $requestOptions = [], private readonly bool $advice = true)
     {
         $this->client = new SdkClient(
             apiKey: $apiKey,

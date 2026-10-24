@@ -440,7 +440,7 @@ final class Normalizer
                 return '<' . $kind . ':' . $name . '>';
             }
             foreach ($this->domains as $d) {
-                if (preg_match('/^' . preg_quote($name . '.', '/') . '(?:[a-z0-9-]+\.)?' . preg_quote($d, '/') . '$/', $host) === 1) {
+                if (preg_match('/^' . preg_quote($name . '.', '/') . '(?:[a-z0-9-]+\.)?' . preg_quote($d, '/') . '$/D', $host) === 1) {
                     return '<' . $kind . ':' . $name . '>';
                 }
             }

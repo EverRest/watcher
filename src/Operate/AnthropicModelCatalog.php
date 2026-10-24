@@ -20,7 +20,7 @@ final class AnthropicModelCatalog implements ModelCatalog
 
     public function __construct(
         private readonly ClientInterface $http,
-        private readonly string $apiKey,
+        #[\SensitiveParameter] private readonly string $apiKey,
         private readonly string $baseUrl = 'https://api.anthropic.com',
     ) {
     }

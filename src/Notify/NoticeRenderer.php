@@ -11,7 +11,7 @@ final class NoticeRenderer
     private const MIN_SECRET = 8;
 
     /** @param list<string> $secrets exact values ({@see \Watcher\Config\WatchConfig::secrets()}) to mask on top of the generic scrubbing */
-    public function __construct(private readonly array $secrets = [])
+    public function __construct(#[\SensitiveParameter] private readonly array $secrets = [])
     {
     }
 

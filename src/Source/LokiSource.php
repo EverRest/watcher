@@ -333,7 +333,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
 
     private function name(string $name): string
     {
-        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name) !== 1) {
+        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/D', $name) !== 1) {
             throw new InvalidArgumentException("Invalid Loki label name '{$name}'.");
         }
 

@@ -55,7 +55,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         if (!in_array($levelMode, ['status', 'all'], true)) {
             throw new InvalidArgumentException("Invalid Datadog level_mode '{$levelMode}' (status or all).");
         }
-        if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i', $site) !== 1) {
+        if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iD', $site) !== 1) {
             throw new InvalidArgumentException('Invalid Datadog site.');
         }
         $this->baseUrl = 'https://api.' . $site;
@@ -239,17 +239,17 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     {
         $body = str_starts_with($re, '(?i)') ? substr($re, 4) : $re;
 
-        return preg_match('/^\w+$/', $body) === 1 ? $body : null;
+        return preg_match('/^\w+$/D', $body) === 1 ? $body : null;
     }
 
     private function tagQuery(StreamSelector $selector): string
     {
         $terms = [];
         foreach ($selector->tags as $key => $value) {
-            if (preg_match('/^[A-Za-z0-9_.@\/-]+$/', (string) $key) !== 1) {
+            if (preg_match('/^[A-Za-z0-9_.@\/-]+$/D', (string) $key) !== 1) {
                 throw new InvalidArgumentException("Invalid Datadog tag key '{$key}'.");
             }
-            $terms[] = $key . ':' . (preg_match('/^[A-Za-z0-9_.\/-]+$/', $value) === 1 ? $value : $this->quote($value));
+            $terms[] = $key . ':' . (preg_match('/^[A-Za-z0-9_.\/-]+$/D', $value) === 1 ? $value : $this->quote($value));
         }
         if ($terms === []) {
             throw new InvalidArgumentException('A Datadog query needs at least one stream tag.');

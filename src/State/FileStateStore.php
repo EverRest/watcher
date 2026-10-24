@@ -49,11 +49,11 @@ final class FileStateStore implements StateStore, Purgeable
                 break;
             }
             $path = $this->dir . '/' . $name;
-            if (preg_match('/^[0-9a-f]{64}\.json$/', $name) === 1) {
+            if (preg_match('/^[0-9a-f]{64}\.json$/D', $name) === 1) {
                 $removed += $this->purgeRecord($path, $now);
-            } elseif (preg_match('/^[0-9a-f]{64}\.json\.lock$/', $name) === 1) {
+            } elseif (preg_match('/^[0-9a-f]{64}\.json\.lock$/D', $name) === 1) {
                 $removed += $this->purgeSidecar($path, $now);
-            } elseif (preg_match('/^[0-9a-f]{64}\.json\.[0-9a-f]{8}\.tmp$/', $name) === 1 && $this->abandoned($path, $now)) {
+            } elseif (preg_match('/^[0-9a-f]{64}\.json\.[0-9a-f]{8}\.tmp$/D', $name) === 1 && $this->abandoned($path, $now)) {
                 $removed += @unlink($path) ? 1 : 0;
             }
         }

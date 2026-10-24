@@ -332,7 +332,7 @@ final class DigestRenderer
 
     private function link(?string $url, string $label): ?string
     {
-        return $url !== null && preg_match('~^https?://[^\s<>|]+$~', $url) === 1 ? "<$url|$label>" : null;
+        return $url !== null && preg_match('~^https?://[^\s<>|]+$~D', $url) === 1 ? "<$url|$label>" : null;
     }
 
     private function footer(DigestData $d): string
