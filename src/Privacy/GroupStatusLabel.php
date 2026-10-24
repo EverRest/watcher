@@ -9,4 +9,5 @@ enum GroupStatusLabel: string
     case New = 'new';
     case Grown = 'grown';
     case Unchanged = 'unchanged';
+    case Expected = 'expected';
 }

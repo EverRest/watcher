@@ -7,6 +7,7 @@ namespace Watcher\Tests\Unit\Reduce;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Watcher\Level;
+use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\TemplateMiner;
 use Watcher\Source\LineParser;
@@ -20,21 +21,28 @@ final class TemplateMinerTest extends TestCase
     }
 
     /**
+     * @param  list<LogEvent> $events
+     * @return list<?string> the template of each event's fingerprint, in event order
+     */
+    private function perEvent(array $events, int $min = 3, bool $similarity = true): array
+    {
+        $n = new Normalizer();
+        $f = new Fingerprinter($n);
+        $m = new TemplateMiner($min, enabled: $similarity);
+        foreach ($events as $e) {
+            $m->add($e, TemplateMiner::tokens($n, $e), $f->of($e));
+        }
+
+        return array_map(static fn (LogEvent $e) => $m->template($f->of($e)), $events);
+    }
+
+    /**
      * @param list<LogEvent> $events
      * @return list<?string> distinct templates
      */
-    private function mine(array $events, int $min = 3): array
+    private function mine(array $events, int $min = 3, bool $similarity = true): array
     {
-        $n = new Normalizer();
-        $m = new TemplateMiner($min);
-        foreach ($events as $e) {
-            $m->add($e, TemplateMiner::tokens($n, $e));
-        }
-
-        return array_values(array_unique(array_map(
-            fn (LogEvent $e) => $m->template($m->keyOf($e, TemplateMiner::tokens($n, $e))),
-            $events,
-        ), SORT_REGULAR));
+        return array_values(array_unique($this->perEvent($events, $min, $similarity), SORT_REGULAR));
     }
 
     public function testVaryingPositionBecomesWildcard(): void
@@ -77,6 +85,89 @@ final class TemplateMinerTest extends TestCase
         self::assertSame($this->mine($events), $this->mine(array_reverse($events)));
     }
 
+    public function testSameLengthUnrelatedMessagesStaySeparate(): void
+    {
+        $events = [];
+        foreach (['Anna', 'Bob', 'Eve'] as $n) {
+            $events[] = $this->ev('Disk quota exceeded for ' . $n);
+        }
+        foreach (['Visa', 'Amex', 'Mada'] as $c) {
+            $events[] = $this->ev('Card payment rejected by ' . $c);
+        }
+
+        self::assertSame(['Disk quota exceeded for <*>', 'Card payment rejected by <*>'], $this->mine($events));
+        // the old behaviour (similarity off) merged them into one blank template
+        self::assertSame(['<*> <*> <*> <*> <*>'], $this->mine($events, similarity: false));
+    }
+
+    public function testSimilarityOffKeepsTheExactTokenCountBehaviour(): void
+    {
+        $events = [$this->ev('Failed to send mail to Anna'), $this->ev('Failed to send mail to Bob'), $this->ev('Failed to send mail to Eve')];
+
+        self::assertSame(['Failed to send mail to <*>'], $this->mine($events, similarity: false));
+    }
+
+    public function testOrderIndependentOverFiftyShuffles(): void
+    {
+        $events = [];
+        foreach (['Anna', 'Bob', 'Eve', 'Tom'] as $i => $n) {
+            $events[] = $this->ev('Disk quota exceeded for ' . $n);
+            $events[] = $this->ev('Disk quota exceeded for ' . $n);
+            $events[] = $this->ev('Card payment rejected by ' . $n);
+            $events[] = $this->ev('Disk space is low on ' . $n . ' now');
+            $events[] = $this->ev('Disk space is low on node' . $i . ' now');
+        }
+        $expected = $this->perEvent($events);
+        $byMessage = [];
+        mt_srand(42);
+        for ($i = 0; $i < 50; ++$i) {
+            $shuffled = $events;
+            shuffle($shuffled);
+            $got = $this->perEvent($shuffled);
+            foreach ($shuffled as $k => $e) {
+                $byMessage[$e->message][] = $got[$k];
+            }
+        }
+        foreach ($events as $k => $e) {
+            self::assertSame([$expected[$k]], array_values(array_unique($byMessage[$e->message], SORT_REGULAR)), $e->message);
+        }
+    }
+
+    public function testSpacelessMessageNeverFails(): void
+    {
+        $events = [$this->ev('数据库连接失败'), $this->ev('数据库连接失败'), $this->ev('数据库连接失败'), $this->ev('支付网关超时错误')];
+
+        self::assertSame(['数据库连接失败', null], $this->mine($events));
+    }
+
+    public function testPlaceholderEqualityDoesNotMergeOppositeMessages(): void
+    {
+        $m = new TemplateMiner(3);
+        $e = $this->ev('ignored');
+        for ($i = 0; $i < 3; ++$i) {
+            $m->add($e, ['<ID>', '<N>', 'failed'], 'fp-failed');
+            $m->add($e, ['<ID>', '<N>', 'succeeded'], 'fp-ok');
+        }
+
+        self::assertSame('<ID> <N> failed', $m->template('fp-failed'));
+        self::assertSame('<ID> <N> succeeded', $m->template('fp-ok'));
+    }
+
+    public function testFingerprintWithTwoClustersTakesLargest(): void
+    {
+        $m = new TemplateMiner(2);
+        $e = $this->ev('ignored');
+        for ($i = 0; $i < 4; ++$i) {
+            $m->add($e, ['alpha', 'beta', 'gamma', 'delta'], 'fp');
+        }
+        for ($i = 0; $i < 3; ++$i) {
+            $m->add($e, ['one', 'two', 'three', 'four'], 'fp');
+        }
+
+        self::assertSame('alpha beta gamma delta', $m->template('fp'));
+        self::assertNull($m->template('unknown'));
+    }
+
     public function testPrivacyCorpusTemplatesHoldNoSeededValue(): void
     {
         $parser = new LineParser();
@@ -90,7 +181,13 @@ final class TemplateMinerTest extends TestCase
         $templates = array_filter($this->mine($events));
         self::assertNotEmpty($templates);
         self::assertContains('[APP]: Failed to send welcome mail to <EMAIL> <*> <*> <*> <*> <*> <*> <*> from <IP>', $templates);
+        // spec 004 US3: same-length unrelated groups keep their own text, a name in a 2-event retry loop is withheld,
+        // and an identical value repeating >= min events is only safe because the Normalizer already masked it.
+        self::assertContains('[SIM]: Archive request queued for <*> <*> today', $templates);
+        self::assertContains('[SIM]: Thumbnail render stalled for <*> <*> today', $templates);
+        self::assertContains('[SIM]: Mailbox full for <EMAIL> quota exceeded', $templates);
         foreach ($templates as $t) {
+            self::assertStringNotContainsString('Vasyl', $t);
             foreach ($seeded as $v) {
                 self::assertStringNotContainsString($v, $t);
             }

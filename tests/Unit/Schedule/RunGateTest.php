@@ -174,4 +174,30 @@ final class RunGateTest extends TestCase
         self::assertNull($g->decide($this->at('2026-10-25 01:30:00', 'UTC')));
         self::assertNull($g->decide($this->at('2026-10-25 01:45:00', 'UTC')));
     }
+
+    public function testEndBackKeepsTheLocalWallClockAcrossClockChanges(): void
+    {
+        $g = new RunGate('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+
+        // autumn: 2026-10-25 03:00 clocks go back; 06:00 local is 04:00Z after, 03:00Z before
+        self::assertSame('2026-10-19T03:00:00+00:00', $g->endBack($this->at('2026-10-26 06:00', 'Europe/Kyiv'), 7)->setTimezone(new DateTimeZone('UTC'))->format('c'));
+        // spring: 2026-03-29 03:00 clocks go forward
+        self::assertSame('2026-03-23T04:00:00+00:00', $g->endBack($this->at('2026-03-30 06:00', 'Europe/Kyiv'), 7)->setTimezone(new DateTimeZone('UTC'))->format('c'));
+    }
+
+    public function testEndBackIntoASpringForwardGapUsesTheFirstInstantAfterIt(): void
+    {
+        $g = new RunGate('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+
+        self::assertSame('2026-03-29T01:00:00+00:00', $g->endBack($this->at('2026-03-30 03:30', 'Europe/Kyiv'), 1)->setTimezone(new DateTimeZone('UTC'))->format('c'));
+    }
+
+    public function testEndBackSevenAndTwentyEightDays(): void
+    {
+        $g = new RunGate('06:00', new DateTimeZone('UTC'), 'PT24H');
+        $end = $this->at('2026-10-28 06:00');
+
+        self::assertSame('2026-10-21T06:00:00+00:00', $g->endBack($end, 7)->format('c'));
+        self::assertSame('2026-09-30T06:00:00+00:00', $g->endBack($end, 28)->format('c'));
+    }
 }

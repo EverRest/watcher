@@ -118,4 +118,14 @@ final class RedactedGroupTest extends TestCase
             array_keys($json),
         );
     }
+
+    public function testExpectedStatusHasItsOwnLabel(): void
+    {
+        $g = new ProblemGroup('fp', null, Level::Error, null, [], 5, new DateTimeImmutable('2026-01-01'), new DateTimeImmutable('2026-01-01'), 2, \Watcher\Reduce\GroupStatus::Expected);
+
+        $r = RedactedGroup::fromProblemGroup($g);
+
+        self::assertSame(GroupStatusLabel::Expected, $r->status);
+        self::assertSame('expected', $r->toArray()['st']);
+    }
 }

@@ -21,9 +21,15 @@ final class Reducer
 
     private int $overflowed = 0;
 
+    private MiningStats $mining;
+
     /**
      * @param (callable(LogEvent): bool)|null $exempt   true: the event must keep its own group (watch rule hit)
      * @param (callable(LogEvent): void)|null $onFolded called for each event folded into an overflow group
+     * @param float $similarity           share of literal tokens that must match to join a cluster (0 < x <= 1)
+     * @param int $maxDistinctMessages    distinct masked messages kept for clustering; more are dropped and their groups lose the text
+     * @param int|null $comparisonBudget  cluster comparisons allowed (default 400 x maxDistinctMessages)
+     * @param bool $groupBySimilarity     false: old behaviour, one cluster per (level, type, token count, frame)
      */
     public function __construct(
         private readonly Normalizer $normalizer,
@@ -31,7 +37,18 @@ final class Reducer
         private readonly int $groupCap = self::DEFAULT_GROUP_CAP,
         private readonly mixed $exempt = null,
         private readonly mixed $onFolded = null,
+        private readonly float $similarity = TemplateMiner::DEFAULT_SIMILARITY,
+        private readonly int $maxDistinctMessages = TemplateMiner::DEFAULT_MAX_DISTINCT,
+        private readonly ?int $comparisonBudget = null,
+        private readonly bool $groupBySimilarity = true,
     ) {
+        $this->mining = new MiningStats();
+    }
+
+    /** What the template miner gave up in the last reduce() (spec 004 FR-010). */
+    public function mining(): MiningStats
+    {
+        return $this->mining;
     }
 
     /** Events folded into overflow groups by the last reduce(). */
@@ -47,22 +64,23 @@ final class Reducer
     public function reduce(iterable $events): array
     {
         $fingerprinter = new Fingerprinter($this->normalizer);
-        $miner = new TemplateMiner($this->minGroupEventsForText);
-        /** @var array<string, array{key: ?string, level: Level, type: ?string, frames: list<string>, count: int, first: DateTimeImmutable, last: DateTimeImmutable}> $groups */
+        $miner = new TemplateMiner($this->minGroupEventsForText, $this->similarity, $this->maxDistinctMessages, $this->comparisonBudget, $this->groupBySimilarity);
+        /** @var array<string, array{own: bool, level: Level, type: ?string, frames: list<string>, count: int, first: DateTimeImmutable, last: DateTimeImmutable}> $groups */
         $groups = [];
-        $own = 0;
+        $ownCount = 0;
         $this->overflowed = 0;
 
         foreach ($events as $e) {
             $tokens = TemplateMiner::tokens($this->normalizer, $e);
             $fp = $fingerprinter->fingerprint($e, $tokens);
-            $key = null;
+            $own = true;
             if (isset($groups[$fp])) {
-                $key = $miner->add($e, $tokens);
-            } elseif ($own < $this->groupCap || ($own < 2 * $this->groupCap && $this->exempt !== null && ($this->exempt)($e))) {
-                $own++;
-                $key = $miner->add($e, $tokens);
+                $miner->add($e, $tokens, $fp);
+            } elseif ($ownCount < $this->groupCap || ($ownCount < 2 * $this->groupCap && $this->exempt !== null && ($this->exempt)($e))) {
+                $ownCount++;
+                $miner->add($e, $tokens, $fp);
             } else {
+                $own = false;
                 $fp = substr(hash('sha256', 'overflow|' . $e->level->value), 0, 12);
                 $this->overflowed++;
                 if ($this->onFolded !== null) {
@@ -70,7 +88,7 @@ final class Reducer
                 }
             }
             if (!isset($groups[$fp])) {
-                $groups[$fp] = ['key' => $key, 'level' => $e->level, 'type' => $key === null ? null : $e->errorType, 'frames' => $key === null ? [] : $e->frames,
+                $groups[$fp] = ['own' => $own, 'level' => $e->level, 'type' => $own ? $e->errorType : null, 'frames' => $own ? $e->frames : [],
                     'count' => 1, 'first' => $e->time, 'last' => $e->time];
                 continue;
             }
@@ -85,8 +103,9 @@ final class Reducer
         $out = [];
         foreach ($groups as $fp => $g) {
             // PHP turns all-digit keys into ints; the fingerprint is a string everywhere else.
-            $out[] = new ProblemGroup((string) $fp, $g['key'] === null ? self::OVERFLOW_TEMPLATE : $miner->template($g['key']), $g['level'], $g['type'], $g['frames'], $g['count'], $g['first'], $g['last']);
+            $out[] = new ProblemGroup((string) $fp, $g['own'] ? $miner->template((string) $fp) : self::OVERFLOW_TEMPLATE, $g['level'], $g['type'], $g['frames'], $g['count'], $g['first'], $g['last']);
         }
+        $this->mining = $miner->stats();
         usort($out, static fn (ProblemGroup $a, ProblemGroup $b): int => [$b->count, $a->fingerprint] <=> [$a->count, $b->fingerprint]);
 
         return $out;

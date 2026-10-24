@@ -23,7 +23,7 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
 
 ## Phase 0: Gate
 
-- [ ] T001 Confirm the in-flight pointer work (`snap:<svc>:last`, fallback up to `max_age`, digest notice) is committed
+- [x] T001 Confirm the in-flight pointer work (`snap:<svc>:last`, fallback up to `max_age`, digest notice) is committed
   and green. Re-read `src/Watcher.php` (`locked()`, `writeSnapshot()`, the `$prev` lookup, the `DigestData` call) and
   record: the config key it uses for the maximum comparison age; the exact notice wording (copy into
   `contracts/digest-wording.md`, row 1); whether it already scales counts (if yes, move that test to T008 and drop the
@@ -31,20 +31,20 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
 
 ## Phase 1: Foundational (blocks the stories)
 
-- [ ] T002 [P] Write red config tests in `tests/Unit/Config/BaselineConfigTest.php` for `baseline.*` and `grouping.*`:
+- [x] T002 [P] Write red config tests in `tests/Unit/Config/BaselineConfigTest.php` for `baseline.*` and `grouping.*`:
   defaults; each validation message from `contracts/configuration.md`; non-whole-day window with `rolling`;
   `testRetentionTooShortForWeekdayMode` (FR-008); `max_age` above retention; `backend_patterns: true` rejected.
-- [ ] T003 Implement the keys in `src/Config/WatchConfig.php` (follow `selection` parsing and `self::only()`); expose
+- [x] T003 Implement the keys in `src/Config/WatchConfig.php` (follow `selection` parsing and `self::only()`); expose
   `baseline` and `grouping` arrays on `WatchConfig`; add them to `config/watcher.example.php`. Greens T002. Depends on
   T002. Keep T001's key name for `max_age`.
-- [ ] T004 [P] Write a red test in `tests/Unit/Schedule/RunGateTest.php`: `endBack($end, $days)` returns the `run_at`
+- [x] T004 [P] Write a red test in `tests/Unit/Schedule/RunGateTest.php`: `endBack($end, $days)` returns the `run_at`
   instant `$days` local days earlier; across spring-forward and fall-back; for a `run_at` inside a gap; 7 and 28 days.
-- [ ] T005 Add public `RunGate::endBack(DateTimeImmutable $end, int $days): DateTimeImmutable` in
+- [x] T005 Add public `RunGate::endBack(DateTimeImmutable $end, int $days): DateTimeImmutable` in
   `src/Schedule/RunGate.php`, delegating to `runAtOn($end, -$days)`. Greens T004. Depends on T004.
-- [ ] T006 [P] Write red tests: `tests/Unit/Reduce/GroupStatusTest.php` (`resolve` with a float comparison value and a
+- [x] T006 [P] Write red tests: `tests/Unit/Reduce/GroupStatusTest.php` (`resolve` with a float comparison value and a
   `seen` flag; `Expected` when the value is 0 but seen; `Grown` at exactly `factor x value`; previous mode results are
   identical to today's), and `tests/Unit/Privacy/` case that `RedactedGroup` maps `Expected` to label `expected`.
-- [ ] T007 Add `GroupStatus::Expected` and the float/`seen` signature in `src/Reduce/GroupStatus.php`; adapt
+- [x] T007 Add `GroupStatus::Expected` and the float/`seen` signature in `src/Reduce/GroupStatus.php`; adapt
   `src/Reduce/ProblemGroup.php::withPrevious()` (keep `previousCount` an int for rendering); add the case to
   `src/Privacy/GroupStatusLabel.php` and the `match` in `src/Privacy/RedactedGroup.php`. Greens T006. Depends on T006.
   Check the analyzer prompt and schema fixtures under `tests/Fixtures/anthropic` and `src/Analyze` for an enumerated
@@ -57,12 +57,12 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
 **Goal**: the parts of US1 not covered by the in-flight work.
 **Independent test**: scenarios 1-5 of quickstart.md.
 
-- [ ] T008 [P] [US1] Write `tests/EndToEnd/MissedDayTest.php` with `testMissedMiddleDayStillReports`,
+- [x] T008 [P] [US1] Write `tests/EndToEnd/MissedDayTest.php` with `testMissedMiddleDayStillReports`,
   `testTooOldRecordsBaseline`, `testFailedRunKeepsOlderSnapshotUsable`, using `Harness`. Also check by reading that
   `tests/EndToEnd/DstTest.php` covers spring and autumn with no second baseline, and that the Loki and Datadog contract
   tests have a transient-failure retry case (SC-006); add only the missing cases. Tests that the in-flight work already
   satisfies will pass immediately; note which. Depends on T001.
-- [ ] T009 [US1] **SEQUENTIAL (`src/Watcher.php`, 1 of 3: T009, T014, T022)**. In `writeSnapshot()` add `start` (window
+- [x] T009 [US1] **SEQUENTIAL (`src/Watcher.php`, 1 of 3: T009, T014, T022)**. In `writeSnapshot()` add `start` (window
   start, UTC ISO-8601) to the stored document. Add the assertion to `MissedDayTest` or `RunSummaryTest` that the stored
   snapshot has `start`. Depends on T001, T008.
 
@@ -73,25 +73,25 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
 **Goal**: previous / rolling / weekday comparison with a visible mode.
 **Independent test**: quickstart scenarios 7-15.
 
-- [ ] T010 [P] [US2] Write red `tests/Unit/Baseline/BaselineResolverTest.php` with `InMemoryStateStore` and
+- [x] T010 [P] [US2] Write red `tests/Unit/Baseline/BaselineResolverTest.php` with `InMemoryStateStore` and
   `FrozenClock`: the 15 cases named in quickstart.md rows 6, 9-11, 13-15 (no `start`; rolling with 7/4/1 snapshots;
   never seen is new in every mode; seen on rare day is expected; exclusion; `since`; scaling to window length; weekday
   with 2 snapshots falls back to previous with `reason = short_history`; previous mode reproduces today's numbers).
   Depends on T003, T005, T007.
-- [ ] T011 [P] [US2] Create `src/Baseline/Comparison.php` and `src/Baseline/BaselineResolver.php` per data-model.md:
+- [x] T011 [P] [US2] Create `src/Baseline/Comparison.php` and `src/Baseline/BaselineResolver.php` per data-model.md:
   candidate ends via `RunGate::endBack`, one `get` per candidate, skip missing / excluded / before `since`, stream one
   snapshot at a time keeping only the requested fingerprints, per-hour scaling, mean / median, `statusFor`,
   `previousFor`. The previous-window case uses whatever lookup T001 found (pointer) behind the same interface.
   New files only. Greens T010. Depends on T010.
-- [ ] T012 [P] [US2] Write `tests/EndToEnd/BaselineModesTest.php`: `testWeeklyPatternHasNoFalseGrowthInWeekdayMode`
+- [x] T012 [P] [US2] Write `tests/EndToEnd/BaselineModesTest.php`: `testWeeklyPatternHasNoFalseGrowthInWeekdayMode`
   (5 weeks, constant per-weekday levels; weekday mode 0 grown, previous mode >= 1), `testRealJumpIsGrownInBothModes`
   (4x on one day), and `testDefaultModeIsUnchanged` (same output as before for `previous`). Red until T014. Also add
   the `CostTest` assertion that the number of model calls is the same in all modes for an unchanged workload.
-- [ ] T013 [P] [US2] Write red `DigestTest::testComparisonLines` in `tests/EndToEnd/DigestTest.php` for every row of
+- [x] T013 [P] [US2] Write red `DigestTest::testComparisonLines` in `tests/EndToEnd/DigestTest.php` for every row of
   `contracts/digest-wording.md`, then implement them in `src/Notify/DigestRenderer.php` and `src/Notify/DigestData.php`
   (a `comparison` field carrying `Comparison`; trend text for `expected`). **SEQUENTIAL for `DigestRenderer.php` (1 of 2:
   T013, T022).** Depends on T007, T011 (the type), not on `Watcher.php`.
-- [ ] T014 [US2] **SEQUENTIAL (`src/Watcher.php`, 2 of 3)**. In `locked()` replace the group-status lookup (the
+- [x] T014 [US2] **SEQUENTIAL (`src/Watcher.php`, 2 of 3)**. In `locked()` replace the group-status lookup (the
   `$previousGroups` map and `withPrevious` call) and the `$prev === null` baseline decision with the `Comparison`
   from `BaselineResolver` built from `$c->baseline`, `RunGate::endBack` and the fingerprints of `$groups`; keep `$prev`
   for `DeployInfo` and `LevelAnomaly` (unchanged); pass the `Comparison` to the `DigestData` construction. Greens
@@ -104,35 +104,35 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
 **Goal**: readable, deterministic, bounded templates; fingerprints unchanged.
 **Independent test**: quickstart scenarios 16-25.
 
-- [ ] T015 [P] [US3] Rewrite `tests/Unit/Reduce/TemplateMinerTest.php` for the new API
+- [x] T015 [P] [US3] Rewrite `tests/Unit/Reduce/TemplateMinerTest.php` for the new API
   (`add(event, tokens, fp)`, `template(fp)`, `stats()`): keep the existing assertions (varying position becomes `<*>`,
   small cluster withheld, identical-value known limit) and add `testSameLengthUnrelatedMessagesStaySeparate`,
   `testOrderIndependent` (50 shuffles of one multiset, identical results), `testSpacelessMessageNeverFails`,
   `testPlaceholderEqualityDoesNotMergeOppositeMessages` (`<ID> <NUM> failed` vs `... succeeded`),
   `testFingerprintWithTwoClustersTakesLargest`.
-- [ ] T016 [P] [US3] Write `tests/Unit/Reduce/MinerBoundsTest.php`: `testCapReportsTruncationAndWithholds`,
+- [x] T016 [P] [US3] Write `tests/Unit/Reduce/MinerBoundsTest.php`: `testCapReportsTruncationAndWithholds`,
   `testBudgetExhaustionWithholdsRemaining`, a 10x-scaled SC-005 case in the default suite and the full-size case under
   `@group perf` (add the group to `phpunit.xml.dist` as excluded by default); assert memory with
   `memory_get_peak_usage`.
-- [ ] T017 [P] [US3] Extend the privacy corpus first (Constitution I): add to `tests/Fixtures/privacy/corpus.log` and
+- [x] T017 [P] [US3] Extend the privacy corpus first (Constitution I): add to `tests/Fixtures/privacy/corpus.log` and
   `tests/Fixtures/privacy/seeded-values.php` unrelated same-length messages, a name varying inside a group, a name
   repeating in a retry loop of fewer events than `min_group_events_for_text`, and one repeating at or above it (documents
   the known limit, asserting the Normalizer mask still holds); run through `tests/Unit/PrivacyCorpusTest.php` and
   `tests/EndToEnd/PrivacyTest.php` for every baseline mode. Expect red on the new similarity paths; zero seeded values
   is the pass condition.
-- [ ] T018 [P] [US3] Write `tests/Unit/Reduce/TemplateReadabilityTest.php` over the existing `tests/Fixtures/logs/*.log`
+- [x] T018 [P] [US3] Write `tests/Unit/Reduce/TemplateReadabilityTest.php` over the existing `tests/Fixtures/logs/*.log`
   plus a new `tests/Fixtures/logs/same_length_mixed.log` (three problems of equal word count with varying ids, names,
   numbers): at least 80% of groups with the minimum events have at least half their words literal (SC-003); also the
   `CostTest` payload-token check (+10% at most, SC-007). Use this test to confirm or retune `grouping.similarity`
   (default 0.5) and record the outcome in research.md R8.
-- [ ] T019 [P] [US3] Add `testGoldenFingerprints` to `tests/Unit/Reduce/FingerprinterTest.php` with literal expected
+- [x] T019 [P] [US3] Add `testGoldenFingerprints` to `tests/Unit/Reduce/FingerprinterTest.php` with literal expected
   values computed from the current code, plus "same id at 1 event and at 5". Regression pin for FR-012; it is green
   immediately and must stay green.
-- [ ] T020 [US3] **SEQUENTIAL (`src/Reduce/TemplateMiner.php`, 1 of 2: T020, T021)**. Rewrite `TemplateMiner` per
+- [x] T020 [US3] **SEQUENTIAL (`src/Reduce/TemplateMiner.php`, 1 of 2: T020, T021)**. Rewrite `TemplateMiner` per
   plan.md: distinct-message table per bucket, cap and comparison budget from `GroupingSettings`, lazy deterministic
   leader clustering, similarity over literal tokens, `template(fp)`, `stats()`. Remove `keyOf`/`template(key)`. No change
   to `tokens()`. Greens T015, T016 and the miner-level parts of T017. Depends on T015, T016, T017, T019.
-- [ ] T021 [US3] **SEQUENTIAL (`src/Reduce/Reducer.php`, after T020)**. Pass the fingerprint to the miner, drop the
+- [x] T021 [US3] **SEQUENTIAL (`src/Reduce/Reducer.php`, after T020)**. Pass the fingerprint to the miner, drop the
   per-group cluster `key`, take the template from `template($fp)`, add `Reducer::mining(): MiningStats`, accept the
   grouping settings in the constructor (default values keep existing tests valid). Update
   `tests/Unit/Reduce/ReducerTest.php` for the new constructor (test edit first, red, then code). Greens T018.

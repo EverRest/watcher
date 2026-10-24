@@ -232,7 +232,7 @@ final class ModelRouter
         return match ($g->status) {
             GroupStatusLabel::New => 2,
             GroupStatusLabel::Grown => 1,
-            GroupStatusLabel::Unchanged => 0,
+            GroupStatusLabel::Unchanged, GroupStatusLabel::Expected => 0,
         } * 100 + $g->level->value;
     }
 }

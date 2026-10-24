@@ -39,5 +39,5 @@ Cross-key rules:
 Unchanged and reused: `selection.growth_factor` (applies to every mode), `source.group_cap`,
 `redaction.min_group_events_for_text`.
 
-Note: if the in-flight pointer work already added a key for the maximum comparison age, T003 keeps that key's name and
-documents it here; `baseline.max_age` is the planned name only.
+Note (T001): the landed pointer work had no key: the 7-day limit was a constant in `Watcher::lastGoodSnapshot()`. `baseline.max_age`
+(default `P7D`, same behaviour) is now that limit's only setting.

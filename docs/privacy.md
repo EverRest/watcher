@@ -41,9 +41,12 @@ credentials, anything from `fields`.
    undeclared call targets, never names them). Each message is cut at 4096 characters before these rules run, and a trailing partial token is dropped with the cut (no whitespace at all: empty text); UUIDs and long hex -> `<ID>`; IP addresses -> `<IP>`; JWT-like strings, known-prefix keys (`sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox*-`, `glpat-`, `AIza`), PEM private keys, ssh keys, credential headers (`Authorization`, `Proxy-Authorization`, `x-api-key`/`api-key`, `x-auth-token`, `Cookie`, `Set-Cookie`: only a known scheme word such as `Bearer`, `Digest` or `AWS4-HMAC-SHA256` is kept, the rest of the value up to the end of the line or closing quote is masked, commas and spaces included), a standalone `Bearer`/`Basic`/`Token` value (digits or `+/=`, mixed case of 12+ characters, or for `Basic` any base64-looking 8+ run that is not one plain word) and any other long random-looking run (20+ characters, mixed classes, entropy >= 3.5 bits per character; plain class and identifier names are kept) -> `<TOKEN>`. A run holding slashes is split into path segments only when it clearly is a path (rooted with `/`, `./`, `~/`, or at least two slashes), and then only while every kept segment is plain words (2+ letter words, at most 3 digits, no run of 6 consonants; a trailing date and CPU architecture names are allowed); otherwise the whole run is judged and masked whole, so a base64 secret cannot hide behind short segments, and a rooted path with one random segment among odd ones is masked whole. Known false positives, kept on purpose (doubt means masked): camelCase words of 12+ characters right after `token`/`basic`, and the rest of a line after a `cookie:`/`authorization:`-style label; digit-only 32/40/64-character hashes -> `<ID>`; bare host
    names -> `<HOST>`; card-like numbers -> `<PAN>`; remaining digits -> `<N>`; long quoted strings -> `<STR>`. Placeholder-
    shaped text in the input is neutralised first, so log content cannot hide a value inside `<...>`.
-2. **Variation masking** (`src/Reduce/TemplateMiner.php`): events are clustered by level, error type, length and first
-   frame; any word that differs between events of a cluster becomes `<*>`. This is what protects **names of people in
-   free text**, which no pattern can recognise.
+2. **Variation masking** (`src/Reduce/TemplateMiner.php`): events are first bucketed by level, error type, length and first
+   frame, then clustered by similarity (a message joins a cluster when at least half of the cluster leader's literal
+   words match; placeholders do not count); any word that differs between events of a cluster becomes `<*>`. This is what
+   protects **names of people in free text**, which no pattern can recognise. Only distinct masked messages are held,
+   capped at 50,000 with a fixed comparison budget; past either, the affected groups get **no template** (fail
+   closed) and the digest says so. Clustering is order-independent and never changes a fingerprint.
 3. **Minimum cluster size** (`redaction.min_group_events_for_text`, default 3): a cluster with fewer events gets **no
    template at all** (`tpl` is null). A one-off error that mentions a person therefore sends only its level, exception
    class and frames.
@@ -91,7 +94,8 @@ Exception objects are not logged, because the SDK's request (including the API k
 ## Limits you must know
 
 - **A name that is identical in every event of a cluster is not detectable, and no code tries to guess proper names by shape.** If the same person appears 3 or more times
-  with exactly the same surrounding words, the template can contain the name. Raise `min_group_events_for_text` or add an
+  with exactly the same surrounding words, the template can contain the name (similarity grouping does not change this:
+  identical messages are one message). Messages that merely share a name can also join one cluster. Raise `min_group_events_for_text` or add an
   `extra_patterns` entry if your logs contain such a pattern. Free-text names in rare, one-off messages are protected by
   withholding, not by recognising them.
 - **Exception types must look like class names, and names inside them are not detected.** A type is sent only if it

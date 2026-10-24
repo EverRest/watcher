@@ -66,4 +66,25 @@ final class FingerprinterTest extends TestCase
             self::assertSame($one, $f->of($this->ev('Payment declined for ' . $n)));
         }
     }
+
+    /** FR-012 pin: values computed before the similarity grouping existed; a change here resets every comparison. */
+    public function testGoldenFingerprints(): void
+    {
+        self::assertSame('18c37570955d', $this->fp($this->ev('Payment declined for Anna Kowalski')));
+        self::assertSame('ddc8fcc19766', $this->fp($this->ev('Lock wait timeout exceeded order=4411', type: null, frame: 'db.php:9')));
+        self::assertSame('4cdc728c3b6e', $this->fp($this->ev('Connection refused to <x> now', Level::Critical, 'RuntimeException', 'b.php:2')));
+        self::assertSame('c161a677331e', $this->fp($this->ev('boom', Level::Warning, null, '')));
+    }
+
+    public function testSameIdAtOneEventAndAtFive(): void
+    {
+        $f = new Fingerprinter(new Normalizer());
+        $ids = [];
+        foreach ([1, 5] as $n) {
+            $ids[$n] = array_unique(array_map(fn (int $i) => $f->of($this->ev('Payment declined for Anna Kowalski')), range(1, $n)));
+        }
+
+        self::assertSame($ids[1], $ids[5]);
+        self::assertSame(['18c37570955d'], $ids[5]);
+    }
 }

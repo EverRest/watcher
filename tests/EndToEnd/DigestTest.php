@@ -277,6 +277,77 @@ final class DigestTest extends TestCase
         }
         self::fail("no analysed group with errorType $errorType");
     }
+
+    /**
+     * @param list<string> $ends
+     * @param array{float, float}|null $lengthChange
+     */
+    private static function comparison(string $requested, string $used, array $ends, int $candidates, int $found, int $excluded = 0, ?array $lengthChange = null, ?string $reason = null): \Watcher\Baseline\Comparison
+    {
+        return new \Watcher\Baseline\Comparison(
+            $requested,
+            $used,
+            $reason,
+            array_map(static fn (string $e): \DateTimeImmutable => new \DateTimeImmutable($e, new \DateTimeZone('UTC')), $ends),
+            $candidates,
+            $found,
+            $excluded,
+            [],
+            [],
+            3.0,
+            $lengthChange,
+        );
+    }
+
+    private static function comparisonText(\Watcher\Baseline\Comparison $c): string
+    {
+        $m = (new \Watcher\Notify\DigestRenderer())->render(new \Watcher\Notify\DigestData(
+            service: 'svc',
+            environment: 'stg',
+            windowStart: new \DateTimeImmutable('2026-10-27T06:00:00Z'),
+            windowEnd: new \DateTimeImmutable('2026-10-28T06:00:00Z'), // a Wednesday
+            timezone: 'UTC',
+            findings: [],
+            groups: [],
+            comparison: $c,
+        ), 0.5);
+
+        return implode("\n", array_column($m->sections, 'text'));
+    }
+
+    public function testComparisonLines(): void
+    {
+        $seven = ['2026-10-21 06:00', '2026-10-22 06:00', '2026-10-23 06:00', '2026-10-24 06:00', '2026-10-25 06:00', '2026-10-26 06:00', '2026-10-27 06:00'];
+        $span = '(2026-10-21 06:00 UTC to 2026-10-27 06:00 UTC)';
+
+        self::assertStringContainsString("Compared with the average of 7 windows $span.", self::comparisonText(self::comparison('rolling', 'rolling', $seven, 7, 7)));
+        self::assertStringContainsString("Compared with the average of 5 of 7 windows $span.", self::comparisonText(self::comparison('rolling', 'rolling', [$seven[0], $seven[1], $seven[2], $seven[4], $seven[6]], 7, 5)));
+
+        $wed = ['2026-10-07 06:00', '2026-10-14 06:00', '2026-10-21 06:00'];
+        $wspan = '(2026-10-07 06:00 UTC to 2026-10-21 06:00 UTC)';
+        self::assertStringContainsString("Compared with the median of the last 3 Wednesdays $wspan.", self::comparisonText(self::comparison('weekday', 'weekday', $wed, 3, 3)));
+        self::assertStringContainsString("Compared with the median of 3 of the last 4 Wednesdays $wspan.", self::comparisonText(self::comparison('weekday', 'weekday', $wed, 4, 3)));
+
+        self::assertStringContainsString(
+            'Rolling comparison needs 2 earlier windows, found 1; compared with the previous window instead.',
+            self::comparisonText(self::comparison('rolling', 'previous', ['2026-10-27 06:00'], 7, 1, reason: 'short_history')),
+        );
+        self::assertStringContainsString(
+            'Weekday comparison needs 3 earlier Wednesdays, found 2; compared with the previous window instead.',
+            self::comparisonText(self::comparison('weekday', 'previous', ['2026-10-27 06:00'], 4, 2, reason: 'short_history')),
+        );
+
+        // the existing Slack escaping defangs dotted names with a zero-width space
+        $both = str_replace("\u{200B}", '', self::comparisonText(self::comparison('rolling', 'rolling', $seven, 7, 7, 1, [24.0, 12.0])));
+        self::assertStringContainsString("$span. Counts are compared per hour (window length was 24 h, now 12 h). 1 excluded by baseline.exclude.", $both);
+
+        $scaled = self::comparisonText(self::comparison('previous', 'previous', ['2026-10-27 06:00'], 0, 0, 0, [24.0, 12.0]));
+        self::assertStringContainsString('Counts are compared per hour (window length was 24 h, now 12 h).', $scaled);
+
+        $plain = self::comparisonText(self::comparison('previous', 'previous', ['2026-10-27 06:00'], 0, 0));
+        self::assertStringNotContainsString('Compared with', $plain);
+        self::assertStringNotContainsString('per hour', $plain);
+    }
 }
 
 /** Records the TTL of every write passed through to a real store. */

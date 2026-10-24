@@ -7,21 +7,58 @@ namespace Watcher\Reduce;
 use Watcher\Source\LogEvent;
 
 /**
- * Template mining (FR-044). Events are clustered by (level, errorType, token count of the masked
- * message, first frame); a token position whose values are not identical across ALL events of a
- * cluster becomes `<*>`. Clusters under `$minEvents` yield null (message withheld). Order-independent.
+ * Template mining (FR-044, spec 004 US3). While the stream is read only distinct masked messages are kept, with
+ * their event count and fingerprint, per bucket (level, errorType, token count, first frame). After the stream (on
+ * the first template() or stats() call) each bucket is clustered deterministically: messages sorted by (count desc,
+ * text asc); each joins the most similar earlier cluster whose leader it matches on at least `$similarity` of the
+ * leader's literal tokens (placeholders like `<N>` neither count nor match), else founds a new one. A token position
+ * that differs inside a cluster becomes `<*>`. The result depends only on the multiset of messages, never on arrival
+ * order. A fingerprint's template is the one of its largest cluster; null (withheld) when that cluster holds fewer
+ * than `$minEvents` events, or when any of the fingerprint's messages was dropped (cap) or left unclustered (budget).
  *
- * Known limit: a value IDENTICAL in every event of a cluster (e.g. one name seen >= k times) cannot
- * be told from a constant word and stays in the template.
- * ponytail: one entry per cluster; the number of distinct clusters is bounded by the Reducer's group cap (source.group_cap).
+ * `$enabled = false` puts every message of a bucket in one cluster: the pre-similarity behaviour (exact token count).
+ * Known limit: a value IDENTICAL in every event of a cluster cannot be told from a constant word and stays in it.
+ * ponytail: the bucket scan is O(clusters) per message, bounded by `$comparisonBudget`; a tree index if that bites.
  */
 final class TemplateMiner
 {
-    /** @var array<string, array{tokens: list<string>, varying: array<int, true>, count: int}> */
-    private array $clusters = [];
+    public const DEFAULT_SIMILARITY = 0.5;
+    public const DEFAULT_MAX_DISTINCT = 50_000;
+    /** Comparisons allowed per stored message slot of the cap. */
+    private const BUDGET_PER_MESSAGE = 400;
 
-    public function __construct(private readonly int $minEvents)
-    {
+    private const PLACEHOLDER = '/^<[A-Z*]+>$/';
+
+    /** @var array<string, list<array{tokens: list<string>, text: string, count: int, fp: string}>> by bucket */
+    private array $buckets = [];
+
+    /** @var array<string, array<string, int>> bucket => message text => index in $buckets[bucket] */
+    private array $index = [];
+
+    /** @var array<string, true> fingerprints that lost a message to the cap */
+    private array $droppedFps = [];
+
+    private int $distinct = 0;
+
+    private int $dropped = 0;
+
+    private bool $exhausted = false;
+
+    private readonly int $budget;
+
+    private bool $clustered = false;
+
+    /** @var array<string, ?string> */
+    private array $templates = [];
+
+    public function __construct(
+        private readonly int $minEvents,
+        private readonly float $similarity = self::DEFAULT_SIMILARITY,
+        private readonly int $maxDistinct = self::DEFAULT_MAX_DISTINCT,
+        ?int $comparisonBudget = null,
+        private readonly bool $enabled = true,
+    ) {
+        $this->budget = $comparisonBudget ?? self::BUDGET_PER_MESSAGE * $maxDistinct;
     }
 
     /** @return list<string> whitespace tokens of the Normalizer-masked message (throws NormalizationException) */
@@ -33,45 +70,152 @@ final class TemplateMiner
     }
 
     /** @param list<string> $tokens */
-    public function keyOf(LogEvent $event, array $tokens): string
+    public function add(LogEvent $event, array $tokens, string $fingerprint): void
     {
-        return implode('|', [$event->level->value, $event->errorType ?? '', count($tokens), $event->frames[0] ?? '']);
+        $bucket = implode('|', [$event->level->value, $event->errorType ?? '', count($tokens), $event->frames[0] ?? '']);
+        $text = implode(' ', $tokens);
+        if (isset($this->index[$bucket][$text])) {
+            ++$this->buckets[$bucket][$this->index[$bucket][$text]]['count'];
+
+            return;
+        }
+        if ($this->distinct >= $this->maxDistinct) {
+            ++$this->dropped;
+            $this->droppedFps[$fingerprint] = true;
+
+            return;
+        }
+        ++$this->distinct;
+        $this->index[$bucket][$text] = count($this->buckets[$bucket] ?? []);
+        $this->buckets[$bucket][] = ['tokens' => $tokens, 'text' => $text, 'count' => 1, 'fp' => $fingerprint];
+        $this->clustered = false;
+    }
+
+    public function template(string $fingerprint): ?string
+    {
+        $this->cluster();
+
+        return $this->templates[$fingerprint] ?? null;
+    }
+
+    public function stats(): MiningStats
+    {
+        $this->cluster();
+
+        return new MiningStats($this->distinct, $this->dropped, $this->exhausted);
+    }
+
+    private function cluster(): void
+    {
+        if ($this->clustered) {
+            return;
+        }
+        $this->clustered = true;
+        $this->templates = [];
+        $this->exhausted = false;
+        $used = 0;
+        $withheld = $this->droppedFps;
+        $threshold = $this->enabled ? $this->similarity : 0.0;
+        $keys = array_keys($this->buckets);
+        sort($keys, SORT_STRING);
+
+        foreach ($keys as $key) {
+            $messages = $this->buckets[$key];
+            usort($messages, static fn (array $a, array $b): int => [$b['count'], $a['text']] <=> [$a['count'], $b['text']]);
+            /** @var list<array{tokens: list<string>, lit: list<int>, need: int, varying: array<int, true>, count: int, fps: array<string, int>}> $clusters */
+            $clusters = [];
+            foreach ($messages as $m) {
+                $best = $this->enabled || $clusters === [] ? null : 0;
+                if ($best === null) {
+                    $bestScore = -1.0;
+                    foreach ($clusters as $ci => $c) {
+                        if ($used >= $this->budget) {
+                            $this->exhausted = true;
+                            $withheld[$m['fp']] = true;
+                            continue 2;
+                        }
+                        ++$used;
+                        $score = $this->score($c, $m['tokens']);
+                        if ($score > $bestScore) {
+                            [$best, $bestScore] = [$ci, $score];
+                        }
+                    }
+                    if ($bestScore < 0.0) {
+                        $best = null;
+                    }
+                }
+                if ($best === null) {
+                    $lit = array_keys(array_filter($m['tokens'], static fn (string $t): bool => preg_match(self::PLACEHOLDER, $t) !== 1));
+                    $clusters[] = ['tokens' => $m['tokens'], 'lit' => $lit, 'need' => (int) ceil($threshold * count($lit) - 1e-9),
+                        'varying' => [], 'count' => $m['count'], 'fps' => [$m['fp'] => $m['count']]];
+                    continue;
+                }
+                $c = &$clusters[$best];
+                $c['count'] += $m['count'];
+                $c['fps'][$m['fp']] = ($c['fps'][$m['fp']] ?? 0) + $m['count'];
+                foreach ($m['tokens'] as $i => $t) {
+                    if ($t !== $c['tokens'][$i]) {
+                        $c['varying'][$i] = true;
+                    }
+                }
+                unset($c);
+            }
+            $this->collect($clusters, $withheld);
+        }
+        foreach (array_keys($withheld) as $fp) {
+            unset($this->templates[$fp]);
+        }
     }
 
     /**
-     * @param  list<string> $tokens
-     * @return string       the cluster key, for template()
+     * Matches over the leader's literal positions, or -1 when below the threshold. No literal tokens: same shape, 1.
+     *
+     * @param array{tokens: list<string>, lit: list<int>, need: int} $c
+     * @param list<string> $tokens
      */
-    public function add(LogEvent $event, array $tokens): string
+    private function score(array $c, array $tokens): float
     {
-        $key = $this->keyOf($event, $tokens);
-        if (!isset($this->clusters[$key])) {
-            $this->clusters[$key] = ['tokens' => $tokens, 'varying' => [], 'count' => 1];
-
-            return $key;
+        $lit = count($c['lit']);
+        if ($lit === 0) {
+            return 1.0;
         }
-        $c = &$this->clusters[$key];
-        $c['count']++;
-        foreach ($tokens as $i => $t) {
-            if ($t !== $c['tokens'][$i]) {
-                $c['varying'][$i] = true;
+        $miss = 0;
+        $maxMiss = $lit - $c['need'];
+        foreach ($c['lit'] as $i) {
+            if ($tokens[$i] !== $c['tokens'][$i] && ++$miss > $maxMiss) {
+                return -1.0;
             }
         }
 
-        return $key;
+        return ($lit - $miss) / $lit;
     }
 
-    public function template(string $key): ?string
+    /**
+     * @param list<array{tokens: list<string>, varying: array<int, true>, count: int, fps: array<string, int>}> $clusters
+     * @param array<string, true> $withheld
+     */
+    private function collect(array $clusters, array $withheld): void
     {
-        $c = $this->clusters[$key] ?? null;
-        if ($c === null || $c['count'] < $this->minEvents) {
-            return null;
+        /** @var array<string, array{n: int, ci: int}> $best */
+        $best = [];
+        foreach ($clusters as $ci => $c) {
+            foreach ($c['fps'] as $fp => $n) {
+                if (!isset($best[$fp]) || $n > $best[$fp]['n']) {
+                    $best[(string) $fp] = ['n' => $n, 'ci' => $ci];
+                }
+            }
         }
-        $out = [];
-        foreach ($c['tokens'] as $i => $t) {
-            $out[] = isset($c['varying'][$i]) ? '<*>' : $t;
+        foreach ($best as $fp => $b) {
+            $c = $clusters[$b['ci']];
+            $out = null;
+            if ($c['count'] >= $this->minEvents) {
+                $parts = [];
+                foreach ($c['tokens'] as $i => $t) {
+                    $parts[] = isset($c['varying'][$i]) ? '<*>' : $t;
+                }
+                $out = implode(' ', $parts);
+            }
+            $this->templates[(string) $fp] = $out;
         }
-
-        return implode(' ', $out);
     }
 }

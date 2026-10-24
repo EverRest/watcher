@@ -102,7 +102,7 @@ final class Correlator
     {
         $template = $consumer->template ?? '';
 
-        return $origin->status !== GroupStatusLabel::Unchanged
+        return !in_array($origin->status, [GroupStatusLabel::Unchanged, GroupStatusLabel::Expected], true)
             && $origin->level->value >= $originEntry->config->selection['min_level']->value
             && (str_contains($template, '<URL:' . $dependency . '>') || str_contains($template, '<HOST:' . $dependency . '>'))
             && $origin->firstSeen->getTimestamp() - $this->toleranceSeconds <= $consumer->lastSeen->getTimestamp()

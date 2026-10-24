@@ -72,6 +72,12 @@ final class RunGate
         return Window::endingAt($end, $d)->start;
     }
 
+    /** The run_at instant `$days` local days before `$end` (same wall-clock time; DST gaps resolve as for runs). */
+    public function endBack(DateTimeImmutable $end, int $days): DateTimeImmutable
+    {
+        return $this->runAtOn($end, -$days);
+    }
+
     /**
      * The run_at instant on the local date `$days` away from `$ref`'s. A time in the spring-forward gap resolves to
      * the first instant after the gap; an ambiguous (fall-back) time to its first occurrence.

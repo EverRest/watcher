@@ -16,5 +16,6 @@
         </testsuite>
         <testsuite name="EndToEnd"><directory>tests/EndToEnd</directory></testsuite>
     </testsuites>
+    <groups><exclude><group>perf</group></exclude></groups>
     <source><include><directory>src</directory></include></source>
 </phpunit>

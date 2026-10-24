@@ -17,7 +17,7 @@ final class WatchConfig
     private const TOP_LEVEL = [
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
-        'analysis', 'redaction', 'state', 'notify', 'heartbeat',
+        'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -37,6 +37,8 @@ final class WatchConfig
      * @param array<string, mixed> $state
      * @param array<string, mixed> $notify
      * @param array{stale_after: int, weekly_summary: bool} $heartbeat stale_after in seconds
+     * @param array{mode: string, windows: int, max_age: string, max_age_seconds: int, exclude: list<string>, since: ?string} $baseline
+     * @param array{similarity: float, message_cap: int, backend_patterns: bool} $grouping
      */
     private function __construct(
         public readonly string $service,
@@ -58,6 +60,8 @@ final class WatchConfig
         public readonly array $state,
         public readonly array $notify,
         public readonly array $heartbeat,
+        public readonly array $baseline,
+        public readonly array $grouping,
     ) {
     }
 
@@ -138,6 +142,9 @@ final class WatchConfig
             self::regex($re, 'redaction.extra_patterns.' . $name);
         }
 
+        $state = self::state(self::section($config, 'state'));
+        $baseline = self::baseline(self::section($config, 'baseline'), $interval, $state['retention']);
+
         return new self(
             $service,
             $schedule,
@@ -155,10 +162,99 @@ final class WatchConfig
             self::analysis(self::section($config, 'analysis')),
             $patterns,
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
-            self::state(self::section($config, 'state')),
+            $state,
             self::notify(self::section($config, 'notify')),
             self::heartbeat(self::section($config, 'heartbeat'), $interval),
+            $baseline,
+            self::grouping(self::section($config, 'grouping')),
         );
+    }
+
+    /**
+     * @param array<string, mixed> $b
+     * @return array{mode: string, windows: int, max_age: string, max_age_seconds: int, exclude: list<string>, since: ?string}
+     */
+    private static function baseline(array $b, \DateInterval $window, int $retention): array
+    {
+        self::only($b, ['mode', 'windows', 'max_age', 'exclude', 'since'], 'baseline');
+        $mode = $b['mode'] ?? 'previous';
+        if (!in_array($mode, ['previous', 'rolling', 'weekday'], true)) {
+            throw new InvalidConfig('baseline.mode must be one of previous, rolling, weekday');
+        }
+        $min = $mode === 'weekday' ? 3 : 2;
+        $windows = $b['windows'] ?? ($mode === 'weekday' ? 4 : 7);
+        if ($mode !== 'previous' && (!is_int($windows) || $windows < $min)) {
+            throw new InvalidConfig('baseline.windows must be an integer >= ' . $min);
+        }
+        $maxAge = $b['max_age'] ?? 'P7D';
+        try {
+            $maxAgeSeconds = is_string($maxAge) ? (new \DateTimeImmutable('@0'))->add(new \DateInterval($maxAge))->getTimestamp() : 0;
+        } catch (\Exception) {
+            $maxAgeSeconds = 0;
+        }
+        if (!is_string($maxAge) || $maxAgeSeconds < 1) {
+            throw new InvalidConfig('baseline.max_age must be an ISO-8601 duration');
+        }
+        if ($maxAgeSeconds > $retention) {
+            throw new InvalidConfig('baseline.max_age exceeds state.retention');
+        }
+        $exclude = $b['exclude'] ?? [];
+        if (!is_array($exclude) || !array_is_list($exclude) || array_filter($exclude, self::isDate(...)) !== $exclude) {
+            throw new InvalidConfig('baseline.exclude entries must be dates like 2026-12-25');
+        }
+        $since = $b['since'] ?? null;
+        if ($since !== null && !self::isDate($since)) {
+            throw new InvalidConfig('baseline.since must be a date like 2026-10-01');
+        }
+        if ($mode !== 'previous') {
+            $wholeDays = $window->y === 0 && $window->m === 0 && $window->i === 0 && $window->s === 0 && $window->h % 24 === 0
+                ? $window->d + intdiv($window->h, 24) : 0;
+            if ($wholeDays < 1) {
+                throw new InvalidConfig('baseline.mode rolling/weekday needs a whole-day schedule.window');
+            }
+            $needs = $windows * ($mode === 'weekday' ? 7 : $wholeDays) * 86400 + 86400;
+            if ($retention < $needs) {
+                throw new InvalidConfig(sprintf('state.retention (%d s) is shorter than baseline.windows needs (%d s)', $retention, $needs));
+            }
+        }
+
+        return [
+            'mode' => $mode,
+            'windows' => is_int($windows) ? $windows : 0,
+            'max_age' => $maxAge,
+            'max_age_seconds' => $maxAgeSeconds,
+            'exclude' => $exclude,
+            'since' => $since,
+        ];
+    }
+
+    private static function isDate(mixed $v): bool
+    {
+        $d = is_string($v) ? \DateTimeImmutable::createFromFormat('!Y-m-d', $v) : false;
+
+        return $d !== false && $d->format('Y-m-d') === $v;
+    }
+
+    /**
+     * @param array<string, mixed> $g
+     * @return array{similarity: float, message_cap: int, backend_patterns: bool}
+     */
+    private static function grouping(array $g): array
+    {
+        self::only($g, ['similarity', 'message_cap', 'backend_patterns'], 'grouping');
+        $similarity = $g['similarity'] ?? 0.5;
+        if ((!is_int($similarity) && !is_float($similarity)) || $similarity <= 0 || $similarity > 1) {
+            throw new InvalidConfig('grouping.similarity must be greater than 0 and at most 1');
+        }
+        $cap = $g['message_cap'] ?? 50000;
+        if (!is_int($cap) || $cap < 1000) {
+            throw new InvalidConfig('grouping.message_cap must be an integer >= 1000');
+        }
+        if (($g['backend_patterns'] ?? false) !== false) {
+            throw new InvalidConfig('grouping.backend_patterns is not available yet');
+        }
+
+        return ['similarity' => (float) $similarity, 'message_cap' => $cap, 'backend_patterns' => false];
     }
 
     /**

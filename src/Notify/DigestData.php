@@ -7,6 +7,7 @@ namespace Watcher\Notify;
 use DateTimeImmutable;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\Usage;
+use Watcher\Baseline\Comparison;
 use Watcher\Privacy\RedactedGroup;
 
 /** Everything DigestRenderer needs; all strings are already redacted or bounded. */
@@ -64,6 +65,8 @@ final class DigestData
         public readonly ?DateTimeImmutable $comparedWith = null,
         /** @var array<string, string> fingerprint => a code-built line appended to that finding (fleet correlation); never removes a finding */
         public readonly array $annotations = [],
+        /** @var Comparison|null what this window was compared with (spec 004); null = the previous window, nothing to say */
+        public readonly ?Comparison $comparison = null,
     ) {
     }
 }

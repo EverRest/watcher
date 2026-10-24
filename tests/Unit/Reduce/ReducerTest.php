@@ -193,4 +193,50 @@ final class ReducerTest extends TestCase
 
         self::assertSame(['drop that other'], $folded);
     }
+
+    public function testUnrelatedSameLengthMessagesKeepReadableTemplates(): void
+    {
+        $events = [];
+        foreach (['Anna', 'Bob', 'Eve'] as $n) {
+            $events[] = $this->ev('Disk quota exceeded for ' . $n);
+            $events[] = $this->ev('Card payment rejected by ' . $n);
+        }
+        $templates = array_map(static fn ($g) => $g->template, (new Reducer(new Normalizer(), 3))->reduce($events));
+        sort($templates);
+
+        self::assertSame(['Card payment rejected by <*>', 'Disk quota exceeded for <*>'], $templates);
+    }
+
+    public function testSimilarityOffKeepsTheOldLengthOnlyTemplate(): void
+    {
+        $events = [];
+        foreach (['Anna', 'Bob', 'Eve'] as $n) {
+            $events[] = $this->ev('Disk quota exceeded for ' . $n);
+            $events[] = $this->ev('Card payment rejected by ' . $n);
+        }
+        $groups = (new Reducer(new Normalizer(), 3, groupBySimilarity: false))->reduce($events);
+
+        self::assertSame(['<*> <*> <*> <*> <*>', '<*> <*> <*> <*> <*>'], array_map(static fn ($g) => $g->template, $groups));
+    }
+
+    public function testMiningReportsTheCapAndWithholdsTheText(): void
+    {
+        $r = new Reducer(new Normalizer(), 1, maxDistinctMessages: 2);
+        $groups = $r->reduce($this->distinct(4));
+
+        self::assertSame(2, $r->mining()->distinctMessages);
+        self::assertSame(2, $r->mining()->droppedMessages);
+        self::assertTrue($r->mining()->truncated());
+        self::assertCount(4, $groups);
+        self::assertCount(2, array_filter($groups, static fn ($g) => $g->template === null));
+    }
+
+    public function testMiningIsEmptyBeforeAnyRunAndWhenUntruncated(): void
+    {
+        $r = new Reducer(new Normalizer(), 1);
+        self::assertFalse($r->mining()->truncated());
+        $r->reduce($this->distinct(3));
+        self::assertFalse($r->mining()->truncated());
+        self::assertSame(3, $r->mining()->distinctMessages);
+    }
 }

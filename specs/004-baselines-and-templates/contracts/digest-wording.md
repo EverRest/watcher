@@ -8,12 +8,12 @@ them. Times are UTC in the form `2026-10-21 06:00 UTC`. One line each, in the di
 
 | Case | Text |
 |---|---|
-| previous window missing, older one used (in-flight pointer work; T001 copies its exact wording here) | `Compared with the window ending {end} (the window ending {prevEnd} has no record).` |
+| previous window missing, older one used (pointer work, landed; unchanged, comes from `DigestData::comparedWith`) | `ℹ️ compared with the run of {Y-m-d}, {N days\|hours} ago`, then, when the gap is over one day: `⚠️ no snapshot for the previous window (skipped or failed run): growth is measured against the older run, counts are per window and not scaled for the gap` |
 | rolling | `Compared with the average of {n} windows ({first} to {last}).` |
 | rolling, some candidates missing | `Compared with the average of {n} of {N} windows ({first} to {last}).` |
 | weekday | `Compared with the median of the last {n} {Weekday}s ({first} to {last}).` |
 | weekday, some missing | `Compared with the median of {n} of the last {N} {Weekday}s ({first} to {last}).` |
-| too little history, fell back | `{Mode} comparison needs {min} earlier {windows|Weekdays}, found {n}; compared with the previous window instead.` |
+| too little history, fell back | `{Mode} comparison needs {min} earlier {windows|Weekdays} (built: `windows`, or the weekday name plus `s`, e.g. `Mondays`), found {n}; compared with the previous window instead.` |
 | window length differs | appended: `Counts are compared per hour (window length was {a} h, now {b} h).` |
 | exclusions applied | appended: `{k} excluded by baseline.exclude.` (only when k > 0) |
 

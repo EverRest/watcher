@@ -60,6 +60,21 @@ return [
         'top_m' => 10,                                   // groups deep-analysed per run (<= top_n), default 10
     ],
 
+    // What a window is compared with. Default 'previous' = the window before (no change in behaviour).
+    'baseline' => [
+        'mode' => 'previous',                            // previous | rolling (mean of N windows) | weekday (median of N same weekdays)
+        'windows' => null,                               // rolling default 7 (>= 2), weekday default 4 (>= 3); needs state.retention >= windows x span + 1 day
+        'max_age' => 'P7D',                              // oldest snapshot a missing previous window may fall back to; <= state.retention
+        'exclude' => [],                                 // local dates ('2026-12-25') of window ends left out of rolling/weekday values
+        'since' => null,                                 // ignore windows that ended before this local date (history reset)
+    ],
+
+    // How messages are grouped into templates.
+    'grouping' => [
+        'similarity' => 0.5,                             // 0 < x <= 1: share of literal words that must match, default 0.5
+        'message_cap' => 50000,                          // >= 1000: distinct masked messages clustered per run, default 50000
+    ],
+
     'analysis' => [
         'provider' => 'anthropic',                       // only anthropic is available
         'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),    // required

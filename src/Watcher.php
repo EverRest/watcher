@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
+use Watcher\Baseline\BaselineResolver;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
@@ -532,9 +533,17 @@ final class Watcher
         $muteResult = $mute->filter($groups, $muteHits, $started);
         $groups = $muteResult->kept;
         $factor = $c->selection['growth_factor'];
-        $previousGroups = $prev['groups'] ?? [];
+        // Spec 004: what each group is compared with is decided by baseline.mode; `$prev` stays for deploy info and level anomalies.
+        $comparison = (new BaselineResolver(
+            $this->state,
+            new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']),
+            $service,
+            $c->baseline,
+            new \DateTimeZone($c->schedule['timezone']),
+            $factor,
+        ))->resolve($window, array_map(static fn (ProblemGroup $g): string => $g->fingerprint, $allGroups), $prev, $comparedWith ?? $window->start);
         $groups = array_map(
-            static fn (ProblemGroup $g): ProblemGroup => $g->withPrevious($prev === null ? null : ($previousGroups[$g->fingerprint] ?? null), $factor),
+            static fn (ProblemGroup $g): ProblemGroup => $g->withComparison($comparison->previousFor($g->fingerprint), $comparison->statusFor($g->fingerprint, $g->count)),
             $groups,
         );
 
@@ -549,7 +558,7 @@ final class Watcher
         $environment = $this->environment();
         $renderer = new DigestRenderer();
 
-        if ($prev === null) {
+        if ($comparison->isBaseline()) {
             $this->readDependencies($window, $normalizer, $redactor, null);
             $this->writeSnapshot($window, $allGroups, $totals);
             $this->notifier->send(
@@ -721,8 +730,9 @@ final class Watcher
             $patternFailures,
             $routed->notTriaged,
             $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize,
-            $comparedWith,
+            $comparison->usedMode === 'previous' ? $comparedWith : null,
             $annotations,
+            $comparison,
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));
@@ -971,14 +981,14 @@ final class Watcher
         $key = self::windowKey($window->end);
         $this->state->put(
             Keys::snapshot($this->config->service, $key),
-            ['groups' => $counts, 'totals' => $totals, 'deploy' => $this->deployInfo?->toSnapshot()],
+            ['groups' => $counts, 'totals' => $totals, 'deploy' => $this->deployInfo?->toSnapshot(), 'start' => self::windowKey($window->start)],
             $this->config->state['retention'],
         );
         $this->state->put(Keys::lastSnapshot($this->config->service), ['end' => $key], $this->config->state['retention']);
     }
 
     /**
-     * H6: the snapshot the last successful snapshot write points to, if it is older than this window's start but at most 7 days before its end.
+     * H6: the snapshot the last successful snapshot write points to, if it is older than this window's start but at most baseline.max_age before its end.
      *
      * @return array{0: array<mixed>, 1: DateTimeImmutable, 2: string}|array{}
      */
@@ -986,7 +996,7 @@ final class Watcher
     {
         $key = $this->state->get(Keys::lastSnapshot($this->config->service))['end'] ?? null;
         $end = is_string($key) ? DateTimeImmutable::createFromFormat('Y-m-d\TH:i:s\Z', $key, new \DateTimeZone('UTC')) : false;
-        if ($end === false || $end >= $window->end || $window->end->getTimestamp() - $end->getTimestamp() > 7 * 86400) {
+        if ($end === false || $end >= $window->end || $window->end->getTimestamp() - $end->getTimestamp() > $this->config->baseline['max_age_seconds']) {
             return [];
         }
         $snap = $this->state->get(Keys::snapshot($this->config->service, $key));

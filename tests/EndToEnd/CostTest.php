@@ -498,4 +498,19 @@ final class CostTest extends TestCase
         self::assertSame(['interesting'], array_values($h->state->get($key) ?? []));
         self::assertSame([], array_filter(array_keys($h->state->all()), static fn (string $k): bool => str_starts_with($k, Keys::REPORTED . ':') || str_starts_with($k, Keys::VERDICT . ':')), 'no verdict or reported marker from a failed run');
     }
+
+    public function testBaselineModeDoesNotChangeTheNumberOfModelCalls(): void
+    {
+        $calls = [];
+        foreach (['previous', 'rolling', 'weekday'] as $mode) {
+            $h = new Harness(['baseline' => ['mode' => $mode]]);
+            for ($d = 0; $d < 5; ++$d) {
+                $h->watcher(self::source(self::group('Alpha', 5 + $d * 20)))->run();
+                $h->nextWindow();
+            }
+            $calls[$mode] = count($h->analyzer->allRequests());
+        }
+
+        self::assertSame(1, count(array_unique($calls)), json_encode($calls) ?: '');
+    }
 }

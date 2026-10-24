@@ -32,6 +32,24 @@ final class ProblemGroup
     ) {
     }
 
+    /** Status decided elsewhere (BaselineResolver); `$previousCount` is only for display. */
+    public function withComparison(?int $previousCount, GroupStatus $status): self
+    {
+        return new self(
+            $this->fingerprint,
+            $this->template,
+            $this->level,
+            $this->errorType,
+            $this->frames,
+            $this->count,
+            $this->firstSeen,
+            $this->lastSeen,
+            $previousCount,
+            $status,
+            $this->watchMatches,
+        );
+    }
+
     public function withPrevious(?int $previousCount, float $growthFactor): self
     {
         return new self(

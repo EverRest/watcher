@@ -9,6 +9,7 @@ use DateTimeZone;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
+use Watcher\Baseline\Comparison;
 use Watcher\Privacy\GroupStatusLabel;
 
 /**
@@ -119,6 +120,9 @@ final class DigestRenderer
         if ($d->levelAnomalyLine !== null) {
             $out[] = ['kind' => 'notice', 'text' => '📈 ' . $this->esc($d->levelAnomalyLine)];
         }
+        if ($d->comparison !== null && ($line = $this->comparisonLine($d, $d->comparison)) !== null) {
+            $out[] = ['kind' => 'notice', 'text' => 'ℹ️ ' . $line];
+        }
         if ($d->eventsReadTruncated !== null) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s events read', number_format($d->eventsReadTruncated))];
         }
@@ -173,6 +177,40 @@ final class DigestRenderer
         return $out;
     }
 
+    /** Fixed words, integers and UTC times only (contracts/digest-wording.md); nothing from a log message. */
+    private function comparisonLine(DigestData $d, Comparison $c): ?string
+    {
+        $utc = new DateTimeZone('UTC');
+        $at = static fn (DateTimeImmutable $t): string => $t->setTimezone($utc)->format('Y-m-d H:i') . ' UTC';
+        $weekday = $d->windowEnd->setTimezone(new DateTimeZone($d->timezone))->format('l');
+        $parts = [];
+
+        if ($c->reason === 'short_history') {
+            $parts[] = sprintf(
+                '%s comparison needs %d earlier %s, found %d; compared with the previous window instead.',
+                ucfirst($c->requestedMode),
+                $c->requestedMode === 'weekday' ? 3 : 2,
+                $c->requestedMode === 'weekday' ? $weekday . 's' : 'windows',
+                $c->found,
+            );
+        } elseif ($c->usedMode !== 'previous' && $c->ends !== []) {
+            $n = count($c->ends);
+            $span = sprintf('(%s to %s)', $at($c->ends[0]), $at($c->ends[$n - 1]));
+            $partial = $n < $c->candidates;
+            $parts[] = $c->usedMode === 'weekday'
+                ? sprintf('Compared with the median of %sthe last %s%ss %s.', $partial ? "$n of " : '', $partial ? $c->candidates . ' ' : "$n ", $weekday, $span)
+                : sprintf('Compared with the average of %s%s windows %s.', $partial ? "$n of " : '', $partial ? (string) $c->candidates : (string) $n, $span);
+        }
+        if ($c->lengthChange !== null) {
+            $parts[] = sprintf('Counts are compared per hour (window length was %s h, now %s h).', round($c->lengthChange[0], 1), round($c->lengthChange[1], 1));
+        }
+        if ($c->excluded > 0 && $c->usedMode !== 'previous') {
+            $parts[] = sprintf('%d excluded by baseline.exclude.', $c->excluded);
+        }
+
+        return $parts === [] ? null : $this->esc(implode(' ', $parts));
+    }
+
     private function finding(Finding $f, int $count, DigestData $d): string
     {
         $trend = '';
@@ -182,6 +220,8 @@ final class DigestRenderer
                 $trend = ' (new)';
             } elseif ($group->status === GroupStatusLabel::Grown && $group->previousCount !== null) {
                 $trend = sprintf(' (↑ from %s)', number_format($group->previousCount));
+            } elseif ($group->status === GroupStatusLabel::Expected) {
+                $trend = $d->comparison?->usedMode === 'weekday' ? ' (expected for this weekday)' : ' (seen in earlier windows)';
             }
         }
 

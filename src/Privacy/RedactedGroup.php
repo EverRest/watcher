@@ -53,6 +53,7 @@ final class RedactedGroup implements JsonSerializable
                 GroupStatus::New => GroupStatusLabel::New,
                 GroupStatus::Grown => GroupStatusLabel::Grown,
                 GroupStatus::Unchanged => GroupStatusLabel::Unchanged,
+                GroupStatus::Expected => GroupStatusLabel::Expected,
             },
             $g->watchMatches,
             $g->firstSeen,

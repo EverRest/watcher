@@ -118,4 +118,14 @@ return [
     'fkmsguser',
     'fkmacuser',
     'fkwinmsg',
+    // spec 004 US3: similarity grouping. Names varying inside a group, a name in a retry loop below
+    // min_group_events_for_text, and an email repeating at or above it (masked by the Normalizer).
+    'Nadia Prykhodko',
+    'Roman Tkachenko',
+    'Olga Zinchenko',
+    'Petro Marchuk',
+    'Ihor Savchuk',
+    'Marta Boyko',
+    'Vasyl Hnatyuk',
+    'lena.shulga@example.org',
 ];

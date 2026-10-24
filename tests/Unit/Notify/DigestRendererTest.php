@@ -388,4 +388,15 @@ final class DigestRendererTest extends TestCase
             (new DigestRenderer())->render($this->data([$f], [], ['annotations' => []]), 0.5),
         );
     }
+
+    public function testExpectedTrendNamesTheMode(): void
+    {
+        $f = $this->finding(1);
+        $groups = [$f->fingerprints[0] => $this->group($f->fingerprints[0], 5, GroupStatusLabel::Expected, 4)];
+        $c = static fn (string $mode): \Watcher\Baseline\Comparison => new \Watcher\Baseline\Comparison($mode, $mode, null, [], 4, 4, 0, [], [], 3.0);
+        $render = fn (string $mode): string => implode("\n", array_column((new DigestRenderer())->render($this->data([$f], [], ['groups' => $groups, 'comparison' => $c($mode)]), 0.5)->sections, 'text'));
+
+        self::assertStringContainsString('5× (expected for this weekday)', $render('weekday'));
+        self::assertStringContainsString('5× (seen in earlier windows)', $render('rolling'));
+    }
 }
