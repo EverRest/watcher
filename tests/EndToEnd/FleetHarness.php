@@ -43,6 +43,9 @@ final class FleetHarness
     /** What the fleet itself posts (combined digest, fleet budget notices). */
     public FakeNotifier $fleetNotifier;
 
+    /** Everything printed in a dry run (by the services and by the fleet). */
+    public string $printed = '';
+
     /** Called after each service ran, with its name (e.g. to advance the clock). */
     public ?Closure $afterService = null;
 
@@ -118,7 +121,8 @@ final class FleetHarness
                 if (isset($this->crash[$name])) {
                     throw $this->crash[$name];
                 }
-                $result = (new Watcher($e->config, $this->sources[$name], $this->state, $this->analyzer, $seam?->notifierFor($name, $this->notifiers[$name]) ?? $this->notifiers[$name], $this->clock, $this->hostLog, $options, static function (string $text): void {
+                $result = (new Watcher($e->config, $this->sources[$name], $this->state, $this->analyzer, $seam?->notifierFor($name, $this->notifiers[$name]) ?? $this->notifiers[$name], $this->clock, $this->hostLog, $options, function (string $text): void {
+                    $this->printed .= $text;
                 }, $seam))->run($now);
                 if ($this->afterService !== null) {
                     ($this->afterService)($name);
@@ -131,7 +135,9 @@ final class FleetHarness
 
     public function runner(?StateStore $fleetState = null): FleetRunner
     {
-        return new FleetRunner(FleetConfig::fromArray($this->fleetArray()), $this->watcherFor(), $fleetState ?? $this->state, $this->clock, $this->hostLog, $this->fleetNotifier);
+        return new FleetRunner(FleetConfig::fromArray($this->fleetArray()), $this->watcherFor(), $fleetState ?? $this->state, $this->clock, $this->hostLog, $this->fleetNotifier, function (string $text): void {
+            $this->printed .= $text;
+        });
     }
 
     /**

@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Watcher\Cli\Application;
 use Watcher\Config\InvalidConfig;
 use Watcher\Fleet\FleetResult;
+use Watcher\Fleet\FleetStatus;
 use Watcher\Fleet\ServiceResult;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\CheckResult;
@@ -499,6 +500,94 @@ final class CliTest extends TestCase
             throw new \LogicException('x');
         }, $err))->run(['watcher', 'fleet:run', '--config=' . $this->cfg]);
 
+        self::assertSame(2, $code);
+    }
+
+    /**
+     * @param list<string> $args
+     * @return array{int, string, string}
+     */
+    private function execFleetOps(array $args, CheckReport|FleetStatus|InvalidConfig $outcome): array
+    {
+        $check = static function (string $path, bool $postTest) use ($outcome): CheckReport {
+            if ($outcome instanceof InvalidConfig) {
+                throw $outcome;
+            }
+            self::assertInstanceOf(CheckReport::class, $outcome);
+
+            return $outcome;
+        };
+        $status = static function (string $path) use ($outcome): FleetStatus {
+            if ($outcome instanceof InvalidConfig) {
+                throw $outcome;
+            }
+            self::assertInstanceOf(FleetStatus::class, $outcome);
+
+            return $outcome;
+        };
+        $err = fopen('php://memory', 'w+');
+        $out = fopen('php://memory', 'w+');
+        self::assertIsResource($err);
+        self::assertIsResource($out);
+        $unused = static function (): callable {
+            throw new \LogicException('not used');
+        };
+        $code = (new Application($unused, $err, $out, null, null, null, $check, $status))->run(['watcher', ...$args]);
+        rewind($err);
+        rewind($out);
+
+        return [$code, (string) stream_get_contents($out), (string) stream_get_contents($err)];
+    }
+
+    private static function fleetStatus(string $state): FleetStatus
+    {
+        $now = new DateTimeImmutable('2026-10-23T06:00:00+00:00');
+        $one = new HeartbeatStatus($state, $state === 'unknown' ? null : ['outcome' => 'quiet'], 60, 3600, $now, $now, $now);
+
+        return new FleetStatus('platform', $one, ['api' => $one]);
+    }
+
+    public function testFleetCheckPrintsTheReportAndMapsTheExitCode(): void
+    {
+        [$code, $out] = $this->execFleetOps(['fleet:check', '--config=' . $this->cfg, '--post-test'], new CheckReport([CheckResult::pass('order', 'api'), CheckResult::fail('api/source', 'HTTP 502')]));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('api/source', $out);
+    }
+
+    public function testFleetCheckInvalidFleetIsAFailedConfigCheck(): void
+    {
+        [$code, $out] = $this->execFleetOps(['fleet:check', '--config=' . $this->cfg], new InvalidConfig('services[1] (bff-a): bad'));
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('services[1] (bff-a): bad', $out);
+    }
+
+    public function testFleetStatusTextJsonAndExitCodes(): void
+    {
+        [$code, $out] = $this->execFleetOps(['fleet:status', '--config=' . $this->cfg], self::fleetStatus('ok'));
+        self::assertSame(0, $code);
+        self::assertStringContainsString('fleet:          platform', $out);
+
+        [$code, $out, $err] = $this->execFleetOps(['fleet:status', '--config=' . $this->cfg, '--json'], self::fleetStatus('stale'));
+        self::assertSame(1, $code);
+        self::assertCount(1, explode("\n", trim($out)));
+        self::assertSame('platform', json_decode($out, true)['fleet']);
+        self::assertStringContainsString('fleet:          platform', $err);
+
+        [$code] = $this->execFleetOps(['fleet:status', '--config=' . $this->cfg], self::fleetStatus('unknown'));
+        self::assertSame(3, $code);
+
+        [$code, , $err] = $this->execFleetOps(['fleet:status', '--config=' . $this->cfg], new InvalidConfig('x'));
+        self::assertSame(2, $code);
+        self::assertStringContainsString('invalid fleet: x', $err);
+    }
+
+    public function testFleetOpsRejectUnknownFlagsAndWantAConfig(): void
+    {
+        [$code] = $this->execFleetOps(['fleet:status', '--config=' . $this->cfg, '--post-test'], self::fleetStatus('ok'));
+        self::assertSame(2, $code);
+        [$code] = $this->execFleetOps(['fleet:check'], self::fleetStatus('ok'));
         self::assertSame(2, $code);
     }
 }

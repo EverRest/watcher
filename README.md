@@ -173,6 +173,18 @@ One message per service per run: a header (service, environment, window), findin
 notices and a cost footer. A finding shows title, event count and trend (`new` or `up from N`), a 12-character
 fingerprint, evidence, a hypothesis (always labelled as such) and a suggested next step.
 
+## Several services (fleet)
+
+One job can watch several services, including ones that cannot host the package (no CLI, no scheduler): list them in a
+fleet file and run `watcher fleet:run --config=<file|dir>`. Each service keeps its own window, run record, lock and
+digest and runs in isolation (one failing service never stops another; the exit code is the worst). A fleet can add a
+shared daily cap (`budget`), one combined digest (`digest: combined`), and **correlation**: when a consumer's findings
+reference a service that has a new or grown finding in the same window, the consumer's own finding is annotated
+`likely caused by the <origin> finding <fingerprint> (hypothesis)` and one additional message names the origin. It is
+decided in code from names, placeholders and times; it makes no model call and withholds nothing. See
+[docs/examples/watcher-fleet.php](docs/examples/watcher-fleet.php), [operations](docs/operations.md#fleet) and the
+[configuration reference](docs/configuration.md#fleet-configuration).
+
 ## Documentation
 
 [docs/](docs/README.md): [first live smoke run](docs/smoke-test.md), [operating it](docs/operations.md),

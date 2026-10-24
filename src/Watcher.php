@@ -146,6 +146,7 @@ final class Watcher
             // Reads pass through; every write, lock and counter is swallowed; nothing is posted (spec 002, US3).
             $state = new DryRunStateStore($state);
             $notifier = $this->options->estimate ? self::discarding() : new CapturingNotifier($this->out);
+            $notifier = $fleet?->notifierFor($config->service, $notifier) ?? $notifier; // a combined fleet digest is held in a dry run too
             if ($this->options->estimate) {
                 $analyzer = $this->estimator = new EstimatingAnalyzer();
             }
@@ -583,6 +584,7 @@ final class Watcher
         foreach ($candidates as $cand) {
             $redactedBy[$cand->group->fingerprint] = $redactor->redact($cand->group);
         }
+        $annotations = $this->fleet?->reduced($service, array_values($redactedBy)) ?? [];
         $serviceContext = $this->serviceContext($redactor);
         $truncation = Budget::truncate(
             $candidates,
@@ -720,6 +722,7 @@ final class Watcher
             $routed->notTriaged,
             $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize,
             $comparedWith,
+            $annotations,
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));

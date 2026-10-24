@@ -62,6 +62,8 @@ final class DigestData
         public readonly int $escalationsSkipped = 0,
         /** @var DateTimeImmutable|null window end of the older snapshot used because the previous window's was missing (H6) */
         public readonly ?DateTimeImmutable $comparedWith = null,
+        /** @var array<string, string> fingerprint => a code-built line appended to that finding (fleet correlation); never removes a finding */
+        public readonly array $annotations = [],
     ) {
     }
 }

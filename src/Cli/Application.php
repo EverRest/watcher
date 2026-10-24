@@ -7,7 +7,9 @@ namespace Watcher\Cli;
 use Closure;
 use DateTimeImmutable;
 use Watcher\Config\InvalidConfig;
+use Watcher\Fleet\FleetCheck;
 use Watcher\Fleet\FleetResult;
+use Watcher\Fleet\FleetStatus;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\Doctor;
 use Watcher\Operate\HeartbeatStatus;
@@ -26,6 +28,8 @@ final class Application
           watcher check --config=<file> [--post-test] [--json]
           watcher status --config=<file> [--json]
           watcher fleet:run --config=<fleet file or directory> [--now=<ISO-8601>] [--only=<service>[,<service>...]] [--dry-run [--estimate]] [--json]
+          watcher fleet:check --config=<fleet file or directory> [--post-test] [--json]
+          watcher fleet:status --config=<fleet file or directory> [--json]
 
         TXT;
 
@@ -35,6 +39,8 @@ final class Application
         'check' => ['--post-test', '--json'],
         'status' => ['--json'],
         'fleet:run' => ['--dry-run', '--estimate', '--json'],
+        'fleet:check' => ['--post-test', '--json'],
+        'fleet:status' => ['--json'],
     ];
 
     /**
@@ -45,6 +51,8 @@ final class Application
      * @param (Closure(array<string, mixed>): HeartbeatStatus)|null $statusFactory
      * @param (Closure(string, RunOptions, list<string>): (callable(?DateTimeImmutable): FleetResult))|null $fleetFactory
      *        gets the fleet file or directory, the options and the --only names; throws InvalidConfig before any external call
+     * @param (Closure(string, bool): CheckReport)|null $fleetCheckFactory fleet file or directory, --post-test; throws InvalidConfig for an invalid fleet
+     * @param (Closure(string): FleetStatus)|null $fleetStatusFactory fleet file or directory; throws InvalidConfig for an invalid fleet
      */
     public function __construct(
         private readonly Closure $factory,
@@ -53,6 +61,8 @@ final class Application
         private readonly ?Closure $checkFactory = null,
         private readonly ?Closure $statusFactory = null,
         private readonly ?Closure $fleetFactory = null,
+        private readonly ?Closure $fleetCheckFactory = null,
+        private readonly ?Closure $fleetStatusFactory = null,
     ) {
     }
 
@@ -93,11 +103,14 @@ final class Application
                 return $this->usage();
             }
         }
-        if ($config === null || $config === '' || !(is_file($config) || ($command === 'fleet:run' && is_dir($config)))) {
+        if ($config === null || $config === '' || !(is_file($config) || (str_starts_with($command, 'fleet:') && is_dir($config)))) {
             return $this->usage();
         }
         $json = isset($flags['--json']);
 
+        if ($command === 'fleet:check' || $command === 'fleet:status') {
+            return $this->fleetOperate($command, $config, $json, isset($flags['--post-test']));
+        }
         if ($command === 'check' || $command === 'status') {
             return $this->operate($command, $config, $json, isset($flags['--post-test']));
         }
@@ -164,6 +177,39 @@ final class Application
         }
 
         return $result->exitCode();
+    }
+
+    private function fleetOperate(string $command, string $config, bool $json, bool $postTest): int
+    {
+        $factory = $command === 'fleet:check' ? $this->fleetCheckFactory : $this->fleetStatusFactory;
+        if ($factory === null) {
+            return $this->usage();
+        }
+        try {
+            if ($command === 'fleet:status') {
+                $status = $factory($config);
+                $this->line($json, rtrim($status->text(), "\n"), true);
+                if ($json) {
+                    $this->line(null, $status->toJson());
+                }
+
+                return $status->exitCode();
+            }
+            $report = $factory($config, $postTest);
+        } catch (InvalidConfig $e) {
+            if ($command === 'fleet:status') {
+                fwrite($this->err, 'invalid fleet: ' . $e->getMessage() . "\n");
+
+                return 2;
+            }
+            $report = FleetCheck::invalid($e->getMessage());
+        }
+        $this->line($json, rtrim($report->text(), "\n"), true);
+        if ($json) {
+            $this->line(null, json_encode($report->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+        }
+
+        return $report->exitCode();
     }
 
     /** @return list<string> the service names of an --only=a,b value (empty when none) */

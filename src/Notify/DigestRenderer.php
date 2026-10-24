@@ -90,7 +90,7 @@ final class DigestRenderer
             }
             $out[] = ['kind' => 'severity', 'text' => sprintf('%s *%s* (%d)', self::ICONS[$sev->value], $sev->value, count($items))];
             foreach ($items as $s) {
-                $links = $this->linksLine($s['f'], $d);
+                $links = $this->annotationLine($s['f'], $d) . $this->linksLine($s['f'], $d);
                 $out[] = ['kind' => 'finding', 'text' => $this->cap($this->finding($s['f'], $s['n'], $d), self::MAX_SECTION_CHARS - mb_strlen($links)) . $links];
             }
         }
@@ -232,6 +232,18 @@ final class DigestRenderer
                 return $line;
             }
             array_pop($parts);
+        }
+
+        return '';
+    }
+
+    /** One extra line when the fleet linked this finding to an upstream one (spec 003); empty otherwise. */
+    private function annotationLine(Finding $f, DigestData $d): string
+    {
+        foreach ($f->fingerprints as $fp) {
+            if (isset($d->annotations[$fp])) {
+                return "\n  🔗 " . $this->esc($d->annotations[$fp]);
+            }
         }
 
         return '';

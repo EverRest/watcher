@@ -33,4 +33,6 @@ exit((new Watcher\Cli\Application(
 
         return static fn (?DateTimeImmutable $now): Watcher\Fleet\FleetResult => $runner->run($now, $options, $only);
     },
+    static fn (string $path, bool $postTest): Watcher\Operate\CheckReport => Watcher\Fleet\FleetCheck::fromConfig($path)->run($postTest),
+    static fn (string $path): Watcher\Fleet\FleetStatus => Watcher\Fleet\FleetStatus::fromConfig($path, null, new Watcher\Cli\StderrLogger(STDERR)),
 ))->run($argv));

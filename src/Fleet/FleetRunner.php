@@ -44,6 +44,7 @@ final class FleetRunner
         private readonly ClockInterface $clock,
         private readonly ?LoggerInterface $log = null,
         private readonly ?Notifier $notifier = null,
+        private readonly mixed $out = null,
     ) {
     }
 
@@ -81,7 +82,7 @@ final class FleetRunner
             $seam,
         ))->run(...);
 
-        return new self($fleet, $watcherFor, $state, $clock, $log, $notifier);
+        return new self($fleet, $watcherFor, $state, $clock, $log, $notifier, $out);
     }
 
     /**
@@ -101,7 +102,8 @@ final class FleetRunner
         // A dry run reads the fleet counters but never writes them, and the fleet posts nothing.
         $b = $this->config->budget;
         $budget = new FleetBudget($options->dryRun ? new DryRunStateStore($this->state) : $this->state, $this->clock, new DateTimeZone($this->config->timezone), $this->config->name, $b['daily_budget_usd'], $b['daily_token_limit'], $b['alert_percents']);
-        $seam = new FleetSeam($budget, $this->config->digest === 'combined');
+        $correlator = new Correlator($this->config->services, $this->config->correlationToleranceSeconds, $this->config->correlationEnabled);
+        $seam = new FleetSeam($budget, $this->config->digest === 'combined', $correlator);
 
         $results = [];
         foreach ($this->config->inOrder() as $entry) {
@@ -118,12 +120,14 @@ final class FleetRunner
                 $this->alert($budget, $before);
             }
         }
-        $combinedPosted = $options->dryRun ? null : $this->postCombined($seam, $results);
+        $combinedPosted = $this->postCombined($seam, $results, $options->dryRun);
+        $correlated = $seam->correlated($this->config->name);
+        $correlatedPosted = $this->postCorrelated($correlated, $options->dryRun);
         if (!$options->dryRun) {
             $this->heartbeat($results, $startedAt);
         }
 
-        return new FleetResult($this->config->name, $results, [], null, $combinedPosted, $budget->today()['usd']);
+        return new FleetResult($this->config->name, $results, $correlated, $correlatedPosted, $combinedPosted, $budget->today()['usd']);
     }
 
     /** Where the fleet's own messages go: its notice destination, else its digest one; null = nowhere. */
@@ -132,6 +136,14 @@ final class FleetRunner
         $webhook = $this->config->notify['notice']['webhook'] ?? $this->config->notify['digest']['webhook'] ?? null;
 
         return $this->notifier !== null && is_string($webhook) ? new Destination($webhook) : null;
+    }
+
+    private function print(string $kind, Message $message): void
+    {
+        $text = $message->text;
+        ($this->out ?? static function (string $s): void {
+            fwrite(STDOUT, $s);
+        })("== DRY RUN message to $kind ==\n" . $text . (str_ends_with($text, "\n") ? '' : "\n"));
     }
 
     /** @param array{usd: float, tokens: int} $before */
@@ -152,16 +164,22 @@ final class FleetRunner
     }
 
     /**
-     * Posts the combined digest once the services are done; null when there was nothing to post (not combined, or no service reported).
+     * Posts the combined digest once the services are done (a dry run prints it); null when there was nothing to post
+     * (not combined, or no service reported, or a dry run).
      *
      * @param list<ServiceResult> $results
      */
-    private function postCombined(FleetSeam $seam, array $results): ?bool
+    private function postCombined(FleetSeam $seam, array $results, bool $dryRun): ?bool
     {
         $to = $this->destination();
         $quiet = array_map(static fn (ServiceResult $r): string => $r->service, array_filter($results, static fn (ServiceResult $r): bool => $r->outcome === RunOutcome::Quiet->value));
         $message = $to === null || $this->notifier === null ? null : (new CombinedDigest())->build($this->config->name, $seam->digests(), array_values($quiet));
         if ($message === null || $to === null || $this->notifier === null) {
+            return null;
+        }
+        if ($dryRun) {
+            $this->print('digest', $message);
+
             return null;
         }
         try {
@@ -173,6 +191,38 @@ final class FleetRunner
 
             return false;
         }
+    }
+
+    /**
+     * One additive message per origin group, to the fleet digest destination (a dry run prints them). A failed post is
+     * loud (host log, false -> exit 1) and removes nothing: every consumer digest already carries its annotation.
+     * Null when there is nothing to post or nowhere to post it.
+     *
+     * @param list<CorrelatedFinding> $findings
+     */
+    private function postCorrelated(array $findings, bool $dryRun): ?bool
+    {
+        $webhook = $this->config->notify['digest']['webhook'] ?? $this->config->notify['notice']['webhook'] ?? null;
+        if ($findings === [] || $this->notifier === null || !is_string($webhook)) {
+            return null;
+        }
+        $renderer = new CorrelationRenderer();
+        $posted = true;
+        foreach ($findings as $f) {
+            $message = $renderer->render($f, $this->config->timezone);
+            if ($dryRun) {
+                $this->print('correlated finding', $message);
+                continue;
+            }
+            try {
+                $this->notifier->send($message, new Destination($webhook));
+            } catch (Throwable $e) {
+                $posted = false;
+                $this->log?->warning('correlated finding not delivered: ' . $e::class, ['fleet' => $this->config->name]);
+            }
+        }
+
+        return $dryRun ? null : $posted;
     }
 
     private function runOne(ServiceEntry $entry, DateTimeImmutable $now, RunOptions $options, FleetSeam $seam): ServiceResult

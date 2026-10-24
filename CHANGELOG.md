@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added (spec 003, fleet mode and correlation)
+- `watcher fleet:run`, `fleet:check`, `fleet:status` (Laravel/Lumen: `watcher:fleet`): several services from one job over one state store and one analyzer, each isolated, exit code = worst (`skipped_time` and failed fleet posts are exit 1). Config: `fleet`, `services`, `defaults`, `budget`, `digest`, `notify`, `time_budget`, `correlation`, `timezone`; example in `docs/examples/watcher-fleet.php`.
+- Shared fleet budget (fleet cap checked before every model call, notices that name the cap, fleet thresholds 25/50/75/90) and `digest: combined` (one message for the whole fleet).
+- Cross-service correlation: a consumer finding whose template references a service that has a new or grown finding in the same window is annotated `likely caused by the <origin> finding <fingerprint> (hypothesis)`, and one additive message names the origin and its consumers. Decided in code, no model call; nothing is withheld from any digest; a failed correlated post is loud (host log, exit 1).
+- `fleet:run --dry-run` now also prints the combined digest and the correlated finding.
+- Internal: `Watcher` takes an optional `FleetSeam` (budget, annotations, dry-run digest hold); `DigestData::$annotations`. Single-service behaviour is unchanged.
+
 ### Changed
 - Privacy hardening (review P1-P4, owner decision): frame paths are rewritten before they are sent (below a `repo.path_map` root, mapped to the repository path; otherwise from the first `vendor`/`app`/`src` directory, last 3 segments); digit runs inside identifiers are masked unless well known (`Http2`, `utf8`, ...); `extra_patterns` run on the raw message before digits become `<N>`; a JSON `message` keeps only its first line; absolute paths inside messages become `<USER>` / `<PATH>/…/<last two>`. `PATH` and `USER` are now reserved `extra_patterns` names. **Fingerprints and templates of messages containing paths or matching `extra_patterns` change once; no live state exists, so nothing needs migrating.** `CodeLinkBuilder` accepts the repository-relative frames the Redactor now emits.
 

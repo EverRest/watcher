@@ -109,6 +109,29 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 [--post-test] [--json]`, `bin/watcher status --config=<file> [--json]`. `--estimate` requires `--dry-run`. See
 [operations](operations.md) for what each prints and its exit codes.
 
+### Fleet configuration
+
+A fleet file returns an array (or a directory: `_fleet.php` with the fleet keys, plus one `*.php` per service, loaded in
+name order). Each service is a complete single-service config, validated by the same rules, plus two fleet keys.
+Validation covers the whole fleet before any call; the first error names the entry and key
+(`services[1] (bff-a): selection.growth_factor must be greater than 1`). Example: [examples/watcher-fleet.php](examples/watcher-fleet.php).
+
+| Key | Default | Notes |
+|---|---|---|
+| `fleet` | required | Name (`A-Za-z0-9._-`); part of the shared keys and messages. |
+| `services[]` | required | Entries. `priority` (int, default 0, higher first) and `provides` (names other services use for this one, default `[service]`) are fleet-only. Order: priority, then name, then dependencies first. Names must be unique and must not contain `/`. |
+| `defaults` | `[]` | Any single-service key, merged under every entry. `state` and `analysis.api_key` must end up identical in all entries. |
+| `digest` | `per_service` | `per_service` posts each digest to the entry's `notify.digest`; `combined` posts one message to the fleet `notify.digest`. |
+| `notify` | `[]` | Fleet default destinations, merged under each entry's; also where the combined digest, the correlated finding and fleet budget notices go. |
+| `budget.daily_budget_usd`, `budget.daily_token_limit`, `budget.alert_percents` | none, none, `[25,50,75,90]` | Fleet-wide caps on top of each service's own; the day is in the fleet `timezone`. |
+| `timezone` | `UTC` | Day boundary of the fleet counters. |
+| `time_budget` | none | ISO-8601 duration; services not started in time are `skipped_time` (exit 1). |
+| `correlation.enabled`, `correlation.tolerance` | `true`, `PT0S` | Tolerance widens the time-overlap test. |
+
+Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=<a>[,<b>]] [--dry-run [--estimate]] [--json]`,
+`fleet:check --config=<file|dir> [--post-test] [--json]`, `fleet:status --config=<file|dir> [--json]`. Laravel/Lumen:
+`watcher:fleet` with the same options, reading `watcher.fleet`.
+
 ### `heartbeat` (optional)
 
 | Key | Default | Notes |

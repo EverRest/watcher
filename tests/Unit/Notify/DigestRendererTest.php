@@ -355,4 +355,37 @@ final class DigestRendererTest extends TestCase
         self::assertStringNotContainsString('|log>', $text);
         self::assertStringContainsString('<https://git.test/ok#L1|code 1>', $text);
     }
+    public function testAnAnnotationIsAppendedToTheMatchingFindingAndNothingIsDropped(): void
+    {
+        $a = $this->finding(1);
+        $b = $this->finding(2);
+        $m = (new DigestRenderer())->render($this->data([$a, $b], [], [
+            'annotations' => [$this->fp(2) => 'likely caused by the api finding ab12cd34ef56 (hypothesis)'],
+        ]), 0.5);
+
+        $findings = array_values(array_filter($m->sections, static fn (array $s): bool => $s['kind'] === 'finding'));
+        self::assertCount(2, $findings);
+        $annotated = array_values(array_filter($findings, static fn (array $s): bool => str_contains($s['text'], 'likely caused by')));
+        self::assertCount(1, $annotated);
+        self::assertStringContainsString('title 2', $annotated[0]['text']);
+        self::assertStringContainsString("\n  🔗 likely caused by the api finding ab12cd34ef56 (hypothesis)", $annotated[0]['text']);
+    }
+
+    public function testAnAnnotationIsEscaped(): void
+    {
+        $f = $this->finding(1);
+        $m = (new DigestRenderer())->render($this->data([$f], [], ['annotations' => [$f->fingerprints[0] => '<!channel> likely caused by']]), 0.5);
+
+        self::assertStringNotContainsString('<!channel>', $this->text($m, 'finding'));
+    }
+
+    public function testNoAnnotationsLeavesTheDigestUnchanged(): void
+    {
+        $f = $this->finding(1);
+
+        self::assertEquals(
+            (new DigestRenderer())->render($this->data([$f]), 0.5),
+            (new DigestRenderer())->render($this->data([$f], [], ['annotations' => []]), 0.5),
+        );
+    }
 }

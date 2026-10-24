@@ -7,6 +7,7 @@ namespace Watcher\Fleet;
 use Watcher\Analyze\Usage;
 use Watcher\Notify\Message;
 use Watcher\Notify\Notifier;
+use Watcher\Privacy\RedactedGroup;
 
 /**
  * What a Watcher sees of its fleet (spec 003, plan R2): the shared budget and, in combined mode, the digest hold.
@@ -20,7 +21,40 @@ final class FleetSeam
     public function __construct(
         private readonly FleetBudget $budget,
         private readonly bool $combined = false,
+        private readonly ?Correlator $correlator = null,
     ) {
+    }
+
+    /** @var array<string, list<RedactedGroup>> service => its candidates after redaction, for the services that ran */
+    private array $registry = [];
+
+    /**
+     * Seam 2: a service hands over its redacted candidates; the origins registered so far explain some of them.
+     * Returns fingerprint => annotation text. Nothing is removed or changed (owner decision 3).
+     *
+     * @param list<RedactedGroup> $groups
+     * @return array<string, string>
+     */
+    public function reduced(string $service, array $groups): array
+    {
+        if ($this->correlator === null) {
+            return [];
+        }
+        $this->registry[$service] = $groups;
+        $out = [];
+        foreach ($this->correlator->links($this->registry) as $l) {
+            if ($l->consumerService === $service) {
+                $out[$l->consumer->fingerprint] ??= sprintf('likely caused by the %s finding %s (hypothesis)', $l->originService, substr($l->origin->fingerprint, 0, 12));
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return list<CorrelatedFinding> what the services that ran add up to; empty when correlation is off */
+    public function correlated(string $fleet): array
+    {
+        return $this->correlator?->findings($fleet, $this->registry) ?? [];
     }
 
     /** Called for every paid analyzer call, after the service's own counter. */

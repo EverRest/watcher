@@ -178,6 +178,33 @@ vendor/bin/watcher status --config=/app/watcher.php --json 2>/dev/null \
 # alert: watcher_status_ok == 0 for 30m
 ```
 
+## Fleet
+
+`watcher fleet:run --config=<fleet file or directory>` runs every service of a fleet one after another over **one**
+state store and **one** analyzer (the config is in [configuration.md](configuration.md#fleet-configuration), an example
+in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
+
+- **Hosting**: run the fleet from a **dedicated job** (one cron entry or CronJob, hourly). A fleet started inside one of
+  the watched services stops with it, so it cannot report that service's death; the services themselves need no package,
+  scheduler or CLI, only a log selection and an entry.
+- **Exit codes**: `0` all services non-failed (not-due, done and locked skips included); `1` a service failed, a service
+  ended `skipped_time` (the `time_budget` ran out), or a fleet post failed; `2` invalid fleet (nothing runs). `--only=a,b`
+  runs a subset; correlation then uses only what ran. `--json` prints one line on stdout.
+- **Check and status**: `fleet:check` runs the single-service check for every service plus one shared state check, prints
+  the resolved order and warns when a declared dependency is provided by no fleet service. `fleet:status` prints the
+  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` stale or failed, `3` unknown, `0` ok. Alert on the
+  fleet heartbeat as in [Heartbeat](#heartbeat-staleness-and-alerting).
+- **Dry run**: `fleet:run --dry-run` prints every service's digest, the combined digest (with `digest: combined`) and the
+  correlated finding; nothing is posted, no state is written, the fleet counters are untouched.
+- **Budget**: the fleet cap is checked before each model call, like the service cap; the notice names `fleet cap` or
+  `service cap`. Services later in the order are the ones that go triage-only.
+- **Correlation limits**: a link needs a declared dependency, a `<URL:name>` / `<HOST:name>` placeholder in the consumer's
+  template, an origin group that is `new` or `grown` at or above its `selection.min_level`, and overlapping group time
+  ranges (plus `correlation.tolerance`). It is a hypothesis, only between services that ran in the same trigger, and
+  the combined digest and the correlated message are posted after the services' run records are written: if that post
+  fails the run is loud (host log, exit 1) and is **not** re-sent, but no digest loses a finding, because every consumer
+  finding is delivered with its annotation first.
+
 ## Before the first run: check and dry run
 
 - `watcher check --config=...` runs every check and prints PASS/FAIL/SKIP per line (config, source, provider_auth,

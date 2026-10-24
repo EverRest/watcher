@@ -10,7 +10,7 @@ final class FleetResult
 {
     /**
      * @param list<ServiceResult> $services in run order
-     * @param list<object> $correlated CorrelatedFinding objects (empty until correlation exists)
+     * @param list<CorrelatedFinding> $correlated
      * @param bool|null $correlatedPosted null = nothing to post
      * @param bool|null $combinedPosted null = not in combined mode, or nothing to post
      * @param float|null $fleetCostTodayUsd fleet counter after the run (counted even without a fleet cap; 0 in a dry run)
