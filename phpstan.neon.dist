@@ -26,3 +26,9 @@ parameters:
             identifier: argument.type
             path: tests/Unit/Laravel/WatcherServiceProviderTest.php
             count: 1
+        # Retry::carriesResponse: hasResponse() exists on Guzzle 7 only and is reached only when ResponseException (8) does not exist.
+        # Reported only when analysed against Guzzle 8 (no such method there), hence reportUnmatched: false.
+        -
+            identifier: method.notFound
+            path: src/Source/Retry.php
+            reportUnmatched: false

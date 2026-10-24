@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Watcher\Operate;
 
 use GuzzleHttp\ClientInterface;
-use GuzzleHttp\Exception\ConnectException;
 use JsonException;
+use Psr\Http\Client\NetworkExceptionInterface;
 use Watcher\Source\ResponseLimit;
 use Throwable;
 
@@ -70,7 +70,7 @@ final class AnthropicModelCatalog implements ModelCatalog
                     'allow_redirects' => false, // x-api-key is not stripped on a cross-host redirect
                     'verify' => true,
                 ] + ResponseLimit::options(new \ArrayObject()));
-            } catch (ConnectException) {
+            } catch (NetworkExceptionInterface) { // Guzzle 7: ConnectException; Guzzle 8: NetworkException (a read timeout is no longer a ConnectException)
                 return ['timeout', []];
             } catch (Throwable) {
                 return ['error', []];

@@ -9,6 +9,8 @@
 
 - `SecureUrl::internalHost()` is the one SSRF host classifier, opt-in through `SecureUrl::problem($url, $allowInsecure, refuseInternal: true, allowPrivate: false)`; Loki and Slack validation is unchanged. It refuses loopback, 0/8, RFC 1918, link-local, 100.64/10, multicast and reserved IPv4 in every numeric spelling, and IPv6 ::/96, ULA, link-local, site-local, multicast, NAT64 (both prefixes), Teredo, with the IPv4 inside v4-mapped and 6to4 addresses classified. It also refuses `*.svc`, `*.cluster.local` and `*.internal` names (admitted by `allowPrivate`), `instance-data`, 192.0.0.0/24, 192.0.2.0/24, 198.18/15, 198.51.100/24, 203.0.113/24, SIIT `::ffff:0:0:0/96` (embedded IPv4 decoded) and any non-ASCII host. One trailing dot is stripped; an empty label, a `%zone` or an unparsable ':' host is refused.
 
+- Guzzle 8 is accepted next to 7 (`^7.15.2 || ^8.3`). `Retry` no longer calls `RequestException::hasResponse()` (removed in 8) and the Anthropic model catalog reports any PSR network failure as `timeout` (8 splits a read timeout out of `ConnectException`). CI's lowest leg covers Guzzle 7.15.2, the locked leg 7.16, the highest leg 8.3.
+
 ## 0.1.2 — 2026-10-24 — Security release
 
 Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fail-closed model use, availability guards, input hardening and the regression fixes found by the review of this very release.

@@ -84,6 +84,17 @@ final class AnthropicModelCatalogTest extends TestCase
         self::assertStringNotContainsString(self::KEY, (string) json_encode($probe));
     }
 
+    /** Guzzle 8 splits timeouts: a read timeout is a NetworkTimeoutException, no longer a ConnectException (which is all 7 has). */
+    public function testARealGuzzleReadTimeoutIsReportedAsTimeout(): void
+    {
+        $guzzle8 = 'GuzzleHttp\\Exception\\NetworkTimeoutException';
+        /** @var class-string<\Throwable> $class */
+        $class = class_exists($guzzle8) ? $guzzle8 : ConnectException::class;
+        $e = new $class('cURL error 28: operation timed out', new Request('GET', 'https://api.anthropic.com/v1/models'));
+
+        self::assertSame(['x-api-key' => 'timeout', 'bearer' => 'timeout'], $this->catalog([$e, $e])->probe());
+    }
+
     public function testRequestsAreGetToTheModelsEndpointWithShortTimeoutAndTheRightHeaders(): void
     {
         $this->catalog([self::ok(), self::ok()])->probe();
