@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "watcher.mcp.tools.v1",
+  "title": "watcher MCP tools (schema 1)",
+  "description": "Input schemas for tools/list and the field classes of each tool's data object. 'x-text' marks a string derived from logs or a model (scanned, command- and URL-filtered, capped by 'maxLength'); every other string is typed.",
+  "$defs": {
+    "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
+    "timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+    "severity": { "enum": ["info", "warn", "error", "critical"] },
+    "kind": { "enum": ["bug", "regression", "anomaly", "noise"] },
+    "status": { "enum": ["new", "grown", "unchanged", "expected"] },
+    "outcome": { "enum": ["reported", "quiet", "baselined", "failed"] },
+    "text": { "type": "string", "x-text": true },
+    "finding_ref": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fp", "severity", "title"],
+      "properties": {
+        "fp": { "$ref": "#/$defs/fingerprint" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "title": { "type": ["string", "null"], "x-text": true, "maxLength": 80 }
+      }
+    },
+    "report": {
+      "type": "object", "additionalProperties": false,
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "reason": { "enum": ["no_report", "disabled"] },
+        "window_start": { "$ref": "#/$defs/timestamp" },
+        "window_end": { "$ref": "#/$defs/timestamp" },
+        "at": { "$ref": "#/$defs/timestamp" },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "counts": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "events": { "type": "integer", "minimum": 0 }, "groups": { "type": "integer", "minimum": 0 },
+            "candidates": { "type": "integer", "minimum": 0 }, "findings": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "tokens": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "in": { "type": "integer", "minimum": 0 }, "out": { "type": "integer", "minimum": 0 }, "cached": { "type": "integer", "minimum": 0 } }
+        },
+        "cost_usd": { "type": "number", "minimum": 0 },
+        "findings": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/finding_ref" } },
+        "truncated": { "type": "boolean" },
+        "dry_run": { "type": "boolean" },
+        "estimate_usd": { "type": "number", "minimum": 0 }
+      }
+    }
+  },
+  "tools": {
+    "watcher_status": {
+      "inputSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "data": {
+        "type": "object", "additionalProperties": false,
+        "required": ["state", "now"],
+        "properties": {
+          "state": { "enum": ["ok", "stale", "failed", "unknown", "disabled"] },
+          "last_run": {
+            "type": ["object", "null"], "additionalProperties": false,
+            "properties": {
+              "outcome": { "$ref": "#/$defs/outcome" },
+              "at": { "$ref": "#/$defs/timestamp" },
+              "duration_seconds": { "type": "integer", "minimum": 0 },
+              "cost_usd": { "type": "number", "minimum": 0 },
+              "reason": { "type": ["string", "null"], "x-text": true, "maxLength": 200 }
+            }
+          },
+          "last_ok_at": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+          "last_trigger_at": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+          "now": { "$ref": "#/$defs/timestamp" },
+          "age_seconds": { "type": ["integer", "null"], "minimum": 0 },
+          "limit_seconds": { "type": ["integer", "null"], "minimum": 0 },
+          "spend_today": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "usd": { "type": "number", "minimum": 0 }, "tokens": { "type": "integer", "minimum": 0 },
+              "budget_usd": { "type": "number", "minimum": 0 }, "token_limit": { "type": ["integer", "null"], "minimum": 1 },
+              "remaining_usd": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "watcher_check": {
+      "inputSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "data": {
+        "type": "object", "additionalProperties": false,
+        "required": ["ok", "checks"],
+        "properties": {
+          "ok": { "type": "boolean" },
+          "checks": {
+            "type": "array", "maxItems": 7,
+            "items": {
+              "type": "object", "additionalProperties": false, "required": ["name", "status"],
+              "properties": {
+                "name": { "enum": ["config", "source", "provider_auth", "models", "prices", "state", "notifier"] },
+                "status": { "enum": ["pass", "fail", "skip"] },
+                "reason": { "type": ["string", "null"], "maxLength": 120, "description": "fixed vocabulary of spec 002 plus 'read-only probe' and 'unreadable'; anything else is replaced by 'unavailable'" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "watcher_latest_report": {
+      "inputSchema": {
+        "type": "object", "additionalProperties": false,
+        "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 10 } }
+      },
+      "data": { "$ref": "#/$defs/report" }
+    },
+    "watcher_finding": {
+      "inputSchema": {
+        "type": "object", "additionalProperties": false, "required": ["fp"],
+        "properties": { "fp": { "$ref": "#/$defs/fingerprint" } }
+      },
+      "data": {
+        "type": "object", "additionalProperties": false, "required": ["found"],
+        "properties": {
+          "reason": { "enum": ["disabled"] },
+          "found": { "type": "boolean" },
+          "fp": { "$ref": "#/$defs/fingerprint" },
+          "severity": { "$ref": "#/$defs/severity" },
+          "kind": { "$ref": "#/$defs/kind" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "escalated": { "type": "boolean" },
+          "title": { "type": ["string", "null"], "x-text": true, "maxLength": 80 },
+          "evidence": { "type": ["string", "null"], "x-text": true, "maxLength": 240 },
+          "suspected_cause": { "type": ["string", "null"], "x-text": true, "maxLength": 240 },
+          "suggested_action": { "type": ["string", "null"], "x-text": true, "maxLength": 200 },
+          "how_to_check": { "type": ["string", "null"], "x-text": true, "maxLength": 200 },
+          "related_checks": { "type": "array", "maxItems": 3, "items": { "type": "string", "pattern": "^([0-9a-f]{12}|[A-Za-z0-9_.-]{1,60})$" } },
+          "last_reported_at": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+          "count": { "type": "integer", "minimum": 0 },
+          "mute_suggestion": { "type": "string", "x-text": true, "maxLength": 200, "description": "built by code from a fixed sentence and the fingerprint; never contains model text" }
+        }
+      }
+    },
+    "watcher_hygiene_report": {
+      "inputSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "data": {
+        "type": "object", "required": ["available"],
+        "properties": {
+          "available": { "type": "boolean" },
+          "reason": { "enum": ["hygiene_not_enabled", "no_report", "disabled"] },
+          "report": { "type": "object", "description": "the machine-readable report of spec 006; its field table replaces this entry when 006 is planned" }
+        }
+      }
+    },
+    "watcher_dry_run": {
+      "inputSchema": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "confirm_cost": { "type": "boolean", "description": "must be true for a run that calls a model; real, billed tokens" },
+          "estimate_only": { "type": "boolean", "default": false }
+        }
+      },
+      "data": {
+        "oneOf": [
+          { "$ref": "#/$defs/report" },
+          {
+            "type": "object", "additionalProperties": false, "required": ["estimate", "total_usd"],
+            "properties": {
+              "estimate": {
+                "type": "array", "maxItems": 3,
+                "items": {
+                  "type": "object", "additionalProperties": false,
+                  "properties": {
+                    "step": { "enum": ["triage", "analyze", "escalate"] },
+                    "groups": { "type": ["integer", "null"], "minimum": 0 },
+                    "tokens_in": { "type": ["integer", "null"], "minimum": 0 },
+                    "tokens_out_max": { "type": ["integer", "null"], "minimum": 0 },
+                    "cost_usd": { "type": ["number", "null"], "minimum": 0 }
+                  }
+                }
+              },
+              "total_usd": { "type": "number", "minimum": 0 }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
