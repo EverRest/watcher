@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `SecureUrl::internalHost()` is the one SSRF host classifier, opt-in through `SecureUrl::problem($url, $allowInsecure, refuseInternal: true, allowPrivate: false)`; Loki and Slack validation is unchanged. It refuses loopback, 0/8, RFC 1918, link-local, 100.64/10, multicast and reserved IPv4 in every numeric spelling, and IPv6 ::/96, ULA, link-local, site-local, multicast, NAT64 (both prefixes), Teredo, with the IPv4 inside v4-mapped and 6to4 addresses classified. One trailing dot is stripped; an empty label, a `%zone` or an unparsable ':' host is refused.
+
 ## 0.1.2 — 2026-10-24 — Security release
 
 Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fail-closed model use, availability guards, input hardening and the regression fixes found by the review of this very release.
