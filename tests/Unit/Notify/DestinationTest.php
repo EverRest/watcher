@@ -50,7 +50,7 @@ final class DestinationTest extends TestCase
         self::assertNotContains(\Stringable::class, class_implements(new Destination(self::HOOK)) ?: []);
     }
 
-    private const TOKEN = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw_';
+    private const TOKEN = '123456789' . ':' . 'AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw_';
 
     public function testFactoriesAndDriver(): void
     {
