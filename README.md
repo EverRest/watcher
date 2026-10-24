@@ -12,7 +12,7 @@ LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) 
              + vs yesterday
 ```
 
-Nothing new to report means zero model calls. The first run only records a baseline.
+Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
 ## Requirements
 
@@ -197,7 +197,9 @@ decided in code from names, placeholders and times; it makes no model call and w
 - The `Authorization` header and request format the Anthropic SDK sends were not verified against the live API.
 - At most `source.group_cap` (5000) distinct problem groups are held per run; on a day with more distinct messages the rest
   is grouped as one "other" group per level and the digest says so. Watch-rule matches are exempt up to twice the cap.
-- Cluster templates are coarse; two different problems with a similar message shape can share a fingerprint.
+- Cluster templates group by word similarity, not exact shape (`grouping.similarity`); two different problems with very similar wording can still share a template, and fingerprints do not depend on it. A name identical in every event of a cluster is not detectable (see `docs/privacy.md`).
+- Grouping is bounded: above `grouping.message_cap` distinct messages, or when the comparison budget runs out, the affected groups show no message text and the digest says so. Backend-provided patterns (`grouping.backend_patterns`) are deferred and rejected for now.
+- `baseline.mode` `rolling` and `weekday` need enough retained history (`state.retention`); with too little the run falls back to the previous window and the digest says so.
 - Field values never leave the service, so `field` matchers can match but cannot be explained to the model.
 - Dependencies are read with the service's own log source: `dependencies.<name>.source` (a different backend per
   dependency) is rejected as not available yet. A dependency's lines are read before triage, so a day on which triage

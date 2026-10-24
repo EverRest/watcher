@@ -524,6 +524,8 @@ final class Watcher
                 $fp = $fingerprinter->of($e);
                 unset($ruleHits[$fp], $muteHits[$fp]);
             },
+            $c->grouping['similarity'],
+            $c->grouping['message_cap'],
         );
         $groups = $reducer->reduce($events);
         $this->stats->eventsRead = $eventsRead;
@@ -733,6 +735,7 @@ final class Watcher
             $comparison->usedMode === 'previous' ? $comparedWith : null,
             $annotations,
             $comparison,
+            $reducer->mining(),
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, new Destination($c->notify['digest']['webhook']));

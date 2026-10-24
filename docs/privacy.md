@@ -91,6 +91,12 @@ the hash of the key.
 The one-line summary on stdout and `watcher [error] ...` lines on stderr carry messages only, with line breaks removed.
 Exception objects are not logged, because the SDK's request (including the API key) hangs on them.
 
+## Similarity grouping and baselines (spec 004)
+
+Clustering by similarity runs on the already masked tokens, per distinct message, inside the process; nothing new is
+stored or sent. The digest's grouping and comparison lines are built from integers, dates and fixed words only. The one
+new value in the model payload is the group status `expected` (alongside `new`, `grown`, `unchanged`).
+
 ## Limits you must know
 
 - **A name that is identical in every event of a cluster is not detectable, and no code tries to guess proper names by shape.** If the same person appears 3 or more times

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added (spec 004, baselines and templates; backend patterns deferred)
+- `baseline.*` config: `previous` (default), `rolling` and `weekday` comparison modes, `windows`, `max_age`, `exclude`, `since`; digest lines name the basis and any fallback; new group status `expected`.
+- `grouping.*` config: similarity-based template clustering (`similarity`, `message_cap`); digest notices `Grouping limit reached` and `Grouping time budget reached` (counts only). Fingerprints are unchanged; templates may read differently.
+- DST-safe candidate windows (`RunGate::endBack`), `start` stored in snapshots, missed-day tolerance.
+- Not included: `grouping.backend_patterns` (T023) stays rejected until the owner decides.
+
 ### Added (spec 003, fleet mode and correlation)
 - `watcher fleet:run`, `fleet:check`, `fleet:status` (Laravel/Lumen: `watcher:fleet`): several services from one job over one state store and one analyzer, each isolated, exit code = worst (`skipped_time` and failed fleet posts are exit 1). Config: `fleet`, `services`, `defaults`, `budget`, `digest`, `notify`, `time_budget`, `correlation`, `timezone`; example in `docs/examples/watcher-fleet.php`.
 - Shared fleet budget (fleet cap checked before every model call, notices that name the cap, fleet thresholds 25/50/75/90) and `digest: combined` (one message for the whole fleet).

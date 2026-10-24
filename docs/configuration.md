@@ -139,6 +139,22 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 | `heartbeat.stale_after` | 1.5 x `schedule.window` | ISO-8601 duration (> 0). `watcher status` reports `stale` and exits non-zero when the last reported/quiet/baselined run is older than this. |
 | `heartbeat.weekly_summary` | `false` | `true` sends one line per ISO week (service timezone) to the notice destination, from the first due run of the next week: counts of reported, quiet, baselined, failed and skipped runs, and the week's cost. Nothing is sent for a week with no run. |
 
+### `baseline` and `grouping` (optional)
+
+| Key | Default | Notes |
+|---|---|---|
+| `baseline.mode` | `previous` | `previous`, `rolling` (mean of the last N windows) or `weekday` (median of the same weekday). `previous` is the old behaviour. Message: `baseline.mode must be one of previous, rolling, weekday`. |
+| `baseline.windows` | 7 (rolling) / 4 (weekday) | Integer >= 2 (rolling) or >= 3 (weekday). Ignored for `previous`. |
+| `baseline.max_age` | `P7D` | ISO-8601. Oldest snapshot a missing previous window may fall back to; must not exceed `state.retention`. |
+| `baseline.exclude` | `[]` | Dates `YYYY-MM-DD` (local date of a window end) left out of rolling/weekday values. |
+| `baseline.since` | `null` | `YYYY-MM-DD`: ignore windows that ended before this date (history reset). |
+| `grouping.similarity` | `0.5` | `0 < x <= 1`: share of literal words that must match a cluster leader. |
+| `grouping.message_cap` | `50000` | Integer >= 1000: distinct masked messages kept per run. Beyond it the message is counted, not clustered, and its group shows no text. |
+| `grouping.backend_patterns` | `false` | Reserved (deferred); `true` is rejected. |
+
+`rolling` and `weekday` need a whole-day `schedule.window` and a `state.retention` of at least `windows x span + 1 day`
+(span: the window for rolling, 7 days for weekday). Grouping always uses similarity; there is no on/off switch.
+
 ### Context (all optional)
 
 | Key | Default | Notes |
@@ -155,7 +171,7 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 ## Digest notices (counts only, never raw content)
 
 Besides findings, the digest carries short notices: `truncated: N events read` (`event_cap`), `truncated: N groups dropped (budget)`
-(`max_input_tokens`), `cluster cap hit` (`group_cap`), `N group(s) flagged interesting were not analysed` (triage found them but the
+(`max_input_tokens`), `cluster cap hit` (`group_cap`), `Grouping limit reached: N messages were not clustered` (`grouping.message_cap`), `Grouping time budget reached` (comparison budget spent; counts only), `N group(s) flagged interesting were not analysed` (triage found them but the
 daily budget was spent or a step's worst case did not fit it, or `top_m` cut them), `N group(s) not triaged: the daily budget would have been exceeded`, `N escalation(s) skipped (daily budget or max_input_tokens.escalate)`, `compared with the run of <date>, N days ago` (the previous window had no snapshot; see `docs/operations.md`), `N pattern evaluation failures: rules may have been skipped` (a watch rule, mute or
 backend-filter regex failed to evaluate, e.g. hit the PCRE backtrack limit; it fails open), `N call target(s) not declared as
 dependencies` and `dependency unavailable: name`. A day with such a notice is sent even when there are no findings, so a missed

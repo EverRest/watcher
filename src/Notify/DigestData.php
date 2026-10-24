@@ -9,6 +9,7 @@ use Watcher\Analyze\Finding;
 use Watcher\Analyze\Usage;
 use Watcher\Baseline\Comparison;
 use Watcher\Privacy\RedactedGroup;
+use Watcher\Reduce\MiningStats;
 
 /** Everything DigestRenderer needs; all strings are already redacted or bounded. */
 final class DigestData
@@ -67,6 +68,8 @@ final class DigestData
         public readonly array $annotations = [],
         /** @var Comparison|null what this window was compared with (spec 004); null = the previous window, nothing to say */
         public readonly ?Comparison $comparison = null,
+        /** @var MiningStats|null what the template miner gave up (spec 004 FR-010); counts only */
+        public readonly ?MiningStats $mining = null,
     ) {
     }
 }

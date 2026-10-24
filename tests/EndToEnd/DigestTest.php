@@ -348,6 +348,51 @@ final class DigestTest extends TestCase
         self::assertStringNotContainsString('Compared with', $plain);
         self::assertStringNotContainsString('per hour', $plain);
     }
+
+    public function testGroupingTruncationLines(): void
+    {
+        $text = static fn (\Watcher\Reduce\MiningStats $m): string => implode("\n", array_column((new \Watcher\Notify\DigestRenderer())->render(new \Watcher\Notify\DigestData(
+            service: 'svc',
+            environment: 'stg',
+            windowStart: new \DateTimeImmutable('2026-10-27T06:00:00Z'),
+            windowEnd: new \DateTimeImmutable('2026-10-28T06:00:00Z'),
+            timezone: 'UTC',
+            findings: [],
+            groups: [],
+            mining: $m,
+        ), 0.5)->sections, 'text'));
+
+        self::assertStringContainsString('Grouping limit reached: 7 messages were not clustered and their groups show no message text.', $text(new \Watcher\Reduce\MiningStats(1000, 7, false)));
+        self::assertStringContainsString('Grouping time budget reached: some groups show no message text.', $text(new \Watcher\Reduce\MiningStats(1000, 0, true)));
+        self::assertStringNotContainsString('Grouping', $text(new \Watcher\Reduce\MiningStats(10, 0, false)));
+    }
+
+    public function testFloodAboveMessageCapShowsLimitLineAndNoText(): void
+    {
+        $h = new Harness(['grouping' => ['message_cap' => 1000], 'source' => ['group_cap' => 100000]]);
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+
+        $events = [];
+        for ($i = 0; $i < 1100; ++$i) {
+            $events[] = new \Watcher\Source\LogEvent(new \DateTimeImmutable('2026-10-07T12:00:00Z'), Level::Error, 'w' . strtr((string) $i, '0123456789', 'abcdefghij') . ' z' . strtr((string) ($i * 7), '0123456789', 'abcdefghij') . ' broke', null, [], [], []);
+        }
+        $h->watcher(self::source($events))->run();
+
+        self::assertMatchesRegularExpression('/Grouping limit reached: \d+ messages were not clustered/', $h->sentTexts()[1]);
+        // 1000 unrelated messages in one bucket also spend the whole comparison budget (400 x message_cap)
+        self::assertStringContainsString('Grouping time budget reached: some groups show no message text.', $h->sentTexts()[1]);
+    }
+
+    public function testDefaultConfigHasNoGroupingLines(): void
+    {
+        $h = new Harness();
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+        $h->watcher(self::source(self::alpha()))->run();
+
+        self::assertStringNotContainsString('Grouping', $h->sentTexts()[1]);
+    }
 }
 
 /** Records the TTL of every write passed through to a real store. */

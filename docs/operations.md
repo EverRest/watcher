@@ -26,6 +26,22 @@ says `compared with the run of <date>, N days ago` (plus a warning when N > 1). 
 the gap, so growth against a 2-day-old snapshot is raw: read it knowing that. Only with no snapshot at all, or one older
 than 7 days, is the run a baseline.
 
+### Baseline modes
+
+`baseline.mode` decides what each group is compared with (see `docs/configuration.md`). `previous` (default) uses the
+previous window. `rolling` uses the average of the last `windows` windows; `weekday` uses the median of the same weekday
+over the last `windows` weeks, so a weekly pattern is not reported as growth. Missing windows are skipped; the digest line
+says how many were used, e.g. `Compared with the median of 3 of the last 4 Wednesdays (...)`. With too little history the
+run falls back to the previous window and says so (`Weekday comparison needs 3 earlier Wednesdays, found 2; ...`). A group
+seen in earlier windows but absent from the comparison value shows `(expected for this weekday)` or `(seen in earlier
+windows)` instead of `new`. If the window length changed, counts are compared per hour. To leave a bad day out, add its
+date to `baseline.exclude`; to restart history, set `baseline.since`. The two notices `compared with the run of <date>`
+and `Compared with ...` are the only places the comparison basis is shown: read them before trusting a growth arrow.
+
+Grouping notices: `Grouping limit reached` means more distinct messages than `grouping.message_cap` arrived;
+`Grouping time budget reached` means clustering stopped early. In both cases only the affected groups lose their message
+text; counts, fingerprints and comparisons are unaffected. Upgrading: templates may read differently, fingerprints do not.
+
 ## Outcomes and exit codes
 
 The command prints one line to stdout, `watcher: outcome=<outcome> [reason="..."] [tokens_in=.. tokens_out=..

@@ -137,7 +137,7 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
   grouping settings in the constructor (default values keep existing tests valid). Update
   `tests/Unit/Reduce/ReducerTest.php` for the new constructor (test edit first, red, then code). Greens T018.
   Depends on T020.
-- [ ] T022 [US3] **SEQUENTIAL (`src/Watcher.php`, 3 of 3; `src/Notify/DigestRenderer.php`, 2 of 2)**. Pass
+- [x] T022 [US3] **SEQUENTIAL (`src/Watcher.php`, 3 of 3; `src/Notify/DigestRenderer.php`, 2 of 2)**. Pass
   `$c->grouping` to the `Reducer` construction, pass `$reducer->mining()` into `DigestData`, and render the two
   truncation lines from `contracts/digest-wording.md`. Test first: `DigestTest::testGroupingTruncationLines`. Greens
   T017's end-to-end cases. Depends on T014, T021.
@@ -146,7 +146,7 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
 
 ## Phase 5: User Story 4 - Backend patterns (P3, deferred)
 
-- [ ] T023 [US4] **DO NOT START** until the owner answers O5 in research.md and the Loki patterns endpoint is verified
+- [ ] T023 [US4] **DEFERRED (placeholder; `grouping.backend_patterns` is rejected)** **DO NOT START** until the owner answers O5 in research.md and the Loki patterns endpoint is verified
   on a live system. If approved: red contract test with a fake backend in `tests/Contract/LokiSourceTest.php`, an
   optional `src/Source/PatternProvider.php` implemented by `LokiSource` only, hints used only to choose which cluster a
   message joins (never as template text), fallback to built-in grouping on absence or error, and `grouping.backend_patterns`
@@ -154,12 +154,12 @@ unfinished dependency. Tasks marked **SEQUENTIAL** touch `src/Watcher.php`, `src
 
 ## Phase 6: Polish
 
-- [ ] T024 [P] Update docs: `docs/configuration.md` (new keys and validation), `docs/operations.md` (how to read the
+- [x] T024 [P] Update docs: `docs/configuration.md` (new keys and validation), `docs/operations.md` (how to read the
   comparison line, excluding a date, resetting history, upgrade note: templates may change, fingerprints do not),
   `docs/privacy.md` (similarity runs on masked tokens; clustering is per distinct message; the one new payload value
   `expected`), `README.md` if it lists settings, `docs/roadmap.md` row 004, `docs/review-2026-10-23.md` H6 and P5 status,
   `CHANGELOG.md` under `## Unreleased`.
-- [ ] T025 Final gate: `composer ci; echo $?` (style, stan, test) all exit 0; run quickstart.md section 2 in full and
+- [x] T025 Final gate: `composer ci; echo $?` (style, stan, test) all exit 0; run quickstart.md section 2 in full and
   tick every row; run `vendor/bin/phpunit --group perf; echo $?` once; confirm with `git diff --stat` (read only) that
   no file outside the plan's touch list changed. Depends on all earlier tasks except T023.
 

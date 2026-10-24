@@ -134,6 +134,13 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ cluster cap hit: %s events from distinct messages beyond the first %s were grouped as other', number_format($d->overflowedEvents), number_format($d->groupCap))];
         }
 
+        if ($d->mining !== null && $d->mining->droppedMessages > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ Grouping limit reached: %s messages were not clustered and their groups show no message text.', number_format($d->mining->droppedMessages))];
+        }
+        if ($d->mining !== null && $d->mining->budgetExhausted) {
+            $out[] = ['kind' => 'notice', 'text' => '⚠️ Grouping time budget reached: some groups show no message text.'];
+        }
+
         if ($d->notAnalysed > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) flagged interesting were not analysed (budget exhausted, triage only or top_m cut)', number_format($d->notAnalysed))];
         }
