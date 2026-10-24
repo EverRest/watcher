@@ -33,7 +33,7 @@ final class Redactor
     private const WELL_KNOWN = 'utf8|md5|sha256|base64|http2|ipv4|ipv6|x86_64|oauth2|s3|ec2|h264';
 
     /** Names of the placeholders the Normalizer itself writes; an extra pattern may not impersonate one. */
-    public const RESERVED = ['N', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR', 'PATH', 'USER'];
+    public const RESERVED = ['N', 'EMAIL', 'URL', 'HOST', 'IP', 'ID', 'TOKEN', 'PAN', 'STR', 'PATH', 'USER', 'UNSCANNABLE'];
 
     private readonly Normalizer $normalizer;
 

@@ -79,16 +79,11 @@ final class Reducer
         $groups = [];
         $ownCount = 0;
         $this->overflowed = 0;
-        $this->unscannable = 0;
+        $unscannableBefore = $this->normalizer->unscannable;
 
         foreach ($events as $e) {
-            try {
-                $tokens = TemplateMiner::tokens($this->normalizer, $e);
-            } catch (NormalizationException) {
-                // One poisoned event must not abort the run (A4-07): it is grouped, counted and masked.
-                ++$this->unscannable;
-                $tokens = ['<UNSCANNABLE>'];
-            }
+            // One poisoned event must not abort the run (A4-07): it is grouped, counted and masked as <UNSCANNABLE>.
+            $tokens = TemplateMiner::tokens($this->normalizer, $e);
             $fp = $fingerprinter->fingerprint($e, $tokens);
             $own = true;
             if (isset($groups[$fp])) {
@@ -117,10 +112,15 @@ final class Reducer
             unset($g);
         }
 
+        $this->unscannable = $this->normalizer->unscannable - $unscannableBefore;
         $out = [];
         foreach ($groups as $fp => $g) {
             // PHP turns all-digit keys into ints; the fingerprint is a string everywhere else.
-            $out[] = new ProblemGroup((string) $fp, $g['own'] ? $miner->template((string) $fp) : self::OVERFLOW_TEMPLATE, $g['level'], $g['type'], $g['frames'], $g['count'], $g['first'], $g['last']);
+            $template = $g['own'] ? $miner->template((string) $fp) : self::OVERFLOW_TEMPLATE;
+            if ($template === '<UNSCANNABLE>') {
+                $template = null; // a group nothing could scan has no template text, not even the placeholder
+            }
+            $out[] = new ProblemGroup((string) $fp, $template, $g['level'], $g['type'], $g['frames'], $g['count'], $g['first'], $g['last']);
         }
         $this->mining = $miner->stats();
         usort($out, static fn (ProblemGroup $a, ProblemGroup $b): int => [$b->count, $a->fingerprint] <=> [$a->count, $b->fingerprint]);

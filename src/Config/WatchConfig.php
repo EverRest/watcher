@@ -13,7 +13,7 @@ use Watcher\Level;
  * Sections are plain arrays with every default applied; levels are already parsed to Level.
  * Error messages carry key paths only, never values (secrets).
  */
-final class WatchConfig
+final class WatchConfig implements \JsonSerializable
 {
     private const TOP_LEVEL = [
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
@@ -78,6 +78,28 @@ final class WatchConfig
     ) {
     }
 
+    /**
+     * What a debug dump or an error page shows: the sections that hold credentials are replaced.
+     * The real values stay readable on the public properties for the code that needs them.
+     *
+     * @return array<string, mixed>
+     */
+    public function __debugInfo(): array
+    {
+        $out = get_object_vars($this);
+        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags'] as $k) {
+            $out[$k] = '[redacted]';
+        }
+
+        return $out;
+    }
+
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->__debugInfo();
+    }
+
     /** Whether a feature flag is on. */
     public function on(string $flag): bool
     {
@@ -85,7 +107,7 @@ final class WatchConfig
     }
 
     /** @param array<string, mixed> $config */
-    public static function fromArray(array $config): self
+    public static function fromArray(#[\SensitiveParameter] array $config): self
     {
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::TOP_LEVEL, true)) {
@@ -99,7 +121,7 @@ final class WatchConfig
         }
         $enabled = self::flag($config, 'enabled', 'enabled', false);
         $environment = $config['environment'] ?? null;
-        if ($environment !== null && (!is_string($environment) || preg_match('/^[A-Za-z0-9._-]{1,64}$/', $environment) !== 1)) {
+        if ($environment !== null && (!is_string($environment) || preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $environment) !== 1)) {
             throw new InvalidConfig('environment must be a name of letters, digits, dot, dash and underscore');
         }
         $flags = [];
@@ -107,7 +129,7 @@ final class WatchConfig
         $sch = self::section($config, 'schedule');
         self::only($sch, ['run_at', 'timezone', 'window', 'lock_ttl', 'run_deadline'], 'schedule');
         $runAt = self::str($sch, 'run_at', 'schedule.run_at');
-        if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $runAt) !== 1) {
+        if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/D', $runAt) !== 1) {
             throw new InvalidConfig('schedule.run_at must be HH:MM');
         }
         $tz = self::optStr($sch, 'timezone', 'UTC', 'schedule.timezone');
@@ -380,8 +402,14 @@ final class WatchConfig
         $driver = self::str($s, 'driver', 'source.driver');
         if ($driver === 'loki') {
             $loki = self::section($s, 'loki');
-            self::only($loki, ['url', 'auth', 'tenant'], 'source.loki');
-            self::str($loki, 'url', 'source.loki.url');
+            self::only($loki, ['url', 'auth', 'tenant', 'allow_insecure'], 'source.loki');
+            $url = self::str($loki, 'url', 'source.loki.url');
+            if (isset($loki['allow_insecure']) && !is_bool($loki['allow_insecure'])) {
+                throw new InvalidConfig('source.loki.allow_insecure must be true or false');
+            }
+            if (($problem = SecureUrl::problem($url, ($loki['allow_insecure'] ?? false) === true)) !== null) {
+                throw new InvalidConfig('source.loki.url ' . $problem);
+            }
             $auth = $loki['auth'] ?? null;
             if ($auth !== null) {
                 if (!is_array($auth) || !in_array($auth['type'] ?? null, ['bearer', 'basic'], true)) {
@@ -401,7 +429,7 @@ final class WatchConfig
             }
             self::str($dd, 'api_key', 'source.datadog.api_key');
             self::str($dd, 'app_key', 'source.datadog.app_key');
-            if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i', self::optStr($dd, 'site', 'datadoghq.com', 'source.datadog.site')) !== 1) {
+            if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iD', self::optStr($dd, 'site', 'datadoghq.com', 'source.datadog.site')) !== 1) {
                 throw new InvalidConfig('source.datadog.site must be a Datadog site host such as datadoghq.eu');
             }
         } else {
@@ -535,7 +563,7 @@ final class WatchConfig
     /** @param array<string, mixed> $r an injected `instance` wins; otherwise host/port/password/database build one */
     private static function redis(array $r): void
     {
-        self::only($r, ['instance', 'host', 'port', 'password', 'database'], 'state.redis');
+        self::only($r, ['instance', 'host', 'port', 'username', 'password', 'database'], 'state.redis');
         if (array_key_exists('instance', $r)) {
             if (!$r['instance'] instanceof \Redis) {
                 throw new InvalidConfig('state.redis.instance must be a \\Redis instance');
@@ -555,6 +583,9 @@ final class WatchConfig
         if (isset($r['password']) && !is_string($r['password'])) {
             throw new InvalidConfig('state.redis.password must be a string');
         }
+        if (isset($r['username']) && (!is_string($r['username']) || $r['username'] === '')) {
+            throw new InvalidConfig('state.redis.username must be a non-empty string');
+        }
     }
 
     /** @param array<string, mixed> $p */
@@ -562,7 +593,7 @@ final class WatchConfig
     {
         self::only($p, ['dsn', 'username', 'password', 'table'], 'state.pdo');
         self::str($p, 'dsn', 'state.pdo.dsn');
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', self::optStr($p, 'table', 'watcher_state', 'state.pdo.table')) !== 1) {
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', self::optStr($p, 'table', 'watcher_state', 'state.pdo.table')) !== 1) {
             throw new InvalidConfig('state.pdo.table must be a plain identifier');
         }
         foreach (['username', 'password'] as $k) {
@@ -604,7 +635,7 @@ final class WatchConfig
      */
     public static function notifyEntry(mixed $d, string $path): array
     {
-        $keys = ['slack' => ['webhook'], 'telegram' => ['bot_token', 'chat_id', 'thread_id'], 'discord' => ['webhook']];
+        $keys = ['slack' => ['webhook', 'allow_insecure'], 'telegram' => ['bot_token', 'chat_id', 'thread_id'], 'discord' => ['webhook']];
         if (!is_array($d)) {
             throw new InvalidConfig($path . '.webhook is required');
         }
@@ -625,7 +656,15 @@ final class WatchConfig
             throw new InvalidConfig('Unknown configuration key: ' . $path . '.' . $key);
         }
         if ($driver !== 'telegram') {
-            return ['driver' => $driver, 'webhook' => self::str($d, 'webhook', $path . '.webhook')];
+            $out = ['driver' => $driver, 'webhook' => self::str($d, 'webhook', $path . '.webhook')];
+            if (isset($d['allow_insecure'])) {
+                if (!is_bool($d['allow_insecure'])) {
+                    throw new InvalidConfig($path . '.allow_insecure must be true or false');
+                }
+                $out['allow_insecure'] = $d['allow_insecure'];
+            }
+
+            return $out;
         }
         $out = ['driver' => $driver, 'bot_token' => self::str($d, 'bot_token', $path . '.bot_token')];
         $chat = $d['chat_id'] ?? null;
@@ -652,7 +691,7 @@ final class WatchConfig
         return match ($entry['driver']) {
             'telegram' => Destination::telegram($entry['bot_token'], $entry['chat_id'], $entry['thread_id'] ?? null),
             'discord' => Destination::discord($entry['webhook']),
-            default => Destination::slack($entry['webhook']),
+            default => Destination::slack($entry['webhook'], ($entry['allow_insecure'] ?? false) === true),
         };
     }
 
@@ -723,7 +762,7 @@ final class WatchConfig
             $path = 'mute.' . $i;
             self::matcher($entry, $path, true);
             $until = $entry['until'] ?? null;
-            if ($until !== null && (!is_string($until) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $until) !== 1 || !checkdate((int) substr($until, 5, 2), (int) substr($until, 8, 2), (int) substr($until, 0, 4)))) {
+            if ($until !== null && (!is_string($until) || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $until) !== 1 || !checkdate((int) substr($until, 5, 2), (int) substr($until, 8, 2), (int) substr($until, 0, 4)))) {
                 throw new InvalidConfig($path . '.until must be a YYYY-MM-DD date or null');
             }
         }

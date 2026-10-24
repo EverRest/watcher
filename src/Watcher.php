@@ -802,7 +802,7 @@ final class Watcher
             try {
                 $this->noticeOnce('exhausted:' . rawurlencode($key) . ':' . $spend->day(), $this->notices()->budgetExhausted($service, $environment, $this->fleet === null ? null : $cap), $notice);
             } catch (Throwable $e) {
-                $this->hostLog?->warning('budget notice not delivered: ' . $e->getMessage(), ['service' => $service]);
+                $this->hostLog?->warning('budget notice not delivered: ' . $this->notices()->describe($e), ['service' => $service]);
             }
         }
         $alerts = new BudgetAlerts($this->state, $this->clock, $tz, $key);
@@ -818,7 +818,7 @@ final class Watcher
                 $this->notifier->send(self::plainNotice($alert->noticeText($service)), $notice);
             } catch (Throwable $e) {
                 $alerts->release($alert);
-                $this->hostLog?->warning('budget alert not delivered: ' . $e->getMessage(), ['service' => $service]);
+                $this->hostLog?->warning('budget alert not delivered: ' . $this->notices()->describe($e), ['service' => $service]);
             }
         }
 

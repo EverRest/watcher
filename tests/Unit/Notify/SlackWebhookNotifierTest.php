@@ -96,4 +96,46 @@ final class SlackWebhookNotifierTest extends TestCase
             self::assertStringNotContainsString('hooks.example', $e->getMessage());
         }
     }
+
+    public function testAMalformedUriNeverLeaksTheWebhook(): void
+    {
+        $hook = 'https://hooks.slack.com:port/services/T0FAKE000/B0FAKE000/FAKESECRETFAKE';
+        $n = $this->notifier([new Response(200)]);
+
+        try {
+            $n->send(new Message('x', []), new Destination($hook));
+            self::fail('expected DeliveryFailed');
+        } catch (DeliveryFailed $e) {
+            self::assertStringNotContainsString('FAKESECRET', $e->getMessage());
+            self::assertNull($e->getPrevious());
+        }
+        self::assertSame([], $this->history, 'nothing was sent');
+    }
+
+    public function testAnInvalidArgumentFromTheClientBecomesADeliveryFailureWithoutTheUrl(): void
+    {
+        $n = $this->notifier([new \InvalidArgumentException('Unable to parse URI: ' . self::HOOK)]);
+
+        try {
+            $n->send(new Message('x', []), new Destination(self::HOOK));
+            self::fail('expected DeliveryFailed');
+        } catch (DeliveryFailed $e) {
+            self::assertStringNotContainsString('SECRET-TOKEN', $e->getMessage());
+            self::assertNull($e->getPrevious());
+        }
+    }
+
+    public function testPlainHttpAndCredentialsInTheUrlAreRefusedAtRunTime(): void
+    {
+        foreach (['http://hooks.example/T0/B0/SECRET-TOKEN', 'https://user:pw@hooks.example/T0/B0/SECRET-TOKEN', 'ftp://hooks.example/x', 'https:///no-host'] as $hook) {
+            $n = $this->notifier([new Response(200)]);
+            try {
+                $n->send(new Message('x', []), new Destination($hook));
+                self::fail("sent to $hook");
+            } catch (DeliveryFailed $e) {
+                self::assertStringNotContainsString('SECRET-TOKEN', $e->getMessage());
+            }
+            self::assertSame([], $this->history);
+        }
+    }
 }

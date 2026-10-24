@@ -72,7 +72,7 @@ final class LogLinkBuilder
     {
         $parts = [];
         foreach ($this->tags as $k => $v) {
-            $parts[] = $k . ':' . (preg_match('~^[\w.\-/]+$~', $v) === 1 ? $v : '"' . self::esc($v) . '"');
+            $parts[] = $k . ':' . (preg_match('~^[\w.\-/]+$~D', $v) === 1 ? $v : '"' . self::esc($v) . '"');
         }
         if ($literal !== null) {
             $parts[] = '"' . self::esc($literal) . '"';

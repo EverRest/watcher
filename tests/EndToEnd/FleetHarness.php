@@ -82,7 +82,7 @@ final class FleetHarness
             'schedule' => ['run_at' => $this->clock->now()->format('H:i')],
             'source' => [
                 'driver' => 'loki',
-                'loki' => ['url' => 'http://loki.invalid'],
+                'loki' => ['url' => 'https://loki.invalid'],
                 'stream_tags' => ['app' => $name, 'env' => 'stg'],
                 'anomaly_cap' => 100,
             ],

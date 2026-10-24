@@ -43,7 +43,7 @@ final class Heartbeat
         private readonly DateTimeZone $timezone,
         private readonly int $retention,
         private readonly ?LoggerInterface $log = null,
-        private readonly array $secrets = [],
+        #[\SensitiveParameter] private readonly array $secrets = [],
     ) {
     }
 

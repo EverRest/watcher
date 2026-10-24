@@ -29,7 +29,7 @@ final class PdoStateStore implements StateStore, RenewableLock
         private readonly string $table = 'watcher_state',
         private readonly int $purgeEvery = 50,
     ) {
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $table) !== 1) {
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $table) !== 1) {
             throw new InvalidArgumentException('Invalid table name');
         }
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -37,7 +37,7 @@ final class PdoStateStore implements StateStore, RenewableLock
 
     public static function createTableSql(string $driver = 'sqlite', string $table = 'watcher_state'): string
     {
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $table) !== 1) {
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $table) !== 1) {
             throw new InvalidArgumentException('Invalid table name');
         }
 

@@ -30,7 +30,7 @@ final class Env
         if ($raw === null) {
             return $default;
         }
-        if (preg_match('/^\s*-?\d+\s*$/', $raw) !== 1) {
+        if (preg_match('/^\s*-?\d+\s*$/D', $raw) !== 1) {
             throw new InvalidConfig("environment variable $name must be an integer");
         }
 

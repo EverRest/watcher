@@ -68,10 +68,10 @@ final class TemplateMiner
         $this->budget = $comparisonBudget ?? self::BUDGET_PER_MESSAGE * $maxDistinct;
     }
 
-    /** @return list<string> whitespace tokens of the Normalizer-masked message (throws NormalizationException) */
+    /** @return list<string> whitespace tokens of the Normalizer-masked message (an unscannable event yields `<UNSCANNABLE>`, counted in `Normalizer::$unscannable`) */
     public static function tokens(Normalizer $normalizer, LogEvent $event): array
     {
-        $text = $normalizer->normalize($event->message);
+        $text = $normalizer->normalizeOrUnscannable($event->message);
 
         return $text === '' ? [] : explode(' ', $text);
     }

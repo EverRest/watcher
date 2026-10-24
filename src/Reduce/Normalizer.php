@@ -28,7 +28,7 @@ final class Normalizer
      * host-shaped payload only. Angle brackets in the input are neutralised first (see scan()), so
      * placeholder-looking input text can never hide a value from the rules.
      */
-    private const SKIP_NAMES = 'EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR|PATH|USER';
+    private const SKIP_NAMES = 'EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR|PATH|USER|UNSCANNABLE';
 
     /** Private-use stand-ins for '<' and '>' of the input while the rules run. */
     /** Characters kept of any one input; the rest is dropped before the rules run. */
@@ -109,6 +109,24 @@ final class Normalizer
         return $this->scan($text)['text'];
     }
 
+    /** Text that could not be scanned (invalid UTF-8, a regex failure) in this instance, see {@see normalizeOrUnscannable()}. */
+    public int $unscannable = 0;
+
+    /**
+     * Per-event fail-closed: a line the rules cannot scan becomes the placeholder `<UNSCANNABLE>` (counted), never raw
+     * text and never an exception that fails the whole window.
+     */
+    public function normalizeOrUnscannable(string $text): string
+    {
+        try {
+            return $this->normalize($text);
+        } catch (NormalizationException) {
+            ++$this->unscannable;
+
+            return '<UNSCANNABLE>';
+        }
+    }
+
     /**
      * @return array{text: string, changed: bool} `changed` is true when any placeholder was applied
      *                                            (whitespace collapsing alone does not count).
@@ -119,10 +137,9 @@ final class Normalizer
             throw new NormalizationException('Input is not valid UTF-8.');
         }
 
-        if (mb_strlen($text, 'UTF-8') > self::MAX_CHARS) {
-            // A value straddling the cut would no longer match any rule: drop the trailing partial token too.
-            $text = (string) preg_replace('/\S*\z/u', '', mb_substr($text, 0, self::MAX_CHARS, 'UTF-8'));
-        }
+        // Decode and fold before any rule: `%40`, `&#64;`, fullwidth `＠`, zero-width characters and look-alikes must not
+        // carry a value past the rules (bounded: see canonical()).
+        $text = self::canonical(self::cut($text));
 
         // Input '<' and '>' (and any stray stand-ins) become inert so only our own placeholders are '<...>'.
         $text = strtr($text, [self::LT => "\u{FFFD}", self::GT => "\u{FFFD}"]);
@@ -163,6 +180,62 @@ final class Normalizer
         return ['text' => strtr(trim($text), [self::LT => '<', self::GT => '>']), 'changed' => $changed];
     }
 
+    /** A value straddling the cut would no longer match any rule: the trailing partial token goes too. */
+    private static function cut(string $text): string
+    {
+        if (mb_strlen($text, 'UTF-8') <= self::MAX_CHARS) {
+            return $text;
+        }
+
+        return (string) preg_replace('/\S*\z/u', '', mb_substr($text, 0, self::MAX_CHARS, 'UTF-8'));
+    }
+
+    /**
+     * What the rules see, reached by a bounded fixed point (at most 4 rounds, each cut to the cap): format characters
+     * (`\p{Cf}`: zero-width, bidi, BOM, soft hyphen) removed, NFKC folding (fullwidth `＠`, `﹫`, ligatures), the
+     * ideographic / fullwidth full stops between label characters made '.', then one pass of percent decoding (delimiters
+     * and valid UTF-8 sequences) and of HTML-entity decoding. Nested encodings (`%2540`, `&#37;40`, `%EF%BC%A0`, a
+     * zero-width space inside `%40`) settle within the rounds. ext-intl is optional: without it only the fullwidth ASCII
+     * block and the small commercial at are folded.
+     *
+     * @internal public so the no-intl path can be tested
+     */
+    public static function canonical(string $text, ?bool $intl = null): string
+    {
+        $intl ??= class_exists(\Normalizer::class);
+        $strip = static fn (string $t): string => (string) preg_replace('/\p{Cf}+/u', '', $t);
+
+        for ($round = 0; $round < 4; ++$round) {
+            $before = $text;
+            $text = $strip($text);
+
+            if ($intl) {
+                // The ellipsis the path placeholder writes (`<PATH>/…/a/b`) would fold to three dots on the second scan: keep it.
+                $folded = \Normalizer::normalize(str_replace("\u{2026}", "\u{E002}", $text), \Normalizer::FORM_KC);
+                $text = is_string($folded) ? str_replace("\u{E002}", "\u{2026}", $strip($folded)) : $text;
+            } else {
+                $text = (string) preg_replace_callback('/[\x{FF01}-\x{FF5E}]/u', static fn (array $m): string => chr((int) mb_ord($m[0], 'UTF-8') - 0xFEE0), $text);
+                $text = strtr($text, ["\u{3000}" => ' ', "\u{FE6B}" => '@', "\u{FE52}" => '.']);
+            }
+            // Full stops a browser treats as '.', but only between label characters (a CJK sentence stop is left alone).
+            $text = (string) preg_replace('/(?<=[\p{L}\p{N}])[\x{3002}\x{FF61}\x{FF0E}](?=[\p{L}\p{N}])/u', '.', $text);
+
+            $text = (string) preg_replace_callback('/%(?:2[1-9a-f]|3[a-f]|40|5[b-d]|7[b-d])|(?:%[c-f][0-9a-f](?:%[89ab][0-9a-f]){1,3})/i', static function (array $m): string {
+                $d = rawurldecode($m[0]);
+
+                return preg_match('//u', $d) === 1 ? $d : $m[0];
+            }, $text);
+            $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $text = self::cut($text);
+
+            if ($text === $before) {
+                break;
+            }
+        }
+
+        return $strip($text);
+    }
+
     /** @return list<array{string, string|callable(array<int|string,string>): string}> */
     private function rules(): array
     {
@@ -176,7 +249,9 @@ final class Normalizer
                 // After 'user:' (a non-port value) a / ? # appears before a later '@': that is a password
                 // swallowing the authority, so the whole token is dropped. RFC-compliant credentials fall
                 // through to the next rule; ports and '@' in a query (http://h:80/x?e=a@b) are not matched.
-                '\b[a-z][a-z0-9+.-]*://[^\s/?\#@\'"' . $ang . ']*:(?!\d+(?:[/?\#]|$|\s))[^\s/?\#\'"' . $ang . ']*[/?\#][^\s\'"' . $ang . ']*@[^\s\'"' . $ang . ']*',
+                // Linear: possessive classes, the user part cannot hold ':' (so the FIRST colon is the user:password split) and
+                // the '@' is looked for once, ahead, instead of being backtracked into.
+                '\b[a-z][a-z0-9+.-]*+://[^\s/?\#@:\'"' . $ang . ']*+:(?!\d+(?:[/?\#]|$|\s))[^\s/?\#\'"' . $ang . ']*+[/?\#](?=[^\s\'"' . $ang . ']*@)[^\s\'"' . $ang . ']*+',
                 '<URL>',
             ],
             [
@@ -218,7 +293,25 @@ final class Normalizer
             ['(\b(?:basic|token)\s++)(?-i:(?=[\w.~+/=-]*[a-z])(?=[\w.~+/=-]+[A-Z]))[\w.~+/=-]{12,}+', fn (array $m): string => $m[1] . '<TOKEN>'],
             // `basic` is followed by base64 by definition: any 8+ base64 run that is not one plain word.
             ['(\bbasic\s++)(?!(?-i:[a-z]++|[A-Z][a-z]++|[A-Z]++)(?![A-Za-z0-9+/=_-]))[A-Za-z0-9+/]{8,}+={0,2}+', fn (array $m): string => $m[1] . '<TOKEN>'],
-            ['(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)+', '<EMAIL>'],
+            // Credentials by KEY name, any value length or case: `password=x`, `"secret":"x"`, `X-Amz-Security-Token: x`,
+            // `?token=x&sig=x`. The key stays, the value (quoted: up to the closing quote; else up to space , ; & " ' } ]) goes.
+            [
+                '((?<![\w-])(?:[\w-]{0,30}?(?:pass(?:word|wd|phrase)?+|pwd|secret|api[_-]?key|access[_-]?key|private[_-]?key|credentials?+|token|signature)[\w-]{0,30}'
+                . '|(?:x|dd|ocp|proxy)-[\w-]{0,30}?(?:key|sig)[\w-]{0,30}|(?<=[?&])(?:key|sig|auth))'
+                . '["\']?+\s*+(?:=>|[:=])\s*+)(?:(["\'])((?:\\\\.|(?!\\2)[^\r\n])*+)(?:\\2|$)|(?!<|(?:bearer|basic|token|digest)\s++<)[^\s,;&"\'}\]]++)',
+                static fn (array $m): string => $m[1] . (($m[2] ?? '') !== '' ? $m[2] . '<TOKEN>' . $m[2] : '<TOKEN>'),
+            ],
+            // A relative request line's query string: the WHOLE query (up to white space or a quote), every value goes
+            // unless it is already a placeholder; keys, key-only parts and the separators (`&`, `;`) stay.
+            [
+                '(?<=[\w\/.-])\?[^\s\'"\#]*+',
+                static fn (array $m): string => '?' . (string) preg_replace_callback(
+                    '/(?<=^|[&;])([^&;=]*+)=((?!<[A-Z]++(?::[a-z0-9._-]++)?>(?:[&;]|$))[^&;]*+)/',
+                    static fn (array $p): string => $p[1] . '=<STR>',
+                    substr($m[0], 1),
+                ),
+            ],
+            ['(?<![\w.+-])(?:"[^"\r\n@]{1,64}"|[\w.+-]++)@[\w-]++(?:\.[\w-]++)*+', '<EMAIL>'],
             ['\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '<ID>'],
             ['\b(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b', '<ID>'],
             ['\b(?:\d{32}|\d{40}|\d{64})\b', '<ID>'], // md5 / sha1 / sha256 that happen to hold no a-f
@@ -226,7 +319,9 @@ final class Normalizer
             ["(?<![\\w:])(?:(?:$h:){7}$h|(?:$h:){1,7}:(?:$h(?::$h){0,6})?|::$h(?::$h){0,6})(?![\\w:])", '<IP>'],
             [
                 // bare FQDN: >= 2 labels, alphabetic 2+ letter last label that is not a file extension
-                '(?<![\w\\\\.-])(?<host>(?:[a-z0-9][a-z0-9-]*+\.)+(?!(?:' . self::FILE_EXT . ')(?![a-z]))[a-z]{2,})(?![\w-]|\.\w)',
+                // Labels are any letters / marks / digits (IDN); the ideographic full stops count as dots between ASCII labels only (a CJK sentence is no host).
+                '(?<![\w\\\\.-])(?<host>(?:[\p{L}\p{N}][\p{L}\p{M}\p{N}-]*+\.)+(?!(?:' . self::FILE_EXT . ')(?![\p{L}\p{M}]))[\p{L}\p{M}]{2,}'
+                . '|(?:[a-z0-9][a-z0-9-]*+[\x{3002}\x{FF61}])++[a-z]{2,})(?![\w-]|\.\w)',
                 fn (array $m): string => $this->hostPlaceholder(strtolower($m['host']), 'HOST'),
             ],
             ['\b(?:\d[ -]?){12,18}\d\b', '<PAN>'],
@@ -360,7 +455,7 @@ final class Normalizer
                 return '<' . $kind . ':' . $name . '>';
             }
             foreach ($this->domains as $d) {
-                if (preg_match('/^' . preg_quote($name . '.', '/') . '(?:[a-z0-9-]+\.)?' . preg_quote($d, '/') . '$/', $host) === 1) {
+                if (preg_match('/^' . preg_quote($name . '.', '/') . '(?:[a-z0-9-]+\.)?' . preg_quote($d, '/') . '$/D', $host) === 1) {
                     return '<' . $kind . ':' . $name . '>';
                 }
             }

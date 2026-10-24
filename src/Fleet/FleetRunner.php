@@ -14,6 +14,7 @@ use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
 use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
+use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\Notifier;
 use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\Heartbeat;
@@ -173,7 +174,7 @@ final class FleetRunner
             $this->notifier->send(new Message($text, [['kind' => 'notice', 'text' => $text]]), $to);
         } catch (Throwable $e) {
             $budget->release($alert);
-            $this->log?->warning('fleet budget alert not delivered: ' . $e->getMessage(), ['fleet' => $this->config->name]);
+            $this->log?->warning('fleet budget alert not delivered: ' . $this->describe($e), ['fleet' => $this->config->name]);
         }
     }
 
@@ -201,7 +202,7 @@ final class FleetRunner
 
             return true;
         } catch (Throwable $e) {
-            $this->log?->warning('combined digest not delivered: ' . $e->getMessage(), ['fleet' => $this->config->name]);
+            $this->log?->warning('combined digest not delivered: ' . $this->describe($e), ['fleet' => $this->config->name]);
 
             return false;
         }
@@ -282,5 +283,23 @@ final class FleetRunner
             $this->log,
             $secrets,
         ))->recordRun($outcome, $startedAt, $now, $startedAt, 0.0, $failed > 0 ? $failed . ($failed === 1 ? ' service failed' : ' services failed') : null);
+    }
+
+    /** Class name and a masked message for the host log: a delivery error can echo a webhook URL or token. */
+    private function describe(Throwable $e): string
+    {
+        $secrets = [];
+        foreach ($this->config->services as $entry) {
+            array_push($secrets, ...$entry->config->secrets());
+        }
+        foreach ($this->config->notify as $block) {
+            foreach (is_array($block) ? $block : [] as $v) {
+                if (is_string($v)) {
+                    $secrets[] = $v;
+                }
+            }
+        }
+
+        return (new NoticeRenderer(array_values(array_unique($secrets))))->describe($e);
     }
 }

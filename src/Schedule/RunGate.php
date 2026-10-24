@@ -23,7 +23,7 @@ final class RunGate
         private readonly DateTimeZone $timezone,
         private readonly DateInterval|string $window = Window::DEFAULT_DURATION,
     ) {
-        if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $runAt, $m) !== 1) {
+        if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/D', $runAt, $m) !== 1) {
             throw new InvalidArgumentException("run_at must be HH:MM, got '{$runAt}'.");
         }
         $this->hour = (int) $m[1];

@@ -43,8 +43,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     public function __construct(
         private readonly ClientInterface $http,
         string $site,
-        string $apiKey,
-        string $appKey,
+        #[\SensitiveParameter] string $apiKey,
+        #[\SensitiveParameter] string $appKey,
         ?callable $sleeper = null,
         int $retryBudget = 120,
         private readonly int $pagingBudget = 300,
@@ -55,7 +55,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         if (!in_array($levelMode, ['status', 'all'], true)) {
             throw new InvalidArgumentException("Invalid Datadog level_mode '{$levelMode}' (status or all).");
         }
-        if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i', $site) !== 1) {
+        if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iD', $site) !== 1) {
             throw new InvalidArgumentException('Invalid Datadog site.');
         }
         $this->baseUrl = 'https://api.' . $site;
@@ -208,7 +208,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         }
 
         $parsed = $this->parser->parse(is_string($attrs['message'] ?? null) ? $attrs['message'] : '', $time);
-        $level = $parsed->level === Level::Info && is_string($attrs['status'] ?? null) ? Level::parse($attrs['status']) : $parsed->level;
+        $level = ($parsed->level === Level::Info || $this->parser->lastParseFailed) && is_string($attrs['status'] ?? null) ? Level::parse($attrs['status']) : $parsed->level;
 
         return new LogEvent($time, $level, $parsed->message, $parsed->errorType, $parsed->frames, $parsed->fields, $labels);
     }
@@ -255,17 +255,17 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     {
         $body = str_starts_with($re, '(?i)') ? substr($re, 4) : $re;
 
-        return preg_match('/^\w+$/', $body) === 1 ? $body : null;
+        return preg_match('/^\w+$/D', $body) === 1 ? $body : null;
     }
 
     private function tagQuery(StreamSelector $selector): string
     {
         $terms = [];
         foreach ($selector->tags as $key => $value) {
-            if (preg_match('/^[A-Za-z0-9_.@\/-]+$/', (string) $key) !== 1) {
+            if (preg_match('/^[A-Za-z0-9_.@\/-]+$/D', (string) $key) !== 1) {
                 throw new InvalidArgumentException("Invalid Datadog tag key '{$key}'.");
             }
-            $terms[] = $key . ':' . (preg_match('/^[A-Za-z0-9_.\/-]+$/', $value) === 1 ? $value : $this->quote($value));
+            $terms[] = $key . ':' . (preg_match('/^[A-Za-z0-9_.\/-]+$/D', $value) === 1 ? $value : $this->quote($value));
         }
         if ($terms === []) {
             throw new InvalidArgumentException('A Datadog query needs at least one stream tag.');
@@ -320,6 +320,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             'json' => $body,
             'headers' => $this->headers,
             'http_errors' => false,
+            'allow_redirects' => false, // DD-API-KEY would follow a redirect; a 3xx is an error here
+            'verify' => true,
         ] + ResponseLimit::options($tripped)), 'datadog', false);
         } catch (SourceUnavailable $e) {
             throw isset($tripped['large']) ? new SourceUnavailable('datadog response too large') : $e;

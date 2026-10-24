@@ -151,7 +151,8 @@ fails with `HTTP 429`.
 **File store:** the directory must not be writable by group or others (create it `0700`; a group-writable Laravel `storage` folder is refused with a message naming `state.file.path`), symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race. The daily budget check is read-then-book, so concurrent runs of the same service can overshoot it by one step each (the lock prevents that for one service; Redis `INCRBYFLOAT` reservation is not implemented).
 
 State holds counters, fingerprints, verdicts, reported markers, run records, spend counters and alert markers, each with
-`state.retention` (30 days; spend and alert keys 2 days). It never holds raw log lines.
+`state.retention` (30 days) except: spend and alert keys 2 days, weekly heartbeat counters 14 days, `noise`/`known` verdicts
+3 days, heartbeat and trigger records 3 x `state.retention`. It never holds raw log lines.
 
 Reset a service (forces a new baseline): change `service`, or delete its keys. Redis keys are
 `watcher:<kind>:<service>:...` (kinds: `snap` (also per dependency), `verdict`, `reported`, `run`, `lock`, `spend`, `alert`, `exhausted`); file state is

@@ -6,6 +6,7 @@ namespace Watcher\Notify;
 
 use JsonSerializable;
 use LogicException;
+use Watcher\Config\SecureUrl;
 
 /** Where to deliver. Webhook, bot token and chat id are secrets: they must never reach a log, dump or serialisation. */
 final class Destination implements JsonSerializable
@@ -19,23 +20,23 @@ final class Destination implements JsonSerializable
     private readonly \Closure $reveal;
 
     /** `new Destination($url)` is a Slack destination, as before the other drivers existed. */
-    public function __construct(string $webhook, private readonly string $driver = 'slack', string $botToken = '', string $chatId = '', ?int $threadId = null)
+    public function __construct(#[\SensitiveParameter] string $webhook, private readonly string $driver = 'slack', #[\SensitiveParameter] string $botToken = '', #[\SensitiveParameter] string $chatId = '', ?int $threadId = null, private readonly bool $allowInsecure = false)
     {
         $secrets = ['webhook' => $webhook, 'bot_token' => $botToken, 'chat_id' => $chatId, 'thread_id' => $threadId];
         $this->reveal = static fn (): array => $secrets;
     }
 
-    public static function slack(string $webhook): self
+    public static function slack(#[\SensitiveParameter] string $webhook, bool $allowInsecure = false): self
     {
-        return new self($webhook);
+        return new self($webhook, allowInsecure: $allowInsecure);
     }
 
-    public static function discord(string $webhook): self
+    public static function discord(#[\SensitiveParameter] string $webhook): self
     {
         return new self($webhook, 'discord');
     }
 
-    public static function telegram(string $botToken, string $chatId, ?int $threadId = null): self
+    public static function telegram(#[\SensitiveParameter] string $botToken, #[\SensitiveParameter] string $chatId, ?int $threadId = null): self
     {
         return new self('', 'telegram', $botToken, $chatId, $threadId);
     }
@@ -76,7 +77,7 @@ final class Destination implements JsonSerializable
 
     public function sameAs(self $other): bool
     {
-        return $this->driver === $other->driver && ($this->reveal)() === ($other->reveal)();
+        return $this->driver === $other->driver && $this->allowInsecure === $other->allowInsecure && ($this->reveal)() === ($other->reveal)();
     }
 
     /** Name of the first key whose value has the wrong shape, or null. Never returns a value. */
@@ -92,7 +93,7 @@ final class Destination implements JsonSerializable
                 default => null,
             },
             'discord' => preg_match(self::DISCORD, $v['webhook']) === 1 ? null : 'webhook',
-            default => self::httpsWithHost($v['webhook']) ? null : 'webhook',
+            default => SecureUrl::problem($v['webhook'], $this->allowInsecure) === null ? null : 'webhook',
         };
     }
 
@@ -118,12 +119,5 @@ final class Destination implements JsonSerializable
         if (!in_array($this->driver, $drivers, true)) {
             throw new LogicException('Destination of driver ' . $this->driver . ' has no such value.');
         }
-    }
-
-    private static function httpsWithHost(string $url): bool
-    {
-        $parts = parse_url($url);
-
-        return $parts !== false && ($parts['scheme'] ?? '') === 'https' && ($parts['host'] ?? '') !== '';
     }
 }

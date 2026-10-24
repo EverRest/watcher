@@ -303,6 +303,25 @@ final class CostTest extends TestCase
         self::assertStringContainsString('slack delivery failed: HTTP 500', $log->records[0][1]);
     }
 
+    public function testADeliveryFailureIsLoggedAsClassAndMaskedMessageNeverTheWebhook(): void
+    {
+        $h = new Harness(self::BUDGET);
+        $h->watcher(self::source(self::group('Alpha')))->run();
+        $h->nextWindow();
+        $h->analyzer->inputTokens = 100000;
+        $h->notifier->failOnce(new \Watcher\Notify\DeliveryFailed('Unable to parse URI: https://hooks.slack.com:port/services/T0FAKE000/B0FAKE000/FAKEFAKEFAKE token=abc12345678'));
+        $log = new \Watcher\Tests\Fakes\SpyLogger();
+        $h->hostLog = $log;
+
+        $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
+
+        self::assertCount(1, $log->records);
+        self::assertStringStartsWith('budget alert not delivered: Watcher\\Notify\\DeliveryFailed: ', $log->records[0][1]);
+        self::assertStringNotContainsString('hooks.slack.com', $log->records[0][1]);
+        self::assertStringNotContainsString('FAKEFAKE', $log->records[0][1]);
+        self::assertStringNotContainsString('abc12345678', $log->records[0][1]);
+    }
+
     public function testAFailedExhaustedNoticeNeverAbortsTheDigest(): void
     {
         $h = new Harness(self::BUDGET + ['schedule' => ['window' => 'PT1H']]);

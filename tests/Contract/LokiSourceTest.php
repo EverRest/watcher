@@ -28,7 +28,7 @@ final class LokiSourceTest extends LogSourceContractTest
     private const BASE_NS = 1792627200; // 2026-10-22T00:00:00Z
     private const PAGE = 5000;
 
-    /** @var list<array{request: RequestInterface}> */
+    /** @var list<array{request: RequestInterface, options: array<string, mixed>}> */
     private array $history = [];
 
     /** @var list<int> */
@@ -255,6 +255,87 @@ final class LokiSourceTest extends LogSourceContractTest
 
         $this->assertCount(2, $events);
         $this->assertFalse($source->lastReadTruncated());
+    }
+
+    public function testRequestsNeverFollowRedirectsAndPinTlsVerification(): void
+    {
+        $source = $this->makeSourceWithLines([$this->line('ERROR', 'x')]);
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertNotSame([], $this->history);
+        foreach ($this->history as $h) {
+            $this->assertFalse($h['options']['allow_redirects']);
+            $this->assertTrue($h['options']['verify']);
+        }
+    }
+
+    public function testPlainLinesAfterAJsonRecordAreNotSwallowedByIt(): void
+    {
+        $source = $this->makeSourceWithLines([
+            '{"message":"attacker marker","level":"error"}',
+            'Payment gateway unreachable, orders failing',
+            'Database connection pool exhausted',
+        ]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertCount(3, $events);
+        $this->assertSame('Payment gateway unreachable, orders failing', $events[1]->message);
+    }
+
+    public function testAStreamWithALevelLabelNeverAppendsAnUnrecognisedLine(): void
+    {
+        $values = [
+            [$this->ns(self::BASE_NS), 'FATAL boom {"a":1}'],
+            [$this->ns(self::BASE_NS + 1), 'something the app printed'],
+            [$this->ns(self::BASE_NS + 2), '    at Foo.bar (x.js:1:1)'],
+        ];
+        $source = $this->source([$this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [
+            ['stream' => ['app' => 'svc', 'level' => 'error'], 'values' => $values],
+        ]]])]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 10)));
+
+        $this->assertCount(2, $events);
+        $this->assertSame(Level::Error, $events[1]->level); // the stream label, not a quiet Info
+    }
+
+    public function testAnOversizedJsonLineIsNotSwallowedByTheRecordBeforeIt(): void
+    {
+        $source = $this->makeSourceWithLines([
+            '[2026-10-22 10:00:00] production.ERROR: first {}',
+            '    at frame()',
+            '{"level":"error","message":"second","pad":"' . str_repeat('p', 300000) . '","t":"late.leak@example.org"}',
+            str_repeat('x', 20000),
+        ]);
+
+        $filter = new ReadFilter(Level::Debug, [], 10);
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), $filter));
+
+        // The 300 KB line is over the 64 KB cap: dropped and counted, never swallowed into (or leaked through) the record before it.
+        $this->assertSame(1, $filter->oversizedLines);
+        $this->assertCount(2, $events);
+        $this->assertSame('first', $events[0]->message);
+        foreach ($events as $e) {
+            $this->assertStringNotContainsString('leak', $e->message);
+        }
+    }
+
+    public function testAFloodOfIndentedLinesIsCutIntoBoundedRecords(): void
+    {
+        $lines = ['[2026-10-22 10:00:00] production.ERROR: head {}'];
+        for ($i = 0; $i < 450; ++$i) {
+            $lines[] = '    at frame' . $i;
+        }
+        $source = $this->makeSourceWithLines($lines);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Debug, [], 1000)));
+
+        $this->assertGreaterThanOrEqual(3, count($events));
     }
 
     public function testPlainUnstructuredLinesBecomeOneEventEach(): void

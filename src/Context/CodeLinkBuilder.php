@@ -26,7 +26,7 @@ final class CodeLinkBuilder
             default => null,
         };
         if ($blob === null || !is_string($webUrl) || $webUrl === '' || !is_array($map) || $this->commit === null || $this->commit === ''
-            || !preg_match('/^(.+):(\d+)$/', $frame, $m)) {
+            || !preg_match('/^(.+):(\d+)$/D', $frame, $m)) {
             return null;
         }
 

@@ -20,7 +20,7 @@ final class BaselineConfigTest extends TestCase
         return array_replace_recursive([
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
-            'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki']],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki']],
             'analysis' => [
                 'api_key' => 'k',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],

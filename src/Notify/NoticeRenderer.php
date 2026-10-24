@@ -11,7 +11,7 @@ final class NoticeRenderer
     private const MIN_SECRET = 8;
 
     /** @param list<string> $secrets exact values ({@see \Watcher\Config\WatchConfig::secrets()}) to mask on top of the generic scrubbing */
-    public function __construct(private readonly array $secrets = [])
+    public function __construct(#[\SensitiveParameter] private readonly array $secrets = [])
     {
     }
 
@@ -49,6 +49,12 @@ final class NoticeRenderer
         $text = sprintf('%s watcher · %s · %s — %s', $icon, SlackText::escape($service), SlackText::escape($environment), $tail);
 
         return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    /** For a host log: the exception class and its message with every secret, URL and credential shape masked. */
+    public function describe(\Throwable $e): string
+    {
+        return $e::class . ': ' . $this->reason($e->getMessage());
     }
 
     private function reason(string $reason): string

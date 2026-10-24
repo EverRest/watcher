@@ -33,7 +33,7 @@ final class WatcherServiceProviderTest extends TestCase
                 return [
                     'service' => 'svc',
                     'schedule' => ['run_at' => '06:00'],
-                    'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://loki.invalid', 'auth' => ['type' => 'bearer', 'token' => 't']]],
+                    'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid', 'auth' => ['type' => 'bearer', 'token' => 't']]],
                     'analysis' => ['api_key' => 'k', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], 'prices' => ['a' => [1, 5, 0.1, 1.25], 'b' => [3, 15, 0.3, 3.75], 'c' => [5, 25, 0.5, 6.25]]],
                     'state' => ['driver' => 'file', 'file' => ['path' => sys_get_temp_dir() . '/watcher-provider-test']],
                     'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],

@@ -51,18 +51,22 @@ final class LokiSource implements LogSource, ReadDiagnostics
     public function __construct(
         private readonly ClientInterface $http,
         string $baseUrl,
-        ?string $bearerToken = null,
+        #[\SensitiveParameter] ?string $bearerToken = null,
         ?string $basicUser = null,
-        ?string $basicPassword = null,
-        ?string $tenant = null,
+        #[\SensitiveParameter] ?string $basicPassword = null,
+        #[\SensitiveParameter] ?string $tenant = null,
         ?callable $sleeper = null,
         int $retryBudget = 120,
         private readonly string $levelMode = 'text',
         ?ClockInterface $clock = null,
         private readonly int $pagingBudget = 300,
         private readonly int $maxPages = 1000,
+        bool $allowInsecure = false,
     ) {
         $this->clock = $clock ?? new SystemClock();
+        if (($problem = \Watcher\Config\SecureUrl::problem($baseUrl, $allowInsecure)) !== null) {
+            throw new InvalidArgumentException('Loki url ' . $problem . '.'); // never the URL itself
+        }
         if (!in_array($levelMode, ['text', 'label', 'all'], true)) {
             throw new InvalidArgumentException("Invalid Loki level_mode '{$levelMode}' (text, label or all).");
         }
@@ -274,7 +278,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
             if (!isset($open[$stream]) && $parser->isOrphanTrace($line, isset($labels['level']))) {
                 continue;
             }
-            if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1])) {
+            if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1], isset($labels['level']))) {
                 $out[$open[$stream]][1] .= "\n" . $line;
                 continue;
             }
@@ -290,7 +294,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
     {
         $time = (new DateTimeImmutable('@' . intdiv($ts, 1_000_000_000)))->setTimezone(new DateTimeZone('UTC'));
         $parsed = $this->parser->parse($line, $time);
-        $level = $parsed->level === Level::Info && isset($labels['level']) ? Level::parse($labels['level']) : $parsed->level;
+        $level = ($parsed->level === Level::Info || $this->parser->lastParseFailed) && isset($labels['level']) ? Level::parse($labels['level']) : $parsed->level;
 
         return new LogEvent($parsed->time, $level, $parsed->message, $parsed->errorType, $parsed->frames, $parsed->fields, $labels);
     }
@@ -362,7 +366,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
 
     private function name(string $name): string
     {
-        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name) !== 1) {
+        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/D', $name) !== 1) {
             throw new InvalidArgumentException("Invalid Loki label name '{$name}'.");
         }
 
@@ -410,6 +414,8 @@ final class LokiSource implements LogSource, ReadDiagnostics
             'query' => $query,
             'headers' => $this->headers,
             'http_errors' => false,
+            'allow_redirects' => false, // X-Scope-OrgID would follow a redirect; a 3xx is an error here
+            'verify' => true,
         ] + ResponseLimit::options($tripped)), 'loki', true);
         } catch (SourceUnavailable $e) {
             throw isset($tripped['large']) ? new SourceUnavailable('loki response too large') : $e;
