@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace Watcher\State\Redis;
 
 use InvalidArgumentException;
+use Watcher\Config\InvalidConfig;
 use Redis;
 
 final class PhpRedisClient implements RedisClient
 {
     public function __construct(#[\SensitiveParameter] private readonly Redis $redis)
     {
+        // Lock owners are compared raw in Lua (GET == ARGV[1]) and z1: values must round-trip: a serializer breaks both.
+        if ($redis->getOption(Redis::OPT_SERIALIZER) !== Redis::SERIALIZER_NONE) {
+            throw new InvalidConfig('state.redis.instance must not use a serializer (Redis::SERIALIZER_NONE)');
+        }
     }
 
     public function get(string $key): ?string
