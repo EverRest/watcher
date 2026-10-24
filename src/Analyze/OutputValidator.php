@@ -94,10 +94,8 @@ final class OutputValidator
             }
             $verdicts[$g] = $row['v'];
         }
-        // Exactly one verdict per group that was sent: a skipped group is not "nothing to look at", it is invalid output.
-        if (count($verdicts) !== count(array_unique($allowed))) {
-            throw InvalidModelOutput::at('verdicts', 'must hold exactly one verdict per group');
-        }
+        // A group with no verdict is not invalid output: the router treats it as `interesting` (fail closed) and counts it.
+        // Duplicates and unknown fingerprints stay invalid.
 
         return ['verdicts' => $verdicts];
     }

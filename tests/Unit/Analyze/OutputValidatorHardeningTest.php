@@ -214,16 +214,20 @@ final class OutputValidatorHardeningTest extends TestCase
         self::one(['confidence' => NAN]);
     }
 
-    public function testTriageMustHaveExactlyOneVerdictPerSentGroup(): void
+    public function testTriageAcceptsAMissingVerdictAndLeavesItToTheRouter(): void
     {
         $v = new OutputValidator();
-        $ok = $v->triage(['verdicts' => [['g' => 'a', 'v' => 'noise'], ['g' => 'b', 'v' => 'interesting']]], ['a', 'b']);
-        self::assertSame(['a' => 'noise', 'b' => 'interesting'], $ok['verdicts']);
 
+        self::assertSame(['a' => 'noise'], $v->triage(['verdicts' => [['g' => 'a', 'v' => 'noise']]], ['a', 'b'])['verdicts']);
+        self::assertSame([], $v->triage(['verdicts' => []], ['a', 'b'])['verdicts']);
+    }
+
+    public function testTriageRejectsDuplicatesAndUnknownFingerprints(): void
+    {
+        $v = new OutputValidator();
         foreach ([
-            'empty list' => [[], ['a', 'b']],
-            'missing one' => [[['g' => 'a', 'v' => 'noise']], ['a', 'b']],
             'duplicate' => [[['g' => 'a', 'v' => 'noise'], ['g' => 'a', 'v' => 'interesting'], ['g' => 'b', 'v' => 'noise']], ['a', 'b']],
+            'unknown' => [[['g' => 'zzzzzzzzzzzz', 'v' => 'noise']], ['a', 'b']],
         ] as $name => [$rows, $allowed]) {
             try {
                 $v->triage(['verdicts' => $rows], $allowed);
