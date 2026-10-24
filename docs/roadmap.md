@@ -17,6 +17,7 @@ Decisions recorded here were made by the owner on 2026-10-23.
 | **009 metrics and Sentry** | Prometheus error rate / p95 deltas; Sentry issues as an already-grouped source | Spec written | |
 | **010 API context** | OpenAPI/Swagger summaries for endpoints in findings | Spec written | Low value per token |
 | **011 more-notifiers** | Telegram and Discord next to Slack; per-kind destinations, message splitting, 429 handling, fleet override, `check` per driver | Implemented | Slack unchanged; MINOR release |
+| **013 observability-sink** | Versioned vendor-neutral event stream (`watcher.event.v1`) to `log`, `file`, `http` and `prometheus` sinks; driver `none` for dashboard-only mode; Grafana dashboards, alert rules and Kibana/Datadog mapping | Spec written | Chat can be switched off; all sinks off by default; OTLP later |
 
 ## Out of scope until a constitution amendment
 

@@ -260,7 +260,8 @@ final class DigestTest extends TestCase
         self::assertNotSame([], $spy->puts);
         foreach ($spy->puts as $key => $ttl) {
             // default retention; the liveness records (spec 002) live 3 x retention
-            self::assertSame(str_starts_with($key, 'hb:') || str_starts_with($key, 'trig:') ? 7776000 : 2592000, $ttl, $key);
+            // the delivered-digest marker is deliberately short-lived (A4-07)
+            self::assertSame(str_starts_with($key, 'hb:') || str_starts_with($key, 'trig:') ? 7776000 : (str_starts_with($key, 'sent:') ? 21600 : 2592000), $ttl, $key);
         }
         foreach ($spy->locks as $ttl) {
             self::assertSame(900, $ttl); // lock_ttl
@@ -380,7 +381,7 @@ final class DigestTest extends TestCase
         $h->watcher(self::source($events))->run();
 
         self::assertMatchesRegularExpression('/Grouping limit reached: \d+ messages were not clustered/', $h->sentTexts()[1]);
-        // 1000 unrelated messages in one bucket also spend the whole comparison budget (400 x message_cap)
+        // 1000 unrelated messages in one bucket also spend the whole comparison budget (1000 token operations x message_cap)
         self::assertStringContainsString('Grouping time budget reached: some groups show no message text.', $h->sentTexts()[1]);
     }
 

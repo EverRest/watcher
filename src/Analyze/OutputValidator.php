@@ -14,9 +14,35 @@ final class OutputValidator
 
     private const ADVICE_KEYS = ['how_to_check', 'related_checks'];
 
-    private const LIMITS = ['title' => 80, 'evidence' => 240, 'suspected_cause' => 240, 'suggested_action' => 200, 'how_to_check' => 200, 'related_check' => 80];
+    private const LIMITS = ['title' => 80, 'evidence' => 240, 'suspected_cause' => 240, 'suggested_action' => 200, 'how_to_check' => 200];
 
     private const MAX_RELATED = 3;
+
+    /**
+     * Command-shaped or credential-fishing advice, withheld from suggested_action / how_to_check / suspected_cause. A small, documented
+     * denylist (docs/privacy.md), not a proof of safety: each hit replaces the matching text up to the end of its sentence with
+     * "[withheld]" and the rest of the finding is kept.
+     */
+    private const COMMANDS = [
+        '/\b(?:curl|wget)\b[^|\n]*\|[^.!?\n]*/iu',                          // curl ... | sh
+        '/\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b[^.!?\n]*/iu',                   // ... | sh
+        '/(?:&&|\|\||\$\(|`)[^.!?\n]*/u',                                  // shell chaining, command substitution, backticks
+        '/;\s*(?:rm|sudo|curl|wget|chmod|chown|dd|kill|mkfs|nc|sh|bash)\b[^.!?\n]*/iu',
+        '/\brm\s+-[^.!?\n]*/iu',
+        '/\bpaste\b[^.!?\n]{0,60}?\b(?:token|password|passwd|secret|key|credential)s?\b[^.!?\n]*/iu',
+        '/\brotate\s+all\b[^.!?\n]*/iu',
+        '/\b(?:sudo|chmod|chown|mkfs)\b[^.!?\n]*/iu',
+        '/\bdrop\s+(?:table|database|schema)\b[^.!?\n]*/iu',
+    ];
+
+    /** The no-URL rule of the prompts, enforced on every text field: links, www. hosts and e-mail addresses. */
+    private const LINKS = [
+        '~\b[a-z][a-z0-9+.-]*://\S*~iu',
+        '~\bwww\.\S*~iu',
+        '~[\w.+-]+@[\w-]+(?:\.[\w-]+)+~u',
+    ];
+
+    public const WITHHELD = '[withheld]';
 
     /** @param bool $advice analysis.advice.enabled: false = how_to_check / related_checks are unexpected fields, as before the feature */
     public function __construct(private readonly bool $advice = true)
@@ -42,7 +68,14 @@ final class OutputValidator
             if (!is_string($row['v']) || !in_array($row['v'], TriageResult::VERDICTS, true)) {
                 throw InvalidModelOutput::at("$p.v", 'not an allowed verdict', $row['v']);
             }
+            if (isset($verdicts[$g])) {
+                throw InvalidModelOutput::at($p, 'duplicate verdict for one group');
+            }
             $verdicts[$g] = $row['v'];
+        }
+        // Exactly one verdict per group that was sent: a skipped group is not "nothing to look at", it is invalid output.
+        if (count($verdicts) !== count(array_unique($allowed))) {
+            throw InvalidModelOutput::at('verdicts', 'must hold exactly one verdict per group');
         }
 
         return ['verdicts' => $verdicts];
@@ -79,7 +112,7 @@ final class OutputValidator
                 throw InvalidModelOutput::at("$p.severity", 'not an allowed severity', $row['severity']);
             }
             $c = $row['confidence'];
-            if ((!is_int($c) && !is_float($c)) || $c < 0 || $c > 1) {
+            if ((!is_int($c) && !is_float($c)) || is_nan((float) $c) || $c < 0 || $c > 1) {
                 throw InvalidModelOutput::at("$p.confidence", 'must be a number within 0..1', is_scalar($c) ? $c : null);
             }
             $out[] = new Finding(
@@ -88,11 +121,11 @@ final class OutputValidator
                 $sev,
                 $this->text($row['title'], "$p.title", self::LIMITS['title']),
                 $this->text($row['evidence'], "$p.evidence", self::LIMITS['evidence']),
-                $this->text($row['suspected_cause'], "$p.suspected_cause", self::LIMITS['suspected_cause']),
-                $this->text($row['suggested_action'], "$p.suggested_action", self::LIMITS['suggested_action']),
+                $this->text($row['suspected_cause'], "$p.suspected_cause", self::LIMITS['suspected_cause'], true),
+                $this->text($row['suggested_action'], "$p.suggested_action", self::LIMITS['suggested_action'], true),
                 (float) $c,
                 false,
-                isset($row['how_to_check']) ? $this->text($row['how_to_check'], "$p.how_to_check", self::LIMITS['how_to_check']) : '',
+                isset($row['how_to_check']) ? $this->text($row['how_to_check'], "$p.how_to_check", self::LIMITS['how_to_check'], true) : '',
                 $this->related($row['related_checks'] ?? [], "$p.related_checks", $allowed, $dependencyNames),
             );
         }
@@ -152,8 +185,9 @@ final class OutputValidator
     }
 
     /**
-     * Entries that cite nothing from the request, or a fingerprint-like token / dependency that is not in it, are dropped
-     * (an invented reference is worse than a missing hint). A wrong type or too many entries is invalid output.
+     * Each entry is EXACTLY a fingerprint of the request in the 12-character form the digest prints, or a declared dependency
+     * name; anything else (advice around a reference, an invented reference, a longer text) is dropped. The text shown is
+     * therefore only ever a reference taken from the request. A wrong type or too many entries is invalid output.
      *
      * @param array<string> $allowed
      * @param list<string>  $dependencyNames
@@ -165,55 +199,35 @@ final class OutputValidator
         if (!is_array($v) || !array_is_list($v) || count($v) > self::MAX_RELATED) {
             throw InvalidModelOutput::at($path, 'must be a list of at most ' . self::MAX_RELATED);
         }
+        $known = [...array_map(static fn (string $fp): string => substr($fp, 0, 12), $allowed), ...$dependencyNames];
         $out = [];
         foreach ($v as $i => $entry) {
-            $text = $this->text($entry, "$path[$i]", self::LIMITS['related_check']);
-            if ($this->cites($text, $allowed, $dependencyNames)) {
-                $out[] = $text;
+            if (!is_string($entry)) {
+                throw InvalidModelOutput::at("$path[$i]", 'must be a string');
+            }
+            if ($entry !== '' && in_array($entry, $known, true) && !in_array($entry, $out, true)) {
+                $out[] = $entry;
             }
         }
 
         return $out;
     }
 
-    /**
-     * @param array<string> $allowed
-     * @param list<string>  $dependencyNames
-     */
-    private function cites(string $text, array $allowed, array $dependencyNames): bool
-    {
-        // Any hex run of fingerprint size must be (the start of) a fingerprint of this request: no invented references.
-        preg_match_all('/\b[0-9a-f]{8,}\b/i', $text, $m);
-        foreach ($m[0] as $token) {
-            $known = false;
-            foreach ($allowed as $fp) {
-                $known = $known || str_starts_with(strtolower($fp), strtolower($token));
-            }
-            if (!$known) {
-                return false;
-            }
-        }
-        foreach ([...$allowed, ...$dependencyNames] as $ref) {
-            if ($ref !== '' && str_contains($text, $ref)) {
-                return true;
-            }
-        }
-        // the short form (first 12 characters) of a fingerprint is what the digest prints
-        foreach ($allowed as $fp) {
-            if (strlen($fp) > 12 && str_contains($text, substr($fp, 0, 12))) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function text(mixed $v, string $path, int $max): string
+    private function text(mixed $v, string $path, int $max, bool $advice = false): string
     {
         if (!is_string($v)) {
             throw InvalidModelOutput::at($path, 'must be a string');
         }
+        $v = mb_strlen($v) > $max ? mb_substr($v, 0, $max - 1) . '…' : $v;
+        foreach (self::LINKS as $re) {
+            $v = (string) preg_replace($re, self::WITHHELD, $v);
+        }
+        if ($advice) {
+            foreach (self::COMMANDS as $re) {
+                $v = (string) preg_replace($re, self::WITHHELD, $v);
+            }
+        }
 
-        return mb_strlen($v) > $max ? mb_substr($v, 0, $max - 1) . '…' : $v;
+        return str_contains($v, self::WITHHELD) ? rtrim((string) preg_replace('/(?:\[withheld\]\s*){2,}/u', self::WITHHELD . ' ', $v)) : $v;
     }
 }

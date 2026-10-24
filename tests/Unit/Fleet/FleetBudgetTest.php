@@ -130,8 +130,8 @@ final class FleetBudgetTest extends TestCase
         $seam = new FleetSeam($this->budget(1.0, null, new DryRunStateStore($this->store)));
         $seam->book(new Usage('m', 10, 10), 0.5);
 
-        self::assertSame(0.0, $seam->today()['usd']);
-        self::assertSame(0.0, (new FleetSeam($this->budget(1.0)))->today()['usd']);
+        self::assertSame(0.5, $seam->today()['usd'], 'a dry run sees its own spend');
+        self::assertSame(0.0, (new FleetSeam($this->budget(1.0)))->today()['usd'], 'the real counter is untouched');
     }
 
     public function testCountersAreSeparateEachDay(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Analyze;
 
 use Watcher\Context\DependencyContext;
+use Watcher\Level;
 use Watcher\Privacy\GroupStatusLabel;
 use Watcher\Privacy\RedactedGroup;
 
@@ -53,20 +54,33 @@ final class ModelRouter
             $pending = [];
         }
         $notTriaged = 0;
+        $sent = [];
         if ($pending !== []) {
-            if (!$triageOnly && $reservation !== null && !$reservation->allows($this->s->triageModel, $this->inputTokens('triage', $pending), AnthropicAnalyzer::triageOutputCap($this->s->triageMaxTokens, count($pending)))) {
+            if (!$triageOnly && $reservation !== null && !self::fits($reservation, $this->s->triageModel, $this->inputTokens('triage', $pending), AnthropicAnalyzer::triageOutputCap($this->s->triageMaxTokens, count($pending)))) {
                 $notTriaged = count($pending);
             } else {
                 $tri = $this->analyzer->triage(new TriageRequest($pending, $this->s->serviceContext, $this->s->triageModel, $this->s->triageMaxTokens));
                 $usage['triage'] = $tri->usage;
                 $verdicts += $tri->verdicts;
+                $sent = array_flip(array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $pending));
+            }
+        }
+        // Fail closed: the cheap filter saves money on low-level groups, it does not get to veto an error or a watch rule.
+        // A noise/known verdict, or no verdict at all for a group that was sent, becomes "interesting" for those.
+        $coerced = 0;
+        foreach ($fresh as $g) {
+            $v = $verdicts[$g->fingerprint] ?? null;
+            if ($v !== 'interesting' && VerdictCache::mustNotBeSilenced($g) && ($v !== null || isset($sent[$g->fingerprint]))) {
+                $verdicts[$g->fingerprint] = 'interesting';
+                ++$coerced;
             }
         }
         $interesting = [];
+        $triageDropped = 0;
         foreach ($fresh as $g) {
             $v = $verdicts[$g->fingerprint] ?? null;
             if ($v === null) {
-                continue; // the model skipped it (or triage did not fit the budget): nothing is stored, it is triaged again next run
+                continue; // triage did not fit the budget: nothing is stored, it is triaged again next run
             }
             if ($v === 'interesting') {
                 // Stored only after it was really analysed (below): a triage-only day or a top-M cut must not
@@ -74,6 +88,7 @@ final class ModelRouter
                 $interesting[] = $g;
             } else {
                 $this->verdicts->storeTriage($g, $v);
+                ++$triageDropped;
             }
         }
 
@@ -83,17 +98,18 @@ final class ModelRouter
         $skippedBudget = 0;
         $skippedSize = 0;
         $notAnalysed = $triageOnly ? count($interesting) : 0;
+        $unreported = 0;
+        $newOverflow = 0;
         if (!$triageOnly && $interesting !== []) {
-            usort($interesting, static fn (RedactedGroup $a, RedactedGroup $b): int => self::priority($b) <=> self::priority($a)
-                ?: $b->count <=> $a->count
-                ?: strcmp($a->fingerprint, $b->fingerprint));
-            $dropped = $notAnalysed = max(0, count($interesting) - $this->s->topM);
-            $top = array_slice($interesting, 0, $this->s->topM);
+            usort($interesting, $this->byPriority(...));
+            [$top, $newOverflow] = $this->pickTop($interesting);
+            $dropped = $notAnalysed = count($interesting) - count($top);
             $topContext = self::remap($dependencyContext, $groups, $top);
             $analyzeCap = AnthropicAnalyzer::analysisOutputCap($this->s->analyzeMaxTokens, count($top), $this->s->advice);
 
-            if ($reservation !== null && !$reservation->allows($this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext), $analyzeCap)) {
+            if ($reservation !== null && !self::fits($reservation, $this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext), $analyzeCap)) {
                 $notAnalysed = count($interesting);
+                $newOverflow = 0;
             } else {
                 try {
                     $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext));
@@ -106,63 +122,77 @@ final class ModelRouter
                     throw $e;
                 }
                 $usage['analyze'] = $res->usage;
-                $findings = $res->findings;
 
                 $byFp = [];
                 foreach ($top as $g) {
                     $byFp[$g->fingerprint] = $g;
                 }
+                $detached = [];
                 $out = [];
-                foreach ($findings as $f) {
-                    if ($escalations < $this->s->escalationCap && $this->needsEscalation($f)) {
+                foreach ($this->vet($res->findings, $byFp, $detached) as [$f, $weak]) {
+                    if ($escalations < $this->s->escalationCap && $this->needsEscalation($f, $byFp)) {
                         $sub = array_values(array_filter(array_map(static fn (string $fp): ?RedactedGroup => $byFp[$fp] ?? null, $f->fingerprints)));
                         $fit = $this->fitEscalation($sub, self::remap($dependencyContext, $groups, $sub));
                         if ($fit === null) {
                             ++$skippedSize;
-                            $out[] = $f;
+                            $out[] = [$f, $weak];
                             continue;
                         }
                         [$sub, $subContext] = $fit;
                         $escalateCap = AnthropicAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
-                        if ($reservation !== null && !$reservation->allows($this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext), $escalateCap)) {
+                        if ($reservation !== null && !self::fits($reservation, $this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext), $escalateCap)) {
                             ++$skippedBudget;
-                            $out[] = $f;
+                            $out[] = [$f, $weak];
                             continue;
                         }
                         ++$escalations;
                         $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext));
                         $usage['escalate'] = isset($usage['escalate']) ? $usage['escalate']->plus($again->usage) : $again->usage;
                         if ($again->findings !== []) {
-                            foreach ($again->findings as $e) {
-                                $out[] = $e->escalated();
+                            foreach ($this->vet($again->findings, $byFp, $detached) as [$e, $w]) {
+                                $out[] = [$e->escalated(), $w];
                             }
                             continue;
                         }
                     }
-                    $out[] = $f;
+                    $out[] = [$f, $weak];
                 }
-                $findings = $out;
+                $findings = array_map(static fn (array $p): Finding => $p[0], $out);
 
-                // Every group that was actually analysed is remembered — with its finding, or without one when the
-                // analysis found nothing worth reporting — so it is not paid for again until it grows.
-                $withFinding = [];
-                foreach ($findings as $f) {
+                // What is remembered (and so not paid for again until it grows) is decided here, not by the model:
+                // an error-or-higher / watch-rule group is remembered only with a substantive finding; "nothing to report"
+                // or only noise/info for it is shown or counted, then analysed again next window.
+                $strong = $weakOnly = [];
+                foreach ($out as [$f, $weak]) {
                     foreach ($f->fingerprints as $fp) {
-                        if (isset($byFp[$fp])) {
-                            $withFinding[$fp] = true;
-                            $this->verdicts->put($fp, 'interesting', $byFp[$fp]->count, $f);
+                        if (!isset($byFp[$fp])) {
+                            continue;
+                        }
+                        if ($weak) {
+                            $weakOnly[$fp] ??= $f;
+                        } else {
+                            $strong[$fp] ??= $f;
                         }
                     }
                 }
                 foreach ($byFp as $fp => $g) {
-                    if (!isset($withFinding[$fp])) {
-                        $this->verdicts->put((string) $fp, 'interesting', $g->count, null); // all-digit keys come back as int
+                    $fp = (string) $fp; // all-digit keys come back as int
+                    if (isset($strong[$fp])) {
+                        $this->verdicts->put($fp, 'interesting', $g->count, $strong[$fp]);
+                    } elseif (isset($weakOnly[$fp])) {
+                        if (!VerdictCache::mustNotBeSilenced($g)) {
+                            $this->verdicts->put($fp, 'interesting', $g->count, $weakOnly[$fp]);
+                        }
+                    } elseif (VerdictCache::mustNotBeSilenced($g)) {
+                        ++$unreported;
+                    } elseif (!isset($detached[$fp])) {
+                        $this->verdicts->put($fp, 'interesting', $g->count, null);
                     }
                 }
             }
         }
 
-        return new RouterResult($findings, $usage, $escalations, $reused, count($fresh) - $notTriaged, $dropped, $notAnalysed, $notTriaged, $skippedBudget, $skippedSize);
+        return new RouterResult($findings, $usage, $escalations, $reused, count($fresh) - $notTriaged, $dropped, $notAnalysed, $notTriaged, $skippedBudget, $skippedSize, $unreported, $triageDropped, $coerced, $newOverflow);
     }
 
     /**
@@ -174,7 +204,13 @@ final class ModelRouter
      */
     private function inputTokens(string $kind, array $groups, array $context = []): int
     {
-        return Budget::estimateTokens(Budget::systemPrompt($kind, $this->s->serviceContext, $this->s->advice)) + Budget::estimateTokens(CompactPayload::encode($groups, $context));
+        return Budget::fixedTokens($kind, $this->s->serviceContext, $this->s->advice) + Budget::estimateTokens(CompactPayload::encode($groups, $context));
+    }
+
+    /** A step can take two calls (a retry on invalid output, with up to twice the output cap): reserve for both. */
+    private static function fits(BudgetReservation $reservation, string $model, int $inputTokens, int $maxOutputTokens): bool
+    {
+        return $reservation->allows($model, 2 * $inputTokens, $maxOutputTokens + AnthropicAnalyzer::retryOutputCap($maxOutputTokens));
     }
 
     /**
@@ -192,7 +228,7 @@ final class ModelRouter
         if ($this->inputTokens('analyze', $groups, $context) <= $max) {
             return [$groups, $context];
         }
-        $context = Budget::fitDependencies($groups, $context, $max, Budget::estimateTokens(Budget::systemPrompt('analyze', $this->s->serviceContext, $this->s->advice)));
+        $context = Budget::fitDependencies($groups, $context, $max, Budget::fixedTokens('analyze', $this->s->serviceContext, $this->s->advice));
         if ($this->inputTokens('analyze', $groups, $context) <= $max) {
             return [$groups, $context];
         }
@@ -230,18 +266,149 @@ final class ModelRouter
         }, $contexts);
     }
 
-    private function needsEscalation(Finding $f): bool
+    /**
+     * Code signals, not model claims: only a group the logs show at error or above can buy the expensive model, and only
+     * for a finding the model itself rates severe and unsure of.
+     *
+     * @param array<string, RedactedGroup> $byFp
+     */
+    private function needsEscalation(Finding $f, array $byFp): bool
     {
-        return in_array($f->severity, [Severity::Error, Severity::Critical], true) && $f->confidence < $this->s->confidenceThreshold;
+        if (!in_array($f->severity, [Severity::Error, Severity::Critical], true) || !($f->confidence < $this->s->confidenceThreshold)) {
+            return false;
+        }
+        foreach ($f->fingerprints as $fp) {
+            if (isset($byFp[$fp]) && $byFp[$fp]->level->value >= Level::Error->value) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    /** new > grown > unchanged, then level */
-    private static function priority(RedactedGroup $g): int
+    /**
+     * F9 + F4: a noise/info finding may only stay on the groups the payload shows to be of one kind (same error type) as
+     * the first one it cites, and severity/kind are bounded by what the logs show.
+     *
+     * @param list<Finding>                $findings
+     * @param array<string, RedactedGroup> $byFp
+     * @param array<string, true>          $detached fingerprints taken off a weak finding (out)
+     *
+     * @return list<array{0: Finding, 1: bool}> the bounded finding and whether the model itself called it noise/info
+     */
+    private function vet(array $findings, array $byFp, array &$detached): array
     {
-        return match ($g->status) {
-            GroupStatusLabel::New => 2,
-            GroupStatusLabel::Grown => 1,
-            GroupStatusLabel::Unchanged, GroupStatusLabel::Expected => 0,
-        } * 100 + $g->level->value;
+        $out = [];
+        foreach ($findings as $f) {
+            $weak = VerdictCache::isWeak($f);
+            $fps = $f->fingerprints;
+            if ($weak && count($fps) > 1) {
+                $first = $byFp[$fps[0]] ?? null;
+                $keep = [$fps[0]];
+                foreach (array_slice($fps, 1) as $fp) {
+                    if ($first?->errorType !== null && ($byFp[$fp]->errorType ?? null) === $first->errorType) {
+                        $keep[] = $fp;
+                    } else {
+                        $detached[$fp] = true;
+                    }
+                }
+                $fps = array_values(array_unique($keep));
+            }
+            $out[] = [$this->bound($f, $fps, $byFp), $weak];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Severity: at most one step above what the logs show for the covered groups, and at least warn for an error-or-higher /
+     * watch-rule group. Kind: such a group is never "noise".
+     *
+     * @param list<string>                 $fps
+     * @param array<string, RedactedGroup> $byFp
+     */
+    private function bound(Finding $f, array $fps, array $byFp): Finding
+    {
+        $level = null;
+        $protected = false;
+        foreach ($fps as $fp) {
+            if (isset($byFp[$fp])) {
+                $level = max($level ?? 0, $byFp[$fp]->level->value);
+                $protected = $protected || VerdictCache::mustNotBeSilenced($byFp[$fp]);
+            }
+        }
+        if ($level === null) {
+            return $f->with($fps, $f->kind, $f->severity);
+        }
+        $order = [Severity::Info, Severity::Warn, Severity::Error, Severity::Critical];
+        $observed = match (true) {
+            $level >= Level::Critical->value => 3,
+            $level >= Level::Error->value => 2,
+            $level >= Level::Warning->value => 1,
+            default => 0,
+        };
+        $rank = min((int) array_search($f->severity, $order, true), min(3, $observed + 1));
+        if ($protected) {
+            $rank = max($rank, 1);
+        }
+        $kind = $protected && $f->kind === FindingKind::Noise ? FindingKind::Anomaly : $f->kind;
+
+        return $f->with($fps, $kind, $order[$rank]);
+    }
+
+    /** watch rule, then level, then growth; novelty last (a minted fingerprint is always new); then volume, then a salted hash. */
+    private function byPriority(RedactedGroup $a, RedactedGroup $b): int
+    {
+        return self::rank($b) <=> self::rank($a)
+            ?: $b->count <=> $a->count
+            ?: strcmp(hash('sha256', $this->s->tieSalt . $a->fingerprint), hash('sha256', $this->s->tieSalt . $b->fingerprint));
+    }
+
+    private static function rank(RedactedGroup $g): int
+    {
+        return ($g->watchMatches !== [] ? 1 : 0) * 10_000 + $g->level->value * 10 + match ($g->status) {
+            GroupStatusLabel::Grown => 2,
+            GroupStatusLabel::Unchanged, GroupStatusLabel::Expected => 1,
+            GroupStatusLabel::New => 0,
+        };
+    }
+
+    /**
+     * The first top_m by priority, but new groups take at most half of the slots while older ones wait (leftover slots still go to them).
+     *
+     * @param list<RedactedGroup> $sorted
+     *
+     * @return array{0: list<RedactedGroup>, 1: int} the groups to analyse and how many new groups the cap kept out
+     */
+    private function pickTop(array $sorted): array
+    {
+        $cap = max(1, intdiv($this->s->topM + 1, 2));
+        $top = $held = [];
+        $new = 0;
+        foreach ($sorted as $g) {
+            if (count($top) >= $this->s->topM) {
+                break;
+            }
+            if ($g->status === GroupStatusLabel::New && $new >= $cap) {
+                $held[] = $g;
+                continue;
+            }
+            $top[] = $g;
+            $new += $g->status === GroupStatusLabel::New ? 1 : 0;
+        }
+        foreach ($held as $g) {
+            if (count($top) >= $this->s->topM) {
+                break;
+            }
+            $top[] = $g;
+        }
+        $overflow = 0;
+        $displaced = array_filter($top, static fn (RedactedGroup $g): bool => $g->status !== GroupStatusLabel::New) !== [];
+        foreach ($displaced ? $held : [] as $g) {
+            $overflow += in_array($g, $top, true) ? 0 : 1;
+        }
+        usort($top, $this->byPriority(...));
+
+        return [$top, $overflow];
     }
 }

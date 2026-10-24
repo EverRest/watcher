@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Context;
 
 use Watcher\Level;
+use Watcher\Reduce\Normalizer;
 
 /** FR-039: decides, from the masked templates and the dependency totals, which dependencies need a line read. */
 final class DependencyResolver
@@ -25,10 +26,10 @@ final class DependencyResolver
         }
 
         foreach ($candidateTemplates as $i => $template) {
-            if ($template === null || preg_match_all('/<(?:URL|HOST):([a-z0-9.-]+)>/', $template, $m) < 1) {
+            if ($template === null) {
                 continue;
             }
-            foreach (array_unique($m[1]) as $host) {
+            foreach (Normalizer::declaredReferences($template) as $host) {
                 $dep = null;
                 foreach ($names as $name) {
                     if ($host === strtolower($name) || str_starts_with($host, strtolower($name) . '.')) {

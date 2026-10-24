@@ -62,7 +62,7 @@ log text).
 
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
-A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries.
+A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries. The exception: a model **refusal** (code `analysis_refused`) and the **second** failed attempt of the same window write a `failed` run record (`no further attempts for this window`), so later triggers report `skipped_done` instead of paying for the window again; the next window starts clean.
 If triage had already been paid for, its verdicts (noise / known / interesting; never findings, and never noise/known for
 error-level or watch-rule groups) are kept in `triage:<service>:<window-end>` for 6 hours, so the retry in the same window
 makes no second triage call. The record is cleared once the digest is delivered.
@@ -148,12 +148,20 @@ fails with `HTTP 429`.
 | `pdo` | you have a DB and no Redis | create the table once: `PdoStateStore::createTableSql('mysql')`; tested on SQLite only |
 | `file` | one runner, one host | **never** with several replicas or pods without a shared volume and a single scheduler |
 
+**File store:** the directory must not be writable by group or others (create it `0700`; a group-writable Laravel `storage` folder is refused with a message naming `state.file.path`), symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race. The daily budget check is read-then-book, so concurrent runs of the same service can overshoot it by one step each (the lock prevents that for one service; Redis `INCRBYFLOAT` reservation is not implemented).
+
 State holds counters, fingerprints, verdicts, reported markers, run records, spend counters and alert markers, each with
 `state.retention` (30 days; spend and alert keys 2 days). It never holds raw log lines.
 
 Reset a service (forces a new baseline): change `service`, or delete its keys. Redis keys are
 `watcher:<kind>:<service>:...` (kinds: `snap` (also per dependency), `verdict`, `reported`, `run`, `lock`, `spend`, `alert`, `exhausted`); file state is
 a directory of hashed file names, so wipe the whole directory.
+
+## Availability guards
+
+A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.
+
+A flood of one already-reported fingerprint can still fill `event_cap` with old events; the quiet-run notice tells you so, and `source.event_cap`, a narrower `stream_tags` or (Datadog) `newest_first` are the remedies. The reserved newest-share read is not implemented.
 
 ## Daily practice
 

@@ -30,7 +30,8 @@ settings, `notify.digest.webhook`.
 | `schedule.run_at` | required | `HH:MM`. The run is due from `run_at` for one hour, in `schedule.timezone`. |
 | `schedule.timezone` | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
 | `schedule.window` | `PT24H` | ISO-8601 lookback. The window ends at the local `run_at`. |
-| `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (it is released at the end of every run). It is **not renewed** during a run (the state contract has no renew). To keep a second run from starting mid-analysis, one model call (two sequential attempts, SDK retries off) is bounded to `lock_ttl / 4`: the HTTP timeout is `lock_ttl / 8` seconds, within 10..180. A run makes at most `2 + escalation_cap` model calls. |
+| `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (released at the end of every run). With a store that supports renewal (all three) the lock is **extended** between pipeline steps and before each model call whenever less than half of it is left, so a long run keeps it. One model call (two sequential attempts, SDK retries off) is still bounded to `lock_ttl / 4`: HTTP timeout `lock_ttl / 8` s, within 10..180. A run makes at most `2 + escalation_cap` model calls. |
+| `schedule.run_deadline` (`WATCHER_RUN_DEADLINE`) | `lock_ttl` minus `max(30, lock_ttl / 10)` s (810 by default; half of `lock_ttl` when that is 60 or less) | Total wall-clock budget of one run, checked while reading and between pipeline steps. At expiry reading stops (read marked truncated, reason `deadline`), no model call starts, the window is snapshotted and recorded quiet with reason `truncated:deadline`, and a short notice is sent. Must not exceed `lock_ttl`. In a fleet it is further limited by `service_time_budget`.
 
 ### `source`
 
@@ -48,7 +49,7 @@ settings, `notify.digest.webhook`.
 | `source.level_mode` | `text` | How `read_min_level` is pushed to the backend. **Loki:** `text` = LogQL line filter on level words (misses lines whose level lives only in the stream label); `label` = stream matcher on the `level` label, no line filter (with watch rules present it falls back to the unrestricted selector, because LogQL cannot OR a stream matcher with a line filter); `all` = no level restriction. **Datadog:** `all` = no `status:` filter, anything else = status filter. |
 | `source.datadog.newest_first` | `false` | `true` sorts `-timestamp`, so an `event_cap` truncation keeps the newest events instead of the oldest. |
 | `source.group_cap` | `5000` | Hard bound on distinct problem groups held in memory per run. Past it, events with a new message are grouped as one "other" group per level and the digest says "cluster cap hit". Events matching a watch rule keep their own group up to 2 x this value. |
-| `source.event_cap` | `200000` | Hard cap on events read per run; the digest says "truncated" when it is hit. |
+| `source.event_cap` | `200000` | Hard cap on events read per run; the digest says "truncated" when it is hit, and a quiet run that hit it sends a notice once per window. Reading is oldest first: the cap keeps the oldest events (set `source.datadog.newest_first` for the newest). A read also stops, with its reason in the run record, at the run deadline, at 80% of PHP `memory_limit` (reason `memory`), after 1000 Loki pages, after 300 s of Loki paging, or when Loki's cursor stops advancing (`cursor`). Physical lines over 64 KB never reach the parser; they are counted. Backend replies over 16 MB, or JSON nested deeper than 64 levels, are refused (`response too large`). Service and environment names must not contain `@`. |
 
 ### Selection and noise control
 
@@ -57,7 +58,7 @@ settings, `notify.digest.webhook`.
 | `selection.min_level` | `error` | Lowest level that makes a group a candidate by itself. |
 | `selection.growth_factor` | `3.0` | A group "grew" when its count is at least this many times the previous window's (`> 1`). Also triggers the level-anomaly pass and dependency line reads. |
 | `selection.top_n` | `50` | Candidates kept per run. |
-| `selection.top_m` | `10` | Groups deep-analysed per run (`<= top_n`). |
+| `selection.top_m` | `10` | Groups deep-analysed per run (`<= top_n`). They are chosen by watch rule, level, growth, then novelty; new groups take at most half of the slots while older ones wait (fixed, not configurable; the digest counts the overflow). Each template sent to the model is cut to 300 characters (`CompactPayload::MAX_TEMPLATE_CHARS`, a constant, not a config key). |
 | `watch_rules` | `[]` | `name => matcher`. A matching group is a candidate whatever its level. Only the **name** leaves the service. Plain-literal `template` rules and RE2-safe `error_type` rules are also sent to Loki as search filters; Datadog gets only patterns that are a single plain word (`\w+`), and one pattern it cannot express switches its server-side filter off (the client still applies it). Either way matching lines below `read_min_level` are read; other rules are matched only on lines that were read. |
 | `mute` | `[]` | List of `['fingerprint' => '...']` or a matcher, each with optional `'until' => 'YYYY-MM-DD'` (inclusive, UTC; `null` = forever). Muted groups never reach a model. A `field` mute hides a group only when **every** event of the group matches; if some do not, the group stays and the digest says `N of M events match mute #i` (counts only). |
 
@@ -76,8 +77,8 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input budget; lowest-priority candidates are dropped first, with a note in the digest. The estimate (UTF-8 bytes / 3) includes the step's system prompt and the `service_context`, not only the groups. Enforced for `triage` (candidates), `analyze` (dependency context shrinks first) and `escalate`: an escalation sends the one finding's groups plus the dependency context that refers to them; over the limit, dependency context is trimmed first, then the groups' stack frames, and if it still does not fit the escalation is skipped (the first-pass finding is reported as it is; the digest says `N escalation(s) skipped`). |
 | `analysis.max_output_tokens` | triage 1500, analyze 4000, escalate 2000 | A floor, not a ceiling: triage uses `max(configured, 30 * groups + 500)` because the verdict list grows with the groups; analyze and escalate use `max(configured, 450 * groups + 300)` while `analysis.advice.enabled` is on (a finding with `how_to_check` and `related_checks` is about 450 output tokens at its text limits, so a full `top_m` of long findings is not cut off and retried). The daily-budget reservation uses the same figure. With advice off the configured value is used as it is. |
 | `analysis.confidence_threshold` | `0.6` | Findings of severity error or higher below this are re-analysed once by the strong model; warn/info below it collapse into the "minor" line. `0 < x < 1`. |
-| `analysis.escalation_cap` | `3` | Escalations per run. |
-| `analysis.daily_budget_usd` | `0.50` | Hard daily cap per service (`>= 0`). Before every billable step (triage, analysis, each escalation) the run reserves its worst case: planned input tokens (system prompt + context + payload) at the input price, plus `max_output_tokens` at the output price (the larger of the cache-write and plain input price is used). The step runs only if today's recorded spend plus that fits under the cap; otherwise it is skipped and the digest says how many groups were `not triaged` / `not analysed` / escalations skipped. One attempt is reserved: the retry after invalid model output is not, so a run can pass the cap by at most that retry. A budget already spent when the run starts is the **triage-only day** (unchanged): triage runs without a reservation, no analysis, one notice a day. |
+| `analysis.escalation_cap` | `3` | Escalations per run. A finding is escalated only when one of its groups is at `error` or above in the logs, the finding itself is `error`/`critical`, and its confidence is below `analysis.confidence_threshold`. |
+| `analysis.daily_budget_usd` | `0.50` | Hard daily cap per service (`>= 0`). Before every billable step (triage, analysis, each escalation) the run reserves its worst case: planned input tokens (system prompt + context + payload) at the input price, plus `max_output_tokens` at the output price (the larger of the cache-write and plain input price is used). The step runs only if today's recorded spend plus that fits under the cap; otherwise it is skipped and the digest says how many groups were `not triaged` / `not analysed` / escalations skipped. Both possible attempts of a step are reserved: twice the input tokens, and the output cap plus the cap of the retry (a reply cut off by `max_tokens` is retried with the cap doubled, at most 8192), so a step that might need its retry only starts when the retry fits too. The user message adds a data wrapper (about 70 tokens) that is part of the estimate. A budget already spent when the run starts is the **triage-only day** (unchanged): triage runs without a reservation, no analysis, one notice a day. |
 | `analysis.daily_token_limit` | null | Optional daily cap on tokens (input + output + cache), reserved the same way (planned input + `max_output_tokens`). |
 | `analysis.budget_alert_percents` | `[25, 50, 75, 90]` | One notice per threshold and counter per day (the highest newly crossed one). Integers 1-99, ascending. |
 
@@ -94,6 +95,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 |---|---|---|
 | `state.driver` | required | `redis`, `pdo` or `file`. **`file` is valid for a single runner only.** |
 | `state.retention` | `2592000` | Seconds every stored item lives (30 days). Fingerprints, counters, verdicts and findings; never raw logs. |
+| `state.redis.read_timeout` | `5` | Seconds a Redis call waits for a reply (the PHP socket default is 60). |
 | `state.redis.{host,port,password,database}` | `127.0.0.1`, `6379`, null, `0` | Or inject a connected `\Redis` as `state.redis.instance` (it wins). Every key carries a TTL. |
 | `state.pdo.{dsn,username,password,table}` | dsn required; table `watcher_state` | MySQL, PostgreSQL or SQLite. The table is **never created implicitly**: create it with `Watcher\State\PdoStateStore::createTableSql('mysql'\|'pgsql'\|'sqlite')`. |
 | `state.file.path` | required for file | Writable directory; created (mode 0700) on first use. File names are hashes of the keys. |
@@ -136,6 +138,7 @@ Validation covers the whole fleet before any call; the first error names the ent
 | `budget.daily_budget_usd`, `budget.daily_token_limit`, `budget.alert_percents` | none, none, `[25,50,75,90]` | Fleet-wide caps on top of each service's own; the day is in the fleet `timezone`. |
 | `timezone` | `UTC` | Day boundary of the fleet counters. |
 | `time_budget` | none | ISO-8601 duration; services not started in time are `skipped_time` (exit 1). |
+| `service_time_budget` | `time_budget` / number of services | ISO-8601 duration: wall-clock share of one service, enforced through its run deadline, so one slow or hostile service cannot starve the rest. |
 | `correlation.enabled`, `correlation.tolerance` | `true`, `PT0S` | Tolerance widens the time-overlap test. |
 
 Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=<a>[,<b>]] [--dry-run [--estimate]] [--json]`,
@@ -159,6 +162,7 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 | `baseline.exclude` | `[]` | Dates `YYYY-MM-DD` (local date of a window end) left out of rolling/weekday values. |
 | `baseline.since` | `null` | `YYYY-MM-DD`: ignore windows that ended before this date (history reset). |
 | `grouping.similarity` | `0.5` | `0 < x <= 1`: share of literal words that must match a cluster leader. |
+| `grouping.memory_budget_mb` | `32` | Integer >= 1: estimated memory the template miner may hold. Each stored message keeps at most 64 tokens (the rest is one `<TRUNC>` placeholder). Past the budget new messages are dropped like past `message_cap` (their groups show no text, `Grouping limit reached`). The clustering budget counts token operations. |
 | `grouping.message_cap` | `50000` | Integer >= 1000: distinct masked messages kept per run. Beyond it the message is counted, not clustered, and its group shows no text. |
 | `grouping.backend_patterns` | `false` | Reserved (deferred); `true` is rejected. |
 
@@ -184,7 +188,7 @@ Besides findings, the digest carries short notices: `truncated: N events read` (
 (`max_input_tokens`), `cluster cap hit` (`group_cap`), `Grouping limit reached: N messages were not clustered` (`grouping.message_cap`), `Grouping time budget reached` (comparison budget spent; counts only), `N group(s) flagged interesting were not analysed` (triage found them but the
 daily budget was spent or a step's worst case did not fit it, or `top_m` cut them), `N group(s) not triaged: the daily budget would have been exceeded`, `N escalation(s) skipped (daily budget or max_input_tokens.escalate)`, `compared with the run of <date>, N days ago` (the previous window had no snapshot; see `docs/operations.md`), `N pattern evaluation failures: rules may have been skipped` (a watch rule, mute or
 backend-filter regex failed to evaluate, e.g. hit the PCRE backtrack limit; it fails open), `N call target(s) not declared as
-dependencies` and `dependency unavailable: name`. A day with such a notice is sent even when there are no findings, so a missed
+dependencies` and `dependency unavailable: name`, and the model-distrust notices: `triage marked N error-or-higher or watch-rule group(s) as noise, known or left them out; they were analysed anyway`, `N error-or-higher or watch-rule group(s) were analysed but the model reported nothing for them; they are analysed again next window`, `N new group(s) not analysed: new groups are capped at half of top_m per run`, `N lower-level group(s) dropped by triage as noise or known`, `N group(s) reused from earlier verdicts (not analysed again)` (see `docs/privacy.md`). A day with such a notice is sent even when there are no findings, so a missed
 analysis never looks like a quiet day.
 
 ## Feature flags (spec 012)
@@ -267,6 +271,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_MODEL_TRIAGE*`, `WATCHER_MODEL_ANALYZE*`, `WATCHER_MODEL_ESCALATE*` | `analysis.models.*` |
 | `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}*` | `analysis.prices` (example config only) |
 | `WATCHER_STATE`, `WATCHER_STATE_PATH` | `state.driver`, `state.file.path` |
+| `WATCHER_RUN_DEADLINE` | `schedule.run_deadline` (seconds; shipped `config/watcher.php` only) |
 | `WATCHER_REDIS_{HOST,PORT,PASSWORD,DATABASE}` | `state.redis.*` |
 | `WATCHER_DB_{DSN*,USERNAME,PASSWORD}` | `state.pdo.*` |
 | `WATCHER_SLACK_WEBHOOK*` | `notify.digest.webhook` (Telegram and Discord: `bot_token`, `chat_id`, `webhook` the same way) |

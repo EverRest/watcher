@@ -6,6 +6,7 @@ namespace Watcher\Fleet;
 
 use Watcher\Privacy\GroupStatusLabel;
 use Watcher\Privacy\RedactedGroup;
+use Watcher\Reduce\Normalizer;
 
 /**
  * Decides in code, from names, placeholders, statuses and times, which consumer groups an origin group explains
@@ -104,7 +105,7 @@ final class Correlator
 
         return !in_array($origin->status, [GroupStatusLabel::Unchanged, GroupStatusLabel::Expected], true)
             && $origin->level->value >= $originEntry->config->selection['min_level']->value
-            && (str_contains($template, '<URL:' . $dependency . '>') || str_contains($template, '<HOST:' . $dependency . '>'))
+            && in_array($dependency, Normalizer::declaredReferences($template), true)
             && $origin->firstSeen->getTimestamp() - $this->toleranceSeconds <= $consumer->lastSeen->getTimestamp()
             && $consumer->firstSeen->getTimestamp() - $this->toleranceSeconds <= $origin->lastSeen->getTimestamp();
     }

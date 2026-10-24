@@ -31,6 +31,7 @@ use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
 use Watcher\State\RedisStateStore;
+use Watcher\State\RenewableLock;
 use RuntimeException;
 use Watcher\State\StateStore;
 
@@ -122,6 +123,15 @@ final class Factory
         };
     }
 
+    /** Seconds a Redis call may wait for a reply (default 5, A4-15); a hung server must not hold a run for the 60 s socket default per key. */
+    /** @param array<string, mixed> $r */
+    public static function redisReadTimeout(array $r): float
+    {
+        $t = $r['read_timeout'] ?? null;
+
+        return (is_int($t) || is_float($t)) && $t > 0 ? (float) $t : 5.0;
+    }
+
     /** @param array<string, mixed> $r */
     private static function redis(array $r): Redis
     {
@@ -130,7 +140,7 @@ final class Factory
         }
         $redis = new Redis();
         try {
-            $redis->connect((string) ($r['host'] ?? '127.0.0.1'), (int) ($r['port'] ?? 6379), 5.0);
+            $redis->connect((string) ($r['host'] ?? '127.0.0.1'), (int) ($r['port'] ?? 6379), 5.0, null, 0, self::redisReadTimeout($r));
             if (isset($r['password'])) {
                 $redis->auth((string) $r['password']);
             }
@@ -158,7 +168,7 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore {
+        return new class ($make) implements StateStore, RenewableLock {
             private ?StateStore $store = null;
 
             public function __construct(private readonly Closure $make)
@@ -188,6 +198,13 @@ final class Factory
             public function increment(string $key, float $by, int $ttlSeconds): float
             {
                 return $this->store()->increment($key, $by, $ttlSeconds);
+            }
+
+            public function renew(string $key, string $owner, int $ttlSeconds): bool
+            {
+                $store = $this->store();
+
+                return $store instanceof RenewableLock && $store->renew($key, $owner, $ttlSeconds);
             }
 
             private function store(): StateStore

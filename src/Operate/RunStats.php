@@ -14,6 +14,11 @@ final class RunStats
 
     public int $groups = 0;
 
+    /** Events the Normalizer could not scan (masked, counted) and lines dropped above 64 KB. */
+    public int $unscannableEvents = 0;
+
+    public int $oversizedLines = 0;
+
     public int $candidates = 0;
 
     public int $findings = 0;

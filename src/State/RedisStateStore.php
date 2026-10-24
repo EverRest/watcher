@@ -13,9 +13,11 @@ use RuntimeException;
  * Redis state for several overlapping runners (FR-028). Every key carries an expiry,
  * enforced by Redis itself, so the clock is accepted for interface symmetry but unused.
  */
-final class RedisStateStore implements StateStore
+final class RedisStateStore implements StateStore, RenewableLock
 {
     private const RELEASE = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0";
+
+    private const RENEW = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0";
 
     // One atomic script (works before Redis 7, where EXPIRE NX is missing): TTL is fixed at the first increment.
     private const INCREMENT = "local v = redis.call('INCRBYFLOAT', KEYS[1], ARGV[1]) "
@@ -61,6 +63,11 @@ final class RedisStateStore implements StateStore
     public function release(string $key, string $owner): void
     {
         $this->redis->eval(self::RELEASE, [$this->prefix . $key, json_encode($owner, JSON_THROW_ON_ERROR)], 1);
+    }
+
+    public function renew(string $key, string $owner, int $ttlSeconds): bool
+    {
+        return $this->redis->eval(self::RENEW, [$this->prefix . $key, json_encode($owner, JSON_THROW_ON_ERROR), (string) max(1, $ttlSeconds)], 1) === 1;
     }
 
     public function increment(string $key, float $by, int $ttlSeconds): float

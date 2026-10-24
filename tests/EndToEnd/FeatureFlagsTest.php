@@ -109,7 +109,7 @@ final class FeatureFlagsTest extends TestCase
         self::assertSame(RunOutcome::Reported, $r->outcome);
         foreach ($rec->calls as [, $key]) {
             self::assertStringNotContainsString('@', $key);
-            self::assertMatchesRegularExpression('/^(' . implode('|', [Keys::SNAP, Keys::LOCK, Keys::RUN, Keys::SPEND, Keys::ALERT, Keys::VERDICT, Keys::TRIAGE, Keys::REPORTED, Keys::HEARTBEAT, Keys::WEEK]) . '):/', $key);
+            self::assertMatchesRegularExpression('/^(' . implode('|', [Keys::SNAP, Keys::LOCK, Keys::RUN, Keys::SPEND, Keys::ALERT, Keys::VERDICT, Keys::TRIAGE, Keys::REPORTED, Keys::HEARTBEAT, Keys::WEEK, Keys::DELIVERED, Keys::ZERO, Keys::FAILNOTICE]) . '):/', $key);
         }
         self::assertStringContainsString('Beta', self::digest($h) . json_encode($h->analyzer->requests, JSON_PARTIAL_OUTPUT_ON_ERROR));
     }

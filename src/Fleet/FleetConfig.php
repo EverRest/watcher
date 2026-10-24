@@ -14,7 +14,7 @@ use Watcher\Config\WatchConfig;
  */
 final class FleetConfig
 {
-    private const KEYS = ['fleet', 'enabled', 'digest', 'timezone', 'time_budget', 'budget', 'notify', 'correlation', 'defaults', 'services'];
+    private const KEYS = ['fleet', 'enabled', 'digest', 'timezone', 'time_budget', 'service_time_budget', 'budget', 'notify', 'correlation', 'defaults', 'services'];
 
     /**
      * @param list<ServiceEntry> $services in configuration order (FleetOrder decides the run order)
@@ -32,7 +32,14 @@ final class FleetConfig
         public readonly bool $correlationEnabled,
         public readonly int $correlationToleranceSeconds,
         public readonly bool $enabled = true,
+        private readonly ?int $serviceTimeBudget = null,
     ) {
+    }
+
+    /** A4-12: wall-clock seconds one service may spend: `service_time_budget`, else the fleet budget shared equally; null = none. */
+    public function serviceTimeBudgetSeconds(): ?int
+    {
+        return $this->serviceTimeBudget ?? ($this->timeBudgetSeconds === null ? null : max(1, intdiv($this->timeBudgetSeconds, max(1, count($this->services)))));
     }
 
     /** @param array<string, mixed> $config */
@@ -67,6 +74,10 @@ final class FleetConfig
         if ($timeBudget === 0) {
             throw new InvalidConfig('time_budget must be longer than zero');
         }
+        $serviceBudget = isset($config['service_time_budget']) ? self::seconds($config['service_time_budget'], 'service_time_budget') : null;
+        if ($serviceBudget === 0) {
+            throw new InvalidConfig('service_time_budget must be longer than zero');
+        }
         $notify = self::notify(self::map($config['notify'] ?? [], 'notify'));
         if ($digest === 'combined' && !isset($notify['digest'])) {
             throw new InvalidConfig('digest combined needs notify.digest');
@@ -90,6 +101,7 @@ final class FleetConfig
             $corr['enabled'] ?? true,
             isset($corr['tolerance']) ? self::seconds($corr['tolerance'], 'correlation.tolerance') : 0,
             $enabled,
+            $serviceBudget,
         );
     }
 

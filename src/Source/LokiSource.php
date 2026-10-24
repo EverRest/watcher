@@ -9,8 +9,10 @@ use DateTimeZone;
 use Generator;
 use GuzzleHttp\ClientInterface;
 use InvalidArgumentException;
+use Psr\Clock\ClockInterface;
 use Psr\Http\Message\ResponseInterface;
 use Watcher\Level;
+use Watcher\Schedule\SystemClock;
 use Watcher\Schedule\Window;
 
 /** Reads a window from Loki: server-side totals, server-filtered forward-paged lines, version labels. */
@@ -37,6 +39,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private readonly Retry $retry;
     private bool $truncated = false;
     private LineParser $parser;
+    private readonly ClockInterface $clock;
 
     /**
      * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words (misses
@@ -55,7 +58,11 @@ final class LokiSource implements LogSource, ReadDiagnostics
         ?callable $sleeper = null,
         int $retryBudget = 120,
         private readonly string $levelMode = 'text',
+        ?ClockInterface $clock = null,
+        private readonly int $pagingBudget = 300,
+        private readonly int $maxPages = 1000,
     ) {
+        $this->clock = $clock ?? new SystemClock();
         if (!in_array($levelMode, ['text', 'label', 'all'], true)) {
             throw new InvalidArgumentException("Invalid Loki level_mode '{$levelMode}' (text, label or all).");
         }
@@ -102,8 +109,24 @@ final class LokiSource implements LogSource, ReadDiagnostics
         $end = $this->ns($window->end);
         $seenAtStart = []; // entries already yielded or dropped at exactly $start (Loki's start is inclusive)
         $kept = 0;
+        $pages = 0;
+        $startedAt = $this->clock->now()->getTimestamp();
 
         while (true) {
+            // Unwanted pages never yield, so the run deadline, the page cap and the wall-time budget are checked here (A4-01, A4-04).
+            $stop = match (true) {
+                $filter->shouldStop() => $filter->truncationReason,
+                $pages >= $this->maxPages => 'pages',
+                $pages > 0 && $this->clock->now()->getTimestamp() - $startedAt > $this->pagingBudget => 'time',
+                default => null,
+            };
+            if ($stop !== null) {
+                $this->truncated = true;
+                $filter->truncationReason ??= $stop;
+
+                return;
+            }
+            ++$pages;
             $entries = $this->page($query, (string) $start, $end);
             $fresh = 0;
             $freshEntries = [];
@@ -113,6 +136,9 @@ final class LokiSource implements LogSource, ReadDiagnostics
                     continue;
                 }
                 ++$fresh;
+                if ($filter->oversized($line)) {
+                    continue; // never reaches the parser
+                }
                 $freshEntries[] = [$ts, $line, $labels];
             }
             foreach ($this->records($freshEntries) as [$ts, $line, $labels]) {
@@ -122,20 +148,27 @@ final class LokiSource implements LogSource, ReadDiagnostics
                 }
                 if ($kept >= $filter->eventCap) {
                     $this->truncated = true;
+                    $filter->truncationReason ??= 'cap';
 
                     return;
                 }
                 ++$kept;
                 yield $event;
+                if ($filter->shouldStop()) {
+                    $this->truncated = true;
+
+                    return;
+                }
             }
 
             // A short page (or one that is all duplicates) means the window is exhausted.
             if (count($entries) < self::PAGE_LIMIT || $fresh === 0) {
                 return;
             }
-            if ($entries[0][0] === $entries[count($entries) - 1][0]) {
-                // A whole page at one nanosecond: the cursor cannot advance, so the rest of that instant is unreachable.
+            if ($entries[0][0] === $entries[count($entries) - 1][0] || $entries[count($entries) - 1][0] <= $start) {
+                // A whole page at one nanosecond, or a backend that ignores `start`: the cursor cannot advance (A4-04).
                 $this->truncated = true;
+                $filter->truncationReason ??= 'cursor';
 
                 return;
             }
@@ -371,21 +404,21 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private function get(string $path, array $query): array
     {
         // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
-        $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('GET', $this->baseUrl . $path, [
+        $tripped = new \ArrayObject();
+        try {
+            $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('GET', $this->baseUrl . $path, [
             'query' => $query,
             'headers' => $this->headers,
             'http_errors' => false,
-        ]), 'loki', true);
+        ] + ResponseLimit::options($tripped)), 'loki', true);
+        } catch (SourceUnavailable $e) {
+            throw isset($tripped['large']) ? new SourceUnavailable('loki response too large') : $e;
+        }
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {
             throw new SourceUnavailable(trim("loki {$status} " . $response->getReasonPhrase()));
         }
-        $data = json_decode((string) $response->getBody(), true);
-        if (!is_array($data)) {
-            throw new SourceUnavailable('loki returned a non-JSON body');
-        }
-
-        return $data;
+        return ResponseLimit::decode($response, 'loki');
     }
 }

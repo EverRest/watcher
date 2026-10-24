@@ -81,7 +81,9 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         self::assertSame('ephemeral', $system[array_key_last($system)]['cache_control']['type']);
 
         $content = $body['messages'][0]['content'];
-        self::assertSame(CompactPayload::encode($req->groups), is_string($content) ? $content : $content[0]['text']);
+        $text = (string) (is_string($content) ? $content : $content[0]['text']);
+        self::assertSame(1, preg_match('/^<log-data-([0-9a-f]{32})>/', $text, $found));
+        self::assertSame(CompactPayload::userMessage(CompactPayload::encode($req->groups), $found[1] ?? ''), $text);
     }
 
     public function testValidResponseMapsVerdictsAndAllUsageFields(): void

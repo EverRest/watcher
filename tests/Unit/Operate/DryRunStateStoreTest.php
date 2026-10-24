@@ -82,10 +82,12 @@ final class DryRunStateStoreTest extends TestCase
         self::assertSame(['v' => 'noise'], (new DryRunStateStore($real))->get('verdict:svc:a'));
     }
 
-    public function testSpendIsNotShadowed(): void
+    public function testSpendIsCumulativeInMemoryAndNeverReachesTheRealStore(): void
     {
-        $s = new DryRunStateStore($this->spy());
-        $s->increment('spend:usd', 1.0, 60);
-        self::assertNull($s->get('spend:usd'));
+        $s = new DryRunStateStore($this->spy()); // the spy fails the test if increment reaches it
+        self::assertSame(1.0, $s->increment('spend:usd', 1.0, 60));
+        self::assertSame(1.5, $s->increment('spend:usd', 0.5, 60));
+        self::assertSame(['total' => 1.5], $s->get('spend:usd'));
+        self::assertNull((new DryRunStateStore($this->spy()))->get('spend:usd'));
     }
 }

@@ -147,6 +147,21 @@ final class DigestRenderer
         if ($d->notAnalysed > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) flagged interesting were not analysed (budget exhausted, triage only or top_m cut)', number_format($d->notAnalysed))];
         }
+        if ($d->triageCoerced > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ triage marked %s error-or-higher or watch-rule group(s) as noise, known or left them out; they were analysed anyway', number_format($d->triageCoerced))];
+        }
+        if ($d->unreported > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s error-or-higher or watch-rule group(s) were analysed but the model reported nothing for them; they are analysed again next window', number_format($d->unreported))];
+        }
+        if ($d->newOverflow > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s new group(s) not analysed: new groups are capped at half of top_m per run', number_format($d->newOverflow))];
+        }
+        if ($d->triageDropped > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s lower-level group(s) dropped by triage as noise or known', number_format($d->triageDropped))];
+        }
+        if ($d->reusedGroups > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s group(s) reused from earlier verdicts (not analysed again)', number_format($d->reusedGroups))];
+        }
         if ($d->notTriaged > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) not triaged: the daily budget would have been exceeded', number_format($d->notTriaged))];
         }

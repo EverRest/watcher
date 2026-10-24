@@ -40,7 +40,7 @@ final class BaselineConfigTest extends TestCase
         self::assertSame(7 * 86400, $c->baseline['max_age_seconds']);
         self::assertSame([], $c->baseline['exclude']);
         self::assertNull($c->baseline['since']);
-        self::assertSame(['similarity' => 0.5, 'message_cap' => 50000, 'backend_patterns' => false], $c->grouping);
+        self::assertSame(['similarity' => 0.5, 'message_cap' => 50000, 'backend_patterns' => false, 'memory_budget_mb' => 32], $c->grouping);
     }
 
     public function testWindowsDefaultPerMode(): void

@@ -11,7 +11,7 @@ final class InvalidModelOutput extends RuntimeException
 {
     public static function at(string $path, string $problem, mixed $got = null): self
     {
-        $excerpt = is_scalar($got) ? ' (got ' . self::cut((string) $got) . ')' : '';
+        $excerpt = is_scalar($got) ? ' (got ' . self::cut(is_float($got) ? var_export($got, true) : (string) $got) . ')' : '';
 
         return new self($path . ': ' . $problem . $excerpt);
     }

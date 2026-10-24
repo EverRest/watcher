@@ -25,6 +25,14 @@ final class RouterResult
         public readonly int $escalationsSkippedBudget = 0,
         /** @var int escalations not made because they exceeded analysis.max_input_tokens.escalate even after trimming */
         public readonly int $escalationsSkippedSize = 0,
+        /** @var int error-or-higher / watch-rule groups the analysis reported nothing for: not remembered, analysed again next window */
+        public readonly int $unreported = 0,
+        /** @var int groups triage dropped as noise/known (low-level groups only) */
+        public readonly int $triageDropped = 0,
+        /** @var int error-or-higher / watch-rule groups triage tried to silence (noise/known/missing): analysed anyway */
+        public readonly int $triageCoerced = 0,
+        /** @var int new groups left out of top_m by the per-run cap on new groups while older ones took the slots */
+        public readonly int $newOverflow = 0,
     ) {
     }
 }

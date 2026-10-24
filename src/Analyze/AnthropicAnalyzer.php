@@ -65,6 +65,12 @@ final class AnthropicAnalyzer implements Analyzer
         return $advice ? max($configured, 450 * $groups + 300) : $configured;
     }
 
+    /** The cap of the second attempt: a reply cut off by max_tokens is retried with the cap doubled, at most 8192. */
+    public static function retryOutputCap(int $cap): int
+    {
+        return max($cap, min($cap * 2, 8192));
+    }
+
     public function analyze(AnalysisRequest $req): AnalysisResult
     {
         $allowed = array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $req->groups);
@@ -105,6 +111,10 @@ final class AnthropicAnalyzer implements Analyzer
             }
             $u = $this->usage($message, $model);
             $usage = $usage === null ? $u : $usage->plus($u);
+            if ($message->stopReason === 'refusal') {
+                // Billed, not retried (a second identical request is refused again and billed again), and loud: the window is not re-run.
+                throw new AnalyzerFailed($kind . ': the model refused the request (not retried)', $usage, true);
+            }
 
             try {
                 return [$validate($this->decode($message)), $usage];
@@ -112,7 +122,7 @@ final class AnthropicAnalyzer implements Analyzer
                 // retried once, then fails below
             }
             if ($message->stopReason === 'max_tokens') {
-                $maxTokens = max($maxTokens, min($maxTokens * 2, 8192));
+                $maxTokens = self::retryOutputCap($maxTokens);
             }
         }
 
@@ -128,7 +138,7 @@ final class AnthropicAnalyzer implements Analyzer
         try {
             return $this->client->messages->create(
                 maxTokens: $maxTokens,
-                messages: [['role' => 'user', 'content' => CompactPayload::encode($groups, $dependencyContext)]],
+                messages: [['role' => 'user', 'content' => CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext), bin2hex(random_bytes(16)))]],
                 model: $model,
                 // Adaptive thinking tokens count against max_tokens and triage needs none.
                 thinking: $kind === 'triage' ? ['type' => 'disabled'] : null,

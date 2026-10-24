@@ -95,6 +95,12 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         $startedAt = $this->clock->now()->getTimestamp();
 
         do {
+            if ($filter->shouldStop()) {
+                $this->truncated = true;
+                yield from array_reverse($buffer);
+
+                return;
+            }
             $page = ['limit' => self::PAGE_LIMIT] + ($cursor === null ? [] : ['cursor' => $cursor]);
             $data = $this->post('/api/v2/logs/events/search', [
                 'filter' => $this->filter($window, $query),
@@ -105,12 +111,16 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                 if (!is_array($raw)) {
                     continue;
                 }
+                if ($filter->oversized(is_string($raw['attributes']['message'] ?? null) ? $raw['attributes']['message'] : '')) {
+                    continue; // never reaches the parser (A4-01)
+                }
                 $event = $this->event($raw);
                 if (!$this->wanted($event, $filter)) {
                     continue;
                 }
                 if ($kept >= $filter->eventCap) {
                     $this->truncated = true;
+                    $filter->truncationReason ??= 'cap';
                     yield from array_reverse($buffer);
 
                     return;
@@ -120,12 +130,18 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                     $buffer[] = $event;
                 } else {
                     yield $event;
+                    if ($filter->shouldStop()) {
+                        $this->truncated = true;
+
+                        return;
+                    }
                 }
             }
             $next = $data['meta']['page']['after'] ?? null;
             $cursor = is_string($next) && $next !== '' ? $next : null;
             if ($cursor !== null && $this->clock->now()->getTimestamp() - $startedAt > $this->pagingBudget) {
                 $this->truncated = true;
+                $filter->truncationReason ??= 'time';
                 yield from array_reverse($buffer);
 
                 return;
@@ -298,21 +314,21 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     private function post(string $path, array $body): array
     {
         // http_errors off: Guzzle's own exception text embeds the full URL, which we never surface.
-        $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('POST', $this->baseUrl . $path, [
+        $tripped = new \ArrayObject();
+        try {
+            $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('POST', $this->baseUrl . $path, [
             'json' => $body,
             'headers' => $this->headers,
             'http_errors' => false,
-        ]), 'datadog', false);
+        ] + ResponseLimit::options($tripped)), 'datadog', false);
+        } catch (SourceUnavailable $e) {
+            throw isset($tripped['large']) ? new SourceUnavailable('datadog response too large') : $e;
+        }
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {
             throw new SourceUnavailable(trim("datadog {$status} " . $response->getReasonPhrase()));
         }
-        $data = json_decode((string) $response->getBody(), true);
-        if (!is_array($data)) {
-            throw new SourceUnavailable('datadog returned a non-JSON body');
-        }
-
-        return $data;
+        return ResponseLimit::decode($response, 'datadog');
     }
 }

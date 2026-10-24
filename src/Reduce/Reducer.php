@@ -21,6 +21,8 @@ final class Reducer
 
     private int $overflowed = 0;
 
+    private int $unscannable = 0;
+
     private MiningStats $mining;
 
     /**
@@ -28,7 +30,8 @@ final class Reducer
      * @param (callable(LogEvent): void)|null $onFolded called for each event folded into an overflow group
      * @param float $similarity           share of literal tokens that must match to join a cluster (0 < x <= 1)
      * @param int $maxDistinctMessages    distinct masked messages kept for clustering; more are dropped and their groups lose the text
-     * @param int|null $comparisonBudget  cluster comparisons allowed (default 400 x maxDistinctMessages)
+     * @param int|null $comparisonBudget  token operations allowed in clustering (default 1000 x maxDistinctMessages)
+     * @param int $memoryBudgetBytes      estimated bytes the miner may hold; past it new messages are dropped like past the message cap
      * @param bool $groupBySimilarity     false: old behaviour, one cluster per (level, type, token count, frame)
      */
     public function __construct(
@@ -41,6 +44,7 @@ final class Reducer
         private readonly int $maxDistinctMessages = TemplateMiner::DEFAULT_MAX_DISTINCT,
         private readonly ?int $comparisonBudget = null,
         private readonly bool $groupBySimilarity = true,
+        private readonly int $memoryBudgetBytes = TemplateMiner::DEFAULT_MEMORY_BUDGET,
     ) {
         $this->mining = new MiningStats();
     }
@@ -49,6 +53,12 @@ final class Reducer
     public function mining(): MiningStats
     {
         return $this->mining;
+    }
+
+    /** Events the Normalizer could not scan in the last reduce(): masked as `<UNSCANNABLE>`, never raw (A4-07). */
+    public function unscannableEvents(): int
+    {
+        return $this->unscannable;
     }
 
     /** Events folded into overflow groups by the last reduce(). */
@@ -64,14 +74,21 @@ final class Reducer
     public function reduce(iterable $events): array
     {
         $fingerprinter = new Fingerprinter($this->normalizer);
-        $miner = new TemplateMiner($this->minGroupEventsForText, $this->similarity, $this->maxDistinctMessages, $this->comparisonBudget, $this->groupBySimilarity);
+        $miner = new TemplateMiner($this->minGroupEventsForText, $this->similarity, $this->maxDistinctMessages, $this->comparisonBudget, $this->groupBySimilarity, $this->memoryBudgetBytes);
         /** @var array<string, array{own: bool, level: Level, type: ?string, frames: list<string>, count: int, first: DateTimeImmutable, last: DateTimeImmutable}> $groups */
         $groups = [];
         $ownCount = 0;
         $this->overflowed = 0;
+        $this->unscannable = 0;
 
         foreach ($events as $e) {
-            $tokens = TemplateMiner::tokens($this->normalizer, $e);
+            try {
+                $tokens = TemplateMiner::tokens($this->normalizer, $e);
+            } catch (NormalizationException) {
+                // One poisoned event must not abort the run (A4-07): it is grouped, counted and masked.
+                ++$this->unscannable;
+                $tokens = ['<UNSCANNABLE>'];
+            }
             $fp = $fingerprinter->fingerprint($e, $tokens);
             $own = true;
             if (isset($groups[$fp])) {

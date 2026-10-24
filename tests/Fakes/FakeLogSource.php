@@ -64,10 +64,16 @@ final class FakeLogSource implements LogSource
             }
             if ($n++ >= $filter->eventCap) {
                 $this->truncated = true;
+                $filter->truncationReason ??= 'cap';
 
                 return;
             }
             yield $event;
+            if ($filter->shouldStop()) {
+                $this->truncated = true;
+
+                return;
+            }
         }
     }
 

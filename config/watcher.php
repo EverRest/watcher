@@ -25,6 +25,7 @@ return [
         'timezone' => env('WATCHER_TIMEZONE', 'UTC'),
         'window' => 'PT24H',                       // ISO-8601 duration
         'lock_ttl' => 900,                         // seconds
+        'run_deadline' => Env::int('WATCHER_RUN_DEADLINE', 0) ?: null, // seconds; default lock_ttl minus a margin (810)
     ],
 
     'source' => [

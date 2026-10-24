@@ -24,8 +24,11 @@ final class TemplateMiner
 {
     public const DEFAULT_SIMILARITY = 0.5;
     public const DEFAULT_MAX_DISTINCT = 50_000;
-    /** Comparisons allowed per stored message slot of the cap. */
-    private const BUDGET_PER_MESSAGE = 400;
+    /** Token operations allowed per stored message slot of the cap (one operation = one literal token examined, A4-02). */
+    private const BUDGET_PER_MESSAGE = 1000;
+    /** Tokens kept per stored message; the rest is replaced by one placeholder, so messages that differ only past it merge. */
+    public const MAX_TOKENS = 64;
+    public const DEFAULT_MEMORY_BUDGET = 32 * 1024 * 1024;
 
     private const PLACEHOLDER = '/^<[A-Z*]+>$/';
 
@@ -42,6 +45,9 @@ final class TemplateMiner
 
     private int $dropped = 0;
 
+    /** Estimated bytes held by stored messages (see add()). */
+    private int $bytes = 0;
+
     private bool $exhausted = false;
 
     private readonly int $budget;
@@ -57,6 +63,7 @@ final class TemplateMiner
         private readonly int $maxDistinct = self::DEFAULT_MAX_DISTINCT,
         ?int $comparisonBudget = null,
         private readonly bool $enabled = true,
+        private readonly int $memoryBudgetBytes = self::DEFAULT_MEMORY_BUDGET,
     ) {
         $this->budget = $comparisonBudget ?? self::BUDGET_PER_MESSAGE * $maxDistinct;
     }
@@ -73,18 +80,24 @@ final class TemplateMiner
     public function add(LogEvent $event, array $tokens, string $fingerprint): void
     {
         $bucket = implode('|', [$event->level->value, $event->errorType ?? '', count($tokens), $event->frames[0] ?? '']);
+        if (count($tokens) > self::MAX_TOKENS) {
+            $tokens = [...array_slice($tokens, 0, self::MAX_TOKENS), '<TRUNC>'];
+        }
         $text = implode(' ', $tokens);
         if (isset($this->index[$bucket][$text])) {
             ++$this->buckets[$bucket][$this->index[$bucket][$text]]['count'];
 
             return;
         }
-        if ($this->distinct >= $this->maxDistinct) {
+        // Rough PHP cost of a stored message: the text twice (index key and value), one packed slot and string header per token.
+        $cost = strlen($text) * 2 + count($tokens) * 48 + 256;
+        if ($this->distinct >= $this->maxDistinct || $this->bytes + $cost > $this->memoryBudgetBytes) {
             ++$this->dropped;
             $this->droppedFps[$fingerprint] = true;
 
             return;
         }
+        $this->bytes += $cost;
         ++$this->distinct;
         $this->index[$bucket][$text] = count($this->buckets[$bucket] ?? []);
         $this->buckets[$bucket][] = ['tokens' => $tokens, 'text' => $text, 'count' => 1, 'fp' => $fingerprint];
@@ -134,7 +147,7 @@ final class TemplateMiner
                             $withheld[$m['fp']] = true;
                             continue 2;
                         }
-                        ++$used;
+                        $used += max(1, count($c['lit']));
                         $score = $this->score($c, $m['tokens']);
                         if ($score > $bestScore) {
                             [$best, $bestScore] = [$ci, $score];

@@ -46,7 +46,7 @@ final class WatchConfig
      * @param array<string, mixed> $notify
      * @param array{stale_after: int, weekly_summary: bool} $heartbeat stale_after in seconds
      * @param array{mode: string, windows: int, max_age: string, max_age_seconds: int, exclude: list<string>, since: ?string} $baseline
-     * @param array{similarity: float, message_cap: int, backend_patterns: bool} $grouping
+     * @param array{similarity: float, message_cap: int, backend_patterns: bool, memory_budget_mb: int} $grouping
      * @param array<string, bool> $flags see {@see self::FLAGS}
      */
     private function __construct(
@@ -94,6 +94,9 @@ final class WatchConfig
         }
 
         $service = self::str($config, 'service', 'service');
+        if (str_contains($service, '@')) {
+            throw new InvalidConfig('service must not contain @ (it joins service and environment in state keys)');
+        }
         $enabled = self::flag($config, 'enabled', 'enabled', false);
         $environment = $config['environment'] ?? null;
         if ($environment !== null && (!is_string($environment) || preg_match('/^[A-Za-z0-9._-]{1,64}$/', $environment) !== 1)) {
@@ -102,7 +105,7 @@ final class WatchConfig
         $flags = [];
 
         $sch = self::section($config, 'schedule');
-        self::only($sch, ['run_at', 'timezone', 'window', 'lock_ttl'], 'schedule');
+        self::only($sch, ['run_at', 'timezone', 'window', 'lock_ttl', 'run_deadline'], 'schedule');
         $runAt = self::str($sch, 'run_at', 'schedule.run_at');
         if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $runAt) !== 1) {
             throw new InvalidConfig('schedule.run_at must be HH:MM');
@@ -120,11 +123,18 @@ final class WatchConfig
         if ($interval->y + $interval->m + $interval->d + $interval->h + $interval->i + $interval->s === 0) {
             throw new InvalidConfig('schedule.window must be longer than zero');
         }
+        $lockTtl = self::posInt($sch, 'lock_ttl', 900, 'schedule.lock_ttl');
+        // A4-01: total wall-clock budget of a run. Default: the lock lifetime minus a margin for the post-read steps, never above it.
+        $deadline = self::posInt($sch, 'run_deadline', $lockTtl <= 60 ? max(1, intdiv($lockTtl, 2)) : $lockTtl - max(30, intdiv($lockTtl, 10)), 'schedule.run_deadline');
+        if ($deadline > $lockTtl) {
+            throw new InvalidConfig('schedule.run_deadline must not be longer than schedule.lock_ttl');
+        }
         $schedule = [
             'run_at' => $runAt,
             'timezone' => $tz,
             'window' => $window,
-            'lock_ttl' => self::posInt($sch, 'lock_ttl', 900, 'schedule.lock_ttl'),
+            'lock_ttl' => $lockTtl,
+            'run_deadline' => $deadline,
         ];
 
         $source = self::source(self::section($config, 'source'));
@@ -305,11 +315,11 @@ final class WatchConfig
 
     /**
      * @param array<string, mixed> $g
-     * @return array{similarity: float, message_cap: int, backend_patterns: bool}
+     * @return array{similarity: float, message_cap: int, backend_patterns: bool, memory_budget_mb: int}
      */
     private static function grouping(array $g): array
     {
-        self::only($g, ['similarity', 'message_cap', 'backend_patterns'], 'grouping');
+        self::only($g, ['similarity', 'message_cap', 'backend_patterns', 'memory_budget_mb'], 'grouping');
         $similarity = $g['similarity'] ?? 0.5;
         if ((!is_int($similarity) && !is_float($similarity)) || $similarity <= 0 || $similarity > 1) {
             throw new InvalidConfig('grouping.similarity must be greater than 0 and at most 1');
@@ -322,7 +332,12 @@ final class WatchConfig
             throw new InvalidConfig('grouping.backend_patterns is not available yet');
         }
 
-        return ['similarity' => (float) $similarity, 'message_cap' => $cap, 'backend_patterns' => false];
+        $memory = $g['memory_budget_mb'] ?? 32;
+        if (!is_int($memory) || $memory < 1) {
+            throw new InvalidConfig('grouping.memory_budget_mb must be an integer >= 1');
+        }
+
+        return ['similarity' => (float) $similarity, 'message_cap' => $cap, 'backend_patterns' => false, 'memory_budget_mb' => $memory];
     }
 
     /**

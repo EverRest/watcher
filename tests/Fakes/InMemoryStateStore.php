@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Watcher\Tests\Fakes;
 
 use Psr\Clock\ClockInterface;
+use Watcher\State\RenewableLock;
 use Watcher\State\StateStore;
 
-final class InMemoryStateStore implements StateStore
+final class InMemoryStateStore implements StateStore, RenewableLock
 {
     /** @var array<string, array{value: array<mixed>, owner: ?string, expires_at: int}> */
     private array $data = [];
@@ -75,6 +76,17 @@ final class InMemoryStateStore implements StateStore
         if (($this->live($key)['owner'] ?? null) === $owner) {
             unset($this->data[$key]);
         }
+    }
+
+    public function renew(string $key, string $owner, int $ttlSeconds): bool
+    {
+        $record = $this->live($key);
+        if ($record === null || $record['owner'] !== $owner) {
+            return false;
+        }
+        $this->data[$key]['expires_at'] = $this->now() + $ttlSeconds;
+
+        return true;
     }
 
     public function increment(string $key, float $by, int $ttlSeconds): float

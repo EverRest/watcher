@@ -69,18 +69,26 @@ final class FleetRunner
             $sources[$e->name()] = Factory::source($e->config, $http, $clock);
         }
 
-        $watcherFor = static fn (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null): callable => (new Watcher(
-            $e->config,
-            $sources[$e->name()],
-            $state,
-            $analyzer,
-            $seam?->notifierFor($e->name(), $notifier) ?? $notifier,
-            $clock,
-            $log,
-            $options,
-            $out,
-            $seam,
-        ))->run(...);
+        $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $state, $analyzer, $notifier, $clock, $log, $out, $share): callable {
+            $watcher = new Watcher(
+                $e->config,
+                $sources[$e->name()],
+                $state,
+                $analyzer,
+                $seam?->notifierFor($e->name(), $notifier) ?? $notifier,
+                $clock,
+                $log,
+                $options,
+                $out,
+                $seam,
+            );
+            if ($share !== null) {
+                $watcher->limitRunTo($share);
+            }
+
+            return $watcher->run(...);
+        };
 
         return new self($fleet, $watcherFor, $state, $clock, $log, $notifier, $out);
     }

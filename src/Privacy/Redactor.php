@@ -117,7 +117,8 @@ final class Redactor
             $f->confidence,
             $f->escalated,
             $f->howToCheck === '' ? '' : ($this->redactText($f->howToCheck) ?? self::WITHHELD),
-            array_map(fn (string $r): string => $this->redactText($r) ?? self::WITHHELD, $f->relatedChecks),
+            // an exact 12-hex entry is a group fingerprint the validator took from the request: a hash prefix, not data, and not to be masked as an id
+            array_map(fn (string $r): string => preg_match('/^[0-9a-f]{12}$/D', $r) === 1 ? $r : ($this->redactText($r) ?? self::WITHHELD), $f->relatedChecks),
         );
     }
 

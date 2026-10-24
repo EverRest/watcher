@@ -20,6 +20,9 @@ final class Keys
     public const TRIGGER = 'trig';
     public const WEEK = 'hbweek';
     public const WEEKSENT = 'hbsent';
+    public const ZERO = 'zero';
+    public const DELIVERED = 'sent';
+    public const FAILNOTICE = 'failn';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -62,6 +65,12 @@ final class Keys
         return self::join(self::RUN, $service, $windowEnd);
     }
 
+    /** Failed analysis attempts of one window (a counter under the run prefix, so it expires with the run records). */
+    public static function analysisFailures(string $service, string $windowEnd): string
+    {
+        return self::join(self::RUN, $service, $windowEnd, 'failures');
+    }
+
     public static function lock(string $service, string $windowEnd): string
     {
         return self::join(self::LOCK, $service, $windowEnd);
@@ -96,6 +105,24 @@ final class Keys
     public static function trigger(string $service): string
     {
         return self::join(self::TRIGGER, $service);
+    }
+
+    /** Consecutive windows in which the source returned nothing at all (A4-08). */
+    public static function zeroRead(string $service): string
+    {
+        return self::join(self::ZERO, $service);
+    }
+
+    /** Marker that a window's digest reached the channel, so a failed state write afterwards cannot cause a second one (A4-07). */
+    public static function delivered(string $service, string $windowEnd): string
+    {
+        return self::join(self::DELIVERED, $service, $windowEnd);
+    }
+
+    /** Failure notices sent for one window (a counter, at most FAIL_NOTICES_PER_WINDOW are sent). */
+    public static function failNotices(string $service, string $windowEnd): string
+    {
+        return self::join(self::FAILNOTICE, $service, $windowEnd);
     }
 
     /** @param string $counter an outcome name or 'cost' */

@@ -79,6 +79,17 @@ final class CorrelatorTest extends TestCase
         self::assertCount(1, $links);
     }
 
+    public function testAPlaceholderTypedByAUserInsideAnotherPlaceholderIsNotAReference(): void
+    {
+        // F7: the Normalizer wraps typed placeholder text (`<URL:<HOST:api>>`); the inner one is user text, not a call target
+        $c = new Correlator(self::fleet());
+
+        foreach (['user typed <URL:<HOST:api>> here', 'bad <url:<HOST:api>>', 'x <mailto:<URL:api>> y', 'a <tok:<HOST:api>>'] as $tpl) {
+            self::assertSame([], $c->links(['api' => [self::origin()], 'bff-a' => [self::consumer(template: $tpl)]]), $tpl);
+        }
+        self::assertCount(1, $c->links(['api' => [self::origin()], 'bff-a' => [self::consumer(template: 'real <URL:api> and user <URL:<HOST:api>>')]]), 'a genuine reference next to a typed one still counts');
+    }
+
     public function testOriginOutsideTheFleetOrNotRunMakesNoLink(): void
     {
         $c = new Correlator(self::fleet());

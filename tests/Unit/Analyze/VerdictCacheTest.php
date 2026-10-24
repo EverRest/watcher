@@ -147,12 +147,15 @@ final class VerdictCacheTest extends TestCase
     {
         $cache = new VerdictCache($this->store, 'svc', 1000);
         $cache->put('fp1', 'noise', 10, null);
-        $cache->put('fp2', 'interesting', 10, null);
+        $cache->put('fp2', 'interesting', 10, new Finding(['fp2'], FindingKind::Bug, Severity::Error, 't', 'e', 'c', 'a', 0.9));
+        $cache->put('fp3', 'interesting', 10, null); // analysed, nothing reported: not settled for an error group (F1)
 
         self::assertFalse($cache->isReusable(self::group(10, 'fp1', Level::Error), 2.0));
         self::assertFalse($cache->isReusable(self::group(10, 'fp1', Level::Warning, ['w']), 2.0));
         self::assertTrue($cache->isReusable(self::group(10, 'fp1', Level::Warning), 2.0));
         self::assertTrue($cache->isReusable(self::group(10, 'fp2', Level::Error), 2.0));
+        self::assertFalse($cache->isReusable(self::group(10, 'fp3', Level::Error), 2.0));
+        self::assertTrue($cache->isReusable(self::group(10, 'fp3', Level::Warning), 2.0));
     }
 
     /** @return array<string, array{mixed}> */

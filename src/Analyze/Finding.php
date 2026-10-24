@@ -34,6 +34,16 @@ final class Finding
         }
     }
 
+    /**
+     * Same finding with its coverage or code-bounded kind and severity replaced (the model's other text is untouched).
+     *
+     * @param list<string> $fingerprints
+     */
+    public function with(array $fingerprints, FindingKind $kind, Severity $severity): self
+    {
+        return new self($fingerprints, $kind, $severity, $this->title, $this->evidence, $this->suspectedCause, $this->suggestedAction, $this->confidence, $this->escalated, $this->howToCheck, $this->relatedChecks);
+    }
+
     public function escalated(): self
     {
         return new self(

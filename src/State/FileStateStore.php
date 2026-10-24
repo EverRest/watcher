@@ -16,7 +16,7 @@ use RuntimeException;
  *
  * Keys are hashed into the filename, so a key can never address a path outside $dir.
  */
-final class FileStateStore implements StateStore, Purgeable
+final class FileStateStore implements StateStore, Purgeable, RenewableLock
 {
     private const PURGE_INTERVAL = 86400;
 
@@ -34,13 +34,15 @@ final class FileStateStore implements StateStore, Purgeable
             return 0;
         }
         $now = $this->now();
+        $this->assertDirectory();
         $marker = $this->dir . '/.purge';
+        $this->refuseLink($marker);
         $last = (int) @file_get_contents($marker);
         if ($last > 0 && $now - $last < self::PURGE_INTERVAL) {
             return 0;
         }
         // ponytail: marker is written before the sweep, so a backlog above maxFiles drains one batch per day.
-        @file_put_contents($marker, (string) $now);
+        $this->writeNew($marker, (string) $now, true);
         $deadline = microtime(true) + $maxSeconds;
         $removed = 0;
         $names = @scandir($this->dir) ?: [];
@@ -49,6 +51,9 @@ final class FileStateStore implements StateStore, Purgeable
                 break;
             }
             $path = $this->dir . '/' . $name;
+            if (is_link($path) || (is_file($path) === false)) {
+                continue; // only regular files are ever opened or removed (A4-11)
+            }
             if (preg_match('/^[0-9a-f]{64}\.json$/', $name) === 1) {
                 $removed += $this->purgeRecord($path, $now);
             } elseif (preg_match('/^[0-9a-f]{64}\.json\.lock$/', $name) === 1) {
@@ -72,6 +77,9 @@ final class FileStateStore implements StateStore, Purgeable
     /** Deletes an expired record under its key lock, so a concurrent put is never undone. A held lock means skip. */
     private function purgeRecord(string $path, int $now): int
     {
+        if (is_link($path . '.lock')) {
+            return 0;
+        }
         $handle = @fopen($path . '.lock', 'c');
         if ($handle === false) {
             return 0;
@@ -98,7 +106,7 @@ final class FileStateStore implements StateStore, Purgeable
             return 0;
         }
         $handle = @fopen($path, 'c');
-        if ($handle === false) {
+        if ($handle === false || is_link($path)) {
             return 0;
         }
         try {
@@ -145,6 +153,20 @@ final class FileStateStore implements StateStore, Purgeable
         });
     }
 
+    public function renew(string $key, string $owner, int $ttlSeconds): bool
+    {
+        return $this->locked($key, function () use ($key, $owner, $ttlSeconds): bool {
+            $record = $this->read($key);
+            if ($record === null || $record['owner'] !== $owner) {
+                return false;
+            }
+            $record['expires_at'] = $this->now() + $ttlSeconds;
+            $this->write($key, $record);
+
+            return true;
+        });
+    }
+
     public function increment(string $key, float $by, int $ttlSeconds): float
     {
         return $this->locked($key, function () use ($key, $by, $ttlSeconds): float {
@@ -179,6 +201,7 @@ final class FileStateStore implements StateStore, Purgeable
         if (! is_dir($this->dir) && ! @mkdir($this->dir, 0700, true) && ! is_dir($this->dir)) {
             throw new RuntimeException('Cannot create state directory');
         }
+        $this->assertDirectory();
         $handle = $this->lock($this->path($key) . '.lock');
         try {
             return $fn();
@@ -197,10 +220,12 @@ final class FileStateStore implements StateStore, Purgeable
     private function lock(string $lockPath): mixed
     {
         for ($attempt = 0; $attempt < 10; $attempt++) {
+            $this->refuseLink($lockPath);
             $handle = fopen($lockPath, 'c');
             if ($handle === false || ! flock($handle, LOCK_EX)) {
                 throw new RuntimeException('Cannot lock state key');
             }
+            @chmod($lockPath, 0600);
             clearstatcache(true, $lockPath);
             $held = fstat($handle);
             $path = @stat($lockPath);
@@ -215,6 +240,7 @@ final class FileStateStore implements StateStore, Purgeable
     /** @return array{value: array<mixed>, owner: ?string, expires_at: int}|null */
     private function read(string $key): ?array
     {
+        $this->refuseLink($this->path($key));
         $raw = @file_get_contents($this->path($key));
         if ($raw === false) {
             return null;
@@ -243,13 +269,56 @@ final class FileStateStore implements StateStore, Purgeable
         $tmp = $this->path($key) . '.' . bin2hex(random_bytes(4)) . '.tmp';
         $json = json_encode($record, JSON_THROW_ON_ERROR);
         // A full disk can fail or short-write: never rename a partial file over the good record.
-        if (@file_put_contents($tmp, $json) !== strlen($json)) {
-            @unlink($tmp);
-            throw new RuntimeException('state write failed');
-        }
+        $this->writeNew($tmp, $json);
         if (! @rename($tmp, $this->path($key))) {
             @unlink($tmp);
             throw new RuntimeException('state write failed');
+        }
+    }
+
+    /**
+     * Creates $path (never following a symlink, mode 0600) and writes $contents. $replace: the file may already exist
+     * (the purge marker); it is then rewritten in place after the symlink check. Fails closed with 'state write failed'.
+     */
+    private function writeNew(string $path, string $contents, bool $replace = false): void
+    {
+        $this->refuseLink($path);
+        $handle = @fopen($path, $replace ? 'c' : 'x');
+        if ($handle === false) {
+            throw new RuntimeException('state write failed');
+        }
+        try {
+            @chmod($path, 0600);
+            if ($replace) {
+                ftruncate($handle, 0);
+            }
+            if (fwrite($handle, $contents) !== strlen($contents)) {
+                @unlink($path);
+                throw new RuntimeException('state write failed');
+            }
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /** A state path that is a symlink is never read, locked or written through: someone else planted it. */
+    private function refuseLink(string $path): void
+    {
+        if (is_link($path)) {
+            throw new RuntimeException('state path is a symlink');
+        }
+    }
+
+    /** The directory holds locks and spend counters: group or world write access lets another user forge them. */
+    private function assertDirectory(): void
+    {
+        clearstatcache(true, $this->dir);
+        $perms = @fileperms($this->dir);
+        if ($perms === false) {
+            return;
+        }
+        if (($perms & 0022) !== 0) {
+            throw new RuntimeException('state.file.path must not be writable by group or others (chmod 0700)');
         }
     }
 }

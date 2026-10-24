@@ -54,6 +54,12 @@ final class VerdictCache
         return $g->level->value >= Level::Error->value || $g->watchMatches !== [];
     }
 
+    /** "Nothing to see": the model's own view of a finding is noise or info. */
+    public static function isWeak(Finding $f): bool
+    {
+        return $f->kind === FindingKind::Noise || $f->severity === Severity::Info;
+    }
+
     public function put(string $fingerprint, string $verdict, int $atCount, ?Finding $finding, ?int $ttl = null): void
     {
         $value = ['triage' => $verdict, 'atCount' => $atCount];
@@ -80,6 +86,11 @@ final class VerdictCache
         $v = $this->get($g->fingerprint);
 
         if ($v === null || ($v['triage'] !== 'interesting' && self::mustNotBeSilenced($g))) {
+            return false;
+        }
+        // The analysis path is the same trust problem as triage: for an error-or-higher / watch-rule group, "analysed, nothing to report"
+        // (or only noise/info) must never settle, also not when an older version of the package stored it.
+        if (self::mustNotBeSilenced($g) && (!isset($v['finding']) || ($v['finding']['kind'] ?? null) === FindingKind::Noise->value || ($v['finding']['severity'] ?? null) === Severity::Info->value)) {
             return false;
         }
 

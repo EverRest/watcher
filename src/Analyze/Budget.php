@@ -32,6 +32,16 @@ final class Budget
     }
 
     /**
+     * Input sent whatever the groups are: the system prompt with the service context and the data wrapper of the user message.
+     *
+     * @param 'triage'|'analyze' $kind
+     */
+    public static function fixedTokens(string $kind, string $serviceContext, bool $advice = true): int
+    {
+        return self::estimateTokens(self::systemPrompt($kind, $serviceContext, $advice)) + self::estimateTokens(CompactPayload::userMessage('', str_repeat('0', 32)));
+    }
+
+    /**
      * Drops the lowest-priority candidates (later ones first on ties) until the serialized payload fits.
      *
      * @param list<Candidate> $candidates

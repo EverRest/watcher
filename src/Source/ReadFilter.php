@@ -12,6 +12,18 @@ final class ReadFilter
     /** Patterns preg could not evaluate (bad pattern, invalid UTF-8): those lines were read, not dropped. */
     public int $patternErrors = 0;
 
+    /** A physical line above this size never reaches the parser (A4-01): it is dropped and counted. */
+    public const MAX_LINE_BYTES = 65536;
+
+    /** Lines dropped because they were larger than MAX_LINE_BYTES (a count, never the text). */
+    public int $oversizedLines = 0;
+
+    /** Why the read stopped early: cap, pages, time, cursor, deadline or memory. Null = not truncated. Set by the source or the stop hook. */
+    public ?string $truncationReason = null;
+
+    /** @var (\Closure(): ?string)|null asked between pages and per event: a reason means stop reading now */
+    private ?\Closure $stopCheck = null;
+
     /**
      * @param list<string> $watchPatterns RE2-compatible regexes without delimiters, `(?i)` prefix when case-insensitive
      */
@@ -23,6 +35,35 @@ final class ReadFilter
         if ($eventCap < 1) {
             throw new InvalidArgumentException('eventCap must be at least 1.');
         }
+    }
+
+    /** @param \Closure(): ?string $check returns a stop reason (deadline, memory) or null to go on */
+    public function stopWhen(\Closure $check): void
+    {
+        $this->stopCheck = $check;
+    }
+
+    /** True (and the reason is recorded) when the run's deadline or memory guard says stop; sources call it between pages and per event. */
+    public function shouldStop(): bool
+    {
+        $reason = $this->stopCheck === null ? null : ($this->stopCheck)();
+        if ($reason === null) {
+            return false;
+        }
+        $this->truncationReason ??= $reason;
+
+        return true;
+    }
+
+    /** True when the line is too large to parse; counts it. */
+    public function oversized(string $line): bool
+    {
+        if (strlen($line) <= self::MAX_LINE_BYTES) {
+            return false;
+        }
+        ++$this->oversizedLines;
+
+        return true;
     }
 
     /**

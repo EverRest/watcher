@@ -65,7 +65,10 @@ final class FleetBudgetTest extends TestCase
 
     public function testFleetCapStopsLaterServices(): void
     {
-        $h = self::harness(['budget' => ['daily_budget_usd' => 0.024]]);
+        // Security review 5 (F5): a step now reserves BOTH attempts, so each analysis is booked at 4800 input tokens ($0.024) and the cap is
+        // two of them: api and bff-a still fit their reservation, and after bff-a the cap is spent.
+        $h = self::harness(['budget' => ['daily_budget_usd' => 0.048]]);
+        $h->analyzer->inputTokens = 4800;
         self::ready($h);
         $h->analyzer->requests = [];
         $h->analyzer->triageRequests = [];
@@ -77,8 +80,8 @@ final class FleetBudgetTest extends TestCase
         self::assertStringContainsString('budget exhausted (fleet cap)', self::all($h, 'bff-b'));
         self::assertStringNotContainsString('budget exhausted', self::all($h, 'bff-a'));
         self::assertStringNotContainsString('budget exhausted', self::all($h, 'api'));
-        self::assertEqualsWithDelta(0.024, $result->fleetCostTodayUsd, 1e-9);
-        self::assertStringContainsString('"fleet_cost_today_usd":0.024', $result->toJson());
+        self::assertEqualsWithDelta(0.048, $result->fleetCostTodayUsd, 1e-9);
+        self::assertStringContainsString('"fleet_cost_today_usd":0.048', $result->toJson());
     }
 
     public function testServiceCapOnly(): void
@@ -98,7 +101,9 @@ final class FleetBudgetTest extends TestCase
 
     public function testFleetThresholdsOncePerDay(): void
     {
-        $h = self::harness(['budget' => ['daily_budget_usd' => 0.04]]);
+        // Two attempts are reserved per step (F5): each analysis is booked at 3600 input tokens ($0.018) and the cap is raised so all three still run.
+        $h = self::harness(['budget' => ['daily_budget_usd' => 0.057]]);
+        $h->analyzer->inputTokens = 3600;
         self::ready($h);
 
         $h->runner()->run(null, RunOptions::default());
@@ -181,7 +186,8 @@ final class FleetBudgetTest extends TestCase
 
         $result = $h->runner()->run(null, RunOptions::dryRun());
 
-        self::assertSame(0.0, $result->fleetCostTodayUsd);
+        self::assertGreaterThan(0.0, $result->fleetCostTodayUsd, 'the dry run shows its own cumulative cost');
+        self::assertSame(0.0, (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'fleet/platform'))->today()['usd'], 'nothing reached the real counter');
         self::assertSame([], $h->fleetNotifier->sent);
     }
 

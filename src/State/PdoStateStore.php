@@ -15,8 +15,11 @@ use Throwable;
  * SQL state for several overlapping runners (FR-028). The key column is `k` because
  * `key` is reserved in MySQL. Owner is kept inside the stored JSON, `{"o":owner}` for locks.
  */
-final class PdoStateStore implements StateStore
+final class PdoStateStore implements StateStore, RenewableLock
 {
+    /** The k column is VARCHAR(191): longer keys fail under strict SQL mode and silently merge when MySQL truncates (A4-14). */
+    public const MAX_KEY = 191;
+
     private int $writes = 0;
 
     /** @param int $purgeEvery purge expired rows on every N-th write (0 disables) */
@@ -67,20 +70,22 @@ final class PdoStateStore implements StateStore
 
     public function put(string $key, array $value, int $ttlSeconds): void
     {
+        self::checkKey($key);
         $json = json_encode($value, JSON_THROW_ON_ERROR);
         $expires = $this->now() + $ttlSeconds;
-        $this->transaction(function () use ($key, $json, $expires): void {
+        $this->retryDuplicate(fn () => $this->transaction(function () use ($key, $json, $expires): void {
             $update = $this->pdo->prepare("UPDATE {$this->table} SET value = ?, expires_at = ? WHERE k = ?");
             $update->execute([$json, $expires, $key]);
             if ($update->rowCount() === 0) {
                 $this->insert($key, $json, $expires);
             }
-        });
+        }));
         $this->maybePurge();
     }
 
     public function acquire(string $key, string $owner, int $ttlSeconds): bool
     {
+        self::checkKey($key);
         $this->pdo->prepare("DELETE FROM {$this->table} WHERE k = ? AND expires_at <= ?")->execute([$key, $this->now()]);
         try {
             $this->insert($key, json_encode(['__owner' => $owner], JSON_THROW_ON_ERROR), $this->now() + $ttlSeconds);
@@ -95,6 +100,15 @@ final class PdoStateStore implements StateStore
         return true;
     }
 
+    public function renew(string $key, string $owner, int $ttlSeconds): bool
+    {
+        $now = $this->now();
+        $stmt = $this->pdo->prepare("UPDATE {$this->table} SET expires_at = ? WHERE k = ? AND value = ? AND expires_at > ?");
+        $stmt->execute([$now + $ttlSeconds, $key, json_encode(['__owner' => $owner], JSON_THROW_ON_ERROR), $now]);
+
+        return $stmt->rowCount() > 0;
+    }
+
     public function release(string $key, string $owner): void
     {
         $this->pdo->prepare("DELETE FROM {$this->table} WHERE k = ? AND value = ?")
@@ -103,7 +117,8 @@ final class PdoStateStore implements StateStore
 
     public function increment(string $key, float $by, int $ttlSeconds): float
     {
-        $total = $this->transaction(function () use ($key, $by, $ttlSeconds): float {
+        self::checkKey($key);
+        $total = $this->retryDuplicate(fn () => $this->transaction(function () use ($key, $by, $ttlSeconds): float {
             $now = $this->now();
             $this->pdo->prepare("DELETE FROM {$this->table} WHERE k = ? AND expires_at <= ?")->execute([$key, $now]);
             // Row is locked by the transaction (write lock / FOR UPDATE) so read-modify-write is atomic.
@@ -124,7 +139,7 @@ final class PdoStateStore implements StateStore
                 ->execute([json_encode(['total' => $total], JSON_THROW_ON_ERROR), $key]);
 
             return $total;
-        });
+        }));
         $this->maybePurge();
 
         return $total;
@@ -152,6 +167,34 @@ final class PdoStateStore implements StateStore
     private function forUpdate(): string
     {
         return in_array($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME), ['mysql', 'pgsql'], true) ? ' FOR UPDATE' : '';
+    }
+
+    private static function checkKey(string $key): void
+    {
+        if (strlen($key) > self::MAX_KEY) {
+            throw new InvalidArgumentException('state key is longer than ' . self::MAX_KEY . ' characters (the k column limit)');
+        }
+    }
+
+    /**
+     * Two runners making the first write of a key both INSERT; the loser gets a duplicate-key error. It is retried once,
+     * when the row exists and the UPDATE/UPDATE path applies, so a paid call's booking is not lost to the race (A4-14).
+     *
+     * @template T
+     * @param callable(): T $fn
+     * @return T
+     */
+    private function retryDuplicate(callable $fn): mixed
+    {
+        try {
+            return $fn();
+        } catch (PDOException $e) {
+            if (! $this->isDuplicate($e)) {
+                throw $e;
+            }
+
+            return $fn();
+        }
     }
 
     private function isDuplicate(PDOException $e): bool

@@ -131,7 +131,7 @@ final class CostTest extends TestCase
 
     public function testScenario13OverBudgetInputDropsTheLowestPriorityGroupsAndSaysSo(): void
     {
-        $h = new Harness(['analysis' => ['max_input_tokens' => ['triage' => Budget::estimateTokens(Budget::systemPrompt('triage', '')) + 160]]]);
+        $h = new Harness(['analysis' => ['max_input_tokens' => ['triage' => Budget::fixedTokens('triage', '') + 160]]]);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->nextWindow();
 
@@ -408,14 +408,15 @@ final class CostTest extends TestCase
 
     public function testH7TokenLimitIsReservedTheSameWay(): void
     {
-        $h = new Harness(['schedule' => ['window' => 'PT1H'], 'analysis' => ['daily_token_limit' => 5000]]);
+        // 9000 (was 5000): a step now reserves both attempts (F5), and the limit still has to fit the triage worst case but not the analysis one
+        $h = new Harness(['schedule' => ['window' => 'PT1H'], 'analysis' => ['daily_token_limit' => 9000]]);
         $h->watcher(self::source(self::group('Alpha')))->run();
         $h->clock->advance('+1 hour');
 
         $h->watcher(self::source([...self::group('Alpha'), ...self::group('Beta')]))->run();
 
-        self::assertCount(1, $h->analyzer->triageRequests, 'triage fits in 5000 tokens');
-        self::assertSame([], $h->analyzer->requests, '1500 tokens used + the analysis worst case (output cap 4000) exceed 5000');
+        self::assertCount(1, $h->analyzer->triageRequests, 'triage fits in 9000 tokens');
+        self::assertSame([], $h->analyzer->requests, '1500 tokens used + the analysis worst case (two attempts, output cap 4000) exceed 9000');
         self::assertStringContainsString('were not analysed', implode("\n", $h->sentTexts()));
     }
 

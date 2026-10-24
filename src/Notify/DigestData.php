@@ -72,6 +72,16 @@ final class DigestData
         public readonly ?MiningStats $mining = null,
         /** @var array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int} what the source's parser guessed or dropped (counts); empty = the source does not say */
         public readonly array $readDiagnostics = [],
+        /** @var int groups served from an earlier verdict instead of being analysed again (counts only: reuse is never invisible) */
+        public readonly int $reusedGroups = 0,
+        /** @var int groups triage dropped as noise/known (low-level groups only) */
+        public readonly int $triageDropped = 0,
+        /** @var int error-or-higher / watch-rule groups triage tried to silence; they were analysed anyway */
+        public readonly int $triageCoerced = 0,
+        /** @var int error-or-higher / watch-rule groups the analysis reported nothing for; analysed again next window */
+        public readonly int $unreported = 0,
+        /** @var int new groups kept out of top_m by the per-run cap on new groups */
+        public readonly int $newOverflow = 0,
     ) {
     }
 }

@@ -31,6 +31,13 @@ final class DependencyResolverTest extends TestCase
         self::assertSame(1, $plan->undeclaredHosts);
     }
 
+    public function testAPlaceholderTypedByAUserIsNotAReference(): void
+    {
+        $plan = (new DependencyResolver())->plan(['user typed <URL:<HOST:payments>> here', 'real <HOST:payments> too'], ['payments' => self::QUIET], ['payments' => self::QUIET], 3.0);
+
+        self::assertSame(['payments' => [1]], $plan->referencedBy);
+    }
+
     public function testGrowthTriggersLines(): void
     {
         $r = new DependencyResolver();

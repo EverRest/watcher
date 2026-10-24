@@ -1,0 +1,213 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Watcher\Tests\EndToEnd;
+
+use PHPUnit\Framework\TestCase;
+use Watcher\Analyze\Spend;
+use Watcher\Analyze\Usage;
+use Watcher\Level;
+use Watcher\Operate\RunOptions;
+use Watcher\RunOutcome;
+use Watcher\Schedule\Window;
+use Watcher\Source\LogSource;
+use Watcher\Source\ReadFilter;
+use Watcher\Source\SourceUnavailable;
+use Watcher\Source\StreamSelector;
+use Watcher\State\Keys;
+use Watcher\Tests\Fakes\FakeLogSource;
+use Watcher\Tests\Fakes\FrozenClock;
+use Watcher\Tests\Fakes\InMemoryStateStore;
+use Watcher\Tests\Fakes\ProbeStateStore;
+use Watcher\Watcher;
+
+/** A4-01/03/05/06/07/08: deadline, quiet-run blindness, lock renewal, notice dedupe, delivered marker, dry-run cap. */
+final class AvailabilityTest extends TestCase
+{
+    /** @return list<\Watcher\Source\LogEvent> */
+    private static function alpha(int $n = 5): array
+    {
+        return Harness::events(Level::Error, 'Alpha failed in a unique way', $n, 'Alpha');
+    }
+
+    /** @param list<\Watcher\Source\LogEvent> $events */
+    private static function source(array $events): FakeLogSource
+    {
+        return new FakeLogSource(Harness::totalsOf($events), $events);
+    }
+
+    /** @return list<string> */
+    private static function notices(Harness $h): array
+    {
+        return array_map(static fn (array $s): string => $s['message']->text, $h->notifier->sent);
+    }
+
+    private static function clockedSource(FrozenClock $clock, int $events, string $step): LogSource
+    {
+        return new class ($clock, $events, $step) implements LogSource {
+            public bool $truncated = false;
+
+            public function __construct(private readonly FrozenClock $clock, private readonly int $n, private readonly string $step)
+            {
+            }
+
+            public function totals(Window $window, StreamSelector $selector): array
+            {
+                return ['error' => $this->n];
+            }
+
+            public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): \Generator
+            {
+                $this->truncated = false;
+                foreach (Harness::events(Level::Error, 'Beta broke', $this->n, 'Beta') as $e) {
+                    $this->clock->advance($this->step);
+                    yield $e;
+                    if ($filter->shouldStop()) {
+                        $this->truncated = true;
+
+                        return;
+                    }
+                }
+            }
+
+            public function lastReadTruncated(): bool
+            {
+                return $this->truncated;
+            }
+
+            public function versions(Window $window, StreamSelector $selector, string $label): array
+            {
+                return [];
+            }
+        };
+    }
+
+    public function testTheRunDeadlineStopsReadingSkipsTheModelAndSaysSo(): void
+    {
+        $h = new Harness(['schedule' => ['lock_ttl' => 900, 'run_deadline' => 10]]);
+        $h->watcher(self::source(self::alpha()))->run(); // baseline
+        $h->nextWindow();
+
+        $runKey = Keys::run('svc', Watcher::windowKey($h->windowEnd()));
+        $result = $h->watcher(self::clockedSource($h->clock, 100, '+4 seconds'))->run();
+
+        self::assertSame(RunOutcome::Quiet, $result->outcome);
+        self::assertSame([], $h->analyzer->allRequests(), 'no model call after the deadline');
+        self::assertSame('truncated:deadline', $result->summaryData?->reason);
+        $texts = implode("\n", self::notices($h));
+        self::assertStringContainsString('deadline', $texts);
+        self::assertLessThan(100, $result->summaryData?->stats?->eventsRead ?? 0);
+        self::assertSame('truncated:deadline', ($h->state->get($runKey) ?? [])['code'] ?? null);
+    }
+
+    public function testAQuietRunThatWasTruncatedStillSendsOneNotice(): void
+    {
+        $h = new Harness(['source' => ['event_cap' => 3]]);
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+        self::assertSame(RunOutcome::Reported, $h->watcher(self::source(self::alpha(2)))->run()->outcome);
+        $h->nextWindow();
+        $before = count($h->notifier->sent);
+
+        $result = $h->watcher(self::source(self::alpha(50)))->run();
+
+        self::assertSame(RunOutcome::Quiet, $result->outcome);
+        self::assertCount($before + 1, $h->notifier->sent);
+        self::assertStringContainsString('truncated', (end($h->notifier->sent) ?: throw new \LogicException())['message']->text);
+        self::assertSame('truncated:cap', $result->summaryData?->reason);
+    }
+
+    public function testZeroEventsForThreeWindowsIsReported(): void
+    {
+        $h = new Harness();
+        $texts = [];
+        for ($i = 1; $i <= 3; ++$i) {
+            $h->watcher(self::source([]))->run();
+            $texts[$i] = implode("\n", self::notices($h));
+            $h->nextWindow();
+        }
+        self::assertStringNotContainsString('consecutive windows', $texts[2]);
+        self::assertStringContainsString('0 events read for 3 consecutive windows', $texts[3]);
+    }
+
+    public function testFailureNoticesAreCappedPerWindow(): void
+    {
+        $h = new Harness();
+        $src = self::source(self::alpha());
+        $src->failWith(new SourceUnavailable('loki 503'));
+        for ($i = 0; $i < 6; ++$i) {
+            self::assertSame(RunOutcome::Failed, $h->watcher($src)->run()->outcome);
+        }
+        self::assertCount(3, $h->notifier->sent);
+    }
+
+    public function testADigestThatWasDeliveredIsNotSentAgainWhenTheStateWriteFailed(): void
+    {
+        $h = new Harness();
+        $probe = new ProbeStateStore(new InMemoryStateStore($h->clock));
+        $h->state = $probe;
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+
+        $probe->failPutPrefix = Keys::SNAP . ':';
+        self::assertSame(RunOutcome::Failed, $h->watcher(self::source(self::alpha(9)))->run()->outcome);
+        $sent = count($h->notifier->sent);
+        self::assertGreaterThanOrEqual(1, $sent);
+        $probe->failPutPrefix = null;
+        $second = $h->watcher(self::source(self::alpha(9)))->run();
+
+        self::assertSame(RunOutcome::SkippedDone, $second->outcome);
+        self::assertCount($sent, $h->notifier->sent, 'the second trigger sends nothing');
+    }
+
+    public function testTheLockIsRenewedBeforeALateModelCall(): void
+    {
+        $h = new Harness();
+        $probe = new ProbeStateStore(new InMemoryStateStore($h->clock));
+        $h->state = $probe;
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+        $slow = new class ($h->clock, $h->analyzer) implements \Watcher\Analyze\Analyzer {
+            public function __construct(private readonly FrozenClock $clock, private readonly EchoAnalyzer $inner)
+            {
+            }
+
+            public function triage(\Watcher\Analyze\TriageRequest $req): \Watcher\Analyze\TriageResult
+            {
+                $this->clock->advance('+500 seconds'); // more than half of lock_ttl (900) gone
+
+                return $this->inner->triage($req);
+            }
+
+            public function analyze(\Watcher\Analyze\AnalysisRequest $req): \Watcher\Analyze\AnalysisResult
+            {
+                return $this->inner->analyze($req);
+            }
+        };
+        $w = new Watcher(\Watcher\Config\WatchConfig::fromArray($h->config()), self::source(self::alpha(9)), $probe, $slow, $h->notifier, $h->clock);
+
+        $w->run();
+
+        self::assertNotEmpty($probe->renewed);
+        self::assertStringStartsWith('lock:', $probe->renewed[0]);
+    }
+
+    public function testADryRunRefusesToStartWhenTheRealDailyCapIsAlreadyReached(): void
+    {
+        $h = new Harness(['analysis' => ['daily_budget_usd' => 1.0]]);
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+        $cfg = \Watcher\Config\WatchConfig::fromArray($h->config());
+        (new Spend($h->state, $h->clock, new \DateTimeZone('UTC'), 'svc'))->add(new Usage('m-a', 1, 1), 1.0);
+
+        $out = '';
+        $result = $h->watcher(self::source(self::alpha(9)), new RunOptions(dryRun: true), static function (string $s) use (&$out): void {
+            $out .= $s;
+        })->run();
+
+        self::assertSame(RunOutcome::Failed, $result->outcome);
+        self::assertSame([], $h->analyzer->allRequests());
+        unset($cfg);
+    }
+}

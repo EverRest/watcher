@@ -233,4 +233,94 @@ final class FileStateStoreTest extends StateStoreContractTest
         self::assertFalse($writtenWhileNewHolderLocked, 'two holders on one key');
         self::assertSame(['v' => 1], $this->store->get('k'));
     }
+
+    public function testFilesAreCreatedPrivate(): void
+    {
+        $this->store->put('k', ['v' => 1], 60);
+
+        self::assertSame(0600, fileperms($this->stateFile('k')) & 0777);
+        self::assertSame(0600, fileperms($this->stateFile('k') . '.lock') & 0777);
+        self::assertSame(0700, fileperms($this->dir) & 0777);
+    }
+
+    public function testADirectoryWritableByGroupOrOthersIsRefusedByNameWithoutItsPath(): void
+    {
+        mkdir($this->dir, 0700, true);
+        chmod($this->dir, 0770);
+        try {
+            $this->store->put('k', ['v' => 1], 60);
+            self::fail('expected a refusal');
+        } catch (RuntimeException $e) {
+            self::assertStringContainsString('state.file.path', $e->getMessage());
+            self::assertStringNotContainsString($this->dir, $e->getMessage());
+        } finally {
+            chmod($this->dir, 0700);
+        }
+        self::assertSame([], glob($this->dir . '/*.json') ?: []);
+    }
+
+    public function testASymlinkedPurgeMarkerIsNotWrittenThrough(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $victim = $this->dir . '-victim.txt';
+        file_put_contents($victim, 'precious');
+        symlink($victim, $this->dir . '/.purge');
+        try {
+            try {
+                $this->purgeable()->purge();
+                self::fail('expected a refusal');
+            } catch (RuntimeException) {
+                // fail closed
+            }
+            self::assertSame('precious', file_get_contents($victim));
+        } finally {
+            unlink($victim);
+        }
+    }
+
+    public function testASymlinkedLockSidecarIsNotFollowed(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $victim = $this->dir . '-created-by-victim.txt';
+        symlink($victim, $this->stateFile('k') . '.lock');
+        try {
+            try {
+                $this->store->put('k', ['v' => 1], 60);
+                self::fail('expected a refusal');
+            } catch (RuntimeException) {
+                // fail closed
+            }
+            self::assertFileDoesNotExist($victim);
+        } finally {
+            @unlink($this->stateFile('k') . '.lock');
+        }
+    }
+
+    public function testASymlinkedRecordIsNeverReadAsState(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $forged = $this->dir . '-forged.json';
+        file_put_contents($forged, json_encode(['value' => ['outcome' => 'reported'], 'owner' => null, 'expires_at' => time() + 1000]));
+        symlink($forged, $this->stateFile('run'));
+        try {
+            $this->expectException(RuntimeException::class);
+            $this->store->get('run');
+        } finally {
+            unlink($forged);
+        }
+    }
+
+    public function testPurgeSkipsSymlinkedRecordsAndLeavesTheirTargets(): void
+    {
+        mkdir($this->dir, 0700, true);
+        $target = $this->dir . '-target.json';
+        file_put_contents($target, '{"expires_at":1,"value":[]}');
+        symlink($target, $this->dir . '/' . str_repeat('c', 64) . '.json');
+        try {
+            $this->purgeable()->purge();
+            self::assertFileExists($target);
+        } finally {
+            unlink($target);
+        }
+    }
 }

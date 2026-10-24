@@ -335,6 +335,21 @@ final class Normalizer
     }
 
     /**
+     * The declared names a redacted template calls: `<URL:name>` / `<HOST:name>` placeholders the Normalizer itself wrote.
+     * Placeholder-shaped text a user typed comes out wrapped (`<url:<HOST:name>>`, see the placeholder tests), so a placeholder
+     * directly inside another one is not counted.
+     *
+     * @return list<string>
+     */
+    public static function declaredReferences(string $template): array
+    {
+        $template = (string) preg_replace('/<[A-Za-z]{1,12}:(?=<(?:URL|HOST):[^<>\s]+>)/', '<!', $template);
+        preg_match_all('/(?<!<!)<(?:URL|HOST):([^<>\s]+)>/', $template, $m);
+
+        return array_values(array_unique($m[1]));
+    }
+
+    /**
      * Only the declared name is ever carried, never a suffix: a host is that dependency when it equals the name or is
      * `name.<d>` / `name.<one label>.<d>` for a configured domain `<d>`. Everything else is masked.
      */

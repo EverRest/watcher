@@ -118,10 +118,10 @@ final class OutputValidatorTest extends TestCase
     {
         $f = (new OutputValidator())->analysis(['findings' => [self::finding([
             'how_to_check' => 'Compare error rate with the deploy time',
-            'related_checks' => ['group aaaaaaaaaaaa errors too', 'payments dependency latency'],
-        ])]], ['aaaaaaaaaaaa1234', 'fp1'], ['payments'])[0];
+            'related_checks' => ['aaaaaaaaaaaa', 'payments'],
+        ])]], ['aaaaaaaaaaaa', 'fp1'], ['payments'])[0];
         self::assertSame('Compare error rate with the deploy time', $f->howToCheck);
-        self::assertSame(['group aaaaaaaaaaaa errors too', 'payments dependency latency'], $f->relatedChecks);
+        self::assertSame(['aaaaaaaaaaaa', 'payments'], $f->relatedChecks);
     }
 
     public function testHowToCheckIsTruncatedAt200(): void
@@ -151,10 +151,11 @@ final class OutputValidatorTest extends TestCase
         (new OutputValidator())->analysis(['findings' => [self::finding($over)]], ['fp1']);
     }
 
-    public function testRelatedEntryOverLimitIsTruncatedTo80(): void
+    public function testRelatedEntryOverTheOldLimitIsNowDroppedNotTruncated(): void
     {
+        // security review 5, F4: an entry is exactly a reference, so a longer text is not a reference (it used to be cut to 80 characters)
         $f = (new OutputValidator())->analysis(['findings' => [self::finding(['related_checks' => ['fp1 ' . str_repeat('r', 100)]])]], ['fp1'])[0];
-        self::assertSame(80, mb_strlen($f->relatedChecks[0]));
+        self::assertSame([], $f->relatedChecks);
     }
 
     public function testRelatedEntriesWithoutAKnownReferenceAreDropped(): void
@@ -162,16 +163,16 @@ final class OutputValidatorTest extends TestCase
         $f = (new OutputValidator())->analysis(['findings' => [self::finding(['related_checks' => [
             'check the cache cluster',            // references nothing from the payload
             'group deadbeef0000 also fails',      // fingerprint not in the payload
-            'orders dependency errors',           // ok
+            'orders',                             // ok
         ]])]], ['fp1', 'fp2'], ['orders'])[0];
-        self::assertSame(['orders dependency errors'], $f->relatedChecks);
+        self::assertSame(['orders'], $f->relatedChecks);
 
         $f = (new OutputValidator())->analysis(['findings' => [self::finding(['related_checks' => [
             'fp1 and deadbeef0000',               // one known, one invented
-            'ghost service is slow',              // dependency not declared
-            'group fp1 grew',                     // ok
+            'ghost',                              // dependency not declared
+            'fp1',                                // ok
         ]])]], ['fp1', 'fp2'], ['orders'])[0];
-        self::assertSame(['group fp1 grew'], $f->relatedChecks);
+        self::assertSame(['fp1'], $f->relatedChecks);
     }
 
     public function testRelatedWithNoDependenciesAndNoFingerprintsIsEmpty(): void

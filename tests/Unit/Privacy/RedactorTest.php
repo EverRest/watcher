@@ -166,6 +166,15 @@ final class RedactorTest extends TestCase
         self::assertSame(['[withheld]', 'fp1 at <IP>'], $out->relatedChecks);
     }
 
+    public function testRealTwelveHexFingerprintsInRelatedChecksSurviveTheRedactor(): void
+    {
+        // F6: `fp1` in the old test is not hex, so the Normalizer's id mask never met a real fingerprint
+        $f = new Finding(['a1b2c3d4e5f6'], FindingKind::Bug, Severity::Error, 't', 'e', 'c', 'a', 0.8, false, '', ['7e1a94a15246', 'payments', '7e1a94a15246 extra', 'deadbeef']);
+        $out = $this->redactor()->redactFinding($f);
+
+        self::assertSame(['7e1a94a15246', 'payments', '<ID> extra', '<ID>'], $out->relatedChecks);
+    }
+
     public function testModelTextKeepsPlainNumbersButStillMasksPersonalPatterns(): void
     {
         $r = $this->redactor();
