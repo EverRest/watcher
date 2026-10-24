@@ -83,13 +83,25 @@ final class AvailabilityTest extends TestCase
         };
     }
 
-    public function testTheRunDeadlineStopsReadingSkipsTheModelAndSaysSo(): void
+    /** @return array{Harness, string} a harness past its baseline window, and the run key of the window under test */
+    private function cutHarness(): array
     {
         $h = new Harness(['schedule' => ['lock_ttl' => 900, 'run_deadline' => 10]]);
         $h->watcher(self::source(self::alpha()))->run(); // baseline
         $h->nextWindow();
 
-        $runKey = Keys::run('svc', Watcher::windowKey($h->windowEnd()));
+        return [$h, Keys::run('svc', Watcher::windowKey($h->windowEnd()))];
+    }
+
+    private static function beta(int $n = 5): FakeLogSource
+    {
+        return self::source(Harness::events(Level::Error, 'Beta broke', $n, 'Beta'));
+    }
+
+    public function testTheRunDeadlineStopsReadingSkipsTheModelAndSaysSo(): void
+    {
+        [$h, $runKey] = $this->cutHarness();
+        $partialKey = Keys::partial('svc', Watcher::windowKey($h->windowEnd()));
         $result = $h->watcher(self::clockedSource($h->clock, 100, '+4 seconds'))->run();
 
         self::assertSame(RunOutcome::Quiet, $result->outcome);
@@ -98,7 +110,42 @@ final class AvailabilityTest extends TestCase
         $texts = implode("\n", self::notices($h));
         self::assertStringContainsString('deadline', $texts);
         self::assertLessThan(100, $result->summaryData?->stats?->eventsRead ?? 0);
+        // R-3: a cut window is not final: no run record, so the next trigger can read it again.
+        self::assertNull($h->state->get($runKey), 'a cut window leaves no done record');
+        self::assertNotNull($h->state->get($partialKey));
+    }
+
+    public function testACutWindowIsRetriedOnceWithAFreshBudgetAndThenAnalysed(): void
+    {
+        [$h, $runKey] = $this->cutHarness();
+        $h->watcher(self::clockedSource($h->clock, 100, '+4 seconds'))->run();
+
+        $retry = $h->watcher(self::beta())->run();
+
+        self::assertSame(RunOutcome::Reported, $retry->outcome, 'the retry reads the whole window and analyses it');
+        self::assertNotSame([], $h->analyzer->allRequests());
+        self::assertSame('reported', ($h->state->get($runKey) ?? [])['outcome'] ?? null);
+        self::assertSame(RunOutcome::SkippedDone, $h->watcher(self::beta())->run()->outcome);
+    }
+
+    public function testAWindowCutTwiceIsRecordedFinalWithALoudNoticeAndNeverRetriedAgain(): void
+    {
+        [$h, $runKey] = $this->cutHarness();
+        $h->watcher(self::clockedSource($h->clock, 100, '+4 seconds'))->run();
+        $before = count($h->notifier->sent);
+
+        $second = $h->watcher(self::clockedSource($h->clock, 100, '+4 seconds'))->run();
+
+        self::assertSame(RunOutcome::Quiet, $second->outcome);
+        self::assertSame('truncated:deadline', $second->summaryData?->reason);
         self::assertSame('truncated:deadline', ($h->state->get($runKey) ?? [])['code'] ?? null);
+        self::assertCount($before + 1, $h->notifier->sent);
+        self::assertStringContainsString('not analysed', self::notices($h)[$before]);
+
+        $third = $h->watcher($src = self::beta())->run();
+
+        self::assertSame(RunOutcome::SkippedDone, $third->outcome, 'no retry storm');
+        self::assertSame([], $src->calls);
     }
 
     public function testAQuietRunThatWasTruncatedStillSendsOneNotice(): void

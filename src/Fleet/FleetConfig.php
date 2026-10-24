@@ -36,10 +36,18 @@ final class FleetConfig
     ) {
     }
 
-    /** A4-12: wall-clock seconds one service may spend: `service_time_budget`, else the fleet budget shared equally; null = none. */
+    /**
+     * A4-12: wall-clock seconds one service may spend: `service_time_budget`, else the fleet budget shared equally; null = none.
+     * The equal share is floored at half the smallest `lock_ttl` (R-3): a big fleet must not give every service a deadline it cannot finish in.
+     */
     public function serviceTimeBudgetSeconds(): ?int
     {
-        return $this->serviceTimeBudget ?? ($this->timeBudgetSeconds === null ? null : max(1, intdiv($this->timeBudgetSeconds, max(1, count($this->services)))));
+        if ($this->serviceTimeBudget !== null || $this->timeBudgetSeconds === null) {
+            return $this->serviceTimeBudget;
+        }
+        $floor = intdiv(min(array_map(static fn (ServiceEntry $e): int => $e->config->schedule['lock_ttl'], $this->services) ?: [900]), 2);
+
+        return max(1, $floor, intdiv($this->timeBudgetSeconds, max(1, count($this->services))));
     }
 
     /** @return array<string, mixed> a dump shows no webhook or token */

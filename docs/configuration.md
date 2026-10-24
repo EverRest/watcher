@@ -31,7 +31,7 @@ settings, `notify.digest.webhook`.
 | `schedule.timezone` | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
 | `schedule.window` | `PT24H` | ISO-8601 lookback. The window ends at the local `run_at`. |
 | `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (released at the end of every run). With a store that supports renewal (all three) the lock is **extended** between pipeline steps and before each model call whenever less than half of it is left, so a long run keeps it. One model call (two sequential attempts, SDK retries off) is still bounded to `lock_ttl / 4`: HTTP timeout `lock_ttl / 8` s, within 10..180. A run makes at most `2 + escalation_cap` model calls. |
-| `schedule.run_deadline` (`WATCHER_RUN_DEADLINE`) | `lock_ttl` minus `max(30, lock_ttl / 10)` s (810 by default; half of `lock_ttl` when that is 60 or less) | Total wall-clock budget of one run, checked while reading and between pipeline steps. At expiry reading stops (read marked truncated, reason `deadline`), no model call starts, the window is snapshotted and recorded quiet with reason `truncated:deadline`, and a short notice is sent. Must not exceed `lock_ttl`. In a fleet it is further limited by `service_time_budget`.
+| `schedule.run_deadline` (`WATCHER_RUN_DEADLINE`) | `lock_ttl` minus `max(30, lock_ttl / 10)` s (810 by default; half of `lock_ttl` when that is 60 or less) | Total wall-clock budget of one run, checked while reading and between pipeline steps. At expiry reading stops (read marked truncated, reason `deadline`), no model call starts, the window is snapshotted and a short notice is sent, but it is NOT recorded as done: the next trigger in the due period reads it again with a full budget, once. A second cut records the window final (quiet, reason `truncated:deadline`) with a second notice naming the number of unanalysed groups. Must not exceed `lock_ttl`. In a fleet it is further limited by `service_time_budget`.
 
 ### `source`
 
@@ -141,7 +141,7 @@ Validation covers the whole fleet before any call; the first error names the ent
 | `budget.daily_budget_usd`, `budget.daily_token_limit`, `budget.alert_percents` | none, none, `[25,50,75,90]` | Fleet-wide caps on top of each service's own; the day is in the fleet `timezone`. |
 | `timezone` | `UTC` | Day boundary of the fleet counters. |
 | `time_budget` | none | ISO-8601 duration; services not started in time are `skipped_time` (exit 1). |
-| `service_time_budget` | `time_budget` / number of services | ISO-8601 duration: wall-clock share of one service, enforced through its run deadline, so one slow or hostile service cannot starve the rest. |
+| `service_time_budget` | `time_budget` / number of services, at least half of the smallest `schedule.lock_ttl` | ISO-8601 duration: wall-clock share of one service, enforced through its run deadline, so one slow or hostile service cannot starve the rest. |
 | `correlation.enabled`, `correlation.tolerance` | `true`, `PT0S` | Tolerance widens the time-overlap test. |
 
 Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=<a>[,<b>]] [--dry-run [--estimate]] [--json]`,

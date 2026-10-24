@@ -80,6 +80,10 @@ final class GuardConfigTest extends TestCase
         $set = FleetConfig::fromArray(['fleet' => 'f', 'time_budget' => 'PT30M', 'service_time_budget' => 'PT5M', 'services' => [$svc('a'), $svc('b')]]);
         self::assertSame(300, $set->serviceTimeBudgetSeconds());
 
+        // A big fleet's equal share is floored at half of lock_ttl, so no service gets a deadline it cannot finish in.
+        $many = FleetConfig::fromArray(['fleet' => 'f', 'time_budget' => 'PT30M', 'services' => array_map($svc, range('a', 'z'))]);
+        self::assertSame(450, $many->serviceTimeBudgetSeconds());
+
         $none = FleetConfig::fromArray(['fleet' => 'f', 'services' => [$svc('a')]]);
         self::assertNull($none->serviceTimeBudgetSeconds());
     }

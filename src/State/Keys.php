@@ -71,6 +71,12 @@ final class Keys
         return self::join(self::RUN, $service, $windowEnd, 'failures');
     }
 
+    /** Marks a window whose read was cut by the deadline or memory guard and retried once (a counter under the run prefix). */
+    public static function partial(string $service, string $windowEnd): string
+    {
+        return self::join(self::RUN, $service, $windowEnd, 'partial');
+    }
+
     public static function lock(string $service, string $windowEnd): string
     {
         return self::join(self::LOCK, $service, $windowEnd);
