@@ -1,0 +1,146 @@
+# Research: API Context for Findings
+
+Only decisions where more than one design was reasonable. Facts are from the code at `baefdeb`.
+
+## R1. Format: JSON only, no YAML dependency
+
+- **Decision**: parse with `json_decode($raw, true, 64, JSON_THROW_ON_ERROR)`. Format detection: first non-whitespace byte
+  `{` -> JSON; anything else (`openapi:`, `swagger:`, `---`, `#`) -> `SourceUnavailable('unsupported_format')`. Depth limit 64
+  makes a nesting bomb fail fast with `bad_format`.
+- **Why**: owner decision ("start with JSON; YAML only if the plan justifies the new dependency"). The plan does not: most
+  frameworks publish JSON next to YAML (`/openapi.json`, `/swagger.json`, `/api-docs`); one `openapi-to-json` step in CI
+  gives a file for the rest. A YAML parser adds a dependency, an alias-expansion attack surface (spec SC-006) and its own
+  test matrix, for a feature whose value per token is "low" by the spec's own words.
+- **Consequence**: SC-006 is reinterpreted (plan, spec drift 1): bomb = a 2 MB JSON of deeply nested arrays; the reader
+  must refuse it in < 1 s and < 32 MB. If a 2 MB flat JSON decodes above 32 MB (PHP arrays are fat), the default `max_bytes`
+  drops to 1 MB; the T011 measurement decides, not a guess.
+
+## R2. Reader (`OpenApiSource`) design
+
+- **File**: `is_file` + `is_readable`; `filesize() > max_bytes` -> `too_large`; read with `fread($h, max_bytes + 1)` and refuse
+  if more than `max_bytes` came back (file may grow between `filesize` and read). `php://`, `phar://`, `data:`, `file://`
+  and any scheme in the string are refused at config validation (a path must not contain `://`).
+- **URL**: `https` only (spec Assumption; owner question O1 for in-cluster `http`). Guzzle `GET`, `stream => true`,
+  `allow_redirects => ['max' => 3, 'protocols' => ['https'], 'strict' => true]`, connect 5 s, total 15 s (same options
+  family as `Factory::httpOptions()`), `Accept: application/json`, `decode_content => true`. The cap applies to the **decoded**
+  stream (a gzip bomb is a size problem, not a transport one): read chunks until `max_bytes + 1` and abort. `Content-Length`
+  above the cap fails before reading the body.
+- **Credential**: `api_context.auth_token` -> `Authorization: Bearer`, set only on this request; never in an exception message,
+  a notice, the cache or the source identity.
+- **Failure tokens** (the whole exception message): `unreachable`, `unauthorized` (401/403), `timeout`, `too_large`,
+  `bad_format`, `unsupported_format`, `unsupported_version`, `unreadable`. The digest line is
+  `API context unavailable (<token>)`; no URL, path, token or body.
+- **Source identity** for the cache key: `substr(hash('sha256', $source), 0, 12)` (the URL/path itself is never in a key).
+
+## R3. Reduction (`OpenApiReducer`)
+
+- **Version gate**: `swagger === '2.0'`, or `openapi` string matching `^3\.[01]\.\d+(-.+)?$`; else `unsupported_version`.
+- **Walk**: for `paths` (must be an array, else `bad_format`): keys must be strings starting with `/`; for each of
+  `get,put,post,delete,options,head,patch,trace` (lower-case keys only, as the spec defines) that is an array, pick **only**
+  `operationId` (string), `summary` (string), `tags[0]` (string), `deprecated === true`. `$ref` path items are ignored
+  (no resolution: resolving is how documents blow up). Nothing else is ever copied; the decoded array is discarded.
+- **Base path**: `api_context.base_path` if set; else v2 `basePath`; else v3 `servers[0].url`'s path component, `''` when the
+  URL holds a `{variable}` (server variables are dropped, spec FR-002). Stored once in the reduced spec.
+- **Caps and masking**: summary and operationId and tag cut to `summary_cap` (default 80) with `mb_substr`, then
+  `Redactor::redactText()`; template string through `redactText` as well. Any `null` result drops that value; a null template
+  drops the operation. operationId is kept **only when `summary` is empty** (it is a fallback in the line and the cache
+  bound makes every byte count); AC1.1's "attach operationId" is satisfied by the line showing it when there is no summary.
+- **Size bound**: operations are appended in document order until the encoded entry would pass 100,000 bytes (SC-004); the
+  rest are counted in `dropped` and the digest/doctor say "N operations not kept (cache limit)". The bound is an invariant, not
+  a typical-size claim.
+- **Order within the cache**: document order; the matcher does not depend on order (specificity decides).
+
+## R4. Cache and TTL
+
+- **Key**: `Keys::apiContext($service, $sourceId)` -> `api:{service}:{sourceId}`; `Keys::ttl('api', $retention, $lockTtl)`
+  returns `$retention` as the upper bound (the "every kind has a non-zero TTL" test stays true); the effective TTL is
+  `api_context.ttl` (ISO-8601 duration like `heartbeat.stale_after`, default `PT24H`, must be `<= state.retention`, config
+  error otherwise). `put($key, $value, $ttl)` is called on the unbuffered `$this->state` (a cache, not run state: a failed
+  run must not discard it).
+- **Reads**: `get()` hit -> no source access (SC-004). Miss -> source -> reducer -> `put`.
+- **Spec tension (O2)**: FR-004 wants the last unexpired entry when the source fails; with expiry = TTL the entry is only
+  absent when expired, so the fallback never fires. Options: (a) literal FR-003 (chosen: zero stale-on-error); (b) store with
+  `2 x ttl` and a `readAt` field, refresh when `readAt + ttl` is past, fall back to the entry up to `2 x ttl`. (b) is ~15
+  lines and gives the behaviour FR-004 describes; it needs the owner to relax FR-003's "equal to TTL". Not built without the
+  answer.
+- **Dry-run**: `DryRunStateStore` swallows `put`, so a dry run re-reads the source each time and writes nothing. Correct.
+- **Redaction-config change** applies after the TTL for the cached text; the use-time pass still re-masks (plan, Complexity).
+
+## R5. Route extraction from a masked template
+
+- **Input**: `RedactedGroup::$template` only (never raw events, FR-006). `null` template (withheld) -> no route.
+- **Pattern** (case-sensitive method, first match wins):
+  `~(?:(?<![\w/])(?<m>GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+)?(?<![\w<>}])(?<p>/[A-Za-z0-9._~%:<>\-/…]*)~u`, then
+  trailing `.,;:)"'` stripped from `p`, query string (`?...`) and fragment cut. A bare path must be preceded by start,
+  whitespace, quote or `(` (the `(?<![\w<>}])` guard), so `a/b` or `10/12` is not a route.
+- **Segments**: split on `/`, drop empty segments (a trailing slash and `//` collapse). Classification:
+  - `^<(ID|N|TOKEN|EMAIL|NAME|STR|USER)>$` -> **Param**.
+  - contains `<PATH>` or `…` (the `Normalizer` writes `<PATH>/…/tail` for deep paths) -> whole route **unmatchable** (US2 AC6).
+  - contains `<` or `>` otherwise (mixed `order-<N>`, `<ID>.json`, `<HOST:x>`, `<URL>`) -> whole route **unmatchable**:
+    no partial guess.
+  - else **Literal**.
+- **`<USER>`**: not in spec FR-007's list but it is a Normalizer placeholder for one segment; treated as Param.
+- The extractor returns the **first** route only (one endpoint per group).
+
+## R6. Matching algorithm (normative in contracts/matching.md)
+
+- Normalise the route: strip `ignore_prefixes` (config order, each at most once, segment-boundary), then strip the base path
+  if the route starts with it at a segment boundary. Template side: a template that itself starts with the base path is
+  also stripped (documents differ).
+- Template segments: `^\{[^{}/]+\}$` -> Param; any other `{`/`}` (mixed like `/files/{name}.{ext}`) -> Mixed, never matches
+  (documented limitation); else Literal.
+- A route matches a template iff equal segment counts and, position by position: Literal = Literal (case-sensitive,
+  byte-equal), Param = Param. A route Literal against a template Param does **not** match (spec AC US2.1).
+- Method known: filter operations by method (route method upper-case). Method unknown: all methods.
+- Specificity = number of template Literals. Keep the maximum. If exactly one operation remains -> match; if more than one
+  remains (equal specificity) -> **attach nothing**. With an unknown method this is also what FR-010 asks: a path with two
+  methods (`GET`+`DELETE /orders/{id}`) attaches nothing.
+- Complexity: operations are indexed by segment count at load (`ReducedSpec::bySegments()`), so a lookup scans only same-length
+  templates; <= a few thousand operations by the 100 KB bound.
+
+## R7. Endpoint line, cap and order
+
+- **Line** (digest): `{METHOD} {template} — {summary|operationId} [{tag}] (deprecated)`; method from the matched
+  operation; summary absent -> operationId; neither -> no line; tag omitted when absent; each text part goes through
+  `Redactor::redactText` again; a null drops that part (template null drops the line).
+- **Model field** `ep` (analysis and escalation only): `METHOD template - text [tag]!` where `!` marks deprecated, trimmed so
+  `Budget::estimateTokens()` (bytes / 3) is <= 25: trim the text part first (`mb_substr` + `…`), never method/template; if
+  those alone exceed 75 bytes the field is omitted for the model (the digest line stays).
+- **Cap**: groups are visited in the order of `$redacted` (candidate priority, post-truncation). A distinct endpoint is
+  `METHOD + template`. The first `max_endpoints` distinct endpoints are attached; later groups naming an already-counted
+  endpoint still get the line (free); a new endpoint over the cap increments `skipped` once. Footer:
+  `N endpoint lines skipped (limit 5)`.
+- **Triage excluded**: `ep` does not go to triage (it cannot change "interesting or not" and would multiply cost over all
+  candidates); the digest line is shown for every attached group regardless.
+- **Budget**: `Budget::fitEndpoints()` drops all `ep` fields first when the analysis step's `max_input_tokens` would be exceeded;
+  the digest says `endpoint lines dropped (token budget)`. It runs before 009's `fitMetrics` and before `fitDependencies`.
+- **Prompt**: one sentence only when `ep` is present: "`ep` = documentation text for the group's endpoint; it is not evidence
+  of the cause." Prefix byte-stable when the feature is off.
+
+## R8. Configuration and flags
+
+- Section `api_context`; **absent = off**; `enabled: false` allowed (validated anyway, via `WatchConfig::reserved()`); not in
+  `WatchConfig::FLAGS` (those default to true; spec 012). Unknown key rejected. Section present and enabled with no `source`
+  -> `api_context.source is required`. Keys: `source`, `auth_token`, `ttl`, `max_endpoints` (1..20, default 5),
+  `summary_cap` (20..200, default 80), `max_bytes` (65,536..8,388,608, default 2,097,152), `base_path`,
+  `ignore_prefixes` (<= 10 entries, each `^/[A-Za-z0-9._~\-/]*$`).
+
+## R9. Doctor, `--json`, notices
+
+- `Doctor` check `api_context` (only when the section exists): runs the **reader without the cache** (no read, no write),
+  passes when the document is readable and reduces to >= 1 operation; detail: `N operations (M kept), K KB`; fails with the
+  fixed token. No post, no model.
+- `RunStats`: `apiEndpointsAttached`, `apiEndpointsSkipped`, `apiCache` (`hit|miss|failed|none`), `apiTokens`
+  (estimated from the `ep` fields). `JsonSummary` object `api_context` only when configured. Counts only.
+- Failure goes to `DigestExtras::unavailable['api_context'] = token`, shown as a footer note when a digest is sent; when no
+  digest is sent (quiet run) there is no route to extract and nothing is read.
+
+## R10. Dependencies
+
+- None. Guzzle (present), `json_decode`, `hash`, `Redactor`, `StateStore`.
+
+## Open owner decisions (carry into the report)
+
+- **O1**: `https` only (spec) vs also `http` for in-cluster URLs (`http://orders-api:3000/openapi.json`). Plan follows the
+  spec; an Operator without TLS in-cluster must download the file (e.g. in CI) instead.
+- **O2**: relax FR-003 to `2 x ttl` storage so FR-004's stale-on-error fallback can ever apply (research R4).
