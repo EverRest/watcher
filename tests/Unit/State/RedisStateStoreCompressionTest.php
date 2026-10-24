@@ -159,7 +159,7 @@ final class RedisStateStoreCompressionTest extends TestCase
             . '$z = "z1:" . file_get_contents(' . var_export($script . '.z', true) . ');'
             . '$base = memory_get_peak_usage(); try { Watcher\\State\\StateCodec::decode($z); $r = "decoded"; } catch (UnexpectedValueException) { $r = "refused"; }'
             . 'echo $r, " ", memory_get_peak_usage() - $base;');
-        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d memory_limit=1G ' . escapeshellarg($script) . ' 2>&1');
+        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d display_errors=0 -d log_errors=0 -d xdebug.mode=off -d memory_limit=1G ' . escapeshellarg($script) . ' 2>&1');
         @unlink($script);
         @unlink($script . '.z');
 
@@ -203,7 +203,7 @@ final class RedisStateStoreCompressionTest extends TestCase
             . 'foreach (' . var_export($files, true) . ' as $f) { $raw = file_get_contents($f); $base = memory_get_peak_usage();'
             . ' try { $v = Watcher\\State\\StateCodec::decode($raw); $r = is_array($v) ? "decoded" : "null"; } catch (UnexpectedValueException) { $r = "unreadable"; }'
             . ' echo $r, " ", memory_get_peak_usage() - $base, "\n"; unset($v, $raw); }');
-        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M ' . escapeshellarg($script) . ' 2>&1');
+        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d display_errors=0 -d log_errors=0 -d xdebug.mode=off -d memory_limit=128M ' . escapeshellarg($script) . ' 2>&1');
         @unlink($script);
         array_map('unlink', $files);
 

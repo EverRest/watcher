@@ -139,6 +139,9 @@ final class RedisClientConfigTest extends TestCase
 
     public function testAPredisShapedObjectIsWrappedByTheAdapter(): void
     {
+        if (!class_exists(\Redis::class)) {
+            self::markTestSkipped('ext-redis is not loaded');
+        }
         self::assertInstanceOf(PredisClient::class, Factory::wrapRedisInstance(new \Watcher\Tests\Fakes\FakePredis(new FakeRedisServer(new FrozenClock(new DateTimeImmutable())))));
         $redis = $this->createMock(\Redis::class);
         $redis->method('getOption')->willReturn(\Redis::SERIALIZER_NONE);

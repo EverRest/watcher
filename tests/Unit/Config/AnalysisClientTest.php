@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace Watcher\Tests\Unit\Config;
 
-use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Watcher\Analyze\AnthropicAnalyzer;
-use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
@@ -86,14 +84,17 @@ final class AnalysisClientTest extends TestCase
         WatchConfig::fromArray(self::config('curl'));
     }
 
-    #[RunInSeparateProcess]
     /** The default path never touches the SDK: with it uninstalled nothing in the Anthropic namespace may be needed. */
     public function testTheHttpPathLoadsNoSdkClass(): void
     {
-        $analyzer = Factory::analyzer(WatchConfig::fromArray(self::config()));
+        // A child of our own (not RunInSeparateProcess) so dependency deprecations cannot reach the captured output.
+        $script = sys_get_temp_dir() . '/watcher-nosdk-' . getmypid() . '.php';
+        file_put_contents($script, '<?php require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true) . ';'
+            . '$a = Watcher\\Config\\Factory::analyzer(Watcher\\Config\\WatchConfig::fromArray(' . var_export(self::config(), true) . '));'
+            . 'echo "RESULT ", $a instanceof Watcher\\Analyze\\AnthropicAnalyzer ? "analyzer" : "other", " ", class_exists(Anthropic\\Client::class, false) ? "sdk-loaded" : "no-sdk", "\\n";');
+        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d display_errors=0 -d log_errors=0 -d xdebug.mode=off ' . escapeshellarg($script) . ' 2>&1');
+        @unlink($script);
 
-        self::assertInstanceOf(AnthropicAnalyzer::class, $analyzer);
-        self::assertTrue(class_exists(AnthropicHttpClient::class));
-        self::assertFalse(class_exists(\Anthropic\Client::class, false), 'the SDK was autoloaded by the default path');
+        self::assertStringContainsString("RESULT analyzer no-sdk\n", $out, 'the SDK was autoloaded by the default path, or the child failed: ' . $out);
     }
 }

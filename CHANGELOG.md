@@ -8,6 +8,7 @@ Product release label **v0.1.3** (`VERSION`). Redis becomes the primary state st
 - Anthropic SDK is now optional. `anthropic-ai/sdk` (and `php-http/discovery`, with its Composer plugin prompt) left `require`; the default `analysis.client = http` needs neither. Consumers who relied on the SDK being installed must `composer require anthropic-ai/sdk` and set `analysis.client = sdk`, or switch to `analysis.client = http` (the default).
 - New `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`, unchanged): set it to keep environments that share one Redis database apart. Existing keys keep working with the default.
 - A decoded Redis state value is capped at 4 MB (also refused at write with `StateValueTooLarge`); large values are stored compressed (`z1:` + zlib). A version before 0.1.3 reads `z1:` values as missing: set `compress_min_bytes` to `0` before rolling back (`docs/operations.md`).
+- A Redis TTL of 0 or less now throws instead of being clamped to 1 second.
 - `guzzlehttp/guzzle` constraint widened to `^7.15.2 || ^8.3` (additive for consumers on 7).
 - `phpstan/phpstan` is `^2.3` (dev only).
 
