@@ -11,6 +11,7 @@
         "psr/log": "^1.1 || ^2.0 || ^3.0"
     },
     "require-dev": {
+        "brianium/paratest": "^7.3",
         "illuminate/console": "^10.0 || ^11.0",
         "illuminate/support": "^10.0 || ^11.0",
         "laravel/pint": "^1.13",
@@ -31,7 +32,12 @@
         "sort-packages": true
     },
     "scripts": {
-        "test": "phpunit",
+        "test": "paratest",
+        "test:serial": "phpunit",
+        "coverage": [
+            "@putenv XDEBUG_MODE=coverage",
+            "paratest --coverage-cobertura=build/coverage/cobertura.xml --coverage-clover=build/coverage/clover.xml --coverage-html=build/coverage/html --coverage-text=build/coverage/summary.txt"
+        ],
         "stan": "phpstan analyse --memory-limit=512M",
         "style": "pint --test",
         "ci": ["@style", "@stan", "@test"]

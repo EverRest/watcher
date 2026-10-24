@@ -3,5 +3,7 @@ parameters:
     paths:
         - src
         - tests
+    scanFiles:
+        - scripts/badges.php
     excludePaths:
         - tests/Fixtures

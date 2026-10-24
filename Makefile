@@ -1,5 +1,5 @@
 # Thin wrapper over the composer scripts, so `make ci` works the same locally and in docs.
-.PHONY: install test stan style fix ci audit hooks
+.PHONY: install test test-serial coverage badges stan style fix ci audit hooks
 
 install:
 	composer install --no-interaction --prefer-dist
@@ -18,6 +18,16 @@ fix:
 
 audit:
 	composer audit --locked
+
+test-serial:
+	composer test:serial
+
+# Needs pcov (preferred) or xdebug; writes build/coverage/{cobertura,clover}.xml, html/, summary.txt.
+coverage:
+	composer coverage
+
+badges:
+	php scripts/badges.php
 
 ci: style stan test
 

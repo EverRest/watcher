@@ -1,5 +1,14 @@
 # everrest/watcher
 
+<!-- badges:start -->
+[![CI](https://github.com/EverRest/watcher/actions/workflows/ci.yml/badge.svg)](https://github.com/EverRest/watcher/actions/workflows/ci.yml)
+[![Last released version](https://img.shields.io/github/v/release/EverRest/watcher?label=last%20successful%20release)](https://github.com/EverRest/watcher/releases)
+![Version](docs/badges/version.svg)
+![PHP](docs/badges/php.svg)
+![Coverage](docs/badges/coverage.svg)
+![License](docs/badges/license.svg)
+<!-- badges:end -->
+
 Scheduled, model-routed log analysis. Once per window (default 24 h) it reads one service's logs from
 Loki or Datadog, groups errors into fingerprinted clusters, decides in plain code which ones deserve
 attention, asks Anthropic models to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
@@ -215,7 +224,7 @@ decided in code from names, placeholders and times; it makes no model call and w
 
 ```bash
 composer install
-composer test    # PHPUnit, no network
+composer test    # ParaTest (parallel), no network; composer test:serial = plain PHPUnit
 composer stan    # PHPStan
 composer style   # Pint (--test)
 ```

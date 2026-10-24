@@ -36,4 +36,21 @@ if [ -n "$php_files" ] && [ -x vendor/bin/pint ]; then
   vendor/bin/pint --test $php_files >/dev/null 2>&1 || { echo "pre-commit: pint failed; run: vendor/bin/pint" >&2; fail=1; }
 fi
 
+# 5. Refresh README badges (cheap: no test run; coverage uses the last build/coverage report if any).
+# Re-stage only badge files the commit did not already have unstaged edits in, so nothing unreviewed slips in.
+if [ "$fail" -eq 0 ] && command -v php >/dev/null 2>&1; then
+  badge_files="README.md $(ls docs/badges/*.svg 2>/dev/null)"
+  # shellcheck disable=SC2086
+  dirty_before=$(git diff --name-only -- $badge_files)
+  php scripts/badges.php >/dev/null || { echo "pre-commit: scripts/badges.php failed" >&2; exit 1; }
+  # shellcheck disable=SC2086
+  for f in $(git diff --name-only -- $badge_files) $(git ls-files --others --exclude-standard docs/badges); do
+    if printf '%s\n' "$dirty_before" | grep -qx "$f"; then
+      echo "pre-commit: $f has unstaged edits; badge change left unstaged" >&2
+    else
+      git add -- "$f"
+    fi
+  done
+fi
+
 exit $fail

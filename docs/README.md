@@ -7,6 +7,7 @@
 | [configuration.md](configuration.md) | anyone editing the config | looking up a key, a default or an environment variable |
 | [privacy.md](privacy.md) | security / data-protection reviewers | approving what leaves the service |
 | [audit-2026-10-23.md](audit-2026-10-23.md) | maintainers, reviewers | before the first live run: P0 fixes, improvement plan, feature list, rollout to the first services |
+| [development.md](development.md) | contributors | running tests in parallel, coverage, badges, hooks, CI |
 | [roadmap.md](roadmap.md) | maintainers | planning the next spec |
 | [brief.md](brief.md) | maintainers | the original brief and decisions |
 

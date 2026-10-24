@@ -1,0 +1,26 @@
+name: Release
+
+# Push a tag like v0.1.0. The full CI gate (all PHP versions, coverage) must pass first;
+# only then is the GitHub Release created. The "last successful release" README badge reads
+# the latest GitHub Release, so a tag whose gate failed never shows up there.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only to create the release; uses the built-in GITHUB_TOKEN, no other secret
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
