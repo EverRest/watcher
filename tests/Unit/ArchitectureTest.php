@@ -103,6 +103,63 @@ final class ArchitectureTest extends TestCase
         self::assertSame($expected, $found, "$name: request paths");
     }
 
+    public function testTelegramNotifierOnlyPostsToSendMessage(): void
+    {
+        $code = (string) file_get_contents(self::ROOT . '/src/Notify/TelegramNotifier.php');
+
+        preg_match_all("/->request\(\s*'([A-Z]+)'/", $code, $verbs);
+        self::assertSame(['POST'], $verbs[1], 'one request, POST');
+        self::assertSame(1, preg_match_all('~https?://[^\s\'"]+~', $code, $urls));
+        self::assertSame(["https://api.telegram.org/bot"], $urls[0], 'the only host the notifier names');
+        self::assertSame(1, substr_count($code, "/sendMessage'"));
+        self::assertSame(0, preg_match('/\b(PUT|PATCH|DELETE|HEAD)\b/', $code));
+        self::assertSame(0, preg_match('/allow_redirects\W+true/', $code));
+    }
+
+    public function testNoOtherBotApiMethodIsNamedUnderSrc(): void
+    {
+        $methods = 'getMe|getUpdates|getChat\w*|getFile|setWebhook|deleteWebhook|getWebhookInfo|deleteMessage\w*|editMessage\w*|forwardMessage\w*|copyMessage\w*|send(?!Message\b)[A-Z]\w*|pinChatMessage|leaveChat|banChatMember|answerCallbackQuery';
+
+        self::assertSame([], self::grep(self::files('src'), "~['\"/]($methods)['\"/(]~"));
+    }
+
+    public function testDiscordNotifierOnlyPostsToTheWebhook(): void
+    {
+        $code = (string) file_get_contents(self::ROOT . '/src/Notify/DiscordNotifier.php');
+
+        preg_match_all("/->request\(\s*'([A-Z]+)',\s*([^,]+),/", $code, $m);
+        self::assertSame(['POST'], $m[1]);
+        self::assertSame(['$to->webhook()'], $m[2], 'URL comes from the destination, never built here');
+        self::assertSame(0, preg_match('~https?://~', $code), 'no host literal: the destination re-checks it');
+        self::assertSame(0, preg_match('/\b(PUT|PATCH|DELETE|HEAD)\b/', $code));
+    }
+
+    public function testSlackNotifierOnlyPostsToTheWebhook(): void
+    {
+        $code = (string) file_get_contents(self::ROOT . '/src/Notify/SlackWebhookNotifier.php');
+
+        preg_match_all("/->request\(\s*'([A-Z]+)',\s*([^,]+),/", $code, $m);
+        self::assertSame(['POST'], $m[1]);
+        self::assertSame(['$to->webhook()'], $m[2]);
+    }
+
+    public function testEveryNotifierImplementationIsCovered(): void
+    {
+        $notifiers = array_map('basename', glob(self::ROOT . '/src/Notify/*Notifier.php') ?: []);
+        sort($notifiers);
+
+        // Notifier is the contract; a new transport needs its own endpoint rule above.
+        self::assertSame(['DiscordNotifier.php', 'Notifier.php', 'SlackWebhookNotifier.php', 'TelegramNotifier.php'], $notifiers);
+    }
+
+    public function testNoNotifierPutsASecretInAnExceptionMessage(): void
+    {
+        $notifiers = array_values(array_filter(glob(self::ROOT . '/src/Notify/*Notifier.php') ?: [], static fn (string $f): bool => basename($f) !== 'Notifier.php'));
+
+        self::assertSame([], self::grep($notifiers, '/new DeliveryFailed\([^;]*(?:botToken|chatId|webhook|\$url|\$to\b|getPrevious|\$e\b)/i'));
+        self::assertSame([], self::grep($notifiers, '/DeliveryFailed\([^;]*,\s*\d+\s*,\s*\$/'), 'no previous exception chained');
+    }
+
     public function testCoreImportsNothingFromIlluminate(): void
     {
         $core = array_values(array_filter(self::files('src'), static fn (string $f): bool => !str_contains($f, '/src/Laravel/')));

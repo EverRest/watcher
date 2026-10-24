@@ -55,6 +55,38 @@ final class Retry
         }
     }
 
+    /**
+     * For non-idempotent POSTs: retries only a 429, so a request the server may have accepted is never repeated.
+     * The wait is `$hint(response)` seconds (may be fractional), else `Retry-After`, else 1 s. A single wait is capped
+     * at 30 s; a wait above what is left of the budget gives up at once. The budget is NOT reset per call: one
+     * instance serves all parts of one message.
+     *
+     * @param Closure(): ResponseInterface $send
+     * @param (Closure(ResponseInterface): (int|float|null))|null $hint
+     */
+    public function sendRateLimited(Closure $send, string $name, ?Closure $hint = null): ResponseInterface
+    {
+        for ($attempt = 1;; ++$attempt) {
+            try {
+                $response = $send();
+            } catch (GuzzleException $e) {
+                throw new SourceUnavailable($name . ' request failed (' . $e::class . ')', 0, $e);
+            }
+            if ($response->getStatusCode() !== 429 || $attempt >= self::ATTEMPTS) {
+                return $response;
+            }
+            $asked = $hint === null ? null : $hint($response);
+            $header = $response->getHeaderLine('Retry-After');
+            $seconds = max(1, (int) ceil($asked ?? (is_numeric($header) ? (float) $header : 1)));
+            if ($this->waited + $seconds > $this->budget) {
+                return $response;
+            }
+            $seconds = min(self::MAX_WAIT, $seconds);
+            $this->waited += $seconds;
+            ($this->sleeper)($seconds);
+        }
+    }
+
     private function wait(int $attempt, ?ResponseInterface $rateLimited): bool
     {
         $seconds = (int) (3 ** ($attempt - 1));

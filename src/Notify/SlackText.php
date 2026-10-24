@@ -18,7 +18,14 @@ final class SlackText
     public static function escape(string $s): string
     {
         $s = trim((string) preg_replace('/\s+/u', ' ', $s));
-        $s = str_replace(['&', '<', '>', '`', '@', '://'], ['&amp;', '&lt;', '&gt;', "'", "@\u{200B}", ":\u{200B}//"], $s);
+
+        return self::defang(str_replace(['&', '<', '>', '`'], ['&amp;', '&lt;', '&gt;', "'"], $s));
+    }
+
+    /** The zero-width-space half of {@see escape()}, for text that is not Slack-escaped (other channels' plain path). */
+    public static function defang(string $s): string
+    {
+        $s = str_replace(['@', '://'], ["@\u{200B}", ":\u{200B}//"], $s);
         $s = (string) preg_replace('/\bwww\./i', "www\u{200B}.", $s);
 
         return (string) preg_replace('/([a-z0-9-]\.)(?!(?:' . self::FILE_EXT . ')\b)(?=[a-z]{2,24}\b)/i', "$1\u{200B}", $s);
