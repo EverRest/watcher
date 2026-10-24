@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Notices and digests (Lane D review leftovers): model text can no longer format (`*`, `_`, `~`) or spoof `:emoji:` on any channel; IDN, IDNA-dot and `xn--` hosts are defanged while code identifiers such as `Mailer.send` stay copyable; failure notices mask every configured credential (`WatchConfig::secrets()`) and Authorization-like values; the digest gets a "read quality" line (unknown levels, orphan trace lines, cut multi-line messages) from the optional `ReadDiagnostics` interface (Loki, Datadog); `Retry` no longer chains Guzzle exceptions (their message carries the URL). Product release label **v0.1.1** (`VERSION`).
 
 ### Added (spec 012, feature flags and environments)
 - **Breaking (opt-in):** the master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**. A config without it makes `run` return the new outcome `disabled` (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr; nothing external or stored is touched, not even a heartbeat). Add `'enabled' => true` (or `WATCHER_ENABLED=1`) to every existing config, fleet entry or fleet `defaults`.
