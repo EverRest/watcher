@@ -24,9 +24,14 @@ final class SlackWebhookNotifier implements Notifier
             'blocks' => array_slice(array_map($this->block(...), $message->sections), 0, self::MAX_BLOCKS),
         ];
 
+        // Checked here too (not only by `watcher check`): a malformed URL must never reach the client, whose messages echo it.
+        if ($to->invalidKey() !== null) {
+            throw new DeliveryFailed('slack delivery failed: invalid webhook URL (https, a host and no credentials are required)');
+        }
+
         try {
             $status = $this->http->request('POST', $to->webhook(), ['json' => $body, 'http_errors' => false])->getStatusCode();
-        } catch (GuzzleException) {
+        } catch (GuzzleException|\InvalidArgumentException) {
             // Deliberately not chained: Guzzle messages embed the request URL.
             throw new DeliveryFailed('slack delivery failed: transport error');
         }

@@ -141,4 +141,15 @@ final class NoticeRendererTest extends TestCase
         self::assertStringNotContainsString("<b>", $m->sections[0]["text"]);
         self::assertStringContainsString('reported 0, quiet 0, baselined 0, failed 0, skipped 0, cost $0.0000', $m->text);
     }
+
+    public function testDescribeIsTheClassNameAndAMaskedMessage(): void
+    {
+        $r = new NoticeRenderer(['hunter2-secret-value']);
+        $out = $r->describe(new \RuntimeException('Unable to parse URI: https://hooks.slack.com:port/services/T0/B0/XYZ hunter2-secret-value password=abc'));
+
+        self::assertStringStartsWith('RuntimeException: ', $out);
+        self::assertStringNotContainsString('hooks.slack.com', $out);
+        self::assertStringNotContainsString('hunter2', $out);
+        self::assertStringNotContainsString('abc', $out);
+    }
 }

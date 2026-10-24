@@ -124,6 +124,6 @@ final class Destination implements JsonSerializable
     {
         $parts = parse_url($url);
 
-        return $parts !== false && ($parts['scheme'] ?? '') === 'https' && ($parts['host'] ?? '') !== '';
+        return $parts !== false && ($parts['scheme'] ?? '') === 'https' && ($parts['host'] ?? '') !== '' && !isset($parts['user']) && !isset($parts['pass']);
     }
 }

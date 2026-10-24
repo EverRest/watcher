@@ -51,6 +51,12 @@ final class NoticeRenderer
         return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
     }
 
+    /** For a host log: the exception class and its message with every secret, URL and credential shape masked. */
+    public function describe(\Throwable $e): string
+    {
+        return $e::class . ': ' . $this->reason($e->getMessage());
+    }
+
     private function reason(string $reason): string
     {
         foreach ($this->secrets as $secret) {
