@@ -40,6 +40,13 @@ Nothing new to report means zero model calls. The first run only records a basel
 composer require everrest/watcher
 ```
 
+Composer asks once whether to trust the `php-http/discovery` plugin. It is a dependency of the Anthropic SDK, not of this
+package; answer yes, or allow it up front (also needed in CI):
+
+```bash
+composer config allow-plugins.php-http/discovery true
+```
+
 Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.providers`); in Lumen register
 `Watcher\Laravel\WatcherServiceProvider` by hand in `bootstrap/app.php`. Without a framework use `vendor/bin/watcher`.
 

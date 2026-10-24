@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Docs
+- Installation: note about the `php-http/discovery` Composer plugin prompt (a dependency of the Anthropic SDK).
+
 ### Added (spec 012, feature flags and environments)
 - **Breaking (opt-in):** the master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**. A config without it makes `run` return the new outcome `disabled` (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr; nothing external or stored is touched, not even a heartbeat). Add `'enabled' => true` (or `WATCHER_ENABLED=1`) to every existing config, fleet entry or fleet `defaults`.
 - One boolean flag per feature, in the config array and as a `WATCHER_*` variable, all defaulting to on (today's behaviour): `heartbeat.enabled`, `purge.enabled`, `dependencies.enabled`, `deploy.enabled`, `links.logs.enabled`, `links.code.enabled`, `service_context.enabled`, `watch_rules.enabled`, `mute.enabled`, `level_anomaly.enabled`, `selection.escalation.enabled`, `analysis.triage.enabled`, `baseline.enabled`, `grouping.enabled`, `budget_alerts.enabled`, `notify.notice.enabled`, `notify.digest.enabled`, fleet `enabled`. Table: `docs/configuration.md`. A switched-off feature does nothing. Flags are strict booleans (`'false'` is rejected with the key path).
