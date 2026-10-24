@@ -296,3 +296,8 @@ proves a trace id never reaches the model input.
 - Datadog APM links reuse the `links.datadog` application URL already used for logs.
 - Merging Sentry and log groups by similarity is explicitly deferred; it needs its own decision and test corpus.
 - No writes to Sentry, Prometheus or Grafana (no annotations, no resolve, no assignment) in line with Principle II.
+
+
+## Owner decisions (2026-10-24)
+
+The new field classes (metric numbers, masked Sentry titles) are additions to the allowlist, not an amendment: each passes the Normalizer and the caps and gets a privacy-corpus test. Defaults confirmed: Sentry issues and log groups stay separate entries; no shipped metric queries; baseline is the previous window until spec 004 modes apply; a metric anomaly only when no Error-or-above log candidate exists, at most 3 per run.

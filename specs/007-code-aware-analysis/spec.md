@@ -334,3 +334,9 @@ Normalizer or code-secret rules; code from `vendor/`; code to any notifier.
 - Identifier names are treated as non-sensitive code structure (FR-011).
 - A hypothesis from code is still a hypothesis; no remediation, patch or ticket is produced (Principle II).
 - Only frames from the service's own repository are supported; frames into other repositories are skipped.
+
+
+## Owner decisions (2026-10-24)
+
+1. The Principle I amendment is **approved with conditions**: off by default and opt-in per service; the same redaction as every other field plus comment and string-literal stripping; a single function body at a time; never sent to a notifier, never persisted; a fragment whose redaction fails is dropped. The constitution is amended to 1.1.0 when planning of this feature starts, and not before. Planning starts after the first live run (T114), so real cost and finding quality inform it. The governance gate in the checklist stays open until then.
+2. Comments and string literals are stripped by default. A service may keep comments (`code.keep_comments`), never string literals.

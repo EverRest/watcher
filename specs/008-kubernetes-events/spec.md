@@ -313,3 +313,10 @@ notifier payload, summary, accumulator, state write or log, and that eight pod n
 - Hourly ingestion writes only masked fingerprints and counts with an expiry; this is within Principle I (no raw lines
   persisted).
 - Remediation (restart, scale, delete a pod) is out of scope under Principle II.
+
+
+## Owner decisions (2026-10-24)
+
+1. Hourly ingestion into an expiring accumulator is accepted for clusters without an event exporter; an exporter into Loki or Datadog stays the preferred path and the native source optional.
+2. The native source and an exporter must not both be enabled for the same events. The package cannot detect it; the docs say so and `watcher check` warns when both are configured for one service.
+3. The default list of reasons that raise an event to Error is accepted: CrashLoopBackOff, OOMKilled, ImagePullBackOff and ErrImagePull, Evicted, FailedMount, FailedScheduling, and a failing probe with a restart count. The list is extendable in configuration.

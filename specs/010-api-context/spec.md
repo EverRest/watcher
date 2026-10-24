@@ -226,3 +226,8 @@ cached result and every outbound payload contain none of them; the second run wi
 - YAML parsing uses a parser already chosen by the plan, with alias expansion limited; a new dependency needs a written
   reason in the plan (Principle VIII).
 - The state store entry follows the standard expiry rule (Principle I); the TTL is shorter than the default retention.
+
+
+## Owner decisions (2026-10-24)
+
+Endpoint summaries are an allowlisted addition (masked, capped to 80 characters). Start with JSON OpenAPI documents; YAML only if the plan justifies the new dependency under Principle VIII. Matching is limited to HTTP routes in masked templates; ties attach nothing.
