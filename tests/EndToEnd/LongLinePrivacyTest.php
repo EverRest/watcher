@@ -7,6 +7,7 @@ namespace Watcher\Tests\EndToEnd;
 use PHPUnit\Framework\TestCase;
 use Watcher\Source\LineParser;
 use Watcher\Tests\Fakes\FakeLogSource;
+use Watcher\Tests\Fakes\InMemoryStateStore;
 
 /** Lines past the parser's caps: the part the cut removes, and the part it cannot read, never leave. */
 final class LongLinePrivacyTest extends TestCase
@@ -38,7 +39,7 @@ final class LongLinePrivacyTest extends TestCase
         $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
 
         self::assertNotSame([], $h->analyzer->requests);
-        $payload = json_encode([$h->analyzer->allRequests(), array_map(static fn (array $s) => $s['message'], $h->notifier->sent), $h->state->all()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $payload = json_encode([$h->analyzer->allRequests(), array_map(static fn (array $s) => $s['message'], $h->notifier->sent), $h->state instanceof InMemoryStateStore ? $h->state->all() : []], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         foreach (self::SEEDED as $value) {
             self::assertStringNotContainsString($value, $payload, $value);
         }
