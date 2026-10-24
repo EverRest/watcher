@@ -893,7 +893,7 @@ final class Watcher
             $annotations,
             $comparison,
             $reducer->mining(),
-            $this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : [],
+            ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->stats->oversizedLines > 0 ? ['oversized_lines' => $this->stats->oversizedLines] : []),
             $routed->reused,
             $routed->triageDropped,
             $routed->triageCoerced,

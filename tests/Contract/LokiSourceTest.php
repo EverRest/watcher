@@ -302,6 +302,15 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertSame(Level::Error, $events[1]->level); // the stream label, not a quiet Info
     }
 
+    public function testAnOversizedPlainLineIsDroppedAndCounted(): void
+    {
+        $source = $this->makeSourceWithLines(['ERROR small', 'ERROR ' . str_repeat('x', ReadFilter::MAX_LINE_BYTES)]);
+        $filter = new ReadFilter(Level::Debug, [], 10);
+
+        $this->assertCount(1, $this->collect($source->lines($this->window(), $this->selector(), $filter)));
+        $this->assertSame(1, $filter->oversizedLines);
+    }
+
     public function testAnOversizedJsonLineIsNotSwallowedByTheRecordBeforeIt(): void
     {
         $source = $this->makeSourceWithLines([
@@ -315,10 +324,14 @@ final class LokiSourceTest extends LogSourceContractTest
         /** @var list<LogEvent> $events */
         $events = $this->collect($source->lines($this->window(), $this->selector(), $filter));
 
-        // The 300 KB line is over the 64 KB cap: dropped and counted, never swallowed into (or leaked through) the record before it.
-        $this->assertSame(1, $filter->oversizedLines);
-        $this->assertCount(2, $events);
+        // The 300 KB structured line reaches the parser and becomes a placeholder with its level (R-4); the 20 KB plain line is
+        // under the cap. Neither is swallowed into (or leaked through) the record before it.
+        $this->assertSame(0, $filter->oversizedLines);
+        $this->assertCount(3, $events);
         $this->assertSame('first', $events[0]->message);
+        $this->assertSame(Level::Error, $events[1]->level);
+        $this->assertSame('[structured line too large, content withheld]', $events[1]->message);
+        $this->assertSame(1, $source->readDiagnostics()['truncated_structured'] ?? 0);
         foreach ($events as $e) {
             $this->assertStringNotContainsString('leak', $e->message);
         }
