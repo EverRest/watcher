@@ -35,10 +35,8 @@ final class SlackText
     {
         $s = trim((string) preg_replace('/\s+/u', ' ', $s));
 
-        $s = str_replace(['&', '<', '>', '`'], ['&amp;', '&lt;', '&gt;', "'"], $s);
-        if (substr_count($s, '*') >= 2) { // one star cannot open and close bold (`2 * 3`, `*.log`)
-            $s = str_replace('*', self::LOOKALIKE['*'], $s);
-        }
+        // Every star, even a lone one: this field is later embedded between stars the renderer adds, so it cannot know what pairs with it.
+        $s = str_replace(['&', '<', '>', '`', '*'], ['&amp;', '&lt;', '&gt;', "'", self::LOOKALIKE['*']], $s);
         $s = (string) preg_replace('/:(?=[a-z][a-z0-9_+-]*:)/i', ":\u{200B}", $s);
         // An opener (not after a word character, then a non-space) with a closer (after a non-space, not before a word character).
         $s = (string) preg_replace_callback('/(?<![\p{L}\p{N}_~])([_~])(?![\s_~])(.*?[^\s_~])\1(?![\p{L}\p{N}_~])/u', static fn (array $m): string => self::LOOKALIKE[$m[1]] . $m[2] . self::LOOKALIKE[$m[1]], $s);
