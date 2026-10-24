@@ -19,7 +19,7 @@
         "psr/log": "^2.0 || ^3.0"
     },
     "require-dev": {
-        "brianium/paratest": "^7.3",
+        "brianium/paratest": "^7.3.2",
         "illuminate/console": "^10.0 || ^11.0",
         "illuminate/support": "^10.0 || ^11.0",
         "laravel/pint": "^1.13",
