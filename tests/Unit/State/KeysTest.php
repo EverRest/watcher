@@ -23,6 +23,13 @@ final class KeysTest extends TestCase
         self::assertSame('alert:api:2026-01-01:cost:75', Keys::alert('api', '2026-01-01', 'cost', 75));
     }
 
+    /** The "budget exhausted" notice marker was built by hand in Watcher before; the string must not move. */
+    public function testExhaustedKeepsTheFormatTheNoticeMarkerAlwaysHad(): void
+    {
+        self::assertSame('exhausted:' . rawurlencode('api@stg') . ':2026-01-01', Keys::exhausted('api@stg', '2026-01-01'));
+        self::assertSame(172800, Keys::ttl(Keys::EXHAUSTED, 2592000, 900));
+    }
+
     public function testHeartbeatKeys(): void
     {
         self::assertSame('hb:api', Keys::heartbeat('api'));
