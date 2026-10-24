@@ -121,4 +121,57 @@ final class LineParserHardeningTest extends TestCase
         $p->parse('plain fine line');
         self::assertFalse($p->lastParseFailed);
     }
+
+    public function testACutNeverLeavesAPartialTokenAtTheEnd(): void
+    {
+        $p = new LineParser();
+        foreach (['sk-ant-api03-abcdefghij', 'password=hunterxyz', 'ghp_abcdefghijklmnop'] as $secret) {
+            for ($straddle = 2; $straddle <= 6; ++$straddle) {
+                $line = str_repeat('x ', intdiv(LineParser::MAX_LINE - $straddle, 2)) . $secret . ' tail';
+                $cut = $p->capLine($line);
+
+                self::assertLessThanOrEqual(LineParser::MAX_LINE, strlen($cut));
+                self::assertStringEndsWith(' ', $cut);
+                self::assertStringNotContainsString(substr($secret, 0, 2), $cut);
+            }
+        }
+        self::assertSame('', $p->capLine(str_repeat('a', 20000)));
+    }
+
+    public function testAMonologRecordCutInsideItsContextKeepsOnlyTheMessage(): void
+    {
+        $p = new LineParser();
+        $line = '[2026-10-22 10:00:00] app.ERROR: boom now {"email":"early.leak@example.org","pad":"' . str_repeat('p', 9000) . '","t":"late.leak@example.org"} []';
+        $e = $p->parse($line);
+
+        self::assertSame('boom now', $e->message);
+        self::assertSame([], $e->fields);
+        self::assertSame(Level::Error, $e->level);
+        self::assertSame(1, $p->diagnostics()['truncated_lines'] ?? 0);
+    }
+
+    public function testAnOversizedJsonLineBecomesAPlaceholderWithItsLevel(): void
+    {
+        $p = new LineParser();
+        $line = '{"level":"error","message":"early.leak@example.org","pad":"' . str_repeat('p', 300000) . '","t":"late.leak@example.org"}';
+        $e = $p->parse($line);
+
+        self::assertSame(Level::Error, $e->level);
+        self::assertStringNotContainsString('leak', $e->message);
+        self::assertSame([], $e->fields);
+        self::assertSame(1, $p->diagnostics()['truncated_structured'] ?? 0);
+        self::assertArrayNotHasKey('truncated_structured', (new LineParser())->diagnostics());
+
+        $unknown = $p->parse('{"pad":"' . str_repeat('p', 300000) . '"}');
+        self::assertSame(Level::Warning, $unknown->level);
+    }
+
+    public function testAJsonLineOverTheTextCapStillParsesAsJson(): void
+    {
+        $p = new LineParser();
+        $e = $p->parse((string) json_encode(['level' => 'error', 'message' => 'real message', 'blob' => str_repeat('x', 20000)]));
+
+        self::assertSame('real message', $e->message);
+        self::assertSame(Level::Error, $e->level);
+    }
 }

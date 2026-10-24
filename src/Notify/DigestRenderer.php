@@ -169,7 +169,7 @@ final class DigestRenderer
         return $out;
     }
 
-    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int} $diag */
+    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int} $diag */
     private function readQualityLine(array $diag): ?string
     {
         $parts = [];
@@ -177,6 +177,9 @@ final class DigestRenderer
             'unknown_levels' => '%s events with an unrecognised level (read as info)',
             'orphan_trace_lines' => '%s stack-frame lines dropped (no open record)',
             'message_tails_dropped' => '%s multi-line messages cut to their first line',
+            'truncated_lines' => '%s over-long lines cut before parsing',
+            'truncated_structured' => '%s oversized structured lines replaced by a placeholder',
+            'regex_failures' => '%s lines the parser could not read (kept, level guessed)',
         ] as $key => $format) {
             if (($diag[$key] ?? 0) > 0) {
                 $parts[] = sprintf($format, number_format($diag[$key]));

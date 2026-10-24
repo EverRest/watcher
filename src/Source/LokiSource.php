@@ -238,7 +238,6 @@ final class LokiSource implements LogSource, ReadDiagnostics
         $open = []; // stream key => index into $out
         foreach ($entries as [$ts, $line, $labels]) {
             $stream = json_encode($labels);
-            $line = $parser->capLine($line);
             if (!isset($open[$stream]) && $parser->isOrphanTrace($line, isset($labels['level']))) {
                 continue;
             }

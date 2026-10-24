@@ -75,13 +75,16 @@ final class LineParser
     /** Lines cut at MAX_LINE (or records at MAX_RECORD_BYTES) before parsing. */
     public int $truncatedLines = 0;
 
+    /** Structured (JSON) lines too large to decode, shown as a placeholder: their content never leaves. */
+    public int $truncatedStructured = 0;
+
     /** preg calls on log text that failed (backtrack limit, JIT stack, bad UTF-8): the line is kept, never silently dropped. */
     public int $regexFailures = 0;
 
     /** Did a regex fail while parsing the last line given to parse()? Then its level is a guess: the source prefers its stream label. */
     public bool $lastParseFailed = false;
 
-    /** @return array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int, truncated_lines?: int, regex_failures?: int} the last two only when non-zero */
+    /** @return array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int} the last three only when non-zero */
     public function diagnostics(): array
     {
         $d = ['unknown_levels' => $this->unknownLevels, 'orphan_trace_lines' => $this->orphanTraceLines, 'message_tails_dropped' => $this->messageTailsDropped];
@@ -90,6 +93,9 @@ final class LineParser
         }
         if ($this->regexFailures > 0) {
             $d['regex_failures'] = $this->regexFailures;
+        }
+        if ($this->truncatedStructured > 0) {
+            $d['truncated_structured'] = $this->truncatedStructured;
         }
 
         return $d;
@@ -100,15 +106,25 @@ final class LineParser
         return $this->lastParseFailed;
     }
 
-    /** One physical line, cut at MAX_LINE on a character boundary; counted when it was cut. */
+    /**
+     * One physical line, cut at MAX_LINE on a character boundary. A token the cut splits goes entirely (a partial secret
+     * matches no rule), so the result ends at white space or is empty. Pure: the callers that expose the result count it.
+     */
     public function capLine(string $line): string
     {
         if (strlen($line) <= self::MAX_LINE) {
             return $line;
         }
-        ++$this->truncatedLines;
+        $cut = mb_strcut($line, 0, self::MAX_LINE, 'UTF-8');
+        if (ctype_space($line[strlen($cut)])) {
+            return $cut;
+        }
+        $i = strlen($cut);
+        while ($i > 0 && !ctype_space($cut[$i - 1])) {
+            --$i;
+        }
 
-        return mb_strcut($line, 0, self::MAX_LINE, 'UTF-8');
+        return substr($cut, 0, $i);
     }
 
     /** preg_match on log text: a failure is counted and reads as "no match", never as an exception or a silent skip. */
@@ -202,7 +218,10 @@ final class LineParser
         $this->lastParseFailed = false;
         $trimmed = trim($line);
 
-        if (str_starts_with($trimmed, '{') && strlen($trimmed) <= self::MAX_JSON_BYTES) {
+        if (str_starts_with($trimmed, '{')) {
+            if (strlen($trimmed) > self::MAX_JSON_BYTES) {
+                return $this->truncatedStructured($trimmed, $fallback);
+            }
             $data = json_decode($trimmed, true);
             if (is_array($data)) {
                 return $this->cutJsonMessage($this->fromJson($data, $fallback));
@@ -214,14 +233,24 @@ final class LineParser
             $line = mb_strcut($line, 0, self::MAX_RECORD_BYTES, 'UTF-8');
         }
         $nl = strpos($line, "\n");
-        $head = $this->capLine($nl === false ? $line : substr($line, 0, $nl));
+        $rawHead = $nl === false ? $line : substr($line, 0, $nl);
+        $head = $this->capLine($rawHead);
+        $headCut = $head !== $rawHead;
+        if ($headCut) {
+            ++$this->truncatedLines;
+        }
         $rest = $nl === false ? '' : substr($line, $nl + 1);
 
         $m = $this->text($head);
+        // A Monolog line the cut reached keeps only its message: what follows ' {' is the context, now unparseable and never exposed.
+        if ($headCut && $m !== null) {
+            $m['msg'] = explode(' {', (string) $m['msg'], 2)[0];
+            $m['ctx'] = '';
+        }
         // Laravel leaves the context JSON open on the first line when the exception trace has line breaks.
         if ($rest !== '' && ($m === null || $this->ctx($m['ctx'] ?? '') === null)) {
             $whole = $this->text($line, 's');
-            if ($whole !== null && $this->ctx($whole['ctx'] ?? '') !== null) {
+            if (!$headCut && $whole !== null && $this->ctx($whole['ctx'] ?? '') !== null) {
                 $m = $whole;
             }
         }
@@ -245,6 +274,16 @@ final class LineParser
         $guess = $this->parseFailed() ? Level::Warning : Level::Info;
 
         return $this->withException(new LogEvent($fallback, $this->plainLevel($head) ?? $guess, $head, null, [], [], []), $rest);
+    }
+
+    /** A `{...}` line too large to decode: a placeholder with the level when a bounded look finds one, nothing else of it. */
+    private function truncatedStructured(string $line, DateTimeImmutable $fallback): LogEvent
+    {
+        ++$this->truncatedLines;
+        ++$this->truncatedStructured;
+        $level = $this->re('/"(?:level|severity)"\s*:\s*"(?<w>[A-Za-z]{3,9})"/', substr($line, 0, self::MAX_LINE), $m) ? Level::tryParse($m['w']) : null;
+
+        return new LogEvent($fallback, $level ?? Level::Warning, '[structured line too large, content withheld]', null, [], [], []);
     }
 
     /**
