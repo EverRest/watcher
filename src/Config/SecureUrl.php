@@ -52,17 +52,22 @@ final class SecureUrl
      * address. Refused: 0/8, 127/8 (unless `$allowLoopback`), 10/8, 172.16/12, 192.168/16 (unless `$allowPrivate`), 169.254/16,
      * 100.64/10, 224/4 and 240/4, in every inet_aton spelling (decimal, hex, octal, 1-4 parts); IPv6 ::/96 (`::1` unless
      * `$allowLoopback`), fc00::/7, fe80::/10, fec0::/10, ff00::/8, NAT64 64:ff9b::/96 and 64:ff9b:1::/48, Teredo 2001::/32,
-     * IPv4-mapped ::ffff:0:0/96 and 6to4 2002::/16 (the embedded IPv4 is classified); `localhost`, `*.localhost` and the
-     * metadata names. Fail closed: one trailing dot is the same host, but an empty label, a `%zone` or a ':' host that does not
-     * parse is refused, whatever the allowances.
+     * IPv4-mapped ::ffff:0:0/96, SIIT ::ffff:0:0:0/96 and 6to4 2002::/16 (the embedded IPv4 is classified); 192.0.0.0/24,
+     * 192.0.2.0/24, 198.18.0.0/15, 198.51.100.0/24 and 203.0.113.0/24 whatever is allowed; `localhost`, `*.localhost`; the metadata
+     * names (`metadata`, `metadata.google.internal`, `instance-data`) whatever is allowed; `*.svc`, `*.cluster.local` and
+     * `*.internal`, which count as private-network names, so `$allowPrivate` admits them. Fail closed: one trailing dot is the same host, but an empty label, a `%zone` or a ':' host that does not
+     * parse is refused, whatever the allowances; so is any host with a byte outside printable ASCII (the classifier does not rely on the
+     * HTTP client rejecting fullwidth dots or control characters).
      * ponytail: a host NAME is never resolved, so DNS that answers with a private address (rebinding) passes; resolve once and
-     * connect to that address (curl CURLOPT_RESOLVE) if URLs ever come from untrusted input.
+     * connect to that address (curl CURLOPT_RESOLVE) if URLs ever come from untrusted input. Guzzle also honours the HTTP_PROXY /
+     * HTTPS_PROXY environment: through a proxy the connection goes where the proxy decides, so a caller that must not be proxied
+     * passes `'proxy' => ''` (Loki and Slack do not, to keep their behaviour: docs/operations.md).
      */
     public static function internalHost(string $host, bool $allowLoopback = false, bool $allowPrivate = false): bool
     {
         $host = strtolower($host);
-        if ($host === '' || str_contains($host, '%')) {
-            return true;
+        if ($host === '' || str_contains($host, '%') || preg_match('/[^\x21-\x7e]/', $host) === 1) {
+            return true; // empty, a %zone / %-escape, or anything but printable ASCII (fullwidth dots, control bytes): not ours to guess
         }
         if ($host[0] === '[' || str_contains($host, ':')) {
             $bin = @inet_pton($host[0] === '[' ? (str_ends_with($host, ']') ? substr($host, 1, -1) : '') : $host);
@@ -78,8 +83,11 @@ final class SecureUrl
         if ($host === 'localhost' || str_ends_with($host, '.localhost')) {
             return !$allowLoopback;
         }
-        if ($host === 'metadata' || $host === 'metadata.google.internal') {
+        if (in_array($host, ['metadata', 'metadata.google.internal', 'instance-data'], true)) {
             return true;
+        }
+        if (str_ends_with($host, '.svc') || str_ends_with($host, '.cluster.local') || str_ends_with($host, '.internal')) {
+            return !$allowPrivate; // in-cluster and cloud-internal names are private-network names
         }
         $v4 = self::ipv4($host);
 
@@ -96,7 +104,9 @@ final class SecureUrl
             return !$allowPrivate;
         }
 
-        return $a === 0 || $a >= 224 || ($ip >> 16) === 0xA9FE || ($ip >> 22) === 0x191;
+        return $a === 0 || $a >= 224 || ($ip >> 16) === 0xA9FE || ($ip >> 22) === 0x191 // 0/8, multicast + reserved, link-local, CGNAT
+            || ($ip >> 17) === 0x6309 // 198.18.0.0/15 benchmarking
+            || in_array($ip >> 8, [0xC00000, 0xC00002, 0xC63364, 0xCB0071], true); // 192.0.0.0/24, 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24
     }
 
     private static function v6(string $bin, bool $allowLoopback, bool $allowPrivate): bool
@@ -105,6 +115,9 @@ final class SecureUrl
             return !($allowLoopback && $bin === str_repeat("\0", 15) . "\1");
         }
         if (str_starts_with($bin, str_repeat("\0", 10) . "\xff\xff")) { // ::ffff:0:0/96 IPv4-mapped
+            return self::v4(self::v4At($bin, 12), $allowLoopback, $allowPrivate);
+        }
+        if (str_starts_with($bin, str_repeat("\0", 8) . "\xff\xff\0\0")) { // ::ffff:0:0:0/96 SIIT: the IPv4 is the last 32 bits
             return self::v4(self::v4At($bin, 12), $allowLoopback, $allowPrivate);
         }
         if (str_starts_with($bin, "\x20\x02")) { // 6to4 carries the IPv4 in bytes 2-5

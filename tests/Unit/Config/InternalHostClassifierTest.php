@@ -53,7 +53,7 @@ final class InternalHostClassifierTest extends TestCase
     /** @return iterable<string, array{string}> */
     public static function names(): iterable
     {
-        foreach (['example.com', 'prom.example.com', 'localhost.evil.com', 'evil-localhost.com', 'svc.cluster.local', 'metadata.google.internal.evil.com', 'a.b.c.d.e', '0x7f.evil.com', 'xn--80ak6aa92e.com'] as $h) {
+        foreach (['example.com', 'prom.example.com', 'localhost.evil.com', 'evil-localhost.com', 'metadata.google.internal.evil.com', 'a.b.c.d.e', '0x7f.evil.com', 'xn--80ak6aa92e.com'] as $h) {
             yield $h => [$h];
         }
     }
@@ -214,5 +214,83 @@ final class InternalHostClassifierTest extends TestCase
         self::assertNotNull(SecureUrl::problem('https://user:pw@prom.example.com', false, true));
         self::assertNotNull(SecureUrl::problem('https:///x', false, true));
         self::assertNotNull(SecureUrl::problem('https://[fe80::1%25eth0]/', false, true));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function clusterNames(): iterable
+    {
+        foreach (['kubernetes.default.svc', 'KUBERNETES.DEFAULT.SVC.', 'a.svc', 'grafana.monitoring.svc.cluster.local', 'x.cluster.local', 'db.internal', 'ip-10-0-0-1.ec2.internal'] as $h) {
+            yield $h => [$h];
+        }
+    }
+
+    /** Cluster-local names count as private: refused by default, admitted by allowPrivate. */
+    #[DataProvider('clusterNames')]
+    public function testClusterLocalNamesAreRefusedUnlessPrivateIsAllowed(string $host): void
+    {
+        self::assertTrue(SecureUrl::internalHost($host), $host);
+        self::assertTrue(SecureUrl::internalHost($host, true), $host . ' (loopback allowance is not private)');
+        self::assertFalse(SecureUrl::internalHost($host, false, true), $host);
+        self::assertNotNull(SecureUrl::problem("https://{$host}/", false, true), $host);
+    }
+
+    public function testMetadataNamesStayRefusedEvenWhenPrivateIsAllowed(): void
+    {
+        foreach (['metadata.google.internal', 'METADATA.GOOGLE.INTERNAL.', 'metadata', 'instance-data', 'instance-data.', 'Instance-Data'] as $h) {
+            self::assertTrue(SecureUrl::internalHost($h, true, true), $h);
+        }
+        self::assertFalse(SecureUrl::internalHost('svc.example.com'));
+        self::assertFalse(SecureUrl::internalHost('internal.example.com'));
+        self::assertFalse(SecureUrl::internalHost('mysvc'));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function nonAscii(): iterable
+    {
+        foreach (["127\u{3002}0\u{3002}0\u{3002}1", "127\u{FF0E}0\u{FF0E}0\u{FF0E}1", "\u{FF10}x7f.1", "\u{2460}\u{2461}\u{2466}.0.0.1", "caf\u{E9}.example", "127.0.0.1\n", "127.0.0.1\t", 'a b', "a\0b", "\xff\xfe"] as $h) {
+            yield bin2hex($h) => [$h];
+        }
+    }
+
+    #[DataProvider('nonAscii')]
+    public function testNonAsciiAndControlHostsFailClosedInTheClassifierItself(string $host): void
+    {
+        self::assertTrue(SecureUrl::internalHost($host, true, true));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function reserved(): iterable
+    {
+        foreach (['198.18.0.1', '198.19.255.255', '192.0.0.1', '192.0.0.255', '192.0.2.1', '198.51.100.7', '203.0.113.9',
+            '3325256705', '0xc6120001', '::ffff:198.18.0.1', '2002:c612:1::1',
+            // SIIT ::ffff:0:0:0/96 carries the IPv4 in the last 32 bits
+            '::ffff:0:a9fe:a9fe', '::ffff:0:c612:1', '::ffff:0:0:0'] as $h) {
+            yield $h => [$h];
+        }
+    }
+
+    /** Documentation, benchmarking and IETF-assignment ranges are never a legitimate target and no allowance admits them. */
+    #[DataProvider('reserved')]
+    public function testReservedRangesAndSiitAreRefusedWhateverIsAllowed(string $host): void
+    {
+        self::assertTrue(SecureUrl::internalHost($host), $host);
+        self::assertTrue(SecureUrl::internalHost($host, true, true), $host);
+    }
+
+    public function testSiitDecodesTheEmbeddedAddressAndHonoursTheAllowances(): void
+    {
+        foreach (['::ffff:0:7f00:1', '::ffff:0:127.0.0.1'] as $h) {
+            self::assertTrue(SecureUrl::internalHost($h), $h);
+            self::assertFalse(SecureUrl::internalHost($h, allowLoopback: true), $h);
+        }
+        self::assertTrue(SecureUrl::internalHost('::ffff:0:a00:1'));
+        self::assertFalse(SecureUrl::internalHost('::ffff:0:a00:1', allowPrivate: true));
+    }
+
+    public function testNeighboursOfTheReservedRangesPass(): void
+    {
+        foreach (['198.17.255.255', '198.20.0.0', '192.0.1.1', '192.0.3.1', '198.51.99.1', '198.51.101.1', '203.0.112.1', '203.0.114.1', '::ffff:0:808:808', '::ffff:1:808:808'] as $h) {
+            self::assertFalse(SecureUrl::internalHost($h), $h);
+        }
     }
 }
