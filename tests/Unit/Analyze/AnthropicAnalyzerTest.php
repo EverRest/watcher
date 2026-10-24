@@ -15,6 +15,7 @@ use Psr\Http\Message\RequestInterface;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\ProviderSchema;
@@ -46,8 +47,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $stack = HandlerStack::create(new MockHandler($responses));
         $stack->push(Middleware::history($this->history));
 
-        // zero retry delay keeps the SDK's own retries instant
-        return new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0]);
+        return new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])));
     }
 
     private static function request(): AnalysisRequest
@@ -85,8 +85,7 @@ final class AnthropicAnalyzerTest extends TestCase
         self::assertCount(1, $this->history);
         $req = $this->history[0]['request'];
         self::assertSame('/v1/messages', $req->getUri()->getPath());
-        // SDK 1.1.0 sends the key as a Bearer token
-        self::assertSame('Bearer ' . self::KEY, $req->getHeaderLine('Authorization'));
+        self::assertSame(self::KEY, $req->getHeaderLine('x-api-key'));
 
         $body = $this->body();
         self::assertSame('model-from-request', $body['model']);
@@ -108,7 +107,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $this->history = [];
         $stack = HandlerStack::create(new MockHandler([self::json('message-valid.json')]));
         $stack->push(Middleware::history($this->history));
-        (new AnthropicAnalyzer(self::KEY, new Client(['handler' => $stack, 'http_errors' => false]), null, ['initialRetryDelay' => 0.0, 'maxRetryDelay' => 0.0], false))->analyze(self::request());
+        (new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])), false))->analyze(self::request());
         $off = $this->body();
         self::assertStringNotContainsString('how_to_check', (string) json_encode($off));
         self::assertStringNotContainsString('related_checks', (string) json_encode($off));
@@ -277,26 +276,24 @@ final class AnthropicAnalyzerTest extends TestCase
             self::assertNull($e->usage, 'nothing was billed');
             self::assertStringNotContainsString(self::KEY, $e->getMessage());
             self::assertCount(1, $this->history, '401 is not retried');
-            // The SDK exception carries the request (and its Authorization header): never chain it.
             self::assertNull($e->getPrevious());
             self::assertStringNotContainsString(self::KEY, (string) $e);
         }
     }
 
     /** @dataProvider unavailableStatuses */
-    public function testRepeatedServerErrorsMeanProviderUnavailable(int $status, string $fixture): void
+    public function testServerErrorsMeanProviderUnavailable(int $status, string $fixture): void
     {
-        // SDK default: 1 request + 2 retries
-        $analyzer = $this->analyzer([self::json($fixture, $status), self::json($fixture, $status), self::json($fixture, $status)]);
+        $analyzer = $this->analyzer([self::json($fixture, $status), self::json($fixture, $status)]);
 
         try {
             $analyzer->analyze(self::request());
             self::fail('expected AnalyzerFailed');
         } catch (AnalyzerFailed $e) {
-            self::assertSame('provider unavailable', $e->getMessage());
+            self::assertSame("provider unavailable (HTTP $status)", $e->getMessage());
             self::assertNull($e->usage);
             self::assertStringNotContainsString(self::KEY, $e->getMessage());
-            self::assertCount(3, $this->history);
+            self::assertCount(1, $this->history, 'no client-level retry');
         }
     }
 

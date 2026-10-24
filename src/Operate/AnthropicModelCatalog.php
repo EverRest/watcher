@@ -7,9 +7,10 @@ namespace Watcher\Operate;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\ConnectException;
 use JsonException;
+use Watcher\Source\ResponseLimit;
 use Throwable;
 
-/** GET /v1/models (free, no tokens) with both auth schemes. Reasons carry a status or a fixed word, never a body, URL or key. */
+/** GET /v1/models (free, no tokens) with both auth schemes, x-api-key first (the scheme the analyzer sends). Reasons carry a status or a fixed word, never a body, URL or key. */
 final class AnthropicModelCatalog implements ModelCatalog
 {
     private const TIMEOUT = 5;
@@ -29,7 +30,7 @@ final class AnthropicModelCatalog implements ModelCatalog
     {
         $result = [];
         $ids = [];
-        foreach (['bearer' => ['Authorization' => 'Bearer ' . $this->apiKey], 'x-api-key' => ['x-api-key' => $this->apiKey]] as $scheme => $auth) {
+        foreach (['x-api-key' => ['x-api-key' => $this->apiKey], 'bearer' => ['Authorization' => 'Bearer ' . $this->apiKey]] as $scheme => $auth) {
             [$status, $found] = $this->list($auth);
             $result[$scheme] = $status;
             if ($ids === [] && $status === 200) {
@@ -66,7 +67,9 @@ final class AnthropicModelCatalog implements ModelCatalog
                     'timeout' => self::TIMEOUT,
                     'connect_timeout' => self::TIMEOUT,
                     'http_errors' => false,
-                ]);
+                    'allow_redirects' => false, // x-api-key is not stripped on a cross-host redirect
+                    'verify' => true,
+                ] + ResponseLimit::options(new \ArrayObject()));
             } catch (ConnectException) {
                 return ['timeout', []];
             } catch (Throwable) {

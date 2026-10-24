@@ -4,32 +4,17 @@ declare(strict_types=1);
 
 namespace Watcher\Analyze;
 
-use Anthropic\Client as SdkClient;
-use Anthropic\Core\Exceptions\AnthropicException;
-use Anthropic\Core\Exceptions\AuthenticationException;
-use Anthropic\Core\Exceptions\PermissionDeniedException;
-use Anthropic\Messages\Message;
-use Anthropic\Messages\TextBlock;
 use JsonException;
-use Psr\Http\Client\ClientInterface;
 use Watcher\Context\DependencyContext;
 use Watcher\Privacy\RedactedGroup;
 
-/** Thin wrapper over the official SDK: one structured-output call, validated in code, one retry on bad output. */
+/** One structured-output call through a MessagesClient, validated in code, one retry on bad output. */
 final class AnthropicAnalyzer implements Analyzer
 {
-    private readonly SdkClient $client;
-
     private readonly OutputValidator $validator;
 
-    /** @param array<string, mixed> $requestOptions SDK request options; the SDK defaults (2 retries) apply when empty */
-    public function __construct(#[\SensitiveParameter] string $apiKey, ClientInterface $http, ?string $baseUrl = null, array $requestOptions = [], private readonly bool $advice = true)
+    public function __construct(private readonly MessagesClient $client, private readonly bool $advice = true)
     {
-        $this->client = new SdkClient(
-            apiKey: $apiKey,
-            baseUrl: $baseUrl ?? 'https://api.anthropic.com', // never the SDK's ANTHROPIC_BASE_URL env fallback: key and data stay on Anthropic
-            requestOptions: ['transporter' => $http] + $requestOptions,
-        );
         $this->validator = new OutputValidator($advice);
     }
 
@@ -133,56 +118,29 @@ final class AnthropicAnalyzer implements Analyzer
      * @param list<RedactedGroup>     $groups
      * @param list<DependencyContext> $dependencyContext
      */
-    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = []): Message
+    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = []): ModelReply
     {
-        try {
-            return $this->client->messages->create(
-                maxTokens: $maxTokens,
-                messages: [['role' => 'user', 'content' => CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext), bin2hex(random_bytes(16)))]],
-                model: $model,
-                // Adaptive thinking tokens count against max_tokens and triage needs none.
-                thinking: $kind === 'triage' ? ['type' => 'disabled'] : null,
-                outputConfig: ['format' => ['type' => 'json_schema', 'schema' => ProviderSchema::for($kind, $this->advice)]],
-                system: [[
-                    'type' => 'text',
-                    'text' => Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice),
-                    'cacheControl' => ['type' => 'ephemeral'],
-                ]],
-            );
-        } catch (AuthenticationException|PermissionDeniedException) {
-            // The SDK exception is not chained as `previous`: it carries the request, whose headers hold the key.
-            throw new AnalyzerFailed('authentication failed');
-        } catch (AnthropicException) {
-            throw new AnalyzerFailed('provider unavailable');
-        }
+        return $this->client->create(
+            $model,
+            $maxTokens,
+            Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice),
+            CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext), bin2hex(random_bytes(16))),
+            ProviderSchema::for($kind, $this->advice),
+            $kind !== 'triage',
+        );
     }
 
     /** @return array<mixed> */
-    private function decode(Message $message): array
+    private function decode(ModelReply $reply): array
     {
-        foreach ($message->content as $block) {
-            if ($block instanceof TextBlock) {
-                $data = json_decode($block->text, true, 512, JSON_THROW_ON_ERROR);
+        $data = json_decode($reply->text ?? throw new JsonException('no text block'), true, 512, JSON_THROW_ON_ERROR);
 
-                return is_array($data) ? $data : throw new JsonException('not an object');
-            }
-        }
-
-        throw new JsonException('no text block');
+        return is_array($data) ? $data : throw new JsonException('not an object');
     }
 
     /** Priced by the id that was requested (the key of `analysis.prices`); the echoed id may be a dated form of an alias. */
-    private function usage(Message $message, string $requestedModel): Usage
+    private function usage(ModelReply $reply, string $requestedModel): Usage
     {
-        $u = $message->usage;
-
-        return new Usage(
-            $requestedModel,
-            $u->inputTokens,
-            $u->outputTokens,
-            $u->cacheReadInputTokens ?? 0,
-            $u->cacheCreationInputTokens ?? 0,
-            returnedModel: $message->model,
-        );
+        return new Usage($requestedModel, $reply->inputTokens, $reply->outputTokens, $reply->cacheReadTokens, $reply->cacheWriteTokens, returnedModel: $reply->model);
     }
 }

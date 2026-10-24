@@ -45,13 +45,8 @@ Nothing new to report means zero model calls. The first run only records a basel
 composer require everrest/watcher
 ```
 
-Composer may ask whether to trust the `php-http/discovery` plugin. It is a dependency of the Anthropic SDK, and this
-package does not need it (Guzzle is already required and provides the HTTP client); answer no, or decline it up front
-(also in CI):
-
-```bash
-composer config allow-plugins.php-http/discovery false
-```
+The Anthropic SDK is optional: the default client (`analysis.client = http`) talks to the API over Guzzle. Only the rollback
+`analysis.client = sdk` needs `composer require anthropic-ai/sdk`.
 
 Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.providers`); in Lumen register
 `Watcher\Laravel\WatcherServiceProvider` by hand in `bootstrap/app.php`. Without a framework use `vendor/bin/watcher`.
@@ -260,7 +255,7 @@ decided in code from names, placeholders and times; it makes no model call and w
 
 - The Grafana Explore URL shape and the Datadog response shapes are not verified against live systems; sources are
   tested against recorded fixtures only.
-- The `Authorization` header and request format the Anthropic SDK sends were not verified against the live API.
+- The request format of the built-in Anthropic client (`x-api-key`, structured output) was tested against recorded fixtures only, not the live API.
 - At most `source.group_cap` (5000) distinct problem groups are held per run; on a day with more distinct messages the rest
   is grouped as one "other" group per level and the digest says so. Watch-rule matches are exempt up to twice the cap.
 - Cluster templates group by word similarity, not exact shape (`grouping.similarity`); two different problems with very similar wording can still share a template, and fingerprints do not depend on it. A name identical in every event of a cluster is not detectable (see `docs/privacy.md`).

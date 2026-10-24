@@ -167,21 +167,21 @@ final class DoctorTest extends TestCase
         self::assertStringNotContainsString(self::KEY, $r->text() . json_encode($r->toArray()));
     }
 
-    public function testPackageSchemeRejectedButApiKeyWorks(): void
+    public function testApiKeySchemeIsTheOneThatDecides(): void
     {
-        $r = $this->doctor(catalog: self::catalog(['bearer' => 401, 'x-api-key' => 200], []))->run();
+        $r = $this->doctor(catalog: self::catalog(['x-api-key' => 200, 'bearer' => 401], ['m-small', 'm-mid', 'm-big']))->run();
+
+        self::assertSame('pass', self::byName($r)['provider_auth']->status);
+    }
+
+    public function testApiKeyRejected(): void
+    {
+        $r = $this->doctor(catalog: self::catalog(['x-api-key' => 403, 'bearer' => 401], []))->run();
 
         $c = self::byName($r)['provider_auth'];
         self::assertSame('fail', $c->status);
-        self::assertSame('package scheme (Authorization: Bearer) rejected (HTTP 401) but x-api-key works: the analyzer needs a code change', $c->reason);
+        self::assertSame('x-api-key rejected (HTTP 403)', $c->reason);
         self::assertSame('skip', self::byName($r)['models']->status);
-    }
-
-    public function testNoSchemeAccepted(): void
-    {
-        $r = $this->doctor(catalog: self::catalog(['bearer' => 401, 'x-api-key' => 403], []))->run();
-
-        self::assertSame('no scheme accepted (HTTP 401/403)', self::byName($r)['provider_auth']->reason);
     }
 
     public function testProviderTimeout(): void

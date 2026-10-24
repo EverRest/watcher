@@ -12,13 +12,12 @@
     },
     "require": {
         "php": "^8.2",
-        "anthropic-ai/sdk": "^1.1",
         "guzzlehttp/guzzle": "^7.15.2",
-        "php-http/discovery": "^1.12",
         "psr/clock": "^1.0",
         "psr/log": "^2.0 || ^3.0"
     },
     "require-dev": {
+        "anthropic-ai/sdk": "^1.1",
         "brianium/paratest": "^7.3.2",
         "illuminate/console": "^10.0 || ^11.0",
         "illuminate/support": "^10.0 || ^11.0",
@@ -28,6 +27,7 @@
         "vlucas/phpdotenv": "^5.7"
     },
     "suggest": {
+        "anthropic-ai/sdk": "Only for the rollback `analysis.client = sdk`; the default client needs no SDK",
         "ext-intl": "NFKC folding of look-alike characters before redaction (optional; a small fallback covers fullwidth ASCII)",
         "ext-redis": "Redis state store (default driver)",
         "predis/predis": "Redis state store without ext-redis (^2.0 || ^3.0), state.redis.client=predis",

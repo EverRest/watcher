@@ -51,15 +51,15 @@ final class AnthropicModelCatalogTest extends TestCase
         $catalog = $this->catalog([self::ok(), self::ok()]);
 
         self::assertInstanceOf(ModelCatalog::class, $catalog);
-        self::assertSame(['bearer' => 200, 'x-api-key' => 200], $catalog->probe());
+        self::assertSame(['x-api-key' => 200, 'bearer' => 200], $catalog->probe());
         self::assertSame(['claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929'], $catalog->modelIds());
     }
 
     public function testBearerRejectedButApiKeyWorks(): void
     {
-        $catalog = $this->catalog([self::denied(), self::ok()]);
+        $catalog = $this->catalog([self::ok(), self::denied()]);
 
-        self::assertSame(['bearer' => 401, 'x-api-key' => 200], $catalog->probe());
+        self::assertSame(['x-api-key' => 200, 'bearer' => 401], $catalog->probe());
         self::assertCount(2, $catalog->modelIds()); // ids come from the scheme that worked
     }
 
@@ -67,7 +67,7 @@ final class AnthropicModelCatalogTest extends TestCase
     {
         $catalog = $this->catalog([self::denied(), self::denied()]);
 
-        self::assertSame(['bearer' => 401, 'x-api-key' => 401], $catalog->probe());
+        self::assertSame(['x-api-key' => 401, 'bearer' => 401], $catalog->probe());
         self::assertSame([], $catalog->modelIds());
     }
 
@@ -78,7 +78,7 @@ final class AnthropicModelCatalogTest extends TestCase
 
         $probe = $catalog->probe();
 
-        self::assertSame(['bearer' => 'timeout', 'x-api-key' => 'timeout'], $probe);
+        self::assertSame(['x-api-key' => 'timeout', 'bearer' => 'timeout'], $probe);
         self::assertStringNotContainsString(self::KEY, (string) json_encode($probe));
     }
 
@@ -95,10 +95,21 @@ final class AnthropicModelCatalogTest extends TestCase
             self::assertSame(5, $h['options']['timeout']);
             self::assertStringNotContainsString(self::KEY, (string) $h['request']->getUri());
         }
-        self::assertSame('Bearer ' . self::KEY, $this->history[0]['request']->getHeaderLine('Authorization'));
-        self::assertSame('', $this->history[0]['request']->getHeaderLine('x-api-key'));
-        self::assertSame(self::KEY, $this->history[1]['request']->getHeaderLine('x-api-key'));
-        self::assertSame('', $this->history[1]['request']->getHeaderLine('Authorization'));
+        self::assertSame(self::KEY, $this->history[0]['request']->getHeaderLine('x-api-key'), 'x-api-key is tried first');
+        self::assertSame('', $this->history[0]['request']->getHeaderLine('Authorization'));
+        self::assertSame('Bearer ' . self::KEY, $this->history[1]['request']->getHeaderLine('Authorization'));
+        self::assertSame('', $this->history[1]['request']->getHeaderLine('x-api-key'));
+    }
+
+    public function testTheKeyNeverFollowsARedirectAndTlsIsVerified(): void
+    {
+        $this->catalog([self::ok(), self::ok()])->probe();
+
+        foreach ($this->history as $h) {
+            self::assertFalse($h['options']['allow_redirects']);
+            self::assertTrue($h['options']['verify']);
+            self::assertArrayHasKey('on_headers', $h['options'], 'ResponseLimit is applied');
+        }
     }
 
     public function testMalformedBodyYieldsNoIdsAndNoLeak(): void

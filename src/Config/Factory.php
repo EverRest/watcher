@@ -14,6 +14,8 @@ use Redis;
 use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\AnthropicHttpClient;
+use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Notify\Notifier;
 use Watcher\Notify\RoutingNotifier;
@@ -300,11 +302,13 @@ final class Factory
             throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
         }
 
+        $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
+        $key = (string) $c->analysis['api_key'];
+
         return new AnthropicAnalyzer(
-            (string) $c->analysis['api_key'],
-            new Client(self::analyzerHttpOptions($c->schedule['lock_ttl'])),
-            null,
-            self::analyzerRequestOptions(),
+            $c->analysis['client'] === 'sdk'
+                ? new SdkMessagesClient($key, new Client($options), null, self::analyzerRequestOptions())
+                : new AnthropicHttpClient($key, new Client($options), $options['timeout']),
             $c->on('advice'),
         );
     }
