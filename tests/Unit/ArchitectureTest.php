@@ -51,6 +51,18 @@ final class ArchitectureTest extends TestCase
         return [...self::files('src'), ...self::files('config'), self::ROOT . '/README.md'];
     }
 
+    public function testRedisStateStoreWritesOnlyThroughTheTtlGuard(): void
+    {
+        $src = (string) file_get_contents(self::ROOT . '/src/State/RedisStateStore.php');
+        self::assertSame(0, preg_match('/->(incrbyfloat|hset|setnx|setex|psetex|append|incr|decr)\(/i', $src), 'a Redis command that can create a key without a TTL');
+        self::assertSame(1, substr_count($src, '->set('), 'one SET call, inside the guarded writer');
+        self::assertMatchesRegularExpression('/private function write\([^{]*\{[^}]*->set\(/s', $src, 'the only SET is inside write()');
+        foreach (['PhpRedisClient', 'PredisClient'] as $adapter) {
+            $a = (string) file_get_contents(self::ROOT . "/src/State/Redis/{$adapter}.php");
+            self::assertSame(0, preg_match('/(->|\'|")(incrbyfloat|hset|setnx|setex)\b/i', $a), $adapter . ' issues a key-creating command without a TTL');
+        }
+    }
+
     public function testNoModelIdUnderSrcOrConfig(): void
     {
         self::assertSame([], self::grep([...self::files('src'), ...self::files('src', 'md'), ...self::files('src', 'json'), ...self::files('config')], '/claude-/i'));

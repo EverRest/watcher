@@ -150,6 +150,8 @@ fails with `HTTP 429`.
 
 **File store:** the directory must not be writable by group or others (create it `0700`; a group-writable Laravel `storage` folder is refused with a message naming `state.file.path`), symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race. The daily budget check is read-then-book, so concurrent runs of the same service can overshoot it by one step each (the lock prevents that for one service; Redis `INCRBYFLOAT` reservation is not implemented).
 
+**Every Redis key has a TTL, by construction.** `RedisStateStore` has one `SET` (always `PX`), the counter is a single Lua script that runs `INCRBYFLOAT` and `PEXPIRE` together (a bare `INCRBYFLOAT` would leave the key immortal), and the lock renew uses `PEXPIRE`. A TTL of zero or less is refused with an `InvalidArgumentException` that names the key kind (`run`, `spend`, ...), never the key. A test runs random put / increment / acquire / renew / release sequences against the store (and a real server when `WATCHER_TEST_REDIS` is set) and fails if any key ever exists without one. Values the store itself never writes (anything your app puts under the `watcher:` prefix) are not covered.
+
 State holds counters, fingerprints, verdicts, reported markers, run records, spend counters and alert markers, each with
 `state.retention` (30 days) except: spend and alert keys 2 days, weekly heartbeat counters 14 days, `noise`/`known` verdicts
 3 days, heartbeat and trigger records 3 x `state.retention`. It never holds raw log lines.
