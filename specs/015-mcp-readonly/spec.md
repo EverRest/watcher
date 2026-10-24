@@ -122,7 +122,7 @@ The Reviewer must see that the server cannot write, act or reach out beyond its 
 
 **Independent Test**: a state store whose every mutating method throws is injected; all six tools run (the dry run in
 estimate mode and in a faked full mode); none triggers a throw. A static test asserts that `src/Mcp/` references no
-notifier, no `put`/`increment`/`acquire`/`delete` on a store and no HTTP client except through the doctor, estimator and
+notifier, no `put`/`increment`/`acquire`/`release` on a store and no HTTP client except through the doctor, estimator and
 dry-run entry points.
 
 **Acceptance Scenarios**:

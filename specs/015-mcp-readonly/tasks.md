@@ -140,7 +140,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   expired entry neither deletes nor writes (file driver mtime and byte hash unchanged). A driver that fails is refused by
   T019. (FR-010, FR-012, R4)
 - [ ] T016 [US5] `tests/EndToEnd/McpDryRunTest.php` (red): with a store whose mutators throw, `watcher_dry_run` completes
-  (the dry run lives on `BufferedStateStore`); real model calls are counted by a fake analyzer: zero in every refusal path
+  (the dry run lives on `DryRunStateStore`); real model calls are counted by a fake analyzer: zero in every refusal path
   of T008 and in `estimate_only`; one confirmed run returns the report shape with `dry_run: true` and `estimate_usd`, no
   rendered digest text, nothing posted (fake notifier), the real store byte-identical; the second call is refused when
   the first consumed the remaining budget; the tool is absent from `tools/list` and `-32602` on call when
