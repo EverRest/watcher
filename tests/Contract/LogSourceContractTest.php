@@ -85,8 +85,7 @@ abstract class LogSourceContractTest extends TestCase
         $this->assertInstanceOf(Generator::class, $lines);
         $events = $this->collect($lines);
         $this->assertCount(1, $events);
-        $this->assertContainsOnlyInstancesOf(LogEvent::class, $events);
-        $this->assertSame('boom', $events[0]->message);
+        $this->assertSame('boom', $events[0]->message); // the only event; a non-LogEvent would fail here (a static check on collect()'s list<LogEvent> is flagged as always true)
         $this->assertSame(Level::Error, $events[0]->level);
     }
 

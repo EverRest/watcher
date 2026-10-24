@@ -43,7 +43,7 @@ final class AdaptivePageTest extends TestCase
             return \GuzzleHttp\Promise\Create::promiseFor(self::lokiPage((int) $q['limit'], (is_string($q['start']) ? $q['start'] : '') === (string) (self::T0 * 1_000_000_000)));
         };
 
-        return new LokiSource(new Client(['handler' => $calls]), 'https://loki.test', 't', sleeper: static fn (int $s) => null, maxResponseBytes: $maxBytes);
+        return new LokiSource(new Client(['handler' => new \GuzzleHttp\HandlerStack($calls)]), 'https://loki.test', 't', sleeper: static fn (int $s) => null, maxResponseBytes: $maxBytes);
     }
 
     private static function lokiPage(int $n, bool $first): Response
@@ -106,7 +106,7 @@ final class AdaptivePageTest extends TestCase
             return \GuzzleHttp\Promise\Create::promiseFor(new Response(200, [], (string) json_encode(['data' => $data])));
         };
 
-        return new DatadogSource(new Client(['handler' => $calls]), 'datadoghq.com', 'a', 'b', maxResponseBytes: $maxBytes);
+        return new DatadogSource(new Client(['handler' => new \GuzzleHttp\HandlerStack($calls)]), 'datadoghq.com', 'a', 'b', maxResponseBytes: $maxBytes);
     }
 
     public function testDatadogHalvesTheLimitWhenAPageTripsTheCap(): void

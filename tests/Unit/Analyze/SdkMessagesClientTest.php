@@ -18,14 +18,14 @@ final class SdkMessagesClientTest extends TestCase
 {
     private const KEY = 'sk-ant-test-SECRET-KEY';
 
-    /** @var list<array{request: \Psr\Http\Message\RequestInterface}> */
+    /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> */
     private array $history = [];
 
     /** @param list<Response> $queue */
     private function client(array $queue): SdkMessagesClient
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        /** @var list<array{request: \Psr\Http\Message\RequestInterface}> $log */
+        /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> $log */
         $log = [];
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
