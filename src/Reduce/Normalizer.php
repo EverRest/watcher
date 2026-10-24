@@ -28,7 +28,7 @@ final class Normalizer
      * host-shaped payload only. Angle brackets in the input are neutralised first (see scan()), so
      * placeholder-looking input text can never hide a value from the rules.
      */
-    private const SKIP_NAMES = 'EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR|PATH|USER';
+    private const SKIP_NAMES = 'EMAIL|URL|HOST|IP|ID|TOKEN|PAN|N|STR|PATH|USER|UNSCANNABLE';
 
     /** Private-use stand-ins for '<' and '>' of the input while the rules run. */
     /** Characters kept of any one input; the rest is dropped before the rules run. */
@@ -119,10 +119,10 @@ final class Normalizer
             throw new NormalizationException('Input is not valid UTF-8.');
         }
 
-        if (mb_strlen($text, 'UTF-8') > self::MAX_CHARS) {
-            // A value straddling the cut would no longer match any rule: drop the trailing partial token too.
-            $text = (string) preg_replace('/\S*\z/u', '', mb_substr($text, 0, self::MAX_CHARS, 'UTF-8'));
-        }
+        $text = self::cut($text);
+        // Decode and fold before any rule: `%40`, `&#64;`, fullwidth `＠`, zero-width characters and look-alikes must not
+        // carry a value past the rules. Decoding only shrinks the text, folding is cut again below.
+        $text = self::cut(self::canonical($text));
 
         // Input '<' and '>' (and any stray stand-ins) become inert so only our own placeholders are '<...>'.
         $text = strtr($text, [self::LT => "\u{FFFD}", self::GT => "\u{FFFD}"]);
@@ -161,6 +161,43 @@ final class Normalizer
         }
 
         return ['text' => strtr(trim($text), [self::LT => '<', self::GT => '>']), 'changed' => $changed];
+    }
+
+    /** A value straddling the cut would no longer match any rule: the trailing partial token goes too. */
+    private static function cut(string $text): string
+    {
+        if (mb_strlen($text, 'UTF-8') <= self::MAX_CHARS) {
+            return $text;
+        }
+
+        return (string) preg_replace('/\S*\z/u', '', mb_substr($text, 0, self::MAX_CHARS, 'UTF-8'));
+    }
+
+    /**
+     * What the rules see: one pass of percent- and HTML-entity decoding (punctuation only), format characters
+     * (`\p{Cf}`: zero-width, bidi, BOM, soft hyphen) removed, NFKC folding (fullwidth `＠`, `﹫`, ligatures), and the
+     * ideographic full stops that NFKC leaves alone. ext-intl is optional: without it only the fullwidth ASCII block
+     * and the small commercial at are folded.
+     *
+     * @internal public so the no-intl path can be tested
+     */
+    public static function canonical(string $text, ?bool $intl = null): string
+    {
+        $text = (string) preg_replace_callback('/%(2[1-4]|2[6-9a-f]|3[a-f]|40|5[b-d]|7[b-d])/i', static fn (array $m): string => chr((int) hexdec($m[1])), $text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $strip = static fn (string $t): string => (string) preg_replace('/\p{Cf}+/u', '', $t);
+        $text = $strip($text);
+
+        if (($intl ?? class_exists(\Normalizer::class)) === true) {
+            // The ellipsis the path placeholder writes (`<PATH>/…/a/b`) would fold to three dots on the second scan: keep it.
+            $folded = \Normalizer::normalize(str_replace("\u{2026}", "\u{E002}", $text), \Normalizer::FORM_KC);
+            $text = is_string($folded) ? str_replace("\u{E002}", "\u{2026}", $strip($folded)) : $text;
+        } else {
+            $text = (string) preg_replace_callback('/[\x{FF01}-\x{FF5E}]/u', static fn (array $m): string => chr((int) mb_ord($m[0], 'UTF-8') - 0xFEE0), $text);
+            $text = strtr($text, ["\u{3000}" => ' ', "\u{FE6B}" => '@', "\u{FE52}" => '.']);
+        }
+
+        return $text;
     }
 
     /** @return list<array{string, string|callable(array<int|string,string>): string}> */
@@ -226,10 +263,15 @@ final class Normalizer
                 . '["\']?+\s*+(?:=>|[:=])\s*+)(?:(["\'])((?:\\\\.|(?!\\2)[^\r\n])*+)(?:\\2|$)|(?!<|(?:bearer|basic|token|digest)\s++<)[^\s,;&"\'}\]]++)',
                 static fn (array $m): string => $m[1] . (($m[2] ?? '') !== '' ? $m[2] . '<TOKEN>' . $m[2] : '<TOKEN>'),
             ],
-            // A relative request line's query string: the keys stay, every value goes.
+            // A relative request line's query string: the WHOLE query (up to white space or a quote), every value goes
+            // unless it is already a placeholder; keys, key-only parts and the separators (`&`, `;`) stay.
             [
-                '(?<=[\w\/.-])(\?)([\w.%\[\]-]++=[^\s\'"\#' . $ang . ']*+(?:&[\w.%\[\]-]++=[^\s\'"\#' . $ang . ']*+)*+)',
-                static fn (array $m): string => $m[1] . (string) preg_replace('/=[^&]*+/', '=<STR>', $m[2]),
+                '(?<=[\w\/.-])\?[^\s\'"\#]*+',
+                static fn (array $m): string => '?' . (string) preg_replace_callback(
+                    '/(?<=^|[&;])([^&;=]*+)=((?!<[A-Z]++(?::[a-z0-9._-]++)?>(?:[&;]|$))[^&;]*+)/',
+                    static fn (array $p): string => $p[1] . '=<STR>',
+                    substr($m[0], 1),
+                ),
             ],
             ['(?<![\w.+-])(?:"[^"\r\n@]{1,64}"|[\w.+-]++)@[\w-]++(?:\.[\w-]++)*+', '<EMAIL>'],
             ['\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '<ID>'],
@@ -239,7 +281,9 @@ final class Normalizer
             ["(?<![\\w:])(?:(?:$h:){7}$h|(?:$h:){1,7}:(?:$h(?::$h){0,6})?|::$h(?::$h){0,6})(?![\\w:])", '<IP>'],
             [
                 // bare FQDN: >= 2 labels, alphabetic 2+ letter last label that is not a file extension
-                '(?<![\w\\\\.-])(?<host>(?:[a-z0-9][a-z0-9-]*+\.)+(?!(?:' . self::FILE_EXT . ')(?![a-z]))[a-z]{2,})(?![\w-]|\.\w)',
+                // Labels are any letters / marks / digits (IDN); the ideographic full stops count as dots between ASCII labels only (a CJK sentence is no host).
+                '(?<![\w\\\\.-])(?<host>(?:[\p{L}\p{N}][\p{L}\p{M}\p{N}-]*+\.)+(?!(?:' . self::FILE_EXT . ')(?![\p{L}\p{M}]))[\p{L}\p{M}]{2,}'
+                . '|(?:[a-z0-9][a-z0-9-]*+[\x{3002}\x{FF61}])++[a-z]{2,})(?![\w-]|\.\w)',
                 fn (array $m): string => $this->hostPlaceholder(strtolower($m['host']), 'HOST'),
             ],
             ['\b(?:\d[ -]?){12,18}\d\b', '<PAN>'],

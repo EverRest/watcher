@@ -138,4 +138,12 @@ return [
     'Kyivska',
     'jsmith@bastion',
     'Ak2SdFg4HjKl',
+    'ｏｌｅｎａ.ｋｏｗａｌ＠ｅｘａｍｐｌｅ.ｏｒｇ',
+    'dmytro.zero',
+    'taras%40example.org',
+    'iryna&#64;example.org',
+    'бухгалтерія.example.ua',
+    'stepan',
+    'Marichka+Fedorivna',
+    'Bohdan%20Lysenko',
 ];

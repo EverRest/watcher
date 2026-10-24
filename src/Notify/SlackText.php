@@ -33,7 +33,7 @@ final class SlackText
      */
     public static function escape(string $s): string
     {
-        $s = trim((string) preg_replace('/\s+/u', ' ', $s));
+        $s = trim((string) preg_replace('/\s+/u', ' ', self::stripFormat($s)));
 
         // Every star, even a lone one: this field is later embedded between stars the renderer adds, so it cannot know what pairs with it.
         $s = str_replace(['&', '<', '>', '`', '*'], ['&amp;', '&lt;', '&gt;', "'", self::LOOKALIKE['*']], $s);
@@ -41,11 +41,22 @@ final class SlackText
         // An opener (not after a word character, then a non-space) with a closer (after a non-space, not before a word character).
         $s = (string) preg_replace_callback('/(?<![\p{L}\p{N}_~])([_~])(?![\s_~])(.*?[^\s_~])\1(?![\p{L}\p{N}_~])/u', static fn (array $m): string => self::LOOKALIKE[$m[1]] . $m[2] . self::LOOKALIKE[$m[1]], $s);
 
-        return self::defang($s);
+        return self::zwsp($s);
+    }
+
+    /** Format characters (zero-width, bidi overrides and isolates, BOM, soft hyphen) can hide a link or reorder the text: none is kept. */
+    private static function stripFormat(string $s): string
+    {
+        return (string) preg_replace('/\p{Cf}+/u', '', $s);
     }
 
     /** The zero-width-space half of {@see escape()}, for text that is not Slack-escaped (other channels' plain path). */
     public static function defang(string $s): string
+    {
+        return self::zwsp(self::stripFormat($s)); // strip first: the zero-width spaces added below must survive
+    }
+
+    private static function zwsp(string $s): string
     {
         $dot = '[.\x{3002}\x{FF0E}\x{FF61}]'; // the full stop and the IDNA dots a browser treats as one
         $s = str_replace(['@', '://'], ["@\u{200B}", ":\u{200B}//"], $s);
@@ -61,9 +72,13 @@ final class SlackText
         return (string) preg_replace("/(?<![\\p{L}\\p{N}-])([a-z0-9-]+$dot)(?!(?:" . self::FILE_EXT . ")\\b)(?=[a-z]{3,24}\\b)/u", "$1\u{200B}", $s);
     }
 
-    /** Undoes {@see escape()} for the plain-text fallback of a message. */
+    /**
+     * The plain-text fallback of a message: the look-alikes go back to their characters and `&amp;` back to `&`, in ONE
+     * pass (so `&amp;lt;` is the text `&lt;`, never `<`). `<` and `>` stay `&lt;` / `&gt;` and the zero-width spaces
+     * stay: the fallback must not be able to form `<!channel>`, `<@U..>`, a link or an auto-linked host any more than the blocks can.
+     */
     public static function plain(string $s): string
     {
-        return str_replace(['&amp;', '&lt;', '&gt;', "\u{200B}", ...array_values(self::LOOKALIKE)], ['&', '<', '>', '', ...array_keys(self::LOOKALIKE)], $s);
+        return strtr($s, ['&amp;' => '&', ...array_flip(self::LOOKALIKE)]);
     }
 }

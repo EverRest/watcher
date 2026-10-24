@@ -104,4 +104,47 @@ final class NormalizerCredentialsTest extends TestCase
         self::assertSame('<EMAIL>', $n->normalize('jane@localhost'));
         self::assertSame('<EMAIL>', $n->normalize('"john smith"@example.com'));
     }
+
+    /** @return array<string, array{string, list<string>}> */
+    public static function queries(): array
+    {
+        return [
+            'key without value first' => ['GET /x?a&b=olenaS 500', ['olenaS']],
+            'after a masked token' => ['GET /x?token=zzz&q=olenaS 500', ['olenaS']],
+            'placeholder in the middle' => ['GET /x?a=1&token=zzz&q=olenaS&r=kyivS 500', ['olenaS', 'kyivS']],
+            'semicolon separated' => ['GET /x?a=1;q=olenaS 500', ['olenaS']],
+            'plus and percent encoded' => ['GET /x?q=olena+shevchenkoS&c=kyiv%20cityS&d=a%2Bb S', ['shevchenkoS', 'cityS']],
+            'repeated keys' => ['GET /x?q=olenaS&q=petroS&q=ivanS 500', ['olenaS', 'petroS', 'ivanS']],
+            'empty key parts' => ['GET /x?&&q=olenaS&=zS 500', ['olenaS', 'zS']],
+        ];
+    }
+
+    /** @param list<string> $gone */
+    #[DataProvider('queries')]
+    public function testWholeQueryIsMasked(string $in, array $gone): void
+    {
+        $out = (new Normalizer())->normalize($in);
+
+        foreach ($gone as $g) {
+            self::assertStringNotContainsString($g, $out, $out);
+        }
+    }
+
+    public function testQueryKeysStayAndKeyOnlyPartsAreKept(): void
+    {
+        self::assertSame('GET /x?a&b=<STR> <N>', (new Normalizer())->normalize('GET /x?a&b=olena 500'));
+    }
+
+    public function testQueryRuleIsLinear(): void
+    {
+        foreach ([1, 0] as $jit) {
+            ini_set('pcre.jit', (string) $jit);
+            foreach (['/x' . str_repeat('?a&', 1300), '/x?' . str_repeat('a=b&', 1000), '/x' . str_repeat('?', 4000), 'a/' . str_repeat('?&=', 1300)] as $in) {
+                $t = microtime(true);
+                (new Normalizer())->scan($in);
+                self::assertLessThan(0.5, microtime(true) - $t);
+            }
+        }
+        ini_set('pcre.jit', '1');
+    }
 }

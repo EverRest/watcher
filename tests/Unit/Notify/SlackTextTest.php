@@ -114,4 +114,27 @@ final class SlackTextTest extends TestCase
     {
         self::assertSame($expected, SlackText::escape($in));
     }
+
+    public function testPlainNeverRestoresControlSequences(): void
+    {
+        foreach (['&lt;!channel&gt;', '<!channel>', '<@U123ABC>', '&amp;lt;!here&amp;gt;', '<https://evil.example|Reset password>'] as $x) {
+            $plain = SlackText::plain(SlackText::escape($x));
+
+            self::assertStringNotContainsString('<', $plain, $x);
+            self::assertStringNotContainsString('>', $plain, $x);
+            self::assertDoesNotMatchRegularExpression('#://|@(?!\x{200B})#u', $plain, $x);
+        }
+        // One pass: an escaped ampersand is an ampersand, never the start of another entity.
+        self::assertSame('&lt;!channel&gt;', SlackText::plain('&amp;lt;!channel&amp;gt;'));
+    }
+
+    public function testFormatCharactersAreStrippedBeforeTheDefangSpaceIsAdded(): void
+    {
+        // A bidi override and a zero-width space inside a host do not hide it from the defang.
+        $out = SlackText::defang("evil\u{202E}\u{200B}.com");
+        self::assertStringNotContainsString("\u{202E}", $out);
+        self::assertSame("evil.\u{200B}com", $out);
+        self::assertStringNotContainsString("\u{2066}", SlackText::escape("x\u{2066}y"));
+        self::assertSame("a@\u{200B}b", SlackText::escape("a\u{FEFF}@b"));
+    }
 }
