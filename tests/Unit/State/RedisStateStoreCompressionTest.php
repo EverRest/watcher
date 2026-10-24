@@ -146,7 +146,7 @@ final class RedisStateStoreCompressionTest extends TestCase
         self::assertNull($store->get('over'));
         self::assertNull($store->get('bomb'));
         self::assertNull($store->get('plain'));
-        self::assertSame(2, $store->unreadable); // the plain oversize value is null as any plain non-JSON is
+        self::assertSame(3, $store->unreadable); // the plain oversize value is refused like the compressed ones
     }
 
     public function testABombIsRejectedWithMemoryBoundedByTheCapPlusASlice(): void
@@ -188,6 +188,85 @@ final class RedisStateStoreCompressionTest extends TestCase
         self::assertNull($store->get('trail'));
         self::assertSame(self::big(), $store->get('ok'));
         self::assertSame(2, $store->unreadable);
+    }
+
+    /** Runs StateCodec::decode on each payload in a child with memory_limit=128M; returns "<outcome> <peak delta bytes>" per payload. */
+    private static function child(string ...$raws): string
+    {
+        $script = sys_get_temp_dir() . '/watcher-m1-' . getmypid() . '-' . bin2hex(random_bytes(3)) . '.php';
+        $files = [];
+        foreach ($raws as $i => $raw) {
+            $files[] = $script . ".$i";
+            file_put_contents($script . ".$i", $raw);
+        }
+        file_put_contents($script, '<?php require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true) . ';'
+            . 'foreach (' . var_export($files, true) . ' as $f) { $raw = file_get_contents($f); $base = memory_get_peak_usage();'
+            . ' try { $v = Watcher\\State\\StateCodec::decode($raw); $r = is_array($v) ? "decoded" : "null"; } catch (UnexpectedValueException) { $r = "unreadable"; }'
+            . ' echo $r, " ", memory_get_peak_usage() - $base, "\n"; unset($v, $raw); }');
+        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M ' . escapeshellarg($script) . ' 2>&1');
+        @unlink($script);
+        array_map('unlink', $files);
+
+        return $out;
+    }
+
+    public function testTheDecodedStructureIsBudgetedSoNoValueCanExhaustMemory(): void
+    {
+        // 4 MB of `[0],` is valid JSON that decodes to ~237 MB: the old byte cap alone ended in an uncatchable fatal.
+        $deep = '[' . str_repeat('[0],', 1_000_000) . '[0]]';
+        self::assertLessThanOrEqual(StateCodec::MAX_BYTES, strlen($deep));
+        $flat = '[' . str_repeat('0,', 2_000_000) . '0]';
+        $lines = explode("\n", trim(self::child($deep, 'z1:' . gzcompress($deep, 6), $flat, 'z1:' . gzcompress($flat, 6))));
+
+        self::assertCount(4, $lines, 'the child must survive all four: ' . implode('|', $lines));
+        foreach ($lines as $line) {
+            self::assertMatchesRegularExpression('/^unreadable \d+$/', $line);
+            self::assertLessThan(16 * 1024 * 1024, (int) substr($line, 11), $line);
+        }
+    }
+
+    public function testTheWorstAcceptedValueStaysWellUnderTheMemoryLimit(): void
+    {
+        $map = [];
+        for ($i = 0; $i < StateCodec::MAX_ELEMENTS - 2 * StateCodec::MAX_CONTAINERS - 20; $i++) {
+            $map['k' . $i] = 0;
+        }
+        $lists = array_fill(0, StateCodec::MAX_CONTAINERS - 5, ['a' => 0]);
+        $json = (string) json_encode(['m' => $map, 'l' => $lists]);
+        self::assertTrue(StateCodec::fits($json), 'the fixture must be accepted');
+        $line = trim(self::child($json));
+
+        self::assertMatchesRegularExpression('/^decoded \d+$/', $line);
+        self::assertLessThan(32 * 1024 * 1024, (int) substr($line, 8), $line);
+    }
+
+    public function testAValueTheReaderWouldRefuseIsRefusedAtWrite(): void
+    {
+        $this->expectException(\Watcher\State\StateValueTooLarge::class);
+        StateCodec::encode(['x' => range(1, StateCodec::MAX_ELEMENTS + 1)], 512);
+    }
+
+    public function testTheStoreRefusesToPutAValueItCouldNotReadBack(): void
+    {
+        $store = $this->store();
+        try {
+            $store->put('snap:svc:1', ['x' => str_repeat('a', StateCodec::MAX_BYTES)], 60);
+            self::fail('an oversize value must not be written');
+        } catch (\Watcher\State\StateValueTooLarge $e) {
+            self::assertStringNotContainsString('svc', $e->getMessage());
+        }
+        self::assertNull($this->server->raw('p:snap:svc:1'));
+    }
+
+    public function testTrailingBytesAfterTheStreamAreRefusedWhereverTheyFall(): void
+    {
+        $z = (string) gzcompress((string) json_encode(self::big()), 6);
+        $store = $this->store();
+        foreach (['x', 'garbage', str_repeat('g', 5000)] as $i => $tail) {
+            $this->server->plant("p:t$i", 'z1:' . $z . $tail);
+            self::assertNull($store->get("t$i"), 'tail ' . $i);
+        }
+        self::assertSame(3, $store->unreadable);
     }
 
     public function testEncodeSkipsCompressionWithoutZlibAndDecodeRefusesZ1(): void
