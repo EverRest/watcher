@@ -14,14 +14,19 @@ Loki or Datadog, groups errors into fingerprinted clusters, decides in plain cod
 attention, asks Anthropic models to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
 it never acts on a service, opens tickets, or stores raw log lines.
 
+**Pipeline at a glance**
+
 ```
 LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) -> Dedupe -> Notifier
 (per env)    fingerprint  allowlist  anomaly     cheap     mid        strong       StateStore  Slack
              + counters   + normalise rules(code) model     model      model, once
              + vs yesterday
+   all steps share: StateStore (fingerprints, verdicts, run records, heartbeat) and the daily budget (spend per call)
 ```
 
 Every feature has an on/off flag in the config and a `WATCHER_*` environment variable, so one package can run in int, prod and dev with different settings; the master switch `enabled` (`WATCHER_ENABLED`) defaults to off and `environment` (`WATCHER_ENVIRONMENT`) prefixes the state keys (see [docs/configuration.md](docs/configuration.md#feature-flags-spec-012) and [docs/operations.md](docs/operations.md#enabling-and-disabling-per-environment)). Redaction has no switch.
+
+Also: `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
 
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
@@ -77,13 +82,60 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
    `watcher:run` command and merges `config/watcher.php`, which reads `WATCHER_*` environment variables.
-   Register the provider yourself (Lumen: `$app->register(Watcher\Laravel\WatcherServiceProvider::class)` in
-   `bootstrap/app.php`; Laravel: `config/app.php`; the package declares no auto-discovery). Laravel can publish the
+   Laravel auto-discovers the provider; in Lumen register it with `$app->register(Watcher\Laravel\WatcherServiceProvider::class)`
+   in `bootstrap/app.php`. Laravel can publish the
    config with `php artisan vendor:publish --tag=watcher-config`. Then schedule it hourly:
 
    ```php
    $schedule->command('watcher:run')->hourly();
    ```
+
+<!-- docs:start -->
+## Documentation
+
+The README is the overview; the detail lives in [docs/](docs/README.md) (the index). Internal planning documents in
+`docs/` (audit, review, brief, roadmap) and the publishing and development guides are excluded from the Composer
+archive via `.gitattributes`; they remain in the repository.
+
+| Document | What it covers |
+|---|---|
+| [docs/README.md](docs/README.md) | Index of every document in `docs/` |
+| [docs/smoke-test.md](docs/smoke-test.md) | First live run, step by step |
+| [docs/operations.md](docs/operations.md) | Running it: scheduling, alerting, dry run, heartbeat, fleet, troubleshooting |
+| [docs/configuration.md](docs/configuration.md) | Every key and environment variable, feature flags |
+| [docs/privacy.md](docs/privacy.md) | What leaves the service |
+| [docs/development.md](docs/development.md) | Tests, coverage, hooks, supported versions |
+| [docs/publishing.md](docs/publishing.md), [docs/repository-settings.md](docs/repository-settings.md) | Release process and GitHub settings |
+| [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md) | Reporting vulnerabilities; release history |
+| [docs/roadmap.md](docs/roadmap.md), [docs/brief.md](docs/brief.md) | Planned specs; the original brief |
+| [docs/examples/](docs/examples/) | Configs: [single service](docs/examples/smoke.config.php), [Loki](docs/examples/orders-api.loki.config.php), [fleet](docs/examples/watcher-fleet.php) |
+| [.specify/memory/constitution.md](.specify/memory/constitution.md) | Principles every change must respect |
+
+Architecture and decisions for the run workflow live in spec 001:
+[plan](specs/001-scheduled-log-watch/plan.md), [research](specs/001-scheduled-log-watch/research.md),
+[data model](specs/001-scheduled-log-watch/data-model.md) and the
+[contracts](specs/001-scheduled-log-watch/contracts/) (configuration, PHP interfaces, analyzer output schema, Slack messages).
+
+### Specs
+
+Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) and the [changelog](CHANGELOG.md).
+
+| Spec | Topic | Status |
+|---|---|---|
+| [001](specs/001-scheduled-log-watch/spec.md) | Scheduled log watch | Implemented (live run pending) |
+| [002](specs/002-operability-tools/spec.md) | Operability tools | Implemented |
+| [003](specs/003-fleet-and-correlation/spec.md) | Fleet and correlation | Implemented |
+| [004](specs/004-baselines-and-templates/spec.md) | Baselines and templates | Implemented (backend patterns deferred) |
+| [005](specs/005-incident-workflow/spec.md) | Incident workflow | Spec written |
+| [006](specs/006-log-hygiene/spec.md) | Log hygiene | Spec written |
+| [007](specs/007-code-aware-analysis/spec.md) | Code-aware analysis | Spec written, blocked on a constitution amendment |
+| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Spec written |
+| [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Spec written |
+| [010](specs/010-api-context/spec.md) | API context | Spec written |
+| [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
+| [012](specs/012-feature-flags/spec.md) | Feature flags and environments | Implemented (changelog) |
+| [013](specs/013-observability-sink/spec.md) | Observability sink | Spec written |
+<!-- docs:end -->
 
 ## Configuration
 
@@ -140,7 +192,7 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.
 
 What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,
-written by you); (2) to Slack, the digest (titles, evidence, hypotheses, counts, short fingerprints, cost line) and
+written by you); (2) to the notification channel (Slack, Telegram or Discord), the digest (titles, evidence, hypotheses, counts, short fingerprints, cost line) and
 failure/budget notices; (3) queries to your log backend. Nothing else is sent anywhere.
 
 ## Cost model
@@ -203,11 +255,6 @@ decided in code from names, placeholders and times; it makes no model call and w
 [docs/examples/watcher-fleet.php](docs/examples/watcher-fleet.php), [operations](docs/operations.md#fleet) and the
 [configuration reference](docs/configuration.md#fleet-configuration).
 
-## Documentation
-
-[docs/](docs/README.md): [first live smoke run](docs/smoke-test.md), [operating it](docs/operations.md),
-[configuration reference](docs/configuration.md) and [what leaves the service](docs/privacy.md).
-
 ## Known limits
 
 - The Grafana Explore URL shape and the Datadog response shapes are not verified against live systems; sources are
@@ -226,7 +273,6 @@ decided in code from names, placeholders and times; it makes no model call and w
   threshold again or on the next day.
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
-- The suite passes on PHP 8.1, 8.3, 8.4 (official Docker images) and 8.5; the GitHub Actions matrix in `.github/workflows/ci.yml` has not run yet because the repository has no remote.
 - Only Slack, Telegram, Discord, Anthropic, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
 
 ## Development
