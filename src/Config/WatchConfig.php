@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Config;
 
 use Watcher\Notify\Destination;
+use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Level;
 
 /**
@@ -457,7 +458,7 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function analysis(array $a): array
     {
-        self::only($a, ['provider', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage', 'advice'], 'analysis');
+        self::only($a, ['provider', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage', 'advice'], 'analysis');
         self::str($a, 'api_key', 'analysis.api_key');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
@@ -477,6 +478,14 @@ final class WatchConfig implements \JsonSerializable
             }
         }
 
+        $client = self::optStr($a, 'client', 'http', 'analysis.client');
+        if (!in_array($client, ['http', 'sdk'], true)) {
+            throw new InvalidConfig('analysis.client must be http or sdk');
+        }
+        if ($client === 'sdk' && !SdkMessagesClient::available()) {
+            throw new InvalidConfig('analysis.client is sdk but anthropic-ai/sdk is not installed: run composer require anthropic-ai/sdk, or set analysis.client to http');
+        }
+
         $prices = self::prices(self::section($a, 'prices'), $models);
         $percents = $a['budget_alert_percents'] ?? [25, 50, 75, 90];
         $tokenLimit = $a['daily_token_limit'] ?? null;
@@ -489,6 +498,7 @@ final class WatchConfig implements \JsonSerializable
 
         return array_merge($a, $limits, [
             'provider' => self::optStr($a, 'provider', 'anthropic', 'analysis.provider'),
+            'client' => $client,
             'models' => $models,
             'confidence_threshold' => $conf,
             'escalation_cap' => self::posInt($a, 'escalation_cap', 3, 'analysis.escalation_cap'),

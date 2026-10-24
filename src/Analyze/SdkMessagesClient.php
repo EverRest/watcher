@@ -14,7 +14,16 @@ use Psr\Http\Client\ClientInterface;
 /** Rollback path (`analysis.client = sdk`): the official SDK, for one release. */
 final class SdkMessagesClient implements MessagesClient
 {
+    /** Test seam: null detects the package, a bool overrides the detection. */
+    public static ?bool $installed = null;
+
     private readonly SdkClient $client;
+
+    /** anthropic-ai/sdk is optional (`suggest`); `analysis.client = sdk` needs it. */
+    public static function available(): bool
+    {
+        return self::$installed ?? class_exists(SdkClient::class);
+    }
 
     /** @param array<string, mixed> $requestOptions SDK request options; the SDK defaults (2 retries) apply when empty */
     public function __construct(#[\SensitiveParameter] string $apiKey, ClientInterface $http, ?string $baseUrl = null, array $requestOptions = [])
