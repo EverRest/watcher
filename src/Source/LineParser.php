@@ -43,14 +43,12 @@ final class LineParser
     private const TRACE_HEAD = '/^(?:\d{4}[-\/]\d\d[-\/]\d\d[T ]\d\d:\d\d:\d\d\S*\s+)?(?:PHP\s+)?(?:[\[<(]?(?i:trace|debug|info|notice|warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal|panic)(?!\w)[\]>)]?[:\s-]*)?(?:Traceback|panic:|goroutine \d+|(?:PHP )?Fatal error|fatal error:|Exception in thread|thread \'[^\']*\' panicked|Stack trace:|Caused by:)/';
     /** Lines that carry nothing beyond a stack frame: dropped (and counted) when no record is open to hold them. */
     private const FRAME_ONLY = '/^(?:#\d+ |\s+at\s|\s+\/\S*:\d+|\s+\d+: |goroutine \d+ \[|[\w.\/*-]+(?:\([^)]*\))?\((?:0x[0-9a-f]+|\.\.\.))/';
-    /** Lines a trace may absorb beyond its head when they match no known frame shape. */
-    private const TRACE_ABSORB_CAP = 200;
 
     /** Every physical line is cut here before any regex runs on it (a line longer than a few KB is never log structure). */
     public const MAX_LINE = 8192;
     /** An open record stops taking continuation lines at this many bytes / lines. */
     public const MAX_RECORD_BYTES = 65536;
-    public const MAX_RECORD_LINES = 200;
+    public const MAX_RECORD_LINES = 200; // also what a crash trace may absorb beyond its head
     /** Longest JSON line decoded whole (json_decode is linear; the cap bounds memory). */
     private const MAX_JSON_BYTES = 262144;
     /** Tail of a Laravel record whose context JSON holds raw line breaks: `[stacktrace]` and the line that closes the string (`"} []`). */
@@ -97,6 +95,11 @@ final class LineParser
         return $d;
     }
 
+    private function parseFailed(): bool
+    {
+        return $this->lastParseFailed;
+    }
+
     /** One physical line, cut at MAX_LINE on a character boundary; counted when it was cut. */
     public function capLine(string $line): string
     {
@@ -109,6 +112,7 @@ final class LineParser
     }
 
     /** preg_match on log text: a failure is counted and reads as "no match", never as an exception or a silent skip. */
+    /** @param array<int|string, string>|null $m */
     private function re(string $pattern, string $subject, ?array &$m = null): bool
     {
         $r = preg_match($pattern, $subject, $m);
@@ -173,12 +177,6 @@ final class LineParser
         if (!$this->re(self::TRACE_HEAD, $head)) {
             return false;
         }
-        if (substr_count($open, "\n") >= self::TRACE_ABSORB_CAP) {
-            ++$this->traceLinesCapped;
-
-            return false;
-        }
-
         return true;
     }
 
@@ -244,7 +242,7 @@ final class LineParser
         }
 
         // A regex that failed on this line leaves its level a guess: Warning (a source with a stream label prefers the label), never a quiet Info.
-        $guess = $this->lastParseFailed ? Level::Warning : Level::Info;
+        $guess = $this->parseFailed() ? Level::Warning : Level::Info;
 
         return $this->withException(new LogEvent($fallback, $this->plainLevel($head) ?? $guess, $head, null, [], [], []), $rest);
     }
