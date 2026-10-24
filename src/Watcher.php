@@ -68,6 +68,7 @@ use Watcher\Select\MuteList;
 use Watcher\Select\WatchRules;
 use Watcher\Select\Selector;
 use Watcher\Source\LogSource;
+use Watcher\Source\ReadDiagnostics;
 use Watcher\Source\ReadFilter;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
@@ -759,6 +760,7 @@ final class Watcher
             $annotations,
             $comparison,
             $reducer->mining(),
+            $this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : [],
         ), $c->analysis['confidence_threshold']);
         try {
             $this->notifier->send($message, $c->destination('digest'));

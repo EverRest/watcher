@@ -69,6 +69,16 @@ final class DigestRendererTest extends TestCase
         ));
     }
 
+    public function testReadDiagnosticsAreCountsInOneNoticeAndOnlyWhenNonZero(): void
+    {
+        $quiet = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0]]), 0.5), 'notice');
+        $loud = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 3, 'orphan_trace_lines' => 1200, 'message_tails_dropped' => 0]]), 0.5), 'notice');
+
+        self::assertStringNotContainsString('read quality', $quiet);
+        self::assertStringContainsString('ℹ️ read quality: 3 events with an unrecognised level (read as info), 1,200 stack-frame lines dropped (no open record)', $loud);
+        self::assertStringNotContainsString('multi-line', $loud);
+    }
+
     public function testHeaderLineHasServiceEnvWindowInDisplayTimezoneAndRelease(): void
     {
         $m = (new DigestRenderer())->render($this->data([], [], ['release' => 'v1.2']), 0.5);

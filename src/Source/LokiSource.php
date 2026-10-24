@@ -14,7 +14,7 @@ use Watcher\Level;
 use Watcher\Schedule\Window;
 
 /** Reads a window from Loki: server-side totals, server-filtered forward-paged lines, version labels. */
-final class LokiSource implements LogSource
+final class LokiSource implements LogSource, ReadDiagnostics
 {
     private const PAGE_LIMIT = 5000;
     private const VERSION_STEP = 3600;
@@ -37,6 +37,8 @@ final class LokiSource implements LogSource
     private readonly Retry $retry;
     private bool $truncated = false;
     private LineParser $parser;
+    /** @var array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int} counts of the parsers `lines()` has already replaced */
+    private array $folded = ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0];
 
     /**
      * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words (misses
@@ -95,6 +97,7 @@ final class LokiSource implements LogSource
     public function lines(Window $window, StreamSelector $selector, ReadFilter $filter): Generator
     {
         $this->truncated = false;
+        $this->folded = $this->readDiagnostics();
         $this->parser = new LineParser();
         $labelled = $this->levelMode === 'label' && $filter->watchPatterns === [];
         $query = $this->selector($selector, $labelled ? $this->levelMatcher($filter) : '') . $this->lineFilter($filter);
@@ -153,6 +156,17 @@ final class LokiSource implements LogSource
     public function orphanTraceLines(): int
     {
         return $this->parser->orphanTraceLines;
+    }
+
+    public function readDiagnostics(): array
+    {
+        $now = $this->parser->diagnostics();
+
+        return [
+            'unknown_levels' => $this->folded['unknown_levels'] + $now['unknown_levels'],
+            'orphan_trace_lines' => $this->folded['orphan_trace_lines'] + $now['orphan_trace_lines'],
+            'message_tails_dropped' => $this->folded['message_tails_dropped'] + $now['message_tails_dropped'],
+        ];
     }
 
     public function lastReadTruncated(): bool
@@ -251,7 +265,7 @@ final class LokiSource implements LogSource
     private function event(int $ts, string $line, array $labels): LogEvent
     {
         $time = (new DateTimeImmutable('@' . intdiv($ts, 1_000_000_000)))->setTimezone(new DateTimeZone('UTC'));
-        $parsed = (new LineParser())->parse($line, $time);
+        $parsed = $this->parser->parse($line, $time);
         $level = $parsed->level === Level::Info && isset($labels['level']) ? Level::parse($labels['level']) : $parsed->level;
 
         return new LogEvent($parsed->time, $level, $parsed->message, $parsed->errorType, $parsed->frames, $parsed->fields, $labels);

@@ -61,6 +61,12 @@ final class LineParser
     /** Trace-shaped lines dropped because no record was open to carry them (a page or stream that starts mid-trace). */
     public int $orphanTraceLines = 0;
 
+    /** @return array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int} */
+    public function diagnostics(): array
+    {
+        return ['unknown_levels' => $this->unknownLevels, 'orphan_trace_lines' => $this->orphanTraceLines, 'message_tails_dropped' => $this->messageTailsDropped];
+    }
+
     /** Unrecognised lines refused by the per-record absorb cap (the next one starts a new record). */
     public int $traceLinesCapped = 0;
 

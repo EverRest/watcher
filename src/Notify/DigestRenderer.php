@@ -129,6 +129,9 @@ final class DigestRenderer
         if ($d->droppedGroups > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s groups dropped (budget)', number_format($d->droppedGroups))];
         }
+        if (($line = $this->readQualityLine($d->readDiagnostics)) !== null) {
+            $out[] = ['kind' => 'notice', 'text' => $line];
+        }
 
         if ($d->overflowedEvents > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ cluster cap hit: %s events from distinct messages beyond the first %s were grouped as other', number_format($d->overflowedEvents), number_format($d->groupCap))];
@@ -164,6 +167,23 @@ final class DigestRenderer
         $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
 
         return $out;
+    }
+
+    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int} $diag */
+    private function readQualityLine(array $diag): ?string
+    {
+        $parts = [];
+        foreach ([
+            'unknown_levels' => '%s events with an unrecognised level (read as info)',
+            'orphan_trace_lines' => '%s stack-frame lines dropped (no open record)',
+            'message_tails_dropped' => '%s multi-line messages cut to their first line',
+        ] as $key => $format) {
+            if (($diag[$key] ?? 0) > 0) {
+                $parts[] = sprintf($format, number_format($diag[$key]));
+            }
+        }
+
+        return $parts === [] ? null : 'ℹ️ read quality: ' . implode(', ', $parts);
     }
 
     /**
