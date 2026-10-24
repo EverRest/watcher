@@ -1,7 +1,26 @@
 # Changelog
 
 ## Unreleased
-- Notices and digests (Lane D review leftovers): model text can no longer format (`*`, `_`, `~`) or spoof `:emoji:` on any channel; IDN, IDNA-dot and `xn--` hosts are defanged while code identifiers such as `Mailer.send` stay copyable; failure notices mask every configured credential (`WatchConfig::secrets()`) and Authorization-like values; the digest gets a "read quality" line (unknown levels, orphan trace lines, cut multi-line messages) from the optional `ReadDiagnostics` interface (Loki, Datadog); `Retry` no longer chains Guzzle exceptions (their message carries the URL). Product release label **v0.1.1** (`VERSION`).
+
+## 0.1.2 — 2026-10-24 — Security release
+
+Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fail-closed model use, availability guards, input hardening and the regression fixes found by the review of this very release.
+
+**BREAKING**
+- `http://` Loki and Slack URLs are refused unless `allow_insecure: true` is set and the host is loopback, an RFC 1918 address or a cluster-local name (`*.svc`, `*.cluster.local`). Plain `http` to a public host is never accepted. In-cluster options: `docs/operations.md`.
+- Redis transport is NOT included in this hardening: use a `tls://` host and an ACL `username`; a plaintext Redis stays plaintext.
+
+### Regression fixes (review of the hardening)
+- A page over the response cap no longer fails the source: the same cursor is re-read with half the page size (down to 100 lines), the digest read-quality line counts it (`pages_shrunk`), and the cap is `source.max_response_mb` (default 16, max 64). A declared `Content-Length` over the cap still aborts at the headers.
+- The file state directory may be group-writable (`0775` Laravel `storage`); only a world-writable directory without the sticky bit, or one the running user does not own, is refused, with a message naming `state.file.path` in the run notice and in `watcher check`.
+- A window cut by the run deadline or the memory guard is no longer recorded as done: the next trigger reads it once more with a full budget; a second cut is recorded final (`truncated:deadline`) with a loud notice. A fleet's equal time share is floored at half of the smallest `lock_ttl`.
+- The advice denylist (`[withheld]`) runs on the canonical text (zero-width, fullwidth, percent- and entity-encoded forms) and covers kubectl, systemctl, service, iptables, ufw, curl/wget uploads, nc -e, dd, shutdown/reboot, killall/pkill/kill -9, `> /dev/...`, TRUNCATE/DELETE FROM, git push --force, docker rm/stop/kill, base64 -d, python/perl -c/-e.
+- Structured lines over 64 KB become a placeholder event that keeps their level instead of vanishing; dropped plain over-long lines are counted in the digest read-quality line.
+- A triage verdict the model omitted is treated as `interesting` (fail closed, counted in the existing digest line) instead of failing the run; duplicates, unknown fingerprints and malformed JSON are still invalid output.
+- `allow_insecure` also admits private-network and cluster-local hosts (explicit opt-in, a documented trust decision).
+- Tests: the Redis renew cases use real TTLs; CI fails when `WATCHER_TEST_REDIS` is missing; five surviving mutants are pinned (headers abort, fatal guard wiring, anomaly-pass deadline, Datadog redirects, Loki labelled flag).
+
+- Notices and digests (Lane D review leftovers): model text can no longer format (`*`, `_`, `~`) or spoof `:emoji:` on any channel; IDN, IDNA-dot and `xn--` hosts are defanged while code identifiers such as `Mailer.send` stay copyable; failure notices mask every configured credential (`WatchConfig::secrets()`) and Authorization-like values; the digest gets a "read quality" line (unknown levels, orphan trace lines, cut multi-line messages) from the optional `ReadDiagnostics` interface (Loki, Datadog); `Retry` no longer chains Guzzle exceptions (their message carries the URL). 
 
 ### Security
 - Raised dependency floors to versions that are advisory-free and that CI actually passes on: `guzzlehttp/guzzle` ^7.15.2, `psr/log` ^2.0 || ^3.0 (the 1.x line was incompatible with `StderrLogger`), and `php-http/discovery` ^1.12 is now a direct requirement (the SDK alone allowed 1.9, which breaks it).
