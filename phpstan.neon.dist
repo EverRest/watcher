@@ -38,3 +38,9 @@ parameters:
             identifier: function.alreadyNarrowedType
             path: src/Source/Kubernetes/KubeApi.php
             reportUnmatched: false
+        # KubeApiTest::timeout(): ConnectTimeoutException exists on Guzzle 8 only, so is_subclass_of is always true there and false on Guzzle 7.
+        # Reported only when analysed against Guzzle 8, hence reportUnmatched: false.
+        -
+            identifier: function.alreadyNarrowedType
+            path: tests/Unit/Source/Kubernetes/KubeApiTest.php
+            reportUnmatched: false
