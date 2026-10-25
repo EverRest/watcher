@@ -198,7 +198,7 @@ final class Watcher
             $c,
             Factory::source($c, $http, $clock),
             Factory::state($c, $clock, $hostLog),
-            Factory::analyzer($c, $options?->dryRun ?? false),
+            Factory::analyzer($c, $options->dryRun ?? false),
             Factory::notifier($http, $c->schedule['lock_ttl']),
             $clock,
             $hostLog,

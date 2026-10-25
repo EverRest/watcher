@@ -345,7 +345,9 @@ final class Hygiene
             }
         })();
         $groups = $reducer->reduce($events);
-        $timedOut = $timedOut || $filter->truncationReason !== null; // the guard stopped the source inside its paging
+        if ($filter->truncationReason !== null) {
+            $timedOut = true; // the guard stopped the source inside its paging
+        }
         $floor = new LiteralFloor($scanner->commonWords());
         $variable = array_map(
             static fn (array $row): array => ['tpl' => $floor->mask($row['tpl']), 'th' => substr(hash('sha256', 'v|' . $row['tpl']), 0, 15)] + $row,

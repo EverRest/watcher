@@ -140,7 +140,6 @@ final class CostReaderTest extends TestCase
         $reader = $this->reader(WatchConfig::fromArray([...self::raw(), 'analysis' => [...self::raw()['analysis'], 'daily_token_limit' => null]]));
 
         self::assertNull($reader->read(new DateTimeImmutable(self::NOW), 1)['days'][0]['cap_share']['tokens']);
-        self::assertNotNull($c);
     }
 
     /** @return array<string, mixed> */

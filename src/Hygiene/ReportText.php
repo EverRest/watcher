@@ -40,7 +40,7 @@ final class ReportText
             // html_entity_decode leaves numeric references to control characters alone (`&#x1B;`, `&#133;`); a character that is
             // invisible once decoded is dropped here, as the cleaning would drop it.
             $drop = static function (int $cp, string $whole): string {
-                return $cp > 0 && $cp <= 0x10FFFF && ($c = mb_chr($cp, 'UTF-8')) !== false && self::clean($c) === '' ? '' : $whole;
+                return $cp > 0 && $cp <= 0x10FFFF && self::clean((string) mb_chr($cp, 'UTF-8')) === '' ? '' : $whole;
             };
             $s = (string) preg_replace_callback('/&#x([0-9a-f]{1,6});/i', static fn (array $m): string => $drop((int) hexdec($m[1]), $m[0]), $s);
             $s = (string) preg_replace_callback('/&#([0-9]{1,7});/', static fn (array $m): string => $drop((int) $m[1], $m[0]), $s);
