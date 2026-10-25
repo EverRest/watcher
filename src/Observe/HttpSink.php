@@ -16,10 +16,12 @@ final class HttpSink implements EventSink, TimeBoundedSink
 {
     private readonly \Closure $now;
 
+    private readonly \Closure $sleep;
+
     public function __construct(
         private readonly HttpTarget $target,
         private readonly ClientInterface $client,
-        /** @var Retry|\Closure(int): Retry $retry a Closure builds the Retry for the seconds left, so no sleep can pass the run deadline */
+        /** @var Retry|\Closure(int, callable(int): void): Retry $retry a Closure builds the Retry from the seconds left and a deadline-guarded sleeper, so no wait or attempt can pass the run deadline */
         private readonly Retry|\Closure $retry,
         private readonly int $batchSize,
         private int $timeout,
@@ -28,8 +30,12 @@ final class HttpSink implements EventSink, TimeBoundedSink
         #[\SensitiveParameter] private readonly ?string $authToken,
         private int $flushBudgetSeconds = 15,
         ?callable $now = null,
+        ?callable $sleep = null,
     ) {
         $this->now = $now === null ? static fn (): float => microtime(true) : \Closure::fromCallable($now);
+        $this->sleep = $sleep === null ? static function (int $s): void {
+            sleep($s);
+        } : \Closure::fromCallable($sleep);
     }
 
     /** The run deadline leaves this many seconds: neither one request nor the whole flush may outlast them. */
@@ -61,18 +67,28 @@ final class HttpSink implements EventSink, TimeBoundedSink
                 throw new SinkFailed('http flush budget exceeded');
             }
             $left = max(1, (int) floor($this->flushBudgetSeconds - $elapsed));
-            $retry = $this->retry instanceof \Closure ? ($this->retry)($left) : $this->retry;
+            $stop = false;
+            // A wait that would end at or after the budget is not slept; the next attempt then sees $stop and never starts.
+            $guarded = function (int $seconds) use ($start, &$stop): void {
+                if (($this->now)() - $start + $seconds >= $this->flushBudgetSeconds) {
+                    $stop = true;
+
+                    return;
+                }
+                ($this->sleep)($seconds);
+            };
+            $retry = $this->retry instanceof \Closure ? ($this->retry)($left, $guarded) : $this->retry;
             $headers = ['Content-Type' => 'application/x-ndjson'];
             if ($this->authToken !== null) {
                 $headers[$this->authHeader] = trim($this->authScheme . ' ' . $this->authToken);
             }
             $attempts = 0;
             try {
-                $response = $retry->send(function () use ($headers, $body, $start, &$attempts) {
-                    $timeout = $this->timeout;
+                $response = $retry->send(function () use ($headers, $body, $start, $left, &$attempts, &$stop) {
+                    $timeout = min($this->timeout, $left);
                     if ($attempts++ > 0) {
                         $spent = ($this->now)() - $start;
-                        if ($spent >= $this->flushBudgetSeconds) {
+                        if ($stop || $this->flushBudgetSeconds - $spent < 1) {
                             throw new SinkFailed('http flush budget exceeded'); // not a Guzzle exception: Retry lets it through
                         }
                         $timeout = min($timeout, max(1, (int) floor($this->flushBudgetSeconds - $spent))); // a late attempt may not outlast the budget

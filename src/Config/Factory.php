@@ -383,7 +383,7 @@ final class Factory
         $target = $o->httpTarget();
         if ($o->http['enabled'] && $target !== null) {
             $h = $o->http;
-            $sinks['http'] = [new HttpSink($target, $http ?? new Client(self::observeHttpOptions($h['timeout'])), static fn (int $left): Retry => new Retry(null, min(15, $left)), $h['batch_size'], $h['timeout'], $h['auth_header'], $h['auth_scheme'], $o->httpToken(), 15), $h['include_text']];
+            $sinks['http'] = [new HttpSink($target, $http ?? new Client(self::observeHttpOptions($h['timeout'])), static fn (int $left, callable $sleeper): Retry => new Retry($sleeper, min(15, $left)), $h['batch_size'], $h['timeout'], $h['auth_header'], $h['auth_scheme'], $o->httpToken(), 15), $h['include_text']];
         }
         if ($o->prometheus['enabled'] && !$probe) {
             $p = $o->prometheus;

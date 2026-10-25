@@ -261,9 +261,10 @@ final class HttpSinkTest extends TestCase
         $this->history = [];
         $stack = HandlerStack::create(new MockHandler($queue));
         $stack->push(Middleware::history($this->history)); // @phpstan-ignore assign.propertyType
-        $sink = new HttpSink(HttpTarget::parse(self::URL, [], false, false, null), new Client(['handler' => $stack]), static function (int $left) use (&$slept): Retry {
-            return new Retry(static function (int $s) use (&$slept): void {
+        $sink = new HttpSink(HttpTarget::parse(self::URL, [], false, false, null), new Client(['handler' => $stack]), static function (int $left, callable $sleeper) use (&$slept): Retry {
+            return new Retry(static function (int $s) use (&$slept, $sleeper): void {
                 $slept[] = $s;
+                $sleeper($s);
             }, min(15, $left));
         }, 100, 5, 'Authorization', 'Bearer', self::TOKEN, 15, $now);
         $sink->within($within);
@@ -305,7 +306,7 @@ final class HttpSinkTest extends TestCase
     public function testALateAttemptGetsOnlyWhatIsLeftAsItsTimeout(): void
     {
         $slept = [];
-        $t = [0.0, 10.0]; // start, then the clock the second attempt sees
+        $t = [0.0, 0.0, 10.0]; // start, the guard before the retry wait, then the clock the second attempt sees
         $sink = $this->boundedSink([new ConnectException('x', new Request('POST', 'https://logs.example.com/')), new Response(200)], $slept, 15, static function () use (&$t): float {
             return array_shift($t) ?? 99.0;
         });
@@ -313,5 +314,49 @@ final class HttpSinkTest extends TestCase
 
         self::assertSame(5, $this->history[1]['options']['timeout'], 'min(5 s timeout, 5 s left)');
         self::assertSame(5, $this->history[0]['options']['timeout']);
+    }
+
+    public function testNoWaitOrAttemptStartsThatCannotFinishInsideTheBudget(): void
+    {
+        $t = 0.0;
+        $now = static function () use (&$t): float {
+            return $t;
+        };
+        $attempts = 0;
+        $handler = static function ($request, array $options) use (&$t, &$attempts) {
+            ++$attempts;
+            $t += $options['timeout']; // every attempt runs into its timeout
+            throw new ConnectException('timeout', $request);
+        };
+        $stack = HandlerStack::create(new MockHandler([$handler, $handler, $handler, $handler]));
+        $waits = [];
+        $sink = new HttpSink(
+            HttpTarget::parse(self::URL, [], false, false, null),
+            new Client(['handler' => $stack]),
+            static fn (int $left, callable $sleeper): Retry => new Retry($sleeper, min(15, $left)),
+            100,
+            5,
+            'Authorization',
+            'Bearer',
+            self::TOKEN,
+            15,
+            $now,
+            static function (int $s) use (&$t, &$waits): void {
+                $waits[] = $s;
+                $t += $s;
+            },
+        );
+        $sink->within(10);
+
+        try {
+            $sink->emit(self::events(1));
+            self::fail('expected SinkFailed');
+        } catch (SinkFailed) {
+            $this->addToAssertionCount(1);
+        }
+
+        self::assertLessThanOrEqual(10.0, $t, 'attempts and waits together stay inside the 10 s the run deadline leaves');
+        self::assertSame([1], $waits, 'the 3 s wait would end at 13 s and is never started');
+        self::assertSame(2, $attempts);
     }
 }
