@@ -98,9 +98,11 @@ final class ObserveFactoryTest extends TestCase
 
         self::assertNotNull($d);
         self::assertSame([], $d->dispatch([$this->event()], 9));
-        self::assertCount(1, (array) $history);
-        self::assertFalse($history[0]['options']['allow_redirects']);
-        self::assertSame('Bearer tok-observe-1234', $history[0]['request']->getHeaderLine('Authorization'));
+        $sent = (array) $history;
+        self::assertCount(1, $sent);
+        self::assertNotNull($sent[0]);
+        self::assertFalse($sent[0]['options']['allow_redirects'] ?? true);
+        self::assertSame('Bearer tok-observe-1234', $sent[0]['request']->getHeaderLine('Authorization'));
         self::assertSame(['allow_redirects' => false, 'connect_timeout' => 5], Factory::observeHttpOptions(5));
     }
 
