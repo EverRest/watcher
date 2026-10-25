@@ -35,6 +35,9 @@ final class Heartbeat
     private const OK_OUTCOMES = ['reported', 'quiet', 'baselined'];
     private const SKIPPED = ['skipped_done', 'skipped_locked'];
 
+    /** @var \Closure(): list<string> */
+    private readonly \Closure $secrets;
+
     /** @param list<string> $secrets exact values (API keys, webhooks) masked in the stored failure reason */
     public function __construct(
         private readonly StateStore $store,
@@ -43,8 +46,9 @@ final class Heartbeat
         private readonly DateTimeZone $timezone,
         private readonly int $retention,
         private readonly ?LoggerInterface $log = null,
-        #[\SensitiveParameter] private readonly array $secrets = [],
+        #[\SensitiveParameter] array $secrets = [],
     ) {
+        $this->secrets = static fn (): array => $secrets; // a closure: var_export shows no value
     }
 
     public function recordRun(
@@ -198,7 +202,7 @@ final class Heartbeat
     /** Same rules as RunResult::summary() / NoticeRenderer: one short line, no quotes, no URLs, no secrets. */
     private function reason(string $reason): string
     {
-        foreach ($this->secrets as $secret) {
+        foreach (($this->secrets)() as $secret) {
             if (strlen($secret) >= self::MIN_SECRET) {
                 $reason = str_replace($secret, '[redacted]', $reason);
             }
@@ -208,5 +212,16 @@ final class Heartbeat
         $reason = trim((string) preg_replace('/\s+/u', ' ', str_replace('"', "'", $reason)));
 
         return mb_strlen($reason) <= self::MAX_REASON ? $reason : mb_substr($reason, 0, self::MAX_REASON - 1) . '…';
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }

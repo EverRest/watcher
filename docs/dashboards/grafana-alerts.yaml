@@ -1,0 +1,90 @@
+# Grafana-managed alert rules on the Loki event stream, in file-provisioning format (for operators without Prometheus).
+# Put it in provisioning/alerting/. Replace the datasource uid placeholders with your own Loki uid and the stream selector
+# with the labels your collector sets. No rule copies event text into a notification. No-data is Alerting: silence is the failure.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: watcher
+    folder: Watcher
+    interval: 5m
+    rules:
+      - uid: watcher-no-success-36h
+        title: WatcherNoSuccessfulRun36h
+        condition: C
+        noDataState: Alerting
+        execErrState: Error
+        for: 15m
+        labels: {severity: critical, team: platform}
+        annotations: {summary: "No successful watcher run for 36 h", runbook_url: "https://runbooks.example.invalid/watcher"}
+        data:
+          - refId: A
+            relativeTimeRange: {from: 129600, to: 0}
+            datasourceUid: LOKI_DATASOURCE_UID
+            model: {refId: A, queryType: instant, expr: 'sum by (service) (count_over_time({app="watcher"} | json | event_type="run" | outcome=~"reported|quiet|baselined" [36h]))'}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: lt, params: [1]}}]}
+      - uid: watcher-run-failed
+        title: WatcherRunFailed
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels: {severity: warning, team: platform}
+        annotations: {summary: "A watcher run failed", runbook_url: "https://runbooks.example.invalid/watcher"}
+        data:
+          - refId: A
+            relativeTimeRange: {from: 86400, to: 0}
+            datasourceUid: LOKI_DATASOURCE_UID
+            model: {refId: A, queryType: instant, expr: 'sum by (service) (count_over_time({app="watcher"} | json | event_type="run" | outcome="failed" [1d]))'}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: gt, params: [0]}}]}
+      - uid: watcher-budget-high
+        title: WatcherBudgetHigh
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels: {severity: warning, team: platform}
+        annotations: {summary: "watcher used more than 90 % of its daily budget", runbook_url: "https://runbooks.example.invalid/watcher"}
+        data:
+          - refId: A
+            relativeTimeRange: {from: 86400, to: 0}
+            datasourceUid: LOKI_DATASOURCE_UID
+            model: {refId: A, queryType: instant, expr: 'max by (service) (max_over_time({app="watcher"} | json | event_type="budget" | unwrap usd_ratio [1d]))'}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: gt, params: [0.9]}}]}
+      - uid: watcher-new-critical
+        title: WatcherNewCriticalFinding
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels: {severity: warning, team: platform}
+        annotations: {summary: "watcher found a new critical problem", runbook_url: "https://runbooks.example.invalid/watcher"}
+        data:
+          - refId: A
+            relativeTimeRange: {from: 86400, to: 0}
+            datasourceUid: LOKI_DATASOURCE_UID
+            model: {refId: A, queryType: instant, expr: 'sum by (service) (count_over_time({app="watcher"} | json | event_type="finding" | severity="critical" | group_trend="new" [1d]))'}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: gt, params: [0]}}]}
+      - uid: watcher-delivery-failures
+        title: WatcherDeliveryFailures
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels: {severity: warning, team: platform}
+        annotations: {summary: "watcher could not deliver a chat message", runbook_url: "https://runbooks.example.invalid/watcher"}
+        data:
+          - refId: A
+            relativeTimeRange: {from: 86400, to: 0}
+            datasourceUid: LOKI_DATASOURCE_UID
+            model: {refId: A, queryType: instant, expr: 'sum by (service) (count_over_time({app="watcher"} | json | event_type="delivery_failure" [1d]))'}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: gt, params: [0]}}]}

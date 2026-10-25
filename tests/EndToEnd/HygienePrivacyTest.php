@@ -88,4 +88,38 @@ final class HygienePrivacyTest extends TestCase
             self::assertStringNotContainsString($needle, $result->text() . $result->toJson() . json_encode($h->notifier->sent[0]['message']) . json_encode($h->state->all()), $needle);
         }
     }
+
+    public function testACanarySecretAndEmailInAHygieneInputReachNoOutputOnTheMergedTree(): void
+    {
+        $secret = 'CANARYSECRET-7Qk2xVd9Lm4Zp8Tn';
+        $email = 'canary.person@canary-corp.example';
+        $h = new HygieneHarness();
+        $events = [];
+        foreach (range(0, 29) as $i) {
+            for ($k = 0; $k < 3; ++$k) {
+                $events[] = new \Watcher\Source\LogEvent(
+                    new \DateTimeImmutable('2026-10-07T12:00:00+00:00'),
+                    \Watcher\Level::Warning,
+                    "Canary job w{$i}x failed for $email using key $secret",
+                    "CanaryException: bad $secret $email",
+                    ["/var/www/html/app/Auth/Login.php:9 $email"],
+                    ['file' => '/var/www/html/app/Auth/Login.php', 'line' => 9, 'api_key' => $secret, 'user' => $email],
+                    ['owner' => $email],
+                );
+            }
+        }
+
+        $r = $h->hygiene(HygieneHarness::source($events))->run(new \Watcher\Hygiene\HygieneOptions(reports: ['privacy', 'shape', 'proposals', 'cost'], notify: true));
+
+        $sent = json_encode(array_map(static fn (array $s) => $s['message'], $h->notifier->sent), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $outputs = ['text' => $r->text(), 'json' => $r->toJson(), 'notice' => (string) $sent, 'state' => (string) json_encode($h->state->all())];
+        self::assertNotSame('', $outputs['notice'], 'a notice was sent, or this proves nothing');
+        foreach ($outputs as $where => $text) {
+            foreach ([$text, (string) json_encode($text)] as $haystack) {
+                foreach ([$secret, $email, 'canary-corp', 'CanaryException'] as $needle) {
+                    self::assertStringNotContainsString($needle, $haystack, "$needle leaked into $where");
+                }
+            }
+        }
+    }
 }

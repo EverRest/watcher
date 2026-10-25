@@ -18,7 +18,15 @@ final class HeartbeatStatus
         public readonly DateTimeImmutable $now,
         public readonly ?DateTimeImmutable $comparedWith,
         public readonly ?DateTimeImmutable $lastTriggerAt,
+        /** @var list<string> e.g. `sink_failed:http` (spec 013); shown, never part of the exit code */
+        public readonly array $warnings = [],
     ) {
+    }
+
+    /** @param list<string> $warnings */
+    public function withWarnings(array $warnings): self
+    {
+        return $warnings === [] ? $this : new self($this->state, $this->record, $this->ageSeconds, $this->limitSeconds, $this->now, $this->comparedWith, $this->lastTriggerAt, $warnings);
     }
 
     /** The watcher (or its heartbeat) is switched off: nothing is written, so nothing can be stale. Reads no store. */
@@ -62,7 +70,8 @@ final class HeartbeatStatus
             . 'last trigger:   ' . $at($this->lastTriggerAt) . "\n"
             . (is_string($rec['events'] ?? null) ? 'events:         ' . $rec['events'] . "\n" : '')
             . (is_string($rec['reason'] ?? null) && $rec['reason'] !== '' ? 'last warning:   ' . $rec['reason'] . "\n" : '')
-            . 'compared:       now=' . $this->now->format(DATE_ATOM) . ' against last ok ' . $at($this->comparedWith) . "\n";
+            . 'compared:       now=' . $this->now->format(DATE_ATOM) . ' against last ok ' . $at($this->comparedWith) . "\n"
+            . implode('', array_map(static fn (string $w): string => 'warning: ' . $w . "\n", $this->warnings));
     }
 
     /** @return array<string, mixed> */
@@ -78,6 +87,7 @@ final class HeartbeatStatus
             'now' => $this->now->format(DATE_ATOM),
             'last_ok_at' => $this->comparedWith?->format(DATE_ATOM),
             'last_trigger_at' => $this->lastTriggerAt?->format(DATE_ATOM),
+            ...($this->warnings === [] ? [] : ['warnings' => $this->warnings]),
         ];
     }
 

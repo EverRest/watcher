@@ -176,6 +176,15 @@ longer than the channel limit is posted as up to 10 numbered parts. If a later p
 a part may appear twice. On HTTP 429 the notifier waits the stated time within `min(60, lock_ttl / 10)` seconds, then
 fails with `HTTP 429`.
 
+### Dashboard-only mode and event sinks
+
+To read results in Grafana (or Kibana, Datadog, ...) instead of a chat channel, set `notify.digest.driver` to `none` and enable a sink; see [observability.md](observability.md). The run is otherwise unchanged. Notes for operators:
+
+- `log` needs a shipper on the pod or host (Alloy, Promtail, Vector, Filebeat) reading stderr; `prometheus` needs node_exporter's textfile collector on a volume the job can write, which on a CronJob means a shared volume or a push-capable sidecar; `http` adds egress to the one URL you configure.
+- A sink failure never changes the outcome or exit code. Look for `sink_failures` in the `--json` summary, `sink_failed:<sink>` in the next heartbeat event, `watcher_sink_failures_total` and `watcher status`.
+- Alert on absence, not only on failure: no event with a successful `run` outcome for 36 h (Loki), or `time() - watcher_last_success_timestamp_seconds > 129600` (Prometheus). The dashboard cannot tell you the job never started; the alert can.
+- `watcher check` verifies each sink locally; `--post-test` sends one `check_test` event. `--dry-run` prints the events and writes nothing.
+
 ### Plain cron
 
 ```cron

@@ -260,8 +260,8 @@ to the schema.
 
 **Privacy and safety**
 
-- **FR-040**: `include_text` is a per-sink flag, default **false** for `file`, `http` and `prometheus` (prometheus has no
-  text), default **true** for `log` (decision and reasons in research.md R4).
+- **FR-040**: `include_text` is a per-sink flag, default **false** for every sink (prometheus has no text). *Owner decision (review of Lane G, 2026-10-24): `log` was
+  first specified as true (research.md R4); privacy first, it is now false and text is always an explicit opt-in.*
 - **FR-041**: With `include_text` true the text fields are the digest's own (title, evidence, hypothesis, next step,
   check, related) taken after the output scrub, plus group `error_type` after the redactor's second scan. No template,
   frame, field, label or raw line is ever included, whatever the flag.

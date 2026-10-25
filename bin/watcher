@@ -36,6 +36,7 @@ exit((new Watcher\Cli\Application(
             new Watcher\Cli\StderrLogger(STDERR),
             null,
             static fn (string $text): int|false => fwrite($options->json ? STDERR : STDOUT, $text),
+            $options->json,
         );
 
         return static fn (?DateTimeImmutable $now): Watcher\Fleet\FleetResult => $runner->run($now, $options, $only);

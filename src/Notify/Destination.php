@@ -41,6 +41,12 @@ final class Destination implements JsonSerializable
         return new self('', 'telegram', $botToken, $chatId, $threadId);
     }
 
+    /** Dashboard-only mode: carries nothing, delivers nowhere (spec 013). */
+    public static function none(): self
+    {
+        return new self('', 'none');
+    }
+
     public function driver(): string
     {
         return $this->driver;
@@ -86,6 +92,7 @@ final class Destination implements JsonSerializable
         $v = ($this->reveal)();
 
         return match ($this->driver) {
+            'none' => null,
             'telegram' => match (true) {
                 preg_match(self::TOKEN, $v['bot_token']) !== 1 => 'bot_token',
                 preg_match(self::CHAT, $v['chat_id']) !== 1 => 'chat_id',

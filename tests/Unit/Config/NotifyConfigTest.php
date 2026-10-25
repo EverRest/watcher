@@ -108,7 +108,7 @@ final class NotifyConfigTest extends TestCase
         return [
             'not a map' => [null, 'notify.digest.webhook is required'],
             'driver not string' => [['driver' => 5, 'webhook' => 'https://h.example/x'], 'notify.digest.driver must be a string'],
-            'driver unknown' => [['driver' => 'teams', 'webhook' => 'https://h.example/x'], 'notify.digest.driver must be one of slack, telegram, discord'],
+            'driver unknown' => [['driver' => 'teams', 'webhook' => 'https://h.example/x'], 'notify.digest.driver must be one of slack, telegram, discord, none'],
             'slack no webhook' => [['driver' => 'slack'], 'notify.digest.webhook is required'],
             'discord no webhook' => [['driver' => 'discord'], 'notify.digest.webhook is required'],
             'telegram no token' => [['driver' => 'telegram', 'chat_id' => '1'], 'notify.digest.bot_token is required'],

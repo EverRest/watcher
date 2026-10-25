@@ -106,6 +106,14 @@ when that service has its own `notify.digest`. A service whose digest is meant f
 visible to the fleet channel's audience. The services of one fleet share one trust domain (identical `analysis.api_key`
 and `state` are enforced); do not combine services with different audiences.
 
+## What is sent to your event sinks (spec 013)
+
+Off unless you enable a sink. An event is built from the typed results the digest already uses (findings, groups, counts, spend), never from a raw log line, and a sanitizer drops every field outside the schema allowlist and every string that fails its pattern. Without text an event holds only enumerations, numbers, timestamps, 12-hex fingerprints, hex run ids and your configured names (service, environment, watch-rule names). Never present: log lines, message templates, field values, stack frames, filesystem paths, URLs, tokens.
+
+`include_text` is a per-sink flag. With it, a `finding` event carries the same title, evidence, hypothesis, next step and check the chat message shows (after the same output scrub) and a `group` event carries `error_type` after a second redaction scan. Defaults: off for every sink, `log` included (owner decision: text is an explicit opt-in). An `http` sink with text on emits `config_warning include_text_external`, so the dashboard shows that text leaves the host. The Prometheus file has no text at all and no label is ever a fingerprint, title or release.
+
+Retention of what a sink delivers is yours (Loki, Elasticsearch, Prometheus); watcher bounds only its own files (`file` sink: `max_files`, `retention_days`) and its counters (expire with `state.retention`). The `http` URL and token are credentials: masked in every message, never in an exception, log line or `check` output. The privacy corpus runs through all four sinks with a planted secret and e-mail (`tests/EndToEnd/ObservePrivacyTest.php`).
+
 ## What is sent to the log backend
 
 Read-only queries: your stream tags, level words, and a subset of your watch rules as search filters: `template` rules that are plain literals and `error_type` rules whose regex RE2 can run (Loki), or only single-word patterns (Datadog). The text comes from your config, never from log data. `field` rules and non-literal `template` rules (a template regex applies to the masked template, not to raw lines) are never sent; they are matched in memory on the lines that were read. Nothing derived from log

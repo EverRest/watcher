@@ -14,7 +14,7 @@ use Watcher\Config\WatchConfig;
  */
 final class FleetConfig
 {
-    private const KEYS = ['fleet', 'enabled', 'digest', 'timezone', 'time_budget', 'service_time_budget', 'budget', 'notify', 'correlation', 'defaults', 'services'];
+    private const KEYS = ['fleet', 'enabled', 'digest', 'timezone', 'time_budget', 'service_time_budget', 'budget', 'notify', 'correlation', 'observe', 'defaults', 'services'];
 
     /**
      * @param list<ServiceEntry> $services in configuration order (FleetOrder decides the run order)
@@ -103,6 +103,12 @@ final class FleetConfig
         }
 
         $services = self::entries($config, $notify);
+        foreach (['digest', 'notice'] as $kind) {
+            // A fleet destination of `none` is dashboard-only for the whole fleet: some service must have a sink to be seen in.
+            if (($notify[$kind]['driver'] ?? null) === 'none' && array_filter($services, static fn (ServiceEntry $e): bool => $e->config->observe->anyEnabled()) === []) {
+                throw new InvalidConfig('notify.' . $kind . '.driver none needs at least one enabled observe sink');
+            }
+        }
 
         return new self(
             $name,
@@ -167,6 +173,8 @@ final class FleetConfig
         }
         $defaults = self::map($config['defaults'] ?? [], 'defaults');
         $entries = [];
+        /** @var array<string, int> $files Prometheus file per service, first index */
+        $files = [];
         /** @var array<string, int> $index first index per service name */
         $index = [];
         foreach ($list as $i => $raw) {
@@ -183,8 +191,12 @@ final class FleetConfig
                 throw new InvalidConfig("$label: provides must be a list of non-empty strings");
             }
             unset($raw['priority'], $raw['provides']);
+            $merged = self::merged($fleetNotify, $defaults, $raw, $config['observe'] ?? null);
+            if (is_array($merged['observe']['prometheus'] ?? null) && array_key_exists('name', $merged['observe']['prometheus'])) {
+                throw new InvalidConfig("$label: observe.prometheus.name must be unset in a fleet"); // each service gets its own file
+            }
             try {
-                $c = WatchConfig::fromArray(self::merged($fleetNotify, $defaults, $raw));
+                $c = WatchConfig::fromArray($merged);
             } catch (InvalidConfig $e) {
                 throw new InvalidConfig("$label: " . $e->getMessage());
             }
@@ -196,6 +208,13 @@ final class FleetConfig
                 throw new InvalidConfig("duplicate service: services[$first] ($c->stateKey) and $label");
             }
             $index[$c->stateKey] = $i;
+            if ($c->observe->prometheus['enabled']) {
+                $file = $c->observe->prometheus['dir'] . '/' . $c->observe->prometheus['name'];
+                if (isset($files[$file])) {
+                    throw new InvalidConfig("$label: observe.prometheus would write the same file as services[{$files[$file]}] ({$entries[$files[$file]]->config->service})");
+                }
+                $files[$file] = $i;
+            }
             $entry = new ServiceEntry($c, $priority, $provides);
             if ($entries !== []) {
                 self::sameShared($entries[0], $entry, $label);
@@ -215,9 +234,16 @@ final class FleetConfig
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
      */
-    private static function merged(array $fleetNotify, array $defaults, array $raw): array
+    private static function merged(array $fleetNotify, array $defaults, array $raw, mixed $fleetObserve = null): array
     {
         $merged = array_replace_recursive($fleetNotify === [] ? [] : ['notify' => $fleetNotify], $defaults, $raw);
+        // Spec 013: `observe` is shared, and the nearest layer that sets it replaces it as a whole (like a destination).
+        foreach ([$raw, $defaults, ['observe' => $fleetObserve]] as $layer) {
+            if (($layer['observe'] ?? null) !== null) {
+                $merged['observe'] = $layer['observe'];
+                break;
+            }
+        }
         if (!is_array($merged['notify'] ?? null)) {
             return $merged;
         }

@@ -18,7 +18,7 @@ Decisions recorded here were made by the owner on 2026-10-23.
 | **010 API context** | OpenAPI/Swagger summaries for endpoints in findings | Spec written | Low value per token |
 | **011 more-notifiers** | Telegram and Discord next to Slack; per-kind destinations, message splitting, 429 handling, fleet override, `check` per driver | Implemented | Slack unchanged; MINOR release |
 | **012 feature-flags** | Master `enabled` switch (default off), `environment`, one boolean flag per feature, `WATCHER_*` variables | Implemented | Per-environment switches; redaction has no flag by design |
-| **013 observability-sink** | Versioned vendor-neutral event stream (`watcher.event.v1`) to `log`, `file`, `http` and `prometheus` sinks; driver `none` for dashboard-only mode; Grafana dashboards, alert rules and Kibana/Datadog mapping | Spec written | Chat can be switched off; all sinks off by default; OTLP later |
+| **013 observability-sink** | Versioned vendor-neutral event stream (`watcher.event.v1`) to `log`, `file`, `http` and `prometheus` sinks; driver `none` for dashboard-only mode; Grafana dashboards, alert rules and Kibana/Datadog mapping | Implemented | Chat can be switched off; all sinks off by default; OTLP later |
 | **014 schedule-periods** | Several runs per day (`schedule.every` PT1H..PT12H or a `run_at` list), contiguous windows, high-water mark against double reporting, catch-up after outages, per-day run cap and per-run budget share, same-slot baselines, `ingestion_delay` | Spec written | Flags per spec 012 pattern: new keys default to today's behaviour; end-of-day rollup deferred |
 
 ## Out of scope until a constitution amendment
