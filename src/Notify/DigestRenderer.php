@@ -79,6 +79,9 @@ final class DigestRenderer
     private function sections(DigestData $d, array $shown, int $minor): array
     {
         $out = [['kind' => 'header', 'text' => $this->header($d)]];
+        if ($d->extras?->metricsLine !== null) {
+            $out[] = ['kind' => 'notice', 'text' => '📊 ' . $this->esc($d->extras->metricsLine)];
+        }
 
         $bySeverity = [];
         foreach ($shown as $s) {
@@ -177,6 +180,10 @@ final class DigestRenderer
         }
         foreach ($d->failedDependencies as $name) {
             $out[] = ['kind' => 'notice', 'text' => '⚠️ dependency unavailable: ' . $this->esc($name)];
+        }
+
+        foreach ($d->extras?->notes() ?? [] as $note) {
+            $out[] = ['kind' => 'notice', 'text' => '⚠️ ' . $this->esc($note)];
         }
 
         $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
@@ -316,6 +323,10 @@ final class DigestRenderer
         $log = $this->link($set['log'], 'log');
         if ($log !== null) {
             $parts[] = $log;
+        }
+        $issue = $this->link($set['sentry'] ?? null, 'Sentry');
+        if ($issue !== null) {
+            $parts[] = $issue;
         }
         $n = 0;
         foreach ($set['code'] as $url) {

@@ -23,6 +23,11 @@ final class FakeIssueSource implements IssueSource
         return new self([], $token);
     }
 
+    public function dropped(): int
+    {
+        return 0;
+    }
+
     public function issues(Window $window, int $limit): array
     {
         ++$this->calls;

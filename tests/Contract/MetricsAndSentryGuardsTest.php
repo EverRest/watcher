@@ -31,9 +31,16 @@ final class MetricsAndSentryGuardsTest extends TestCase
     {
         $this->history = [];
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new Client(['handler' => $stack]);
+    }
+
+    private function option(string $name): mixed
+    {
+        return $this->history[0]['options'][$name] ?? null;
     }
 
     private function nap(): \Closure
@@ -107,13 +114,13 @@ final class MetricsAndSentryGuardsTest extends TestCase
 
         self::assertSame('bad_response', $this->failure(fn () => $this->prom([$redirect, $ok])->instant('up', $this->at())));
         self::assertCount(1, $this->history);
-        self::assertFalse($this->history[0]['options']['allow_redirects']);
-        self::assertTrue($this->history[0]['options']['verify']);
+        self::assertFalse($this->option('allow_redirects'));
+        self::assertTrue($this->option('verify'));
 
         self::assertSame('bad_response', $this->failure(fn () => $this->sentry([$redirect, new Response(200, [], '[]')])->issues($this->window(), 5)));
         self::assertCount(1, $this->history);
-        self::assertFalse($this->history[0]['options']['allow_redirects']);
-        self::assertTrue($this->history[0]['options']['verify']);
+        self::assertFalse($this->option('allow_redirects'));
+        self::assertTrue($this->option('verify'));
     }
 
     public function testAnOversizedBodyIsASourceFailureNotAMemoryError(): void

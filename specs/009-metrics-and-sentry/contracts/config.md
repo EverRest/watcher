@@ -10,7 +10,9 @@ are validated even with `enabled: false`.
     'enabled' => true,                       // false = off, section still validated
     'source' => [
         'type' => 'prometheus',              // prometheus | grafana
-        'base_url' => getenv('WATCHER_METRICS_URL'),          // required (https unless host is localhost)
+        'base_url' => getenv('WATCHER_METRICS_URL'),          // required; https (SecureUrl, owner decision 2026-10-25)
+        'allow_insecure' => false,           // plain http for a loopback / private / cluster-local host
+        'allow_private_network' => false,    // RFC 1918 and *.svc / *.cluster.local hosts (shared classifier)
         'datasource_uid' => '',              // required when type = grafana
         'auth' => ['type' => 'bearer', 'token' => getenv('WATCHER_METRICS_TOKEN')], // optional; READ-ONLY credential
     ],
@@ -34,7 +36,7 @@ are validated even with `enabled: false`.
 |---|---|
 | unknown placeholder in a query | `metrics.queries.error_rate.query uses unknown placeholder {x}` |
 | `{service}` or a var value outside `^[A-Za-z0-9_.:/\-]{1,64}$` | `metrics.vars.namespace has characters not allowed in a query value` |
-| `base_url` missing / not http(s) | `metrics.source.base_url must be an http(s) URL` |
+| `base_url` missing / refused by `SecureUrl` | `metrics.source.base_url is required` / `metrics.source.base_url must use https (...)` / `must not point at a loopback, link-local, private-network or metadata address` |
 | `datasource_uid` missing for `grafana` | `metrics.source.datasource_uid is required for type grafana` |
 | more than 6 queries, empty `queries`, bad name/aggregate/mode/threshold | `metrics.queries ...` per key |
 | section present, `queries` empty | `metrics.queries must declare at least one metric` |
@@ -49,6 +51,8 @@ are validated even with `enabled: false`.
     'project' => 'orders-api',               // slug, same pattern
     'auth_token' => getenv('WATCHER_SENTRY_TOKEN'),   // read scope for issues only (project:read / event:read is NOT needed)
     'max_issues' => 50,                      // 1..100 per run
+    'allow_insecure' => false,               // as metrics.source
+    'allow_private_network' => false,        // as metrics.source
 ],
 ```
 

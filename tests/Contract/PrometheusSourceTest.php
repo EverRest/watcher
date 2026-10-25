@@ -66,7 +66,9 @@ final class PrometheusSourceTest extends MetricSourceContract
     private function source(array $queue, ?string $uid = null, array $allow = [], int $maxPoints = 500): PrometheusSource
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new PrometheusSource(new Client(['handler' => $stack]), 'https://prom.test/', self::SECRET, $uid, $allow, $maxPoints, static function (int $s): void {
         });

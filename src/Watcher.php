@@ -27,6 +27,12 @@ use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\UnknownModelPrice;
 use Watcher\Analyze\Usage;
 use Watcher\Fleet\FleetSeam;
+use Watcher\Issues\IssueSource;
+use Watcher\Issues\SentryMerge;
+use Watcher\Metrics\MetricAnomalies;
+use Watcher\Metrics\MetricSource;
+use Watcher\Metrics\MetricsReader;
+use Watcher\Notify\DigestExtras;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
@@ -154,6 +160,8 @@ final class Watcher
         private readonly ?FleetSeam $fleet = null,
         ?SinkDispatcher $sinks = null,
         ?ObserveCounters $counters = null,
+        private readonly ?MetricSource $metrics = null,
+        private readonly ?IssueSource $issues = null,
     ) {
         $this->clock = $clock ?? new SystemClock();
         $this->options = $options ?? RunOptions::default();
@@ -203,8 +211,13 @@ final class Watcher
         $http = Factory::http();
         $state = Factory::state($c, $clock, $hostLog); // the one state instance: the unreadable-counter wrapper, the run and the sink counters share it
         $counters = new ObserveCounters($state, $c->stateKey, $c->state['retention']);
+        // Spec 009: the sources end their calls once the run must wind down; the guard exists only inside run(), so they ask the Watcher.
+        $late = new class () {
+            public ?Watcher $watcher = null;
+        };
+        $stop = static fn (): ?string => $late->watcher?->stopReason();
 
-        return new self(
+        $late->watcher = new self(
             config: $c,
             source: Factory::source($c, $http, $clock),
             state: $state,
@@ -216,7 +229,17 @@ final class Watcher
             out: $out,
             sinks: $c->enabled ? Factory::observe($c, $clock, $hostLog, $counters, stdoutToStderr: $options?->json === true) : null,
             counters: $counters,
+            metrics: $c->enabled ? Factory::metricSource($c, $http, $stop) : null,
+            issues: $c->enabled ? Factory::issueSource($c, $http, $clock, $stop) : null,
         );
+
+        return $late->watcher;
+    }
+
+    /** Why this run must wind down (deadline or memory), or null; the metrics and Sentry sources poll it between requests. */
+    public function stopReason(): ?string
+    {
+        return $this->guard?->reason();
     }
 
     /** State-key component for a window end (UTC, second precision). */
@@ -539,6 +562,14 @@ final class Watcher
         $mute = new MuteList($c->mute);
         $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard);
         $groups = $collector->collect($window, $selector, $anomalies);
+        $extras = ['metricsLine' => null, 'unavailable' => [], 'sentryDropped' => 0, 'anomaliesNotShown' => 0];
+        if ($this->issues !== null && $c->sentry !== null && $this->guard?->reason() === null) {
+            [$groups, $failure, $extras['sentryDropped']] = (new SentryMerge($this->issues, $c->sentry->maxIssues, $c->minGroupEventsForText))->merge($window, $groups, $normalizer);
+            if ($failure !== null) {
+                $extras['unavailable']['sentry'] = $failure;
+                $this->hostLog?->warning('sentry unavailable: ' . $failure, ['service' => $service]);
+            }
+        }
         $this->ledger->stats()->eventsRead = $collector->eventsRead();
         $this->ledger->stats()->unscannableEvents = $collector->unscannableEvents();
         $this->ledger->stats()->oversizedLines = $collector->oversizedLines();
@@ -595,8 +626,24 @@ final class Watcher
         }
 
         $selection = (new Selector())->select($groups, $c->selection['min_level'], $c->selection['top_n'], $anomalies);
+        $pool = $selection->candidates;
+        if ($this->metrics !== null && $c->metrics !== null && $this->guard?->reason() === null) {
+            // Spec 009: numbers next to the log findings, and a metric move no Error-or-above candidate explains becomes a candidate of its own.
+            $context = (new MetricsReader($this->metrics, $c->metrics->definitions, $c->metrics->maxPoints, $normalizer, $redactor))->read($window);
+            $found = (new MetricAnomalies($service, $c->metrics->definitions, $c->metrics->maxAnomalies, $factor))->detect($context, $pool, $window, $prev['groups'] ?? []);
+            $extras['metricsLine'] = $context->unavailable || $context->line() === '' ? null : $context->line();
+            if ($context->unavailable) {
+                $extras['unavailable']['metrics'] = $context->failure ?? 'unreachable';
+                $this->hostLog?->warning('metrics unavailable: ' . ($context->failure ?? 'unreachable'), ['service' => $service]);
+            }
+            $extras['anomaliesNotShown'] = $found->truncated;
+            $pool = [...$pool, ...$found->candidates];
+            usort($pool, static fn (Candidate $a, Candidate $b): int => [$b->priority, $a->group->fingerprint] <=> [$a->priority, $b->group->fingerprint]);
+            $allGroups = [...$allGroups, ...array_map(static fn (Candidate $a): ProblemGroup => $a->group, $found->candidates)];
+        }
+        $digestExtras = new DigestExtras(...$extras);
         $candidates = [];
-        foreach ($selection->candidates as $cand) {
+        foreach ($pool as $cand) {
             $reported = $this->state->get($keys->reported($cand->group->fingerprint));
             if ($reported === null || $cand->group->status === GroupStatus::Grown) {
                 $candidates[] = $cand;
@@ -622,7 +669,7 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
-        $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures);
+        $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures, extras: $digestExtras->isEmpty() ? null : $digestExtras);
         $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started);
 
         $routed = $analysis->routed;
@@ -829,7 +876,8 @@ final class Watcher
         $links = [];
         $afterRelease = [];
         foreach ($redacted as $g) {
-            $links[$g->fingerprint] = ['log' => $logLinks?->forGroup($g, $window), 'code' => $codeLinks?->forGroup($g) ?? []];
+            $issue = str_starts_with($g->fingerprint, 'sentry:') ? $c->sentry : null; // a Sentry entry links to its issue, built from config and the numeric id, never fetched
+            $links[$g->fingerprint] = ['log' => $issue === null ? $logLinks?->forGroup($g, $window) : null, 'code' => $codeLinks?->forGroup($g) ?? [], 'sentry' => $issue === null ? null : rtrim($issue->baseUrl, '/') . '/organizations/' . rawurlencode($issue->organization) . '/issues/' . rawurlencode(substr($g->fingerprint, 7)) . '/'];
             $mark = $deploy->firstSeenAfterLabel($g->status);
             if ($mark !== null) {
                 $afterRelease[$g->fingerprint] = $mark;
@@ -880,6 +928,7 @@ final class Watcher
             triageCoerced: $routed->triageCoerced,
             unreported: $routed->unreported,
             newOverflow: $routed->newOverflow,
+            extras: $read->extras,
         ), $c->analysis['confidence_threshold']);
     }
 

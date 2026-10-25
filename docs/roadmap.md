@@ -14,7 +14,7 @@ Decisions recorded here were made by the owner on 2026-10-23.
 | **006 log-hygiene** | Privacy-hygiene, log-shape, rule-proposal and cost reports from local measurement | Spec written | Raw values never leave the process |
 | **007 code-aware analysis** | Model reads code fragments for the top frames at the deployed commit (read-only repo token, only referenced functions, secrets redacted, own token budget) | Spec written; amendment approved with conditions, constitution edited when planning starts (after T114) | Builds on `CodeLinkBuilder` + `DeployInfo` |
 | **008 kubernetes events** | CrashLoopBackOff, OOMKilled, probe failures, restarts, HPA errors as a second source | Spec written | Closes the pod-level half of the manual backlog; needed for SC-001 |
-| **009 metrics and Sentry** | Prometheus error rate / p95 deltas; Sentry issues as an already-grouped source | Spec written | |
+| **009 metrics and Sentry** | Prometheus error rate / p95 deltas; Sentry issues as an already-grouped source | Core and wiring built (digest line, anomalies, Sentry groups); model input, counters, `check`, fleet and trace links open | |
 | **010 API context** | OpenAPI/Swagger summaries for endpoints in findings | Spec written | Low value per token |
 | **011 more-notifiers** | Telegram and Discord next to Slack; per-kind destinations, message splitting, 429 handling, fleet override, `check` per driver | Implemented | Slack unchanged; MINOR release |
 | **012 feature-flags** | Master `enabled` switch (default off), `environment`, one boolean flag per feature, `WATCHER_*` variables | Implemented | Per-environment switches; redaction has no flag by design |

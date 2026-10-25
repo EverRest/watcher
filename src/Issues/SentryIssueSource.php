@@ -38,6 +38,8 @@ final class SentryIssueSource implements IssueSource
     private const LEVELS = ['fatal' => Level::Critical, 'error' => Level::Error, 'warning' => Level::Warning, 'info' => Level::Info, 'debug' => Level::Debug];
 
     private readonly string $baseUrl;
+    /** @var \Closure(): string the credential lives in a closure, so var_export/print_r/var_dump show no value */
+    private readonly Closure $token;
     private readonly GuardedRequest $request;
     private int $dropped = 0;
     private int $requests = 0;
@@ -47,7 +49,7 @@ final class SentryIssueSource implements IssueSource
         string $baseUrl,
         private readonly string $organization,
         private readonly string $project,
-        private readonly string $token,
+        #[\SensitiveParameter] string $token,
         private readonly int $maxIssues = 50,
         ?callable $sleeper = null,
         int $retryBudget = 120,
@@ -56,15 +58,30 @@ final class SentryIssueSource implements IssueSource
         int $budgetSeconds = 60,
         ?Closure $stop = null,
         ?callable $now = null,
+        bool $allowPrivateNetwork = false,
     ) {
-        if (($problem = SecureUrl::problem($baseUrl, $allowInsecure, true)) !== null) {
+        // The shared classifier (SecureUrl::internalHost): loopback only with allow_insecure, RFC 1918 and `*.svc` only with allow_private_network.
+        if (($problem = SecureUrl::problem($baseUrl, $allowInsecure, true, $allowPrivateNetwork)) !== null) {
             throw new InvalidConfig('sentry.base_url ' . $problem);
         }
         if (!Slug::valid($organization) || !Slug::valid($project)) {
             throw new InvalidConfig('sentry.organization and sentry.project must be letters, digits, _ . - and not only dots');
         }
         $this->baseUrl = rtrim($baseUrl, '/');
+        $this->token = static fn (): string => $token;
         $this->request = new GuardedRequest($http, new Retry($sleeper, $retryBudget), 'sentry', $budgetSeconds, $stop, $now);
+    }
+
+    /** @return array<string, mixed> */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    /** @return array<string, mixed> */
+    public function __serialize(): array
+    {
+        throw new \LogicException('SentryIssueSource is not serializable');
     }
 
     public function issues(Window $window, int $limit): array
@@ -130,7 +147,7 @@ final class SentryIssueSource implements IssueSource
     {
         $url = $this->baseUrl . '/api/0/projects/' . rawurlencode($this->organization) . '/' . rawurlencode($this->project) . '/issues/';
         ++$this->requests;
-        [$data, $response] = $this->request->send('GET', $url, ['query' => $query, 'headers' => ['Accept' => 'application/json', 'Authorization' => 'Bearer ' . $this->token]]);
+        [$data, $response] = $this->request->send('GET', $url, ['query' => $query, 'headers' => ['Accept' => 'application/json', 'Authorization' => 'Bearer ' . ($this->token)()]]);
         if (!array_is_list($data)) {
             throw new SourceUnavailable('bad_response');
         }

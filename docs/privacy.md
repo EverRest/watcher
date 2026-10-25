@@ -114,6 +114,17 @@ Off unless you enable a sink. An event is built from the typed results the diges
 
 Retention of what a sink delivers is yours (Loki, Elasticsearch, Prometheus); watcher bounds only its own files (`file` sink: `max_files`, `retention_days`) and its counters (expire with `state.retention`). The `http` URL and token are credentials: masked in every message, never in an exception, log line or `check` output. The privacy corpus runs through all four sinks with a planted secret and e-mail (`tests/EndToEnd/ObservePrivacyTest.php`).
 
+## What the metrics and Sentry sources add (spec 009)
+
+Two new field classes, both optional and off by default. **Metric numbers**: one current and one baseline number per declared query, and at most 5
+values of a label **name** you allowlisted (each must survive the Normalizer unchanged and then the Redactor, otherwise it is dropped; an e-mail or an id
+never shows). **Masked Sentry text**: an issue title (cut at 300) and culprit (cut at 120) are masked first and cut after, so a half e-mail cannot survive the cut; a rare
+issue (fewer than `redaction.min_group_events_for_text` events) withholds both. Everything else Sentry returns (users, tags, breadcrumbs, permalinks, event
+payloads, short ids) is never read into an object. The event sinks never receive this text: a Sentry or metric-anomaly group appears there as counts only: its fingerprint (`sentry:<id>`, `metric:<hash>`) is not the 12-hex form the event schema allows, so the sanitizer sends `null` for it. The
+tokens (`metrics.source.auth.token`, `sentry.auth_token`) are masked everywhere and absent from every dump of the objects that hold them. Tests:
+`MetricsSentryPrivacyTest` plants an e-mail, a secret and a personal id in an issue title, culprit and label value and scans every sink, the model input,
+the summary, the host log and the notices.
+
 ## What is sent to the log backend
 
 Read-only queries: your stream tags, level words, and a subset of your watch rules as search filters: `template` rules that are plain literals and `error_type` rules whose regex RE2 can run (Loki), or only single-word patterns (Datadog). The text comes from your config, never from log data. `field` rules and non-literal `template` rules (a template regex applies to the masked template, not to raw lines) are never sent; they are matched in memory on the lines that were read. Nothing derived from log

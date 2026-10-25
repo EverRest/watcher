@@ -64,7 +64,9 @@ final class SentryIssueSourceTest extends IssueSourceContract
     private function source(array $queue, int $maxIssues = 50): SentryIssueSource
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new SentryIssueSource(new Client(['handler' => $stack]), 'https://sentry.test/', 'acme', 'orders-api', self::SECRET, $maxIssues, static function (int $s): void {
         }, 120, new FrozenClock(new \DateTimeImmutable('2026-10-23T01:00:00Z')));

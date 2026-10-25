@@ -314,6 +314,17 @@ The new field classes (metric numbers, masked Sentry titles) are additions to th
 
 **D5 (trace id egress, resolved at planning by the owner's delegate: approved)**: a validated trace id may leave the service only inside the link URL of the digest; it is read from raw `LogEvent::$fields` and appears nowhere else (Principle I).
 
+## Owner decisions (2026-10-25)
+
+Delegated by the owner while the lane is brought onto `develop` (0.1.3 + lanes A, J, G).
+
+1. **One URL classifier.** The lane's private `SecureUrl` rules are dropped. Metrics and Sentry base URLs use `SecureUrl::problem($url, $allowInsecure, $refuseInternal = true, $allowPrivate)` and `SecureUrl::internalHost`, the same classifier as `observe.http`. An internal Prometheus or Sentry in RFC 1918 space or a cluster-local `*.svc` name is normal and needs `allow_private_network: true` on that section (default `false`); plain `http` also needs `allow_insecure: true`. Documented in `docs/configuration.md` and `docs/operations.md`.
+2. **No second streaming sink.** `ResponseLimit::options` has no streaming cap on `develop` yet (lane C adds one); `GuardedRequest` keeps using it, with a `ponytail:` note and a skipped characterisation test (`GuardedRequestStreamingCapTest`) that becomes real when it lands.
+3. **Wiring.** `RunGuard::reason()` is the `$stop` of both sources (`Watcher::stopReason()`); a failing source never throws into the run (`SentryMerge` catches `Throwable`, `MetricsReader` already does); the digest note uses the fixed tokens including `timeout` and `window_too_old`; the 60 s budget is one constant (`Factory::SOURCE_BUDGET_SECONDS`); `metrics.source.base_url`, `sentry.base_url` and the slugs are validated in `WatchConfig` with key-path errors; the Sentry token and the Prometheus credential are in `WatchConfig::secrets()` (one longest-first sort) and live in closures (no secret in `print_r`, `var_dump`, `var_export`, `serialize`, `json_encode`).
+4. **Privacy.** The observability sinks receive no metrics or Sentry text: counts and the allowlisted fields only (`MetricsSentryPrivacyTest`).
+5. **Scope.** Built now: T010, T012, T016, T017, T020, T023 (anomalies), T025, T029, T030, T033, T034, T035, T003/T004 (as `DigestExtras`). Not built (open in `tasks.md`): the metric numbers in the model input (T011, T018), `RunStats`/`--json` counters (T005), `Doctor`/`FleetCheck` rows (T046, T047, T055), `FleetRunner` (T053, T054), trace links (T039-T041, T043-T045), token-budget fixtures (T048), the Reducer observer (T002).
+6. **Goldens.** `RefactorGoldenTest` is byte-identical; no stats field was added.
+
 ## Amended 2026-10-24 (planning review)
 
 - US1 intro, AC1, AC3: metrics line once per service; model input carries up to 3 metrics; label values pass Normalizer and Redactor.

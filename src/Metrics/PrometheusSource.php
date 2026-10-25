@@ -32,8 +32,8 @@ final class PrometheusSource implements MetricSource
     private const MAX_LABEL_VALUES = 5;
 
     private readonly string $prefix;
-    /** @var array<string, string> */
-    private readonly array $headers;
+    /** @var \Closure(): array<string, string> request headers incl. the credential: a closure, so var_export/print_r/var_dump show no value */
+    private readonly Closure $headers;
     private readonly GuardedRequest $request;
 
     /**
@@ -43,7 +43,7 @@ final class PrometheusSource implements MetricSource
     public function __construct(
         ClientInterface $http,
         string $baseUrl,
-        ?string $bearerToken = null,
+        #[\SensitiveParameter] ?string $bearerToken = null,
         ?string $datasourceUid = null,
         private readonly array $labelAllowlist = [],
         private readonly int $maxPoints = 500,
@@ -53,16 +53,31 @@ final class PrometheusSource implements MetricSource
         int $budgetSeconds = 60,
         ?Closure $stop = null,
         ?callable $now = null,
+        bool $allowPrivateNetwork = false,
     ) {
-        if (($problem = SecureUrl::problem($baseUrl, $allowInsecure, true)) !== null) {
-            throw new InvalidConfig('metrics.base_url ' . $problem);
+        // The shared classifier (SecureUrl::internalHost): loopback only with allow_insecure, RFC 1918 and `*.svc` only with allow_private_network.
+        if (($problem = SecureUrl::problem($baseUrl, $allowInsecure, true, $allowPrivateNetwork)) !== null) {
+            throw new InvalidConfig('metrics.source.base_url ' . $problem);
         }
         if ($datasourceUid !== null && !Slug::valid($datasourceUid)) {
-            throw new InvalidConfig('metrics.datasource_uid must be letters, digits, _ . - and not only dots');
+            throw new InvalidConfig('metrics.source.datasource_uid must be letters, digits, _ . - and not only dots');
         }
         $this->prefix = rtrim($baseUrl, '/') . ($datasourceUid === null ? '' : self::PROXY . rawurlencode($datasourceUid));
-        $this->headers = ['Accept' => 'application/json'] + ($bearerToken === null || $bearerToken === '' ? [] : ['Authorization' => 'Bearer ' . $bearerToken]);
+        $headers = ['Accept' => 'application/json'] + ($bearerToken === null || $bearerToken === '' ? [] : ['Authorization' => 'Bearer ' . $bearerToken]);
+        $this->headers = static fn (): array => $headers;
         $this->request = new GuardedRequest($http, new Retry($sleeper, $retryBudget), 'metrics', $budgetSeconds, $stop, $now);
+    }
+
+    /** @return array<string, mixed> */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    /** @return array<string, mixed> */
+    public function __serialize(): array
+    {
+        throw new \LogicException('PrometheusSource is not serializable');
     }
 
     public function instant(string $query, DateTimeImmutable $at): MetricResult
@@ -95,7 +110,7 @@ final class PrometheusSource implements MetricSource
         $url = $this->prefix . $path;
         $post = strlen($url) + strlen(http_build_query($params)) + 1 > self::MAX_REQUEST_LINE;
         $this->request->begin();
-        [$data] = $this->request->send($post ? 'POST' : 'GET', $url, [($post ? 'form_params' : 'query') => $params, 'headers' => $this->headers]);
+        [$data] = $this->request->send($post ? 'POST' : 'GET', $url, [($post ? 'form_params' : 'query') => $params, 'headers' => ($this->headers)()]);
         if (($data['status'] ?? null) !== 'success' || !is_array($data['data'] ?? null)) {
             throw new SourceUnavailable('bad_response');
         }

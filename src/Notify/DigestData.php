@@ -24,7 +24,7 @@ final class DigestData
      * @param int                          $notAnalysed              groups triage flagged interesting that no analysis looked at
      * @param int                          $patternFailures          regex evaluations that failed (rules may have been skipped)
      * @param int                          $overflowedEvents         events folded into the per-level overflow group (source.group_cap hit)
-     * @param array<string, array{log: ?string, code: list<string>}> $links by fingerprint; URLs built from config and redacted data only
+     * @param array<string, array{log: ?string, code: list<string>, sentry?: ?string}> $links by fingerprint; URLs built from config and redacted data only
      */
     public function __construct(
         public readonly string $service,
@@ -82,6 +82,8 @@ final class DigestData
         public readonly int $unreported = 0,
         /** @var int new groups kept out of top_m by the per-run cap on new groups */
         public readonly int $newOverflow = 0,
+        /** @var DigestExtras|null spec 009: metrics line, Sentry/metrics notes; null = neither source is configured (output unchanged) */
+        public readonly ?DigestExtras $extras = null,
     ) {
     }
 }

@@ -16,4 +16,7 @@ interface IssueSource
      * @throws SourceUnavailable
      */
     public function issues(Window $window, int $limit): array;
+
+    /** Issues the last {@see issues()} call dropped (resolved, malformed, unreadable): counted, never guessed. */
+    public function dropped(): int;
 }

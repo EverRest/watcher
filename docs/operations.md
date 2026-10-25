@@ -221,9 +221,21 @@ in-cluster URL (`*.svc`, `*.cluster.local`) or an RFC 1918 address. `allow_insec
 ### Proxies and the internal-address check
 
 Sources that fetch from a URL they were given (metrics, Sentry, an OpenAPI spec) refuse literal internal addresses and in-cluster names
-(`SecureUrl::internalHost`; names are not resolved). Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
+unless the operator opts in (`SecureUrl::internalHost`; names are not resolved). Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
 proxy the connection goes where the proxy decides, so the check does not cover it. Loki and Slack keep working behind a proxy and are not
 changed; where a proxy must not be used, leave those variables unset for the process.
+
+### Metrics and Sentry (spec 009)
+
+`metrics` (Prometheus, or Grafana's datasource proxy) and `sentry` are optional and read-only; absent, a run is unchanged. An internal
+Prometheus or Sentry is the normal case: set `allow_private_network: true` on that section for an RFC 1918 address or a cluster-local `*.svc` /
+`*.cluster.local` name (default `false`, one flag per section, like `observe.http.allow_private_network`), and `allow_insecure: true` as well when it is plain
+`http`. Link-local, CGNAT, metadata and reserved ranges stay refused. When a source cannot be read, the digest says so with a fixed word and nothing else changes:
+`Metrics unavailable (timeout)`, `Sentry unavailable (window_too_old)` (`unreachable`, `unauthorized`, `timeout`, `bad_response`, `rate_limited`, `too_large`,
+`window_too_old`). `window_too_old`: the window starts before the oldest Sentry stats bucket (24 h hourly, 14 d daily), so the count would be a fraction of the
+window; use a shorter `schedule.window`. `N Sentry issues dropped` counts issues that could not be read honestly. `timeout` is also what a source reports when the
+run deadline ends it. Known limit: a chunked or compressed reply without `Content-Length` is only bounded by the 60 s call budget until the streaming cap of
+`ResponseLimit` lands.
 
 ## Availability guards
 
