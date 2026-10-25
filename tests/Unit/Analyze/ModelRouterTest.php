@@ -576,4 +576,36 @@ final class ModelRouterTest extends TestCase
 
         self::assertNull($this->store->get(\Watcher\State\Keys::triage('svc', 'w')));
     }
+
+    public function testEndpointFieldsGoToAnalysisAndEscalationOnlyNeverTriageAndOnlyForTheSentGroups(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'noise']);
+        $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
+        $ep = ['a' => 'GET /a — Do a', 'b' => 'GET /b — Do b'];
+
+        $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning)], false, [], null, $ep);
+
+        [$tri, $an, $esc] = $this->fake->requests;
+        self::assertInstanceOf(TriageRequest::class, $tri);
+        self::assertArrayNotHasKey('endpoints', get_object_vars($tri), 'triage requests have no endpoint field at all');
+        self::assertInstanceOf(AnalysisRequest::class, $an);
+        self::assertSame(['a' => 'GET /a — Do a'], $an->endpoints, 'b was triaged out: its ep is not sent');
+        self::assertInstanceOf(AnalysisRequest::class, $esc);
+        self::assertSame(['a' => 'GET /a — Do a'], $esc->endpoints);
+    }
+
+    public function testEscalationDropsEpFirstWhenItWouldNotFit(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
+        $g = self::group('a');
+        $bare = Budget::fixedTokens('analyze', 'ctx', false) + Budget::estimateTokens(CompactPayload::encode([$g]));
+
+        $this->router(escalateMaxInput: $bare)->route([$g], false, [], null, ['a' => 'GET /a — ' . str_repeat('s', 50)]);
+
+        $esc = $this->fake->requests[2];
+        self::assertInstanceOf(AnalysisRequest::class, $esc);
+        self::assertSame([], $esc->endpoints, 'the escalation is not skipped, the context goes');
+        self::assertCount(3, $this->fake->requests);
+    }
 }
