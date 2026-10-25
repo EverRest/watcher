@@ -28,6 +28,7 @@ final class Keys
     public const OBSFAIL = 'obsfail';
     public const OBSDELIV = 'obsdeliv';
     public const OBSSEEN = 'obsseen';
+    public const API = 'api';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -173,6 +174,12 @@ final class Keys
     public static function observeSeen(string $service, string $sink): string
     {
         return self::join(self::OBSSEEN, $service, $sink);
+    }
+
+    /** Reduced OpenAPI document of one service and source; `$sourceId` is a hash, never the URL or path. */
+    public static function apiContext(string $service, string $sourceId): string
+    {
+        return self::join(self::API, $service, $sourceId);
     }
 
     /** @param string $kind one of the kind constants */

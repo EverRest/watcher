@@ -1,0 +1,8 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Orders", "version": "1"},
+  "servers": [{"url": "https://{tenant}.example.com/{basePath}", "variables": {"tenant": {"default": "acme"}, "basePath": {"default": "api"}}}],
+  "paths": {
+    "/health": {"get": {"summary": "Health probe", "tags": ["ops"]}}
+  }
+}

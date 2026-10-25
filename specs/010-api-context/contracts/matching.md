@@ -68,11 +68,18 @@ Operations: `POST /orders/{id}/refund` (op1), `GET /orders/{id}` (op2), `DELETE 
 | 31 | R | `error at /var/log/app.log` | | none (no operation) |
 | 32 | R | `connect ECONNREFUSED <HOST:orders-db>/orders/<ID>` | | none (mixed segment `<HOST:...>` before the slash, bare path guard) |
 | 33 | R | `a/b/c 10/12` | | none (no route) |
-| 34 | R | `retry 3 / 5 failed` | | none (method-less route needs >= 1 non-empty segment; must not match op12 `GET /`) |
-| 35 | R | `see /` (lone `/`, no method) | | none (same rule) |
+| 34 | X | template `null` (withheld) | | none (no route) |
+| 35 | X | `GET /orders/<ID>` with op2 deprecated, summary `Get an order` | | op2 (line level: deprecated marker; EndpointResolver, later) |
+| 36 | X | `GET /orders/<ID>` with op2 summary empty, operationId `getOrder` | | op2 (line level: operationId fallback) |
+| 37 | X | `GET /orders/<ID>` with op2 summary, tag and operationId empty | | op2, no line to show (`noLine`) |
+| 38 | R | `retry 3 / 5 failed` | | none (method-less route needs >= 1 non-empty segment; must not match op12 `GET /`) |
+| 39 | R | `a // b` | | none (no non-empty segment) |
+| 40 | R | `retry 3 / 5 then GET /health` | | op8 (the first real route wins over the prose slash) |
+| 41 | R | `see /` (lone `/`, no method) | | none (same rule) |
 
-Extractor-only cases (not matcher rows): template `null` (withheld) -> no route; moved to T006. Resolver/line cases
-(deprecated marker, operationId fallback, neither -> no line) are in T019, not here.
+Rows marked **X** are extractor or line-level cases kept in the same table so the list is one list (the `null` template is also
+an extractor case in T006; the line-level rows wait for the resolver in T019). The table has **41** rows and the test asserts
+exactly that, and that this table and the fixture carry the same row numbers.
 
 Each matcher row is a row of `tests/Fixtures/api_context/match-cases.php`; the test fails if a "none" row attaches anything.
 (Row 32: the Normalizer writes `<HOST:name>` as a masked host; the guard forbids a route starting inside it.)
