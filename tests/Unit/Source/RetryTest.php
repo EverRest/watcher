@@ -174,4 +174,19 @@ final class RetryTest extends TestCase
         self::assertSame(200, $r->getStatusCode());
         self::assertSame([1], $this->slept);
     }
+
+    public function testRetryAfterHttpDateIsHonoured(): void
+    {
+        $when = gmdate('D, d M Y H:i:s \G\M\T', time() + 4);
+        $this->retry()->sendRateLimited($this->sender([new Response(429, ['Retry-After' => $when]), new Response(200)]), 'x', static fn (): ?float => null);
+
+        self::assertSame([4], $this->slept);
+    }
+
+    public function testUnrecognisedRetryAfterFallsBackToOneSecond(): void
+    {
+        $this->retry()->sendRateLimited($this->sender([new Response(429, ['Retry-After' => 'not-a-date']), new Response(200)]), 'x', static fn (): ?float => null);
+
+        self::assertSame([1], $this->slept);
+    }
 }

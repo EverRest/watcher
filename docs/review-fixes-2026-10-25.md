@@ -63,6 +63,15 @@ MySQL-specific `rowCount` behaviour is covered by contract tests on SQLite plus 
 | P-M6 | `LineParser` decodes the same JSON line repeatedly while classifying continuations | closed |
 | P-M6-low | `LineParser::inRange` used `time()` instead of the injected clock | closed |
 
+## Batch 8 — pipeline lows (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-L1 | `Retry`: `Retry-After` HTTP-date not parsed | closed |
+| P-L2 | `Normalizer` / `Redactor`: replacement rules rebuilt on every scan | closed |
+| P-L3 | `DatadogSource`: unparseable log timestamp coerced to `now()` and skewed out of the window | closed |
+
+Deferred from batch 8 (not worth the diff now): retry backoff jitter; Loki per-row `json_encode` dedup key; Telegram UTF-16 length accounting.
 
 ## Later batches — open
 
