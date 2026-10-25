@@ -92,15 +92,15 @@ final class OpenApiReducerTest extends TestCase
 
     public function testStringsAreMaskedThenCapped(): void
     {
-        $doc = ['openapi' => '3.0.0', 'paths' => ['/a' => ['get' => ['summary' => 'Mail bob@example.com now', 'tags' => ['t']]]]];
+        $doc = ['openapi' => '3.0.0', 'paths' => ['/a' => ['get' => ['operationId' => 'mailNow', 'summary' => 'Get a mail bob@example.com now', 'tags' => ['t']]]]];
         $spec = $this->reducer()->reduce($doc);
         self::assertStringNotContainsString('bob@example.com', $spec->ops[0]->summary);
         self::assertStringContainsString('<EMAIL>', $spec->ops[0]->summary);
 
-        $long = ['openapi' => '3.0.0', 'paths' => ['/a' => ['get' => ['summary' => str_repeat('x', 500), 'tags' => [str_repeat('t', 500)]]]]];
+        $long = ['openapi' => '3.0.0', 'paths' => ['/a' => ['get' => ['summary' => str_repeat('get ', 200), 'tags' => [str_repeat('t', 70)]]]]];
         $op = $this->reducer(20)->reduce($long)->ops[0];
         self::assertSame(20, mb_strlen($op->summary));
-        self::assertSame(20, mb_strlen($op->tag));
+        self::assertSame('', $op->tag, 'a tag that is not a word of the route is dropped');
     }
 
     private const GHP = 'ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
@@ -242,5 +242,36 @@ final class OpenApiReducerTest extends TestCase
             self::assertSame(1000, count($spec->ops) + $spec->dropped);
             StateCodec::encode($spec->toCache('2026-10-25T06:00:00+00:00'), 0); // would throw StateValueTooLarge
         }
+    }
+
+    /** @return array<string, array{string}> */
+    public static function personalText(): array
+    {
+        return [
+            'ssn' => ['SSN 123-45-6789'], 'long id' => ['id 12345678901'], 'pesel' => ['PESEL 44051401359'], 'dob' => ['DOB 1980-04-12'],
+            'tax id' => ['Tax ID 1234567890'], 'name and street' => ['Contact John Smith, 12 Main St'], 'name only' => ['Get order for Maria Kowalska'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('personalText')]
+    public function testPersonalLookingTextNeverSurvivesInSummaryTagOrOperationId(string $text): void
+    {
+        $doc = ['openapi' => '3.0.0', 'paths' => ['/orders/{id}' => ['get' => ['summary' => $text, 'operationId' => 'getOrder', 'tags' => ['orders']]]]];
+        $op = $this->reducer()->reduce($doc)->ops[0];
+
+        self::assertDoesNotMatchRegularExpression('/\\d{4,}|John|Smith|Maria|Kowalska|Main St/', $op->summary, 'free text outside the vocabulary of the route is dropped or masked');
+        self::assertSame(0, preg_match('/\d{4,}|John|Smith|Maria|Main St|Kowalska/', json_encode($op) ?: ''));
+        foreach (['summary', 'operationId', 'tags'] as $field) {
+            $doc['paths']['/orders/{id}']['get'] = ['summary' => 'Get order', 'operationId' => 'order' . $text, 'tags' => [$text]];
+            $o = $this->reducer()->reduce($doc)->ops[0];
+            self::assertSame(0, preg_match('/\d{4,}|John|Smith|Maria|Main St|Kowalska|123-45|1980/', json_encode($o) ?: ''), $field);
+        }
+    }
+
+    public function testNumbersInAllowedSummariesAreMasked(): void
+    {
+        $doc = ['openapi' => '3.0.0', 'paths' => ['/orders/{id}' => ['get' => ['summary' => 'Get order 12345678901']]]];
+
+        self::assertStringNotContainsString('12345678901', $this->reducer()->reduce($doc)->ops[0]->summary);
     }
 }

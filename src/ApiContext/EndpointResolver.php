@@ -121,6 +121,6 @@ final class EndpointResolver
 
     private function part(string $s): string
     {
-        return $s === '' ? '' : ($this->redactor->redactText($s) ?? '');
+        return $s === '' ? '' : ($this->redactor->redactText($s, false) ?? '');
     }
 }

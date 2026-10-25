@@ -140,7 +140,7 @@ final class ApiContextTest extends TestCase
         $paths = [];
         $messages = [];
         for ($i = 1; $i <= 8; ++$i) {
-            $paths['/' . $names[$i - 1]] = ['get' => ['summary' => 'Route ' . $names[$i - 1]]];
+            $paths['/' . $names[$i - 1]] = ['get' => ['summary' => 'Get ' . $names[$i - 1]]];
             $messages[] = 'GET /' . $names[$i - 1] . ' ' . $words[$i - 1];
         }
 
@@ -264,7 +264,7 @@ final class ApiContextTest extends TestCase
         $h->hostLog = $log = new SpyLogger();
         $file = $this->spec([
             '/orders/{id}' => ['get' => [
-                'summary' => 'Orders for ' . self::EMAIL . ' key ' . self::TOKEN,
+                'summary' => 'Get orders for ' . self::EMAIL . ' ' . self::TOKEN,
                 'description' => 'DESCRIPTION-CANARY ' . self::EMAIL,
                 'tags' => ['tag-' . self::EMAIL],
                 'parameters' => [['name' => 'id', 'in' => 'path', 'example' => 'PARAM-EXAMPLE-CANARY ' . self::TOKEN]],
@@ -308,6 +308,6 @@ final class ApiContextTest extends TestCase
         }
         $cached = array_filter($h->state instanceof \Watcher\Tests\Fakes\InMemoryStateStore ? $h->state->all() : [], static fn (string $k): bool => str_contains($k, 'api'), ARRAY_FILTER_USE_KEY);
         self::assertNotSame([], $cached, 'the reduced spec was cached');
-        self::assertStringContainsString('Orders for', (string) json_encode($cached), 'the reduced, masked summary is what is stored');
+        self::assertStringContainsString('Get orders for', (string) json_encode($cached), 'the reduced, masked summary is what is stored');
     }
 }

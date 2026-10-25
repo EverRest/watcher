@@ -96,10 +96,13 @@ final class OpenApiReducer
     /** @param array<mixed> $o */
     private function operation(string $method, string $template, array $o): OperationSummary
     {
-        $summary = $this->text($o['summary'] ?? null);
         $tags = $o['tags'] ?? null;
-        $tag = is_array($tags) ? $this->text($tags[0] ?? null) : '';
-        $id = $summary === '' ? $this->text($o['operationId'] ?? null) : '';
+        $ident = $this->word($o['operationId'] ?? null, false);
+        $tag = $this->vocabulary(is_array($tags) ? $this->word($tags[0] ?? null, true) : '', $template, $ident, '');
+        // Free text can hold a name, an address or an id the masker does not know: it stays only when every word comes from the
+        // route, the operationId, the tag or a short list of common words; otherwise the identifier-shaped operationId stands in.
+        $summary = $this->vocabulary($this->text($o['summary'] ?? null), $template, $ident, $tag);
+        $id = $summary === '' ? $ident : '';
 
         return new OperationSummary($method, $template, $summary, $tag, ($o['deprecated'] ?? null) === true, $id);
     }
@@ -122,13 +125,62 @@ final class OpenApiReducer
             return '';
         }
         $in = mb_substr($v, 0, self::SCAN_CHARS);
-        $masked = $this->mask($in);
+        $masked = $this->redactor->redactText($in, false); // numbers masked too: ids, dates and national numbers are not "documentation"
         // ponytail: input beyond SCAN_CHARS is cut before masking; if little of it survives masking the tail may hold half a secret, so drop
         if ($masked === null || ($in !== $v && mb_strlen($masked) < $this->summaryCap + 200)) {
             return '';
         }
 
         return mb_substr($masked, 0, $this->summaryCap);
+    }
+
+    /** An identifier-shaped token (operationId: no space; tag: words), masked with numbers masked too. */
+    private function word(mixed $v, bool $spaces): string
+    {
+        if (!is_string($v) || preg_match($spaces ? '/^[A-Za-z][A-Za-z0-9 _.\-]{0,79}$/D' : '/^[A-Za-z][A-Za-z0-9_.\-]{0,79}$/D', $v) !== 1) {
+            return '';
+        }
+        $m = $this->redactor->redactText($v, false);
+
+        return $m === null ? '' : mb_substr($m, 0, $this->summaryCap);
+    }
+
+    private const COMMON = [
+        'a', 'an', 'the', 'of', 'for', 'to', 'by', 'with', 'from', 'in', 'on', 'and', 'or', 'all', 'any', 'one', 'this', 'that', 'is', 'are', 'be', 'as', 'at',
+        'get', 'list', 'create', 'update', 'delete', 'remove', 'add', 'fetch', 'retrieve', 'return', 'read', 'write', 'search', 'find', 'check', 'new', 'existing',
+        'current', 'id', 'details', 'detail', 'info', 'status', 'health', 'ping', 'login', 'logout', 'upload', 'download', 'send', 'submit', 'cancel', 'count',
+        'total', 'summary', 'resource', 'item', 'data', 'its', 'given', 'specific', 'single', 'multiple', 'many',
+    ];
+
+    /** The text when every word is a common word or a word of the route, operationId or tag (plural-insensitive); '' otherwise. */
+    private function vocabulary(string $text, string $template, string $ident, string $tag): string
+    {
+        if ($text === '') {
+            return '';
+        }
+        $known = [];
+        foreach (preg_split('/[^A-Za-z]+|(?<=[a-z])(?=[A-Z])/', $template . ' ' . $ident . ' ' . $tag) ?: [] as $w) {
+            $known[self::stem($w)] = true;
+        }
+        foreach (self::COMMON as $w) {
+            $known[self::stem($w)] = true;
+        }
+        $bare = (string) preg_replace('/<[A-Z]+(?::[^>]*)?>/', ' ', $text); // masked placeholders
+        preg_match_all('/\p{L}+/u', $bare, $words);
+        foreach ($words[0] as $w) {
+            if (!isset($known[self::stem($w)])) {
+                return '';
+            }
+        }
+
+        return $text;
+    }
+
+    private static function stem(string $w): string
+    {
+        $w = strtolower($w);
+
+        return strlen($w) > 3 ? (string) preg_replace('/(?:ies|es|s)$/', '', $w) : $w;
     }
 
     private function mask(string $s): ?string

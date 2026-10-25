@@ -7,7 +7,7 @@ namespace Watcher\ApiContext;
 /** The reduced, masked document: operations plus base path. This is what the cache holds (data-model.md). */
 final class ReducedSpec
 {
-    public const VERSION = 1;
+    public const VERSION = 2; // 2: summary, tag and operationId reduced with numbers masked and the vocabulary rule (M1)
     private const METHODS = ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH', 'TRACE'];
 
     /** @var array<int, list<array{0: OperationSummary, 1: list<Segment>}>>|null */

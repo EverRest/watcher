@@ -86,9 +86,12 @@ credentials, anything from `fields`.
 template, operationId, summary, first tag, deprecated. Examples, schemas, parameters, request and response bodies, descriptions, server variables and
 extensions are never copied. Free text is **masked first** (e-mails, tokens, ids) and then cut to `api_context.summary_cap` (80), so a secret
 straddling the cut cannot survive as a fragment; it is masked again where it is used (digest line, `ep` field), and a text that cannot be
-scanned is dropped. The reduced document, not the raw one, is what the state store keeps (expiring after `api_context.ttl`). **The service owner is
-responsible for the summaries**: they are free text written by people, the masking pass only knows the patterns it knows, and a summary appears
-in the digest as written (after masking). `tests/EndToEnd/ApiContextTest.php` seeds an e-mail and a token in a summary, a description, an
+scanned is dropped. Plain numbers are masked too (`<N>`: an SSN, PESEL, tax id, date of birth or order number never survives), and since the
+masker cannot recognise a name or a street, free text is kept only when every word is a word of the route template, the operationId (split at
+case changes), the tag or a short list of common words (`get`, `list`, `order`, `for`, ...); otherwise the summary is dropped and the
+identifier-shaped operationId stands in. A tag must be an identifier-shaped word that passes the same rule. The reduced document, not the raw one,
+is what the state store keeps (expiring after `api_context.ttl`). **The service owner is still responsible for operationIds**: an identifier such
+as `getJohnSmith` is kept as written (its digits masked). `tests/EndToEnd/ApiContextTest.php` seeds an e-mail and a token in a summary, a description, an
 operationId, a tag, an example, a parameter and an extension and asserts none reaches the model payload, the digest, the log and file sinks, the summary or the cache.
 
 ## What is sent to your notification channel

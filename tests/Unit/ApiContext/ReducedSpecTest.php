@@ -20,9 +20,10 @@ final class ReducedSpecTest extends TestCase
 
     public function testRejectsWrongVersionAndMalformedRows(): void
     {
-        $ok = ['v' => 1, 'base' => '', 'ops' => [['GET', '/a', 's', 't', false, '']], 'dropped' => 0, 'readAt' => 'x'];
+        $ok = ['v' => 2, 'base' => '', 'ops' => [['GET', '/a', 's', 't', false, '']], 'dropped' => 0, 'readAt' => 'x'];
         self::assertNotNull(ReducedSpec::fromCache($ok));
-        self::assertNull(ReducedSpec::fromCache(['v' => 2] + $ok));
+        self::assertNull(ReducedSpec::fromCache(['v' => 1] + $ok), 'v1 entries were reduced with plain numbers kept: a miss, never read');
+        self::assertNull(ReducedSpec::fromCache(['v' => 3] + $ok));
         self::assertNull(ReducedSpec::fromCache(['ops' => [['GET', '/a']]] + $ok));
         self::assertNull(ReducedSpec::fromCache(['ops' => [['GET', '/a', 's', 't', 'no', '']]] + $ok));
         self::assertNull(ReducedSpec::fromCache(['ops' => [['FETCH', '/a', 's', 't', false, '']]] + $ok));

@@ -43,6 +43,18 @@ final class EndpointResolverTest extends TestCase
         self::assertSame(['a' => 'GET /orders/{id} — Get an order'], $r->model);
     }
 
+    public function testPlainNumbersAreMaskedAtUseToo(): void
+    {
+        // a cache entry is re-masked at use: numbers in summary, tag and operationId never reach a line or `ep`
+        $spec = $this->spec(
+            new OperationSummary('GET', '/orders/{id}', 'Get order 12345678901', 'orders 44051401359', false, ''),
+            new OperationSummary('POST', '/refunds', '', '', false, 'refund19800412'),
+        );
+        $r = $this->resolver()->resolve([$this->group('a', 'GET /orders/<N> failed'), $this->group('b', 'POST /refunds')], $spec);
+
+        self::assertSame(0, preg_match('/\d{4,}/', (string) json_encode([$r->lines, $r->model], JSON_UNESCAPED_UNICODE)), (string) json_encode($r->lines));
+    }
+
     public function testOperationIdOnlyStandsInForAMissingSummaryAndNothingIsInvented(): void
     {
         $spec = $this->spec(
