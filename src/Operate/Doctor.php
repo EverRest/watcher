@@ -7,7 +7,10 @@ namespace Watcher\Operate;
 use Psr\Clock\ClockInterface;
 use Throwable;
 use Watcher\Config\WatchConfig;
+use Watcher\Issues\IssueSource;
+use Watcher\Metrics\MetricSource;
 use Watcher\Notify\Destination;
+use Watcher\Notify\DigestExtras;
 use Watcher\Notify\Message;
 use Watcher\Notify\Notifier;
 use Watcher\Observe\EventFactory;
@@ -43,6 +46,8 @@ final class Doctor
         private readonly ClockInterface $clock,
         private readonly bool $kubernetes = false,
         private readonly ?SinkDispatcher $observe = null,
+        private readonly ?MetricSource $metrics = null,
+        private readonly ?IssueSource $issues = null,
     ) {
     }
 
@@ -72,6 +77,12 @@ final class Doctor
         $results[] = $this->guard('prices', fn (): CheckResult => $this->prices());
         $results[] = $this->guard('state', fn (): CheckResult => $this->state());
         $results[] = $this->guard('notifier', fn (): CheckResult => $this->notifier());
+        if ($this->metrics !== null) {
+            $results[] = $this->guard('metrics', fn (): CheckResult => $this->metrics());
+        }
+        if ($this->issues !== null) {
+            $results[] = $this->guard('sentry', fn (): CheckResult => $this->sentry());
+        }
         $observing = $this->config->observe->anyEnabled();
         if ($observing) {
             $results[] = $this->guard('observe', fn (): CheckResult => $this->observe());
@@ -113,6 +124,36 @@ final class Doctor
         }
 
         return CheckResult::pass('source');
+    }
+
+    /** One trivial query (`vector(1)`): proves the URL, the credential and the answer shape; no configured query is run. */
+    private function metrics(): CheckResult
+    {
+        try {
+            $r = $this->metrics?->instant('vector(1)', $this->clock->now());
+        } catch (SourceUnavailable $e) {
+            return CheckResult::fail('metrics', self::token($e));
+        }
+
+        return $r?->values === [1.0] ? CheckResult::pass('metrics') : CheckResult::fail('metrics', 'bad_response');
+    }
+
+    /** One read of at most one issue over the last five minutes. */
+    private function sentry(): CheckResult
+    {
+        try {
+            $this->issues?->issues(Window::endingAt($this->clock->now(), 'PT5M'), 1);
+        } catch (SourceUnavailable $e) {
+            return CheckResult::fail('sentry', self::token($e));
+        }
+
+        return CheckResult::pass('sentry');
+    }
+
+    /** The fixed failure vocabulary; the exception message (it may carry a URL or a token) is never copied. */
+    private static function token(SourceUnavailable $e): string
+    {
+        return in_array($e->getMessage(), DigestExtras::TOKENS, true) ? $e->getMessage() : 'unreachable';
     }
 
     /** @return array{CheckResult, CheckResult} provider_auth, models */

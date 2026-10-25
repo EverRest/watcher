@@ -923,11 +923,35 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function links(array $links): array
     {
-        self::only($links, ['grafana', 'datadog', 'logs', 'code'], 'links');
+        self::only($links, ['grafana', 'datadog', 'logs', 'code', 'tempo', 'datadog_apm'], 'links');
         foreach (['grafana' => ['base_url', 'datasource_uid'], 'datadog' => ['app_url']] as $name => $keys) {
             if (is_array($links[$name] ?? null)) {
                 self::only($links[$name], $keys, 'links.' . $name);
             }
+        }
+
+        // Spec 009 US4: trace links. Built, never fetched; the trace id exists only inside the link URL.
+        foreach (['tempo' => ['base_url', 'datasource_uid', 'trace_field', 'service_name'], 'datadog_apm' => ['trace_field', 'service']] as $name => $keys) {
+            if (!array_key_exists($name, $links)) {
+                continue;
+            }
+            if (!is_array($links[$name])) {
+                throw new InvalidConfig('links.' . $name . ' must be a map');
+            }
+            self::only($links[$name], $keys, 'links.' . $name);
+            foreach ($keys as $k) {
+                $v = $links[$name][$k] ?? null;
+                $bad = $v !== null && (!is_string($v) || $v === '' || ($k === 'trace_field' && preg_match('/^[A-Za-z0-9_.-]{1,40}$/D', $v) !== 1));
+                if ($bad || ($name === 'tempo' && in_array($k, ['base_url', 'datasource_uid'], true) && $v === null)) {
+                    throw new InvalidConfig('links.' . $name . '.' . $k . ($v === null ? ' is required' : ' is invalid'));
+                }
+            }
+        }
+        if (isset($links['tempo']['base_url']) && SecureUrl::problem((string) $links['tempo']['base_url']) !== null) {
+            throw new InvalidConfig('links.tempo.base_url must be an https URL without credentials');
+        }
+        if (array_key_exists('datadog_apm', $links) && !is_string($links['datadog']['app_url'] ?? null)) {
+            throw new InvalidConfig('links.datadog_apm requires links.datadog.app_url');
         }
 
         return $links;

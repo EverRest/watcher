@@ -7,6 +7,7 @@ namespace Watcher\Tests\EndToEnd;
 use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Watcher\Analyze\CompactPayload;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
 use Watcher\Issues\IssueRecord;
@@ -104,7 +105,7 @@ final class MetricsSentryPrivacyTest extends TestCase
             'prometheus' => (string) file_get_contents($this->dir . '/watcher_svc.prom'),
             'summary' => (new JsonSummary())->render($result->summaryData),
             'host log' => (string) json_encode($hostLog->records),
-            'model input' => (string) json_encode(array_map(static fn ($r): mixed => $r->groups, $h->analyzer->allRequests()), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'model input' => implode("\n", array_map(static fn ($r): string => $r instanceof \Watcher\Analyze\AnalysisRequest ? CompactPayload::encode($r->groups, $r->dependencyContext, $r->extras) : CompactPayload::encode($r->groups, [], $r->extras), $h->analyzer->allRequests())),
             'notifier' => (string) json_encode(array_map(static fn (array $s) => $s['message'], $h->notifier->sent), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ];
         foreach (['log sink', 'file sink', 'prometheus', 'summary', 'model input', 'notifier'] as $name) {
@@ -112,6 +113,7 @@ final class MetricsSentryPrivacyTest extends TestCase
         }
         self::assertStringContainsString('sentry:2001', $outputs['model input']); // the issue did travel, as masked text
         self::assertStringContainsString('Cannot charge', $outputs['model input']);
+        self::assertStringContainsString('"m":{"n":["latency"],"v":[[1.2,0.4]]', $outputs['model input']); // the numbers do travel, the label values do not
         foreach ($outputs as $where => $text) {
             foreach ([$text, (string) json_encode($text)] as $haystack) {
                 foreach ($needles as $needle) {

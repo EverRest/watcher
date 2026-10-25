@@ -19,6 +19,7 @@ final class AnalysisRequest
         public readonly string $model,
         public readonly int $maxOutputTokens,
         public readonly array $dependencyContext = [],
+        public readonly ?PayloadExtras $extras = null,
     ) {
     }
 }

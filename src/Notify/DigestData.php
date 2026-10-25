@@ -24,7 +24,7 @@ final class DigestData
      * @param int                          $notAnalysed              groups triage flagged interesting that no analysis looked at
      * @param int                          $patternFailures          regex evaluations that failed (rules may have been skipped)
      * @param int                          $overflowedEvents         events folded into the per-level overflow group (source.group_cap hit)
-     * @param array<string, array{log: ?string, code: list<string>, sentry?: ?string}> $links by fingerprint; URLs built from config and redacted data only
+     * @param array<string, array{log: ?string, code: list<string>, sentry?: ?string, trace?: ?string}> $links by fingerprint; URLs built from config and redacted data only
      */
     public function __construct(
         public readonly string $service,

@@ -76,7 +76,10 @@ final class MetricsSentryTest extends TestCase
         self::assertSame([], $metrics->calls);
         $h->nextWindow();
 
-        self::assertSame(RunOutcome::Reported, self::make($h, self::errors(20), $metrics)->run()->outcome);
+        $result = self::make($h, self::errors(20), $metrics)->run();
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        self::assertSame(['read' => 1, 'failed' => 0, 'anomalies' => 0], $result->summaryData?->stats?->metrics());
+        self::assertNull($result->summaryData->stats->sentry());
 
         self::assertCount(2, $metrics->calls); // current and baseline, once per metric
         $text = implode("\n", $h->sentTexts());
@@ -107,6 +110,22 @@ final class MetricsSentryTest extends TestCase
         $seen = array_map(static fn ($g) => $g->template, [...($h->analyzer->triageRequests[0]->groups ?? [])]);
         // the Redactor's own Normalizer masks the digits of the declared name (p95 -> p<N>): the model sees the shape, never more than the rules allow
         self::assertContains('metric anomaly: p<N>_latency', $seen);
+    }
+
+    public function testTheModelReceivesTheNumbersOfAnAnomalyAndTheNextRequestSaysSo(): void
+    {
+        $h = new Harness(self::sections());
+        self::make($h, self::quiet(), self::tripled())->run();
+        $h->nextWindow();
+        self::make($h, self::quiet(), self::tripled())->run();
+
+        $req = $h->analyzer->triageRequests[0];
+        self::assertNotNull($req->extras);
+        $json = \Watcher\Analyze\CompactPayload::encode($req->groups, [], $req->extras);
+        self::assertStringContainsString('"m":{"n":["p95_latency"],"v":[[1.2,0.4]],"u":["s"],"r":[2]}', $json);
+        self::assertStringContainsString('"mi":0', $json);
+        $analysis = $h->analyzer->requests[0];
+        self::assertNotNull($analysis->extras);
     }
 
     public function testAnErrorGroupExplainsTheMetricMoveSoThereIsNoAnomaly(): void
@@ -144,7 +163,9 @@ final class MetricsSentryTest extends TestCase
         self::make($h, self::errors(5), null, $issues)->run();
         $h->nextWindow();
 
-        self::assertSame(RunOutcome::Reported, self::make($h, self::errors(20), null, $issues)->run()->outcome);
+        $result = self::make($h, self::errors(20), null, $issues)->run();
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        self::assertSame(['read' => 1, 'dropped' => 0, 'merged' => 1, 'failed' => 0], $result->summaryData?->stats?->sentry());
 
         $fps = [];
         foreach ($h->analyzer->triageRequests as $req) {

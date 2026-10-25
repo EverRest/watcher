@@ -324,6 +324,10 @@ final class DigestRenderer
         if ($log !== null) {
             $parts[] = $log;
         }
+        $trace = $this->link($set['trace'] ?? null, 'trace');
+        if ($trace !== null) {
+            $parts[] = $trace;
+        }
         $issue = $this->link($set['sentry'] ?? null, 'Sentry');
         if ($issue !== null) {
             $parts[] = $issue;

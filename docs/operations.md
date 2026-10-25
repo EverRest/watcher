@@ -235,7 +235,7 @@ Prometheus or Sentry is the normal case: set `allow_private_network: true` on th
 `window_too_old`). `window_too_old`: the window starts before the oldest Sentry stats bucket (24 h hourly, 14 d daily), so the count would be a fraction of the
 window; use a shorter `schedule.window`. `N Sentry issues dropped` counts issues that could not be read honestly. `timeout` is also what a source reports when the
 run deadline ends it. Known limit: a chunked or compressed reply without `Content-Length` is only bounded by the 60 s call budget until the streaming cap of
-`ResponseLimit` lands.
+`ResponseLimit` lands. `watcher check` gains a `metrics` row (one `vector(1)` query) and a `sentry` row (one issue read over the last five minutes) when the section is configured and enabled; a failure is a fixed word, never a URL or token. In a fleet each service is checked and run with its own sections and tokens.
 
 ## Availability guards
 
@@ -329,7 +329,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
 - `watcher run --dry-run` runs the whole pipeline for the window ending at the latest `run_at` instant (ignoring the due
   hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
   billed**; spend is not recorded.
-- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
+- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). With `metrics` or `sentry` configured the summary also carries `metrics` (`read`, `failed`, `anomalies`) and `sentry` (`read`, `dropped`, `merged`, `failed`); counts only, absent when the section is not configured. Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
 
 ## Upgrading
 

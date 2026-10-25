@@ -48,6 +48,36 @@ final class RunStats
 
     public ?int $durationMs = null;
 
+    /** @var array{read: int, failed: int, anomalies: int}|null spec 009: set only when `metrics` is configured and was read (JsonSummary prints it then); private so the run-stats goldens stay byte-identical */
+    private ?array $metrics = null;
+
+    /** @var array{read: int, dropped: int, merged: int, failed: int}|null spec 009: set only when `sentry` is configured and was read */
+    private ?array $sentry = null;
+
+    /** @param array{read: int, failed: int, anomalies: int} $counts */
+    public function setMetrics(array $counts): void
+    {
+        $this->metrics = $counts;
+    }
+
+    /** @return array{read: int, failed: int, anomalies: int}|null */
+    public function metrics(): ?array
+    {
+        return $this->metrics;
+    }
+
+    /** @param array{read: int, dropped: int, merged: int, failed: int} $counts */
+    public function setSentry(array $counts): void
+    {
+        $this->sentry = $counts;
+    }
+
+    /** @return array{read: int, dropped: int, merged: int, failed: int}|null */
+    public function sentry(): ?array
+    {
+        return $this->sentry;
+    }
+
     /** Source pages fetched, when the source reports it. */
     public ?int $pages = null;
 

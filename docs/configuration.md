@@ -228,6 +228,7 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 | `deploy.release`, `deploy.commit` | null | Usually from CI. A new group after a release change is marked "first seen after <release>". |
 | `deploy.version_label` | null | Log label that carries the running version, if your source has one (gives the deploy moment). |
 | `links.grafana.{base_url,datasource_uid}` / `links.datadog.app_url` | none | Builds a log-query link per finding from redacted data only. |
+| `links.tempo.{base_url,datasource_uid,trace_field,service_name}` / `links.datadog_apm.{trace_field,service}` | none | A trace link per log finding (spec 009). `trace_field` (default `trace_id`) names the log field read for a trace id; a valid id (16-32 hex) of the group's earliest event goes **only inside the link URL** of the digest, never to the model, state, `--json` or a notice; a group without one gets a service-search link. `datadog_apm` needs `links.datadog.app_url`; Tempo wins when both are set. Built, never fetched. |
 | `repo.{provider,web_url,path_map}` | none | `provider` is `gitlab` or `github`; `path_map` maps container path prefixes to repository paths for stack-frame links (needs `deploy.commit`). Vendor paths get no link. |
 
 ### `metrics` and `sentry` (optional, spec 009)
