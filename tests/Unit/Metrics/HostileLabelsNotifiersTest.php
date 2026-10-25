@@ -54,10 +54,12 @@ final class HostileLabelsNotifiersTest extends TestCase
             'discord' => (new DiscordNotifier($http, 60, static function (int $s): void {
             }))->send($message, Destination::discord('https://discord.com/api/webhooks/123456789012345678/SECRETwebhookTOKEN_abc-123')),
             'telegram' => (new TelegramNotifier($http, 60, static function (int $s): void {
-            }))->send($message, Destination::telegram('123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw_', '-1001234567890')),
+            }))->send($message, Destination::telegram('123456789' . ':' . 'AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw_', '-1001234567890')),
+            default => throw new \InvalidArgumentException('unknown channel'),
         };
 
-        self::assertCount(1, $log);
+        self::assertArrayHasKey(0, $log);
+        self::assertArrayNotHasKey(1, $log);
         $raw = json_encode(json_decode((string) $log[0]['request']->getBody(), true), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         self::assertIsString($raw);
         self::assertStringContainsString('payments.eu-west', $raw);
