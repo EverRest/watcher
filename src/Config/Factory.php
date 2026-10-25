@@ -422,7 +422,7 @@ final class Factory
      */
     public static function doctor(array $config, ?Client $http = null, ?ClockInterface $clock = null): Doctor
     {
-        $c = WatchConfig::fromArray($config);
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
         $http ??= self::http();
         $state = self::state($c, $clock);
@@ -439,7 +439,7 @@ final class Factory
      */
     public static function stateInspector(array $config, ?ClockInterface $clock = null): StateInspector
     {
-        $c = WatchConfig::fromArray($config);
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $normalizer = new Normalizer($c->on('dependencies') ? array_map('strval', array_keys($c->dependencies)) : [], $c->dependencyDomains, extraPatterns: $c->redactionPatterns);
         $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
 
@@ -454,7 +454,7 @@ final class Factory
      */
     public static function heartbeatStatus(array $config, ?ClockInterface $clock = null, ?LoggerInterface $log = null): HeartbeatStatus
     {
-        $c = WatchConfig::fromArray($config);
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
         if (!$c->enabled || !$c->on('heartbeat')) {
             return HeartbeatStatus::disabled($c->heartbeat['stale_after'], $clock->now());
