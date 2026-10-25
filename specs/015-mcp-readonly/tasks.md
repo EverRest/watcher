@@ -43,17 +43,17 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 
 ## Phase 0: Gate and decisions
 
-- [ ] T001 Run the gate command on the current tree and record the exit codes. Re-read the shared files above. Owner decisions O1-O5 are recorded in spec.md (2026-10-24); no open question remains. Owner decisions O6-O12 (2026-10-25) are recorded in spec.md as well. Decide the schema-validation helper for
+- [X] T001 Run the gate command on the current tree and record the exit codes. Re-read the shared files above. Owner decisions O1-O5 are recorded in spec.md (2026-10-24); no open question remains. Owner decisions O6-O12 (2026-10-25) are recorded in spec.md as well. Decide the schema-validation helper for
   tests (the small walker of plan.md; no dependency). Create `tests/Unit/Mcp/` and
   `tests/Fixtures/mcp/`. (FR-005)
-- [ ] T002 Read the published MCP specification pages for `initialize` and the stdio transport; record in
+- [X] T002 Read the published MCP specification pages for `initialize` and the stdio transport; record in
   `research.md` R1 the revisions checked, their dates and the final `PROTOCOL_VERSIONS` list. Docs-only. (O5, FR-003)
   Also read the `resources` and `prompts` pages and confirm the shapes recorded in R11 (amendment 2026-10-25; extends the same
   task, no new ID).
 
 ## Phase 1: Pure building blocks (all `[P]`, new files only)
 
-- [ ] T003 [P] [US4] `tests/Unit/Mcp/JsonRpcTest.php` and `ServerTest.php` (red): one message per line; parse error ->
+- [X] T003 [P] [US4] `tests/Unit/Mcp/JsonRpcTest.php` and `ServerTest.php` (red): one message per line; parse error ->
   `-32700` with `id: null`; batch array -> `-32600`; line over 64 KB discarded to the newline with `-32600` and the server
   continues; request before `initialize` (except `ping`) -> `-32600 not_initialized`; `initialize` echoes a known
   `protocolVersion` or answers the newest; `tools/list`, `ping`; notifications get no output (unknown ones too); methods
@@ -74,11 +74,11 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   `[withheld]`), no format or control character, none longer than its cap (cut with `…`); a scanner exception returns
   null; a typed validator turns a mismatch into null. Then `src/Mcp/OutputGuard.php` (uses `Redactor` and the shared
   command filter after T017; until T017 the test uses the filter in place and is re-run). (FR-022, FR-023, SC-002)
-- [ ] T006 [P] [US3] `tests/Unit/Mcp/EnvelopeTest.php` (red): the exact `notice` sentence (FR-026); `untrusted_data: true`;
+- [X] T006 [P] [US3] `tests/Unit/Mcp/EnvelopeTest.php` (red): the exact `notice` sentence (FR-026); `untrusted_data: true`;
   `now` in `...Z` form; built by `json_encode` (a hostile string with quotes, braces and `</tool_result>` round-trips as
   a string and the decoded structure equals the typed array); 16 KB cap drops findings from the end and sets
   `truncated`, never cuts inside a string; errors use only the closed codes and fixed messages. Then `src/Mcp/Envelope.php`. (FR-020, FR-025, FR-026)
-- [ ] T007 [P] [US4] `tests/Unit/Mcp/ReadOnlyStateStoreTest.php` (red): `get` passes through; `put`, `increment`, `acquire`,
+- [X] T007 [P] [US4] `tests/Unit/Mcp/ReadOnlyStateStoreTest.php` (red): `get` passes through; `put`, `increment`, `acquire`,
   `release` each throw `ReadOnlyViolation` (the interface has no others) and the class is not `Purgeable`; the exception message holds no key or value. Then
   `src/Mcp/ReadOnlyStateStore.php`. (FR-010)
 - [ ] T008 [P] [US5] `tests/Unit/Mcp/DryRunGuardTest.php` (red), a table: no confirm / `confirm_cost` as string `"true"`, `1`,
@@ -190,7 +190,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
 
 ## Phase 6 (amendment): security first (secret guard, path policy)
 
-- [ ] T042 [P] [US8] `tests/Unit/Mcp/SecretGuardTest.php` over `tests/Fixtures/mcp/secret-corpus.php` (red): at least 30 secret-shaped
+- [X] T042 [P] [US8] `tests/Unit/Mcp/SecretGuardTest.php` over `tests/Fixtures/mcp/secret-corpus.php` (red): at least 30 secret-shaped
   values (provider API keys with known prefixes, Slack and Discord webhooks, Telegram bot tokens, `Bearer`/`Basic` values, JWT, PEM,
   `https://user:pass@host`, Redis/PDO DSNs with a password, long mixed-class random runs, the same values with surrounding words,
   percent-encoded and with zero-width characters) are all `looksSecret`; at least 30 near-misses are not (service names such as
