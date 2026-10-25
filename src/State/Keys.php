@@ -34,6 +34,7 @@ final class Keys
     public const KNOWN = 'known';
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
+    public const RUNS = 'runs';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -249,6 +250,11 @@ final class Keys
         return self::join(self::LEDGER, 'unbooked', $service, $date);
     }
 
+    public static function runsToday(string $service, string $localDay): string
+    {
+        return self::join(self::RUNS, $service, $localDay);
+    }
+
     public static function highWater(string $service): string
     {
         return self::join(self::HIGH_WATER, $service);
@@ -258,7 +264,7 @@ final class Keys
     public static function ttl(string $kind, int $retention, int $lockTtl): int
     {
         return match ($kind) {
-            self::SPEND, self::ALERT, self::EXHAUSTED => self::SPEND_TTL,
+            self::SPEND, self::ALERT, self::EXHAUSTED, self::RUNS => self::SPEND_TTL,
             self::LOCK => $lockTtl,
             self::HEARTBEAT, self::TRIGGER, self::HIGH_WATER => self::HEARTBEAT_TTL_FACTOR * $retention,
             self::WEEK, self::WEEKSENT, self::REPORTSENT => self::WEEK_TTL,
