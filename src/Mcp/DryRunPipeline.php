@@ -17,8 +17,13 @@ interface DryRunPipeline
      */
     public function estimate(): array;
 
-    /** USD upper bound of the escalation step (`escalation_cap` groups at the escalation model's worst-case price); null when that model has no price. */
-    public function escalationAllowanceUsd(): ?float;
+    /**
+     * Upper bound of the escalation step: `escalation_cap` groups at the escalation model's worst-case price and worst-case tokens
+     * (input and output). null when either is unknown (no price): the guard then refuses.
+     *
+     * @return array{usd: float, tokens: int}|null
+     */
+    public function escalationAllowance(): ?array;
 
     /**
      * A full dry run (real, billed model calls; nothing posted or stored).

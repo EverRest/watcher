@@ -70,9 +70,13 @@ final class DryRunToolTest extends TestCase
         self::assertSame(0, $p->runs);
     }
 
-    public function testAFailingRunClearsBusyAndBooksNothing(): void
+    public function testAFailingRunAfterPaidCallsBooksTheBoundAndRefusesARetryLoop(): void
     {
-        $p = new FakePipeline(onRun: static fn (): array => throw new \RuntimeException('boom'));
+        $spent = 0;
+        $p = new FakePipeline(onRun: static function () use (&$spent): array {
+            ++$spent; // model calls were made, then the pipeline broke
+            throw new \RuntimeException('boom');
+        });
         $guard = new DryRunGuard(static fn (): array => ['usd' => 0.0, 'tokens' => 0], 0.5, null);
         $t = new DryRunTool($p, $guard, InspectFixtures::guard());
         try {
@@ -82,7 +86,16 @@ final class DryRunToolTest extends TestCase
             self::assertSame('internal_error', $e->errorCode);
         }
         self::assertFalse($guard->busy());
-        self::assertEqualsWithDelta(0.5, $guard->spendToday()['remaining_usd'], 1e-9);
+        self::assertEqualsWithDelta(0.5 - 0.10, $guard->spendToday()['remaining_usd'], 1e-9);
+        for ($i = 0; $i < 5; ++$i) {
+            try {
+                $t->call(['confirm_cost' => true]);
+                self::fail();
+            } catch (ToolError $e) {
+                self::assertSame('daily_limit_reached', $e->errorCode);
+            }
+        }
+        self::assertSame(1, $spent, 'a retry loop must not reach the pipeline again');
     }
 
     public function testItIsAbsentUnlessAllowedAndInvalidParamsWhenCalled(): void

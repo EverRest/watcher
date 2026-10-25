@@ -13,10 +13,11 @@ final class FakePipeline implements DryRunPipeline
     public int $estimates = 0;
 
     /**
+     * @param array{usd: float, tokens: int}|null $allowance
      * @param list<array{step: string, groups: int, tokens_in: int, tokens_out_max: int, cost_usd: float}> $steps
      * @param (Closure(): array<string, mixed>)|null $onRun
      */
-    public function __construct(public array $steps = [['step' => 'triage', 'groups' => 10, 'tokens_in' => 1000, 'tokens_out_max' => 500, 'cost_usd' => 0.01], ['step' => 'analyze', 'groups' => 5, 'tokens_in' => 4000, 'tokens_out_max' => 1500, 'cost_usd' => 0.05]], public ?float $allowance = 0.04, private readonly ?Closure $onRun = null)
+    public function __construct(public array $steps = [['step' => 'triage', 'groups' => 10, 'tokens_in' => 1000, 'tokens_out_max' => 500, 'cost_usd' => 0.01], ['step' => 'analyze', 'groups' => 5, 'tokens_in' => 4000, 'tokens_out_max' => 1500, 'cost_usd' => 0.05]], public ?array $allowance = ['usd' => 0.04, 'tokens' => 1000], private readonly ?Closure $onRun = null)
     {
     }
 
@@ -27,7 +28,7 @@ final class FakePipeline implements DryRunPipeline
         return $this->steps;
     }
 
-    public function escalationAllowanceUsd(): ?float
+    public function escalationAllowance(): ?array
     {
         return $this->allowance;
     }

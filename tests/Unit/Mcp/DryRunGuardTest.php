@@ -64,7 +64,7 @@ final class DryRunGuardTest extends TestCase
     {
         // triage + analyze = 0.06 fits in 0.08; the escalation allowance 0.04 does not
         self::assertSame('would_exceed_daily_limit', $this->refusal($this->guard(0.42), true, new FakePipeline()));
-        $p = new FakePipeline(allowance: 0.0);
+        $p = new FakePipeline(allowance: ['usd' => 0.0, 'tokens' => 0]);
         $r = $this->guard(0.42)->admit(true, $p);
         self::assertEqualsWithDelta(0.06, $r['usd'], 1e-9);
     }
@@ -76,8 +76,9 @@ final class DryRunGuardTest extends TestCase
 
     public function testTheTokenLimitIsHandledTheSameWay(): void
     {
-        self::assertSame('would_exceed_daily_limit', $this->refusal($this->guard(0.0, 0.5, 6999, 0), true, new FakePipeline()));
-        self::assertSame(['usd' => 0.10, 'tokens' => 7000], array_map(static fn (float|int $v): float|int => is_float($v) ? round($v, 6) : $v, $this->guard(0.0, 0.5, 8000, 0)->admit(true, new FakePipeline())));
+        // steps 7000 tokens + escalation 1000 = 8000
+        self::assertSame('would_exceed_daily_limit', $this->refusal($this->guard(0.0, 0.5, 7999, 0), true, new FakePipeline()));
+        self::assertSame(['usd' => 0.10, 'tokens' => 8000], array_map(static fn (float|int $v): float|int => is_float($v) ? round($v, 6) : $v, $this->guard(0.0, 0.5, 8000, 0)->admit(true, new FakePipeline(allowance: ['usd' => 0.04, 'tokens' => 1000]))));
     }
 
     public function testRunsNeverExceedTheStartingRemainder(): void
@@ -88,7 +89,6 @@ final class DryRunGuardTest extends TestCase
         for ($i = 0; $i < 10; ++$i) {
             try {
                 $b = $g->admit(true, $p);
-                $g->begin();
                 $g->end($b);
                 $allowed += $b['usd'];
             } catch (ToolError $e) {
@@ -100,13 +100,44 @@ final class DryRunGuardTest extends TestCase
         self::assertEqualsWithDelta(0.05, $g->spendToday()['remaining_usd'], 1e-9);
     }
 
+    public function testTheEscalationTokensCountAtTheBoundary(): void
+    {
+        self::assertSame(8000, $this->guard(0.0, 0.5, 8000, 0)->admit(true, new FakePipeline())['tokens']);
+        self::assertSame('would_exceed_daily_limit', $this->refusal($this->guard(0.0, 0.5, 7999, 0), true, new FakePipeline()));
+        // the same limit passes when the escalation step carries no tokens: it is the escalation bound that refuses
+        self::assertSame(7000, $this->guard(0.0, 0.5, 7999, 0)->admit(true, new FakePipeline(allowance: ['usd' => 0.04, 'tokens' => 0]))['tokens']);
+    }
+
+    public function testAnUnknownEscalationBoundIsRefused(): void
+    {
+        self::assertSame('would_exceed_daily_limit', $this->refusal($this->guard(), true, new FakePipeline(allowance: null)));
+    }
+
+    public function testAdmitReservesBeforeReturningSoASecondCallIsBusy(): void
+    {
+        $g = $this->guard();
+        $g->admit(true, new FakePipeline());
+        self::assertSame('busy', $this->refusal($g, true, new FakePipeline()));
+        $g->end(null);
+    }
+
+    public function testAFailedRunBooksTheBoundAndBlocksFurtherRuns(): void
+    {
+        $g = $this->guard();
+        $b = $g->admit(true, new FakePipeline());
+        $g->end($b, failed: true);
+        self::assertEqualsWithDelta(0.5 - $b['usd'], $g->spendToday()['remaining_usd'], 1e-9);
+        self::assertSame('daily_limit_reached', $this->refusal($g, true, new FakePipeline()));
+    }
+
     public function testBusyWhileRunningAndClearedAfterAnException(): void
     {
         $g = $this->guard();
-        $g->begin();
+        $g->admit(true, new FakePipeline());
         self::assertSame('busy', $this->refusal($g, true, new FakePipeline()));
         $g->end(null);
         $g->admit(true, new FakePipeline());
+        $g->end(null);
         self::assertFalse($g->busy());
     }
 }

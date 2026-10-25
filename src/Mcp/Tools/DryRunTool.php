@@ -62,17 +62,15 @@ final class DryRunTool implements Tool
             return ['estimate' => $steps, 'total_usd' => round($total, 6)];
         }
         $bound = $this->guard->admit($args['confirm_cost'] ?? null, $this->pipeline);
-        $this->guard->begin();
-        $consumed = null;
+        $failed = true;
         try {
+            // The admitted upper bound is booked as soon as the run is entered: paid calls made before a failure must not look free.
             $report = $this->pipeline->run();
-            $consumed = $bound; // the real cost can only be lower; the bound is what is booked
-        } catch (ToolError $e) {
-            throw $e;
+            $failed = false;
         } catch (Throwable) {
             throw new ToolError('internal_error');
         } finally {
-            $this->guard->end($consumed);
+            $this->guard->end($bound, $failed);
         }
 
         return $this->report($report, $bound['usd']);
