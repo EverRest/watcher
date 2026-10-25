@@ -18,6 +18,7 @@ watcher.local.php
 # runtime state of the file store
 /storage
 /.watcher
+*.rdb
 
 # editor, OS, tooling
 .DS_Store

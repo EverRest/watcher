@@ -4,6 +4,30 @@ Tracks remediation from the pipeline and core code reviews. Status: `open` / `qu
 
 Related: [review-2026-10-23.md](review-2026-10-23.md) (log-source and reducer findings).
 
+## Batch 1 — hygiene (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| B1-1 | Ignore local Redis dumps (`*.rdb` in `.gitignore`) | closed |
+| B1-2 | `Factory.php` M4: merge consecutive docblocks; fix lock-renewal comment now that `RenewableLock` and `renewLock()` exist | closed |
+| B1-3 | `review-2026-10-23` M1 `source.group_cap` — implemented; status synced to done | closed |
+
+## Batch 2 — state + Slack (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-M4 | Slack webhook retry / transient failure handling | closed |
+| P-M5 | `BufferedStateStore` flush: unset each key only after successful `put` | closed |
+
+## Batch 3 — PDO state (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-M1 | PDO `StateStore`: MySQL `rowCount` / affected-rows (`MYSQL_ATTR_FOUND_ROWS` in `Factory::pdo`) | closed |
+| P-M2 | PDO state purge: `Purgeable` on `PdoStateStore`; lazy PDO wrapper forwards `purge()` | closed |
+
+MySQL-specific `rowCount` behaviour is covered by contract tests on SQLite plus a Factory source check; a CI job with MySQL remains a follow-up.
+
 ## Batch 4 — Laravel + CLI (closed)
 
 | ID | Item | Status |
@@ -53,9 +77,5 @@ Deferred from batch 8 (not worth the diff now): retry backoff jitter; Loki per-r
 
 | ID | Item | Batch | Status |
 |----|------|-------|--------|
-| P-M1 | PDO `StateStore`: MySQL `rowCount` / affected-rows | 3 | closed (PR #10) |
-| P-M2 | PDO state purge / `Purgeable` | 3 | closed (PR #10) |
 | H1 | `Watcher::locked()` refactor — `RunLedger` / `EventCollector` extraction | — | deferred |
 | SEC | Security review follow-ups | — | in progress |
-
-Batches 1–5 are on open PRs (#8, #10, #12, plus batch 2/4 merged to `develop`).

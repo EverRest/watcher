@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 use Watcher\Level;
 use Watcher\Source\LineParser;
 use Watcher\Source\LogEvent;
+use Watcher\Tests\Fakes\FrozenClock;
 
 final class LineParserTest extends TestCase
 {
@@ -99,6 +100,28 @@ final class LineParserTest extends TestCase
         $t = new DateTimeImmutable('2026-01-01T00:00:00+00:00');
         self::assertEquals($t, $this->parser()->parse('noise', $t)->time);
         self::assertEquals($t, $this->parser()->parse('{"message":"m"}', $t)->time);
+    }
+
+    public function testStructuredJsonHeadIsDecodedOnceAcrossManyContinuations(): void
+    {
+        $head = '{"level":"error","message":"boom"}';
+        $p = new LineParser();
+        for ($i = 0; $i < 50; ++$i) {
+            self::assertTrue($p->continues('[stacktrace]', $head));
+        }
+        self::assertSame(1, $p->jsonDecodeCount);
+    }
+
+    public function testTimestampRangeUsesInjectedClock(): void
+    {
+        $frozen = new FrozenClock(new DateTimeImmutable('2026-10-23T12:00:00+00:00'));
+        $p = new LineParser($frozen);
+        $fallback = new DateTimeImmutable('2026-01-01T00:00:00+00:00');
+        $inside = $p->parse('{"level":"error","message":"m","time":"2026-10-24T11:00:00Z"}', $fallback);
+        $outside = $p->parse('{"level":"error","message":"m","time":"2026-10-25T12:00:00Z"}', $fallback);
+
+        self::assertSame('2026-10-24T11:00:00+00:00', $inside->time->format('c'));
+        self::assertSame('2026-01-01T00:00:00+00:00', $outside->time->format('c'));
     }
 
     public function testLaravelDefaultFormatWithoutApp(): void

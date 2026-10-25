@@ -38,6 +38,7 @@ use Watcher\Context\DependencyResolver;
 use Watcher\Context\DeployInfo;
 use Watcher\Context\LogLinkBuilder;
 use Watcher\Notify\DeliveryFailed;
+use Watcher\Notify\DeliveryProgress;
 use Watcher\Notify\Destination;
 use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
@@ -59,6 +60,7 @@ use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\GroupStatus;
 use Watcher\Reduce\EventCollector;
+use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Schedule\FatalGuard;
@@ -527,6 +529,13 @@ final class Watcher
         if ($comparedWith !== null) {
             $this->ledger->observation()->warn('comparison_gap', null, max(1, (int) round(($window->start->getTimestamp() - $comparedWith->getTimestamp()) / 86400)));
         }
+        $fpvResetFrom = null;
+        if ($prev !== null && !Fingerprinter::snapshotUsable($prev)) {
+            $fpvResetFrom = Fingerprinter::snapshotVersion($prev);
+            $prev = null;
+            $comparedWith = null;
+            $this->previousKey = self::windowKey($window->start);
+        }
         $this->ledger->defer();
         $deploy = $c->on('deploy') ? DeployInfo::resolve($c->deploy, $prev['deploy'] ?? null, $this->source, $window, $selector) : new DeployInfo(null, null, null, false);
         $this->ledger->setDeployInfo($deploy);
@@ -583,10 +592,11 @@ final class Watcher
             $this->readDependencies($window, $normalizer, $redactor, null);
             $this->ledger->snapshot($window, $allGroups, $totals);
             if ($c->on('notice')) {
-                $this->notifier->send(
-                    $renderer->renderBaseline($service, $environment, count($groups), array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups))),
-                    $c->destination('notice'),
-                );
+                $eventCount = array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups));
+                $notice = $fpvResetFrom === null
+                    ? $renderer->renderBaseline($service, $environment, count($groups), $eventCount)
+                    : $renderer->renderFingerprintVersionReset($service, $environment, count($groups), $eventCount, $fpvResetFrom, Fingerprinter::FPV);
+                $this->notifier->send($notice, $c->destination('notice'));
             }
             $this->blindNotice($blind(false), $key, $endKey); // a baseline run only records: cap and overflow are not news yet
             $this->ledger->runRecord($runKey, RunOutcome::Baselined, null, $started, $this->blindCode);
@@ -640,7 +650,7 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet, null, $usage);
         }
 
-        $message = $this->buildDigest($read, $analysis, $selection, $environment);
+        $message = $this->digestMessage($this->buildDigest($read, $analysis, $selection, $environment), $keys);
         try {
             $this->observer?->kind('digest');
             $this->notifier->send($message, $c->destination('digest'));
@@ -886,6 +896,19 @@ final class Watcher
             unreported: $routed->unreported,
             newOverflow: $routed->newOverflow,
         ), $c->analysis['confidence_threshold']);
+    }
+
+    private function digestMessage(Message $message, WindowKeys $keys): Message
+    {
+        if ($this->options->dryRun) {
+            return $message;
+        }
+        $partsKey = $keys->deliveredParts();
+        $skip = (int) ($this->state->get($partsKey)['n'] ?? 0);
+
+        return new Message($message->text, $message->sections, new DeliveryProgress($skip, function (int $n) use ($partsKey): void {
+            $this->state->put($partsKey, ['n' => $n], self::DELIVERED_TTL);
+        }));
     }
 
     /** Renews the run lock before every model call (A4-05). */
@@ -1245,8 +1268,11 @@ final class Watcher
             return [];
         }
         $snap = $this->state->get(Keys::snapshot($this->config->stateKey, $key));
+        if (!is_array($snap) || !Fingerprinter::snapshotUsable($snap)) {
+            return [];
+        }
 
-        return $snap === null ? [] : [$snap, $end, $key];
+        return [$snap, $end, $key];
     }
 
     /**
