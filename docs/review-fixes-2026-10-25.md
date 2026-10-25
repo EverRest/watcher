@@ -36,12 +36,17 @@ MySQL-specific `rowCount` behaviour is covered by contract tests on SQLite plus 
 | M1 | CLI and `watcher:run`: catch `Throwable` at process boundary (class + message, exit 1) | closed |
 | M2 | `AnalyzerFailed` handler: state snapshot/write must not mask the analysis error | closed |
 
+## Batch 5 — Code links + Loki text filter (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| W6 | `CodeLinkBuilder::mapPath` prefix match without path-segment boundary (`/app` vs `/apple`) | closed |
+| H5 | Loki text-mode line filter drops stack-trace continuations server-side | closed (continuations); unworded labelled main lines still use `level_mode: label` |
+
 ## Later batches — open
 
 | ID | Item | Batch | Status |
 |----|------|-------|--------|
-| W6 | `CodeLinkBuilder` path prefix boundary | 5 | open |
-| H5 | Loki stack-trace continuation / server-side line filter | 5 | open |
 | P-H1 | Fingerprint / template versioning | 6 | open |
 | P-M3 | Notifier message parts / splitting | 7 | open |
 | P-M6 | `LineParser` decode memoization / injected clock | 7 | queued |
