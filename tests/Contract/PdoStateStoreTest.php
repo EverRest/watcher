@@ -7,6 +7,7 @@ namespace Watcher\Tests\Contract;
 use PDO;
 use Psr\Clock\ClockInterface;
 use Watcher\State\PdoStateStore;
+use Watcher\State\Purgeable;
 use Watcher\State\StateStore;
 
 final class PdoStateStoreTest extends StateStoreContractTest
@@ -51,6 +52,39 @@ final class PdoStateStoreTest extends StateStoreContractTest
     {
         $this->expectException(\InvalidArgumentException::class);
         PdoStateStore::createTableSql('sqlite', 'x; DROP TABLE y');
+    }
+
+    public function testImplementsPurgeableAndRemovesExpiredRows(): void
+    {
+        $this->store->put('old', ['v' => 1], 10);
+        $this->store->put('live', ['v' => 2], 1000);
+        $this->advance(11);
+
+        $removed = $this->purgeable()->purge();
+
+        self::assertSame(1, $removed);
+        self::assertSame(1, $this->rowCount());
+        self::assertNull($this->store->get('old'));
+        self::assertSame(['v' => 2], $this->store->get('live'));
+    }
+
+    public function testPurgeReturnsZeroWhenNothingExpired(): void
+    {
+        $this->store->put('live', ['v' => 1], 1000);
+
+        self::assertSame(0, $this->purgeable()->purge());
+        self::assertSame(1, $this->rowCount());
+    }
+
+    public function testPutWithSamePayloadRefreshesTtlWithoutDuplicateRow(): void
+    {
+        $this->store->put('k', ['v' => 1], 60);
+        $this->store->put('k', ['v' => 1], 120);
+
+        self::assertSame(1, $this->rowCount());
+        self::assertSame(['v' => 1], $this->store->get('k'));
+        $this->advance(70);
+        self::assertSame(['v' => 1], $this->store->get('k'), 'TTL was extended on the second put');
     }
 
     public function testPurgesExpiredRowsOnEveryNthWrite(): void
@@ -101,6 +135,13 @@ final class PdoStateStoreTest extends StateStoreContractTest
         $this->advance(4); // 10s after the first increment
 
         self::assertSame(1.0, $this->store->increment('spend', 1.0, 10));
+    }
+
+    private function purgeable(): Purgeable
+    {
+        self::assertInstanceOf(Purgeable::class, $this->store);
+
+        return $this->store;
     }
 
     private function rowCount(): int
