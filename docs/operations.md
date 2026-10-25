@@ -241,6 +241,14 @@ run deadline ends it. Known limit: a chunked or compressed reply without `Conten
 unchanged; anything else (control, format or non-character code points, spaces, chat markup) is dropped, not shown masked. A ratio that is not a finite
 number (a baseline near zero) prints `change not computable`; a metric problem never fails the run.
 
+**`--dry-run` and `--estimate` read the sources.** The metrics and Sentry reads are read-only but real and credentialed, and a dry run or an estimate makes
+the same ones a run does (`--estimate` makes no model call; neither posts anything or writes state). The banner says which reads were made:
+`== external reads made (read-only, credentialed): metrics, sentry ==`. To avoid them, set `enabled: false` on the section.
+
+**Metric labels in the digest.** A label value reaches the `Metrics:` line only when it is 1 to 64 characters of `A-Za-z0-9_.:-` and survives masking
+unchanged; anything else (control, format or non-character code points, spaces, chat markup) is dropped, not shown masked. A ratio that is not a finite
+number (a baseline near zero) prints `change not computable`; a metric problem never fails the run.
+
 ## Availability guards
 
 A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.

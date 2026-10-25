@@ -387,6 +387,11 @@ final class Watcher
         $this->emit($this->options->estimate
             ? "== DRY RUN --estimate: no model calls made ==\n"
             : "== DRY RUN: nothing posted, no state written. Model calls were real and billed; spend not recorded. ==\n");
+        // Spec 009: the optional sources are read-only but real and credentialed; a dry run and an estimate make the same reads as a run.
+        $reads = array_filter([$this->metrics !== null ? 'metrics' : null, $this->issues !== null ? 'sentry' : null]);
+        if ($reads !== []) {
+            $this->emit('== external reads made (read-only, credentialed): ' . implode(', ', $reads) . " ==\n");
+        }
         if ($this->realState->get($keys->run()) !== null) {
             $this->emit("== window already reported by a real run: executed anyway ==\n");
         }
