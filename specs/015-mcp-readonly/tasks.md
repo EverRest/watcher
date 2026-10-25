@@ -61,7 +61,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   while the `docs` group is off (served with it on: T040); invalid `id` types never echoed;
   stdout receives only protocol lines (a stray `echo` in a tool is caught by an output-buffer assertion); EOF ends the
   loop with 0. Then `src/Mcp/{JsonRpc,Server}.php`. (FR-001..FR-005, US4 AC2-AC4)
-- [ ] T004 [P] [US4] `tests/Unit/Mcp/ToolRegistryTest.php` and `ToolSchemaDriftTest.php` (red): the registry lists exactly the
+- [X] T004 [P] [US4] `tests/Unit/Mcp/ToolRegistryTest.php` and `ToolSchemaDriftTest.php` (red): the registry lists exactly the
   tools of `contracts/tools.schema.json` for the enabled groups (T041; originally 5, or 6 with `mcp.allow_dry_run`), each with `readOnlyHint: true` and a static
   description; argument validation (unknown property, wrong type, `limit` 0 and 21, `fp` malformed) -> `-32602` naming the
   property and never echoing the value; the allowlists in code equal the schema's properties per tool (drift test, FR-021);
@@ -116,7 +116,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   `state` check performs no `put`, `increment`, `acquire` (a throwing store passes) and reports `read-only probe`, an
   unreadable store `unreadable`; with `readOnly: false` behaviour is byte-identical to today; no `--post-test` path is
   reachable from the read-only entry point. Then the flag. (FR-031, R6)
-- [ ] T019 [US1] **Touches `src/Cli/Application.php` and the Laravel adapter.** `tests/Unit/Cli/McpCommandTest.php` (red):
+- [X] T019 [US1] **Touches `src/Cli/Application.php` and the Laravel adapter.** `tests/Unit/Cli/McpCommandTest.php` (red):
   `mcp` accepts `--config` only (every other option exit 2); invalid config exits 2 with a stderr line naming the setting
   and an empty stdout (SC-007); a `fleet` config is a usage error; the file state driver that cannot be opened read-only
   is refused with a message (FR-012); stdin EOF exits 0; the adapter registers `watcher:mcp` (`src/Laravel/McpCommand.php`, provider). Then `src/Mcp/McpCommand.php`
@@ -136,11 +136,11 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   never reaches the store (a spy store sees no call); `mute_suggestion` is the fixed sentence plus the fingerprint, with
   a hostile title in the same finding not appearing in it; `tpl` and any key outside the allowlist, put into the stored
   record by the test, never appear. Then `Tools/{LatestReport,Finding}Tool.php`, `LastReport.php`. (FR-032, FR-033, US2)
-- [ ] T012 [US3] `tests/EndToEnd/McpInjectionTest.php` (red): seed the hostile corpus into verdict, last-report and
+- [X] T012 [US3] `tests/EndToEnd/McpInjectionTest.php` (red): seed the hostile corpus into verdict, last-report and
   heartbeat records; call every tool through the server; assert on the decoded and raw output the rules of User Story 3
   (AC1-AC7) and SC-002; the privacy corpus of spec 001 seeded values are absent from stdout **and** stderr (SC-003); a
   control run with `OutputGuard` bypassed proves the test sees leaks. (FR-022, SC-002, SC-003)
-- [ ] T013 [US4] `tests/Unit/Mcp/NoWriteStaticTest.php` (red): reads `src/Mcp/**/*.php` and fails if it references a
+- [X] T013 [US4] `tests/Unit/Mcp/NoWriteStaticTest.php` (red): reads `src/Mcp/**/*.php` and fails if it references a
   notifier class, a mutating `StateStore` method, `file_put_contents`, `fopen` with a write mode, `unlink`, `mkdir`,
   `curl_*`, `stream_socket_server`, `Guzzle` outside the allowed entry points (`Tools/CheckTool.php`,
   `Tools/DryRunTool.php`), or `.env` access; a deliberately bad fixture proves it fails. (FR-011, FR-012, FR-015, SC-001)
@@ -167,7 +167,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   Unreleased. (Principle I: a change touching what leaves the service extends the privacy docs)
 - [ ] T031 [P] `docs/mcp.md` from `quickstart.md`: setup, one entry per service, store hardening, assistant profile advice
   (no shell/file tools or per-call approval), what the tools return, how to read `untrusted_data`, cost of the dry run.
-- [ ] T032 End-to-end smoke (`tests/EndToEnd/McpProcessTest.php`): start `bin/watcher mcp` with `proc_open` and a fake
+- [X] T032 End-to-end smoke (`tests/EndToEnd/McpProcessTest.php`): start `bin/watcher mcp` with `proc_open` and a fake
   config on a temp file store, send initialize/list/status, assert one JSON line per response, exit 0 on EOF, nothing on
   stderr. Then run the gate command and read the exit codes; run `composer deps-check` if present. (SC-006, SC-008)
 
@@ -181,7 +181,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   methods are `-32601`; `resources/subscribe`, `sampling/*`, `logging/*`, `completion/*`, `roots/*`, `elicitation/*` stay
   `-32601`; no `nextCursor`; bad params -> `-32602` fixed message, value not echoed. Then the router entries in `src/Mcp/Server.php`
   (about 60 lines). (FR-003, FR-092, US4 AC3)
-- [ ] T041 [P] [US7] `tests/Unit/Mcp/ToolRegistryGroupsTest.php` and the extended `ToolSchemaDriftTest` (red): default groups give 13
+- [X] T041 [P] [US7] `tests/Unit/Mcp/ToolRegistryGroupsTest.php` and the extended `ToolSchemaDriftTest` (red): default groups give 13
   tools, 14 with `mcp.allow_dry_run`; `['inspect']` gives the original 5; `--setup` gives 8 (onboarding + docs); a tool of an off group is
   absent and `-32602` on call; every new tool has `readOnlyHint: true`, `destructiveHint: false`, a static description, and only
   `watcher_rollout_check` has `openWorldHint: true`; allowlists equal `tools.schema.json` for all 14 tools; every schema string is typed,
@@ -209,7 +209,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   when testable) give `path_not_allowed` before any read (a spy reader sees no call); roots are compared after `realpath` (the
   `/srv/app` vs `/srv/app-evil` prefix trap); `ConfigFileReader` stops at 256 KB + 1 and returns `file_too_large` without parsing;
   an unreadable file is `file_unreadable`. Then `src/Mcp/{PathPolicy,ConfigFileReader}.php`. (FR-067, SC-014)
-- [ ] T045 [US8] `tests/EndToEnd/McpSecretRefusalTest.php` (red): the secret corpus is passed through every string input of every
+- [X] T045 [US8] `tests/EndToEnd/McpSecretRefusalTest.php` (red): the secret corpus is passed through every string input of every
   onboarding and docs tool (`service`, `environment`, `timezone`, `stream_tags` keys and values, `env_names`, `path`, `query`, `key`,
   `code`) and every prompt argument, through the server over `php://memory`: each is refused with `secret_refused` (tools) or
   `-32602` with the fixed message (prompts); a refused call performs no file access (spy reader) and no state access; the corpus
@@ -240,7 +240,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   inventory of emit sites (R18 lists the files known today; record the final list here). Then the registry with constants and the
   mechanical replacement of literals; behaviour unchanged (existing tests unchanged and green). **SEQ after T021, T022 and Lanes A, C, B, G.**
   (FR-084, FR-085 d-e, SC-013)
-- [ ] T053 [US7] **Touches `src/Cli/Application.php`, `src/Laravel/McpCommand.php`.** `tests/Unit/Cli/McpSetupModeTest.php` (red):
+- [X] T053 [US7] **Touches `src/Cli/Application.php`, `src/Laravel/McpCommand.php`.** `tests/Unit/Cli/McpSetupModeTest.php` (red):
   `--setup` and `--config` together or neither is exit 2 with a stderr line and empty stdout; `--setup` starts with no configuration,
   no state store, no HTTP client constructed (spy factory), serves 8 tools, `service: null` in the envelope; allowed root is the
   current directory (`chdir` in the test); every other option is exit 2; the adapter registers `watcher:mcp` with `--setup`. Then the
