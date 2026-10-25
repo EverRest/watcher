@@ -136,6 +136,12 @@ final class Keys
         return self::join(self::DELIVERED, $service, $windowEnd);
     }
 
+    /** Parts of a digest already posted when a later part failed (same window, same TTL as delivered). */
+    public static function deliveredParts(string $service, string $windowEnd): string
+    {
+        return self::join(self::DELIVERED, $service, $windowEnd, 'parts');
+    }
+
     /** Failure notices sent for one window (a counter, at most FAIL_NOTICES_PER_WINDOW are sent). */
     public static function failNotices(string $service, string $windowEnd): string
     {

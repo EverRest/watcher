@@ -6,8 +6,10 @@ namespace Watcher\Source;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Psr\Clock\ClockInterface;
 use Throwable;
 use Watcher\Level;
+use Watcher\Schedule\SystemClock;
 
 /** Parses one log line into a LogEvent. Text vs JSON is decided per line, so mixed streams work. */
 final class LineParser
@@ -83,6 +85,16 @@ final class LineParser
 
     /** Did a regex fail while parsing the last line given to parse()? Then its level is a guess: the source prefers its stream label. */
     public bool $lastParseFailed = false;
+
+    /** @internal test seam: how many times json_decode ran on a line body */
+    public int $jsonDecodeCount = 0;
+
+    /** @var array<string, bool> */
+    private array $structuredCache = [];
+
+    public function __construct(private readonly ?ClockInterface $clock = null)
+    {
+    }
 
     /** @return array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int} the last three only when non-zero */
     public function diagnostics(): array
@@ -207,14 +219,25 @@ final class LineParser
     /** Does this physical line begin a `[timestamp]` text record or a JSON object? */
     private function structured(string $line): bool
     {
+        if (isset($this->structuredCache[$line])) {
+            return $this->structuredCache[$line];
+        }
         $trimmed = trim($line);
         if (str_starts_with($trimmed, '{')) {
             // Too large to decode: parse() turns it into a placeholder event, so it is a record start all the same.
-            return strlen($trimmed) > self::MAX_JSON_BYTES || is_array(json_decode($trimmed, true));
+            return $this->structuredCache[$line] = strlen($trimmed) > self::MAX_JSON_BYTES || is_array($this->decodeJson($trimmed));
         }
         $m = $this->text($line);
 
-        return $m !== null && $this->time($m['dt']) !== null;
+        return $this->structuredCache[$line] = $m !== null && $this->time($m['dt']) !== null;
+    }
+
+    /** @return mixed decoded array or null */
+    private function decodeJson(string $trimmed): mixed
+    {
+        ++$this->jsonDecodeCount;
+
+        return json_decode($trimmed, true);
     }
 
     /**
@@ -231,7 +254,7 @@ final class LineParser
             if (strlen($trimmed) > self::MAX_JSON_BYTES) {
                 return $this->truncatedStructured($trimmed, $fallback);
             }
-            $data = json_decode($trimmed, true);
+            $data = $this->decodeJson($trimmed);
             if (is_array($data)) {
                 return $this->cutJsonMessage($this->fromJson($data, $fallback));
             }
@@ -549,6 +572,8 @@ final class LineParser
 
     private function inRange(float|int $seconds): bool
     {
-        return $seconds >= 946_684_800 && $seconds <= time() + 86_400;
+        $now = ($this->clock ?? new SystemClock())->now()->getTimestamp();
+
+        return $seconds >= 946_684_800 && $seconds <= $now + 86_400;
     }
 }

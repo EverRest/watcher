@@ -38,6 +38,7 @@ use Watcher\Context\DependencyResolver;
 use Watcher\Context\DeployInfo;
 use Watcher\Context\LogLinkBuilder;
 use Watcher\Notify\DeliveryFailed;
+use Watcher\Notify\DeliveryProgress;
 use Watcher\Notify\Destination;
 use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
@@ -649,7 +650,7 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet, null, $usage);
         }
 
-        $message = $this->buildDigest($read, $analysis, $selection, $environment);
+        $message = $this->digestMessage($this->buildDigest($read, $analysis, $selection, $environment), $keys);
         try {
             $this->observer?->kind('digest');
             $this->notifier->send($message, $c->destination('digest'));
@@ -895,6 +896,19 @@ final class Watcher
             unreported: $routed->unreported,
             newOverflow: $routed->newOverflow,
         ), $c->analysis['confidence_threshold']);
+    }
+
+    private function digestMessage(Message $message, WindowKeys $keys): Message
+    {
+        if ($this->options->dryRun) {
+            return $message;
+        }
+        $partsKey = $keys->deliveredParts();
+        $skip = (int) ($this->state->get($partsKey)['n'] ?? 0);
+
+        return new Message($message->text, $message->sections, new DeliveryProgress($skip, function (int $n) use ($partsKey): void {
+            $this->state->put($partsKey, ['n' => $n], self::DELIVERED_TTL);
+        }));
     }
 
     /** Renews the run lock before every model call (A4-05). */
