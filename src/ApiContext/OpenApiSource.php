@@ -8,8 +8,8 @@ use ArrayObject;
 use Closure;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\ConnectException;
-use GuzzleHttp\Exception\RequestException;
 use JsonException;
+use Psr\Http\Message\ResponseInterface;
 use Throwable;
 use Watcher\Config\SecureUrl;
 use Watcher\Source\ResponseLimit;
@@ -243,10 +243,19 @@ final class OpenApiSource
 
     private static function failure(Throwable $e): string
     {
-        if ($e instanceof RequestException && $e->getResponse() !== null) {
-            return in_array($e->getResponse()->getStatusCode(), [401, 403], true) ? 'unauthorized' : 'unreachable';
+        // Two Guzzle majors: 7 has RequestException::getResponse() and ConnectException::getHandlerContext(); 8 has neither (timeouts are classes).
+        // ponytail: when Guzzle 7 is dropped this is `ResponseException` / `NetworkTimeoutException` / `ConnectTimeoutException` / `ResponseTimeoutException` checks.
+        $response = method_exists($e, 'getResponse') ? $e->getResponse() : null;
+        if ($response instanceof ResponseInterface) {
+            return in_array($response->getStatusCode(), [401, 403], true) ? 'unauthorized' : 'unreachable';
         }
-        if ($e instanceof ConnectException && (($e->getHandlerContext()['errno'] ?? 0) === 28 || str_contains($e->getMessage(), 'timed out'))) {
+        foreach (['NetworkTimeoutException', 'ConnectTimeoutException', 'ResponseTimeoutException'] as $timeout) {
+            if (is_a($e, 'GuzzleHttp\\Exception\\' . $timeout)) {
+                return 'timeout';
+            }
+        }
+        $errno = method_exists($e, 'getHandlerContext') ? ($e->getHandlerContext()['errno'] ?? 0) : 0;
+        if ($e instanceof ConnectException && ($errno === 28 || str_contains($e->getMessage(), 'timed out'))) {
             return 'timeout';
         }
 

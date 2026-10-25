@@ -140,6 +140,14 @@ final class OpenApiSourceTest extends TestCase
         self::assertSame('Bearer TOKEN123', $this->history[0]['request']->getHeaderLine('Authorization'));
     }
 
+    /** A timeout on either Guzzle major: 8 has timeout classes, 7 a ConnectException whose message says so. */
+    private static function timeout(Request $req): \Throwable
+    {
+        $class = 'GuzzleHttp\\Exception\\NetworkTimeoutException';
+
+        return class_exists($class) ? new $class('Operation timed out', $req) : new ConnectException('cURL error 28: Operation timed out after 15000 milliseconds', $req);
+    }
+
     public function testHttpFailureTokens(): void
     {
         $req = new Request('GET', self::URL);
@@ -148,8 +156,8 @@ final class OpenApiSourceTest extends TestCase
             'unauthorized ' => new Response(403),
             'unreachable' => new Response(503),
             'unreachable ' => new Response(404),
-            'timeout' => new ConnectException('cURL error 28: Operation timed out after 15000 milliseconds', $req, null, ['errno' => 28]),
-            'unreachable  ' => new ConnectException('cURL error 7: Failed to connect', $req, null, ['errno' => 7]),
+            'timeout' => self::timeout($req),
+            'unreachable  ' => new ConnectException('cURL error 7: Failed to connect', $req),
         ];
         foreach ($cases as $expected => $outcome) {
             $this->history = [];
@@ -238,7 +246,7 @@ final class OpenApiSourceTest extends TestCase
     {
         $gz = gzencode(str_repeat('{', 50_000_000), 9);
         self::assertLessThan(100_000, strlen((string) $gz), 'a small download that inflates to 50 MB');
-        $body = new InflateStream(Utils::streamFor($gz));
+        $body = new InflateStream(Utils::streamFor((string) $gz));
         $before = $this->resetPeak();
 
         self::assertSame('too_large', $this->token(fn () => $this->url([new Response(200, [], $body)], null, 1_000_000)->read()));
