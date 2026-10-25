@@ -175,7 +175,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 
 Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: test first and red, no network, no model, `php://memory`.
 
-- [ ] T040 [P] [US11] `tests/Unit/Mcp/ServerResourcesPromptsTest.php` (red): with the `docs` group on, `initialize` declares
+- [X] T040 [P] [US11] `tests/Unit/Mcp/ServerResourcesPromptsTest.php` (red): with the `docs` group on, `initialize` declares
   `resources` and `prompts` (`subscribe:false`, `listChanged:false`) and `resources/list`, `resources/read`,
   `resources/templates/list` (empty), `prompts/list`, `prompts/get` are routed; with it off the capabilities are absent and these
   methods are `-32601`; `resources/subscribe`, `sampling/*`, `logging/*`, `completion/*`, `roots/*`, `elicitation/*` stay
@@ -248,7 +248,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
 
 ## Phase 8 (amendment): setup copilot tools
 
-- [ ] T056 [P] [US7] `tests/Unit/Mcp/SetupPlannerTest.php` (red): golden plans for six representative combinations
+- [X] T056 [P] [US7] `tests/Unit/Mcp/SetupPlannerTest.php` (red): golden plans for six representative combinations
   (`tests/Fixtures/mcp/plans/*.golden.json`) and a structural test over all 54 combinations of host x source x notifier x state: fixed core
   order of FR-070; every step has `collect`, `where_to_find`, `verify`, `rollback`; every `env_vars` entry is `WATCHER_*`; every
   `verify.expect` is a registered `OutcomeRegistry` code; commands match the host (`php artisan watcher:check` for Laravel, `vendor/bin/watcher
@@ -257,7 +257,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   the text contains no URL with a credential, no model id, no price; a missing/unknown/extra property is `-32602`; the same
   input twice is byte-identical. `watcher_first_day`: the six steps in order with expected codes `baselined`, `reported`/`quiet`,
   `skipped_done`. Then `SetupPlanner`, `SetupCatalog`, `Tools/{SetupPlan,FirstDay}Tool.php`. (FR-070, FR-073, US7, US12 AC7)
-- [ ] T058 [P] [US10] `tests/Unit/Mcp/ConfigGeneratorTest.php` (red): for all 54 combinations the snippet is valid PHP
+- [X] T058 [P] [US10] `tests/Unit/Mcp/ConfigGeneratorTest.php` (red): for all 54 combinations the snippet is valid PHP
   (`token_get_all($code, TOKEN_PARSE)`), and with the listed variables set to dummy values by the test it loads through
   `WatchConfig::fromArray` without `InvalidConfig` (no file written by the server: the test writes its own temp file); `enabled` reads
   `WATCHER_ENABLED` with default false; every credential is a `getenv`/`Env`/`env()` call; `env_vars` have `secret` flags and no value field
@@ -297,7 +297,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   validator's; outcome codes `disabled`, `skipped_done`, `baselined`, `zero_events`, `lock_lost`, `analysis_refused`,
   `state_unavailable`, `k8s_ingest_failed:oomkilled` (reserved, `reserved_by: spec-008`), `truncated:deadline` (family); an unregistered
   code is `found:false`; no code lists all codes (bounded, no prose); secret-shaped `key`/`code` is refused. Then `ConfigExplainer`, `Tools/{ExplainConfig,ExplainOutcome}Tool.php`. (FR-083, FR-084, US11 AC1-AC4)
-- [ ] T063 [P] [US12] `tests/Unit/Mcp/PromptCatalogTest.php` with `tests/Fixtures/mcp/prompts/*.golden` (red): `prompts/list` shows the
+- [X] T063 [P] [US12] `tests/Unit/Mcp/PromptCatalogTest.php` with `tests/Fixtures/mcp/prompts/*.golden` (red): `prompts/list` shows the
   four prompts when their tools are enabled and omits a prompt whose tools are off (`['docs']` only: `onboard-new-service` is absent);
   `cost-too-high` omits the dry-run step when `watcher_dry_run` is not enabled; `prompts/get` renders the golden text for each
   argument combination; enumerations validated (unknown -> `-32602` naming the argument); a secret-shaped argument -> `-32602` with the
