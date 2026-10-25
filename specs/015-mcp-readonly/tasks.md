@@ -66,7 +66,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   description; argument validation (unknown property, wrong type, `limit` 0 and 21, `fp` malformed) -> `-32602` naming the
   property and never echoing the value; the allowlists in code equal the schema's properties per tool (drift test, FR-021);
   every schema string is either typed (pattern/enum), `x-text` with `maxLength`, `x-static` or `x-generated` with `maxLength`. Then `src/Mcp/{Tool,ToolRegistry}.php`. (FR-014, FR-021, FR-041)
-- [ ] T005 [P] [US3] `tests/Unit/Mcp/OutputGuardTest.php` (red) over `tests/Fixtures/mcp/hostile-strings.php` (at least 40
+- [X] T005 [P] [US3] `tests/Unit/Mcp/OutputGuardTest.php` (red) over `tests/Fixtures/mcp/hostile-strings.php` (at least 40
   strings: instruction override in English/Ukrainian/Russian, fake system and tool-result tags, markdown links and
   images, `curl|sh`, `rm -rf`, `sudo`, backticks, `$(...)`, `paste ... token`, URLs with credentials and query,
   `www.` and bare hosts, e-mail, zero-width, bidi, U+E0000 tag characters, C0/C1 controls, 10 000-character strings,
@@ -92,7 +92,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 
 ## Phase 2: Shared-file changes (SEQUENTIAL, in the table's order)
 
-- [ ] T017 [US3] **Touches `src/Analyze/OutputValidator.php`.** Existing tests for the command denylist stay green and
+- [X] T017 [US3] **Touches `src/Analyze/OutputValidator.php`.** Existing tests for the command denylist stay green and
   unchanged; add a test that the extracted pure function (`CommandFilter::withhold(string): string`) is the one the
   validator calls. Extract the span-replacing logic into a small class and call it from both places (no second copy).
   Re-run T005. (FR-022, plan risk 3)
