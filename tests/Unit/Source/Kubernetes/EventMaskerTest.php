@@ -329,14 +329,23 @@ final class EventMaskerTest extends TestCase
         $keywords = ['secret', 'secrets', 'configmap', 'configmaps', 'container', 'containers', 'endpoint', 'endpoints', 'service', 'services', 'serviceaccount',
             'serviceaccounts', 'persistentvolumeclaim', 'persistentvolumeclaims', 'pvc', 'pvcs', 'volume', 'volumes', 'claim', 'pod', 'image', 'Secret', 'POD', "\u{FF53}ecret", '%73ecret'];
         $separators = ['%20', '%2520', '+', '%09', '%0a', "\u{00AD}", "\u{200B}", '&#32;', "\u{FF05}20"];
-        $templates = [
+        $twoPlaceholders = [
             'https://u:%s%sQPW@host.example/x', 'docker://u:%s%sQPW@host.example', 'https://%s%su:QPW@h.example/', 'dial u:%s%sQPW@db.internal:5432',
-            '"https://u:%s%sQPW@host.example"', 'url=https://u:%s%sQPW@host.example', 'https://u%s:%s%sQPW@h' ,
+            '"https://u:%s%sQPW@host.example"', 'url=https://u:%s%sQPW@host.example',
         ];
+        $threePlaceholders = ['https://u%s:%s%sQPW@h'];
         foreach ($keywords as $kw) {
             foreach ($separators as $sep) {
-                foreach ($templates as $tpl) {
-                    $input = 'Pull failed: ' . (substr_count($tpl, '%s') === 3 ? sprintf($tpl, '', $kw, $sep) : sprintf($tpl, $kw, $sep));
+                foreach ($twoPlaceholders as $tpl) {
+                    $input = 'Pull failed: ' . sprintf($tpl, $kw, $sep);
+                    $out = $this->masker()->mask($input, [], []);
+
+                    self::assertStringNotContainsString('QPW', $out, $input);
+                    self::assertStringNotContainsString('host.example', $out, $input);
+                    self::assertStringNotContainsString('db.internal', $out, $input);
+                }
+                foreach ($threePlaceholders as $tpl) {
+                    $input = 'Pull failed: ' . sprintf($tpl, '', $kw, $sep);
                     $out = $this->masker()->mask($input, [], []);
 
                     self::assertStringNotContainsString('QPW', $out, $input);
