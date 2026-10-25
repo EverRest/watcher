@@ -43,7 +43,7 @@ final class BaselineResolverTest extends TestCase
         ];
         $zone = new DateTimeZone($tz);
 
-        return new BaselineResolver($this->state, new RunGate($runAt, $zone), 'svc', $baseline, $zone, 3.0);
+        return new BaselineResolver($this->state, RunGate::oncePerDay($runAt, $zone), 'svc', $baseline, $zone, 3.0);
     }
 
     /** @param array<string, int> $groups */

@@ -68,7 +68,6 @@ use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Schedule\FatalGuard;
-use Watcher\Schedule\RunGate;
 use Watcher\Schedule\LockLost;
 use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\SystemClock;
@@ -258,10 +257,33 @@ final class Watcher
         $now ??= $this->clock->now();
         // Before any external call and before the lock: a trigger outside the run_at hour costs nothing (FR-002).
         // A dry run previews the window the real run would analyse, whatever the hour.
-        $gate = new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']);
-        $window = $this->options->dryRun ? $gate->latest($now) : $gate->decide($now);
-        if ($window === null) {
-            return new RunResult(RunOutcome::SkippedNotDue);
+        $gate = Factory::gate($c);
+        if ($this->options->dryRun) {
+            $window = $gate->latest($now);
+        } else {
+            $pending = $gate->pending($now);
+            if ($pending === []) {
+                return new RunResult(RunOutcome::SkippedNotDue);
+            }
+            $todo = [];
+            foreach ($pending as $candidate) {
+                $probe = new WindowKeys($c->stateKey, $candidate, $c->state['retention'], $c->schedule['lock_ttl']);
+                try {
+                    if ($this->state->get($probe->run()) !== null || $this->state->get($probe->delivered()) !== null) {
+                        continue;
+                    }
+                } catch (Throwable) {
+                    // Cannot tell whether the window is done; attempt the run and let the lock path decide.
+                }
+                $todo[] = $candidate;
+            }
+            if ($todo === []) {
+                $this->ledger->started($pending[0]);
+
+                return new RunResult(RunOutcome::SkippedDone);
+            }
+            usort($todo, static fn (Window $a, Window $b): int => $a->end <=> $b->end);
+            $window = $todo[0];
         }
         $this->ledger->started($window);
         $this->purge();
@@ -498,8 +520,55 @@ final class Watcher
         return is_string($env) ? $env : 'default';
     }
 
+
+    private function effectiveWindow(Window $window): Window
+    {
+        if ($this->options->dryRun) {
+            return $window;
+        }
+        $stored = $this->state->get(Keys::highWater($this->config->stateKey));
+        if (!is_array($stored) || !is_string($stored['end'] ?? null)) {
+            return $window;
+        }
+        try {
+            $hw = new DateTimeImmutable($stored['end']);
+        } catch (\Exception) {
+            return $window;
+        }
+        if ($hw <= $window->start || $hw >= $window->end) {
+            return $window;
+        }
+
+        return new Window($hw, $window->end);
+    }
+
+    private function advanceHighWater(Window $window, WindowKeys $keys): void
+    {
+        if ($this->options->dryRun) {
+            return;
+        }
+        $hwKey = Keys::highWater($this->config->stateKey);
+        $ttl = Keys::ttl(Keys::HIGH_WATER, $this->config->state['retention'], $this->config->schedule['lock_ttl']);
+        $stored = $this->state->get($hwKey);
+        if (is_array($stored) && is_string($stored['end'] ?? null)) {
+            try {
+                if (new DateTimeImmutable($stored['end']) >= $window->end) {
+                    return;
+                }
+            } catch (\Exception) {
+                // overwrite corrupt value
+            }
+        }
+        $this->state->put($hwKey, [
+            'v' => 1,
+            'end' => $window->end->format(DATE_ATOM),
+            'run' => $keys->end(),
+        ], $ttl);
+    }
+
     private function locked(Window $window, WindowKeys $keys): RunResult
     {
+        $window = $this->effectiveWindow($window);
         $c = $this->config;
         $service = $c->service;
         $key = $c->stateKey; // prefix of every state key: service, or service@environment
@@ -585,7 +654,7 @@ final class Watcher
         // Spec 004: what each group is compared with is decided by baseline.mode; `$prev` stays for deploy info and level anomalies.
         $comparison = (new BaselineResolver(
             $this->state,
-            new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']),
+            Factory::gate($c),
             $key,
             $c->on('baseline') ? $c->baseline : ['mode' => 'previous'] + $c->baseline,
             new \DateTimeZone($c->schedule['timezone']),
@@ -619,6 +688,7 @@ final class Watcher
             }
             $this->blindNotice($blind(false), $key, $endKey); // a baseline run only records: cap and overflow are not news yet
             $this->ledger->runRecord($runKey, RunOutcome::Baselined, null, $started, $this->blindCode);
+            $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Baselined);
         }
@@ -647,6 +717,7 @@ final class Watcher
             }
             $this->blindNotice($line, $key, $endKey);
             $this->ledger->runRecord($runKey, RunOutcome::Quiet, null, $started, $this->blindCode);
+            $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Quiet);
         }
@@ -665,6 +736,7 @@ final class Watcher
             $this->ledger->snapshot($window, $allGroups, $totals);
             $this->blindNotice($blind(true), $key, $endKey);
             $this->ledger->runRecord($runKey, RunOutcome::Quiet, $usage, $started, $this->blindCode);
+            $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Quiet, null, $usage);
         }
@@ -700,6 +772,7 @@ final class Watcher
         $analysis->buffer->flush();
         $this->ledger->snapshot($window, $allGroups, $totals);
         $this->ledger->runRecord($runKey, RunOutcome::Reported, $usage, $started);
+        $this->advanceHighWater($window, $keys);
 
         return new RunResult(RunOutcome::Reported, null, $usage);
     }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added (spec 014 schedule periods, phase 1)
+- `schedule.every` (`WATCHER_EVERY`: `PT1H`..`PT12H`) or a list of `schedule.run_at` times; `schedule.catch_up`, `schedule.ingestion_delay`; derived `runs_per_day` and multi-run defaults for `analysis.max_runs_per_day` / `analysis.run_budget_usd` and `heartbeat.stale_after` (single daily run unchanged).
+- `RunGate::pending()` and `Factory::gate()`; `Watcher` picks the oldest undone pending window, clamps reads to the `hw:<service>` high-water mark after reported/quiet/baselined runs.
+
 ### Added (spec 005 incident workflow v1, phase 1–3)
 - **Known issues**: `known_issues` maps fingerprint prefixes to ticket keys; compact digest line, skip model analysis below `growth_factor × ref`, `known_grown` candidate reason, labels for resolved/expired entries.
 - **Severity routing**: `notify.routes` sends findings to extra destinations (first match + required catch-all); default digest shows a routed notice line.
@@ -9,6 +13,34 @@
 - Config/env: `WATCHER_KNOWN_ISSUES_ENABLED`, `WATCHER_DRAFTS_*`, `WATCHER_ROUTES_ENABLED`. Weekly report (`report.weekly`) deferred (see `specs/005-incident-workflow/tasks.md`).
 
 - Fixed (review batch 2): `BufferedStateStore::flush()` no longer drops pending keys when an inner `put` fails mid-flush; Slack webhook delivery retries HTTP 429 like Telegram/Discord and names omitted Block Kit sections instead of truncating silently.
+
+### Fixed (spec 006 second review, lane B, 0.1.34)
+- "gone" retractions are one line per site; only the retractions in the notice are marked as sent (a joined line used to be cut at 600 characters with all of it marked sent).
+- A call-site id from a context `file` or frame needs a `repo.path_map` root (no root, no file site ids: the fingerprint stands in), no `..`, one stem and one known code extension (`.pdf.php` rejected), and no deny-listed directory below the root (`public`, `files`, `data`, ... ; `hygiene.site_allow_dirs` opts one back in).
+- A site is "gone" after `max(repeat_days, 2)` complete quiet days, so weekly jobs no longer flip between gone and new.
+- The pass lock lives `max_seconds + schedule.lock_ttl + 60` s; a failed release is noted and never replaces a successful result; `state unavailable (<Class>)` keeps the failing class (never the message) in the reason and `notes`.
+- Watch-rule fragments carry no invisible format characters; the time-budget test pins the check cadence.
+
+### Fixed (spec 006 review, 0.1.33)
+- Notices: every log-derived string is escaped like the digest's (no ping or link from log text in Slack, Telegram or Discord), sent as sections, capped at 25 sites and 10 templates; only sites shown are marked as sent; shape, proposals and cost are sent at most once per `repeat_days`; `notify.notice.enabled=false` is honoured.
+- A site is a source file below no data directory; uploads, imports and documents fall back to the fingerprint. Integer-typed card/phone values are scanned; undecodable texts are counted (`unscannable`); unique file names cannot crowd real sites out of the table.
+- Proposals ignore sampled days, keep every severe family in the day record, refuse watch rules with fewer than 8 literal characters; "gone" needs two complete passes on different days; `variable_distinct` has a floor of 5.
+- A billed `run --dry-run` writes the cost ledger into a shadow; each fleet service books under its own key. One hygiene pass at a time (lock), a time budget (`hygiene.max_seconds`), memoised scanning; `hygiene` in `config/watcher.php`; `state unavailable` and `failure`/`notes` in `--json`.
+
+### Added (spec 006, log hygiene: command and configuration, 0.1.32)
+- `watcher hygiene --config=<file> [--report=privacy,shape,proposals,cost] [--days=1-30] [--now=] [--notify] [--decline=<id>] [--json]` and `php artisan watcher:hygiene`. Reads one window through the existing source and measures it in code; **no model call, raw values never leave the process**: reports hold call-site identifiers, categories, levels, counts, shares, times and templates that were already allowed to leave. Details and limits: `docs/privacy.md` (hygiene) and `docs/operations.md`.
+- New `hygiene` config section (all defaults in `config/watcher.example.php`); `hygiene.enabled` defaults to **false** and is not in `WatchConfig::FLAGS`. With it off nothing is added to the run path.
+
+### Added (spec 006, log hygiene: cost report and rule proposals, 0.1.31)
+- **Rule proposals:** mute fragments (stable, high-volume, never at or above `selection.min_level`) and watch fragments (a family that repeatedly starts shortly before a severe one), with evidence and a replay through the real `MuteList`; declined proposals are quiet for `hygiene.decline_days`. Needs `hygiene.min_history_days` (14) days of daily passes.
+- **Cost report:** tokens and cost per service and day from the run records (equals the sum of recorded runs), share of the daily caps, spike days with likely causes; calls per step and top spenders from a ledger written only when `hygiene.enabled`. Always available.
+- State: `hyg:*` and `ledger:*` keys, all with the state retention.
+
+### Added (spec 006, log hygiene: measurement and privacy/shape reports, 0.1.30)
+- **Privacy-hygiene report:** which log call sites (file:line from context `file`/`line` or the first frame, else the fingerprint) write e-mails, tokens, IP addresses, phone-like and card-like numbers, host names or other masked patterns, per level, with counts, since when and a trend (new / growing / stable / gone); templates that hide many different texts behind one sentence (possible names).
+- **Log-shape report:** sites producing a large share of all lines, lines over a limit, traces pasted into messages, mixed formats, access-log lines at warning or above, each with a fixed-text proposal.
+- `TemplateMiner::variability()` / `Reducer::variability()`: distinct masked messages per varying template (one integer per cluster); no change to clustering or templates.
+
 - Changed (internal, no behaviour change): `Watcher::run()` is split into `RunLedger` (run bookkeeping, summary, liveness record), `Reduce\EventCollector` (the streaming read), `analyze()`, `buildDigest()` and `WindowKeys`; pinned by the golden scenarios in `tests/EndToEnd/RefactorGoldenTest.php`. `state_unreadable` is now filled in `RunLedger::finish()`, and `DryRunStateStore` forwards the real store's unreadable count.
 - Added: a capped read keeps a newest share (A4-03). One fifth of `source.event_cap` (`ReadFilter::tailCap()`, 0 below a cap of 5) is reserved: the oldest-first read stops at 80%, then Loki (`direction=backward`) and Datadog (`sort=-timestamp`) read the newest events after the last one kept and yield them oldest to newest. Also after a spent `pages`/`time` budget (two more pages at most). If the backward read reaches back to where the forward read stopped, nothing was lost and the read is not reported as truncated.
 - Changed: the daily budget is reserved atomically on Redis (M2). `BudgetReservation::allows()` now goes through `Spend::reserve()`, which on a store implementing the new optional `State\ReservableCounters` (Redis; the lazy store wrapper forwards it) runs one Lua script that checks the USD and token caps and adds the step's worst case with `INCRBYFLOAT` and `PEXPIRE` in the same script. `Spend::add()` settles it to the real cost (only the difference is added), `Spend::release()` gives it back when a call failed with no billed usage or the router ends; parallel runs of one service cannot both pass the check. File, PDO, dry-run and in-memory stores keep the plain check-then-book path. The fleet cap is still check-only. A reservation remembers the day it was made on: settled or released after midnight (configured timezone), the old day's counters get it back and the new day gets only the actual cost.
@@ -99,6 +131,10 @@ Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fa
 
 ### Docs
 - Installation: note about the `php-http/discovery` Composer plugin prompt (a dependency of the Anthropic SDK).
+
+### Changed (spec 006 rebased on develop; review fixes; temporary block, the integrator assigns the release number)
+- `watcher hygiene` scans through `Normalizer::normalizeOrUnscannable`, sends notices with develop's `SlackText` (one section per line, no private cap or split), runs under `RunGuard` (max_seconds and the memory stop) and renews its lock when the store can; the source's `ReadDiagnostics` become a note.
+- Control, format and invisible characters are removed from every string the scan reads before any mask runs; templates are shown, stored and proposed as watch rules only when they generalise `hygiene.variable_distinct` messages; an empty read is not a complete day; failed cost-ledger writes are counted and shown as `unbooked`; site-id deny list extended; `--decline` takes the pass lock; anonymous exception classes no longer leak a file name.
 
 ### Added (spec 012, feature flags and environments)
 - **Breaking (opt-in):** the master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**. A config without it makes `run` return the new outcome `disabled` (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr; nothing external or stored is touched, not even a heartbeat). Add `'enabled' => true` (or `WATCHER_ENABLED=1`) to every existing config, fleet entry or fleet `defaults`.

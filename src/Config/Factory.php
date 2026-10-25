@@ -44,6 +44,7 @@ use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
 use Watcher\State\Purgeable;
 use Watcher\Operate\StateInspector;
+use Watcher\Schedule\RunGate;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
 use Watcher\State\Redis\RedisClient;
@@ -415,6 +416,11 @@ final class Factory
     public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
     {
         return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null;
+    }
+
+    public static function gate(WatchConfig $c): RunGate
+    {
+        return RunGate::fromSchedule($c->schedule);
     }
 
     /** Liveness record reader/writer; every secret of the config is masked in a stored failure reason. */
