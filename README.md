@@ -45,9 +45,6 @@ Nothing new to report means zero model calls. The first run only records a basel
 composer require everrest/watcher
 ```
 
-The Anthropic SDK is optional: the default client (`analysis.client = http`) talks to the API over Guzzle. Only the rollback
-`analysis.client = sdk` needs `composer require anthropic-ai/sdk`.
-
 Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.providers`); in Lumen register
 `Watcher\Laravel\WatcherServiceProvider` by hand in `bootstrap/app.php`. Without a framework use `vendor/bin/watcher`.
 
