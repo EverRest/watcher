@@ -81,13 +81,13 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 - [X] T007 [P] [US4] `tests/Unit/Mcp/ReadOnlyStateStoreTest.php` (red): `get` passes through; `put`, `increment`, `acquire`,
   `release` each throw `ReadOnlyViolation` (the interface has no others) and the class is not `Purgeable`; the exception message holds no key or value. Then
   `src/Mcp/ReadOnlyStateStore.php`. (FR-010)
-- [ ] T008 [P] [US5] `tests/Unit/Mcp/DryRunGuardTest.php` (red), a table: no confirm / `confirm_cost` as string `"true"`, `1`,
+- [X] T008 [P] [US5] `tests/Unit/Mcp/DryRunGuardTest.php` (red), a table: no confirm / `confirm_cost` as string `"true"`, `1`,
   `null` -> `cost_not_confirmed`; exhausted spend -> `daily_limit_reached`; estimate above remaining ->
   `would_exceed_daily_limit`; the escalation allowance is added (a fixture where triage+analyze fit but escalation does not -> refused); an escalation model without a price -> refused; estimate within remaining -> allowed and the counter grows by the upper bound;
   N allowed runs never exceed the starting remaining (SC-005); token limit handled the same way; `busy` while running
   and cleared after an exception; `estimate_only` needs no confirmation and does not touch the counter. Fake `Spend` and
   estimator. Then `src/Mcp/DryRunGuard.php`. (FR-035, SC-004, SC-005)
-- [ ] T009 [P] [US6] `tests/Unit/Mcp/HygieneSourceTest.php` (red): the default implementation returns null; the tool maps null
+- [X] T009 [P] [US6] `tests/Unit/Mcp/HygieneSourceTest.php` (red): the default implementation returns null; the tool maps null
   to `available: false, reason: hygiene_not_enabled`. Then `src/Mcp/HygieneSource.php` and `Tools/HygieneTool.php`. (FR-034, R7)
 
 ## Phase 2: Shared-file changes (SEQUENTIAL, in the table's order)
@@ -124,13 +124,13 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
 
 ## Phase 3: Tools and end-to-end
 
-- [ ] T010 [US1] `tests/Unit/Mcp/StatusToolTest.php` (red): master switch off and `heartbeat.enabled` off -> `disabled` with a spy store seeing no call, other tools `available:false / disabled` (FR-007); healthy, stale, failed and unknown heartbeats map to the
+- [X] T010 [US1] `tests/Unit/Mcp/StatusToolTest.php` (red): master switch off and `heartbeat.enabled` off -> `disabled` with a spy store seeing no call, other tools `available:false / disabled` (FR-007); healthy, stale, failed and unknown heartbeats map to the
   `state` values and exit semantics of `watcher status`; spend and remaining figures; `last_run.reason` is a text field
   (hostile reason -> filtered, capped at 200); an unreadable store -> `state_unavailable`. Then `Tools/StatusTool.php`. (FR-030, US1 AC1-AC2)
-- [ ] T011 [US1] `tests/Unit/Mcp/CheckToolTest.php` (red; depends on T022): the seven checks in order; a fake notifier is
+- [X] T011 [US1] `tests/Unit/Mcp/CheckToolTest.php` (red; depends on T022): the seven checks in order; a fake notifier is
   never constructed or called; no model call; a reason outside the vocabulary becomes `unavailable`; `config` fail makes
   the rest `skip`; any check exception -> `fail` with `internal error (<class>)`. Then `Tools/CheckTool.php`. (FR-031, US1 AC3)
-- [ ] T014 [US2] `tests/Unit/Mcp/LatestReportToolTest.php` and `FindingToolTest.php` (red; depends on T020): report
+- [X] T014 [US2] `tests/Unit/Mcp/LatestReportToolTest.php` and `FindingToolTest.php` (red; depends on T020): report
   fields and `limit` (default 10, max 20); `available: false / no_report`; `watcher_finding` returns the allowlist of
   data-model.md for a stored verdict, `found: false` for unknown and for expired (identical bodies), malformed fingerprint
   never reaches the store (a spy store sees no call); `mute_suggestion` is the fixed sentence plus the fingerprint, with
