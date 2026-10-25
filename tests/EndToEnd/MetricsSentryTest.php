@@ -128,6 +128,25 @@ final class MetricsSentryTest extends TestCase
         self::assertNotNull($analysis->extras);
     }
 
+    /** Review H1: a baseline so small that the ratio overflows must not cost the run. */
+    public function testADegenerateRatioDoesNotFailTheRunAndIsShownAsNotComputable(): void
+    {
+        foreach ([[1.0e10, 1.0e-320], [1.7e308, 1.0e-300], [1.0e300, 1.0e-10]] as [$cur, $base]) {
+            $h = new Harness(self::sections());
+            $n = 0;
+            $metrics = new FakeMetricSource(static function () use (&$n, $cur, $base): MetricResult {
+                return new MetricResult([++$n % 2 === 1 ? $cur : $base], 1);
+            });
+            self::make($h, self::errors(5), $metrics)->run();
+            $h->nextWindow();
+
+            $result = self::make($h, self::errors(20), $metrics)->run();
+
+            self::assertSame(RunOutcome::Reported, $result->outcome, "$cur / $base");
+            self::assertStringContainsString('change not computable', implode("\n", $h->sentTexts()));
+        }
+    }
+
     public function testAnErrorGroupExplainsTheMetricMoveSoThereIsNoAnomaly(): void
     {
         $h = new Harness(self::sections());

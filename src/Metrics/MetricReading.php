@@ -19,10 +19,15 @@ final class MetricReading
     ) {
     }
 
-    /** Null unless both numbers exist and the baseline is positive (a zero baseline has no meaningful percent). */
+    /** Null unless both numbers exist, the baseline is positive and the ratio is finite (a zero baseline has no meaningful percent). */
     public function relativeChange(): ?float
     {
-        return $this->current === null || $this->baseline === null || $this->baseline <= 0 ? null : ($this->current - $this->baseline) / $this->baseline;
+        if ($this->current === null || $this->baseline === null || !($this->baseline > 0)) { // also NAN and -0.0
+            return null;
+        }
+        $ratio = ($this->current - $this->baseline) / $this->baseline;
+
+        return is_finite($ratio) ? $ratio : null; // a tiny baseline overflows to INF: no ratio, never a number that breaks json_encode or an int cast
     }
 
     public function absoluteChange(): ?float

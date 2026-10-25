@@ -52,7 +52,11 @@ final class MetricsContext
         if ($r->state === 'no_baseline') {
             return "{$text} (no baseline)";
         }
-        $pct = (int) round((float) $r->relativeChange() * 100);
+        $rel = $r->relativeChange();
+        if ($rel === null) { // a baseline so small that the ratio is not a number: say so, never print a made-up percent
+            return "{$text} (was " . self::fmt($r->baseline, $r->unit) . ', change not computable)';
+        }
+        $pct = (int) round(max(-1.0e9, min(1.0e9, $rel * 100)));
 
         return "{$text} (was " . self::fmt($r->baseline, $r->unit) . ', ' . ($pct >= 0 ? '+' : '') . $pct . '%)';
     }

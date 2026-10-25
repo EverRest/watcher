@@ -57,7 +57,7 @@ final class MetricAnomalies
         $by = [];
         foreach (array_slice($hits, 0, $this->maxAnomalies) as [$r, $rel]) {
             $fp = 'metric:' . substr(hash('sha256', $this->service . '|' . $r->name), 0, 12);
-            $count = max(1, (int) round($rel * 100));
+            $count = max(1, (int) round(min($rel * 100, 1.0e9)));
             $prev = $previous[$fp] ?? null;
             // template is the declared name (config, not log data): the Normalizer would turn p95 into p<N>
             $group = new ProblemGroup(
