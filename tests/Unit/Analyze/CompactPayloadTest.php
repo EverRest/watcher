@@ -40,6 +40,15 @@ final class CompactPayloadTest extends TestCase
         self::assertArrayNotHasKey('tpl', $d['g'][0]);
     }
 
+    public function testCodeSectionIsIncludedWhenFragmentsAreGiven(): void
+    {
+        $g = self::group('a', 'tpl', ['app/Foo.php:10']);
+        $d = self::decode(CompactPayload::encode([$g], [], [
+            'a' => [['path' => 'app/Foo.php', 'line' => 10, 'partial' => false, 'body' => '$x;']],
+        ]));
+        self::assertSame([['fp' => 'a', 'f' => [['path' => 'app/Foo.php', 'line' => 10, 'partial' => false, 'body' => '$x;']]]], $d['c']);
+    }
+
     public function testNullTemplateIsSentAsNull(): void
     {
         $d = self::decode(CompactPayload::encode([self::group('a', null)]));

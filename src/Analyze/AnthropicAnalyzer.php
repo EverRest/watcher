@@ -68,6 +68,7 @@ final class AnthropicAnalyzer implements Analyzer
             $req->maxOutputTokens,
             fn (array $data): array => $this->validator->analysis($data, $allowed, array_map(static fn (DependencyContext $d): string => $d->name, $req->dependencyContext)),
             $req->dependencyContext,
+            $req->codeByFingerprint,
         );
 
         return new AnalysisResult($findings, $usage);
@@ -82,17 +83,18 @@ final class AnthropicAnalyzer implements Analyzer
      *
      * @param list<RedactedGroup>          $groups
      * @param callable(array<mixed>): T    $validate
-     * @param list<DependencyContext>      $dependencyContext
+     * @param list<DependencyContext>                                                                      $dependencyContext
+     * @param array<string, list<array{path: string, line: int, partial: bool, body: string}>> $codeByFingerprint
      *
      * @return array{0: T, 1: Usage}
      */
-    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = []): array
+    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = [], array $codeByFingerprint = []): array
     {
         $usage = null;
 
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
             try {
-                $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext);
+                $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext, $codeByFingerprint);
             } catch (AnalyzerFailed $e) {
                 throw $usage === null ? $e : new AnalyzerFailed($e->getMessage(), $usage); // attempt 1 was billed even though attempt 2 failed
             }
@@ -117,16 +119,17 @@ final class AnthropicAnalyzer implements Analyzer
     }
 
     /**
-     * @param list<RedactedGroup>     $groups
-     * @param list<DependencyContext> $dependencyContext
+     * @param list<RedactedGroup>                                                                      $groups
+     * @param list<DependencyContext>                                                                  $dependencyContext
+     * @param array<string, list<array{path: string, line: int, partial: bool, body: string}>> $codeByFingerprint
      */
-    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = []): ModelReply
+    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = [], array $codeByFingerprint = []): ModelReply
     {
         return $this->client->create(
             $model,
             $maxTokens,
             Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice),
-            CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext), bin2hex(random_bytes(16))),
+            CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext, $codeByFingerprint), bin2hex(random_bytes(16))),
             ProviderSchema::for($kind, $this->advice),
             $kind !== 'triage',
         );

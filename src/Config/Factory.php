@@ -27,6 +27,8 @@ use Watcher\Observe\LogSink;
 use Watcher\Observe\ObserveCounters;
 use Watcher\Observe\PrometheusSink;
 use Watcher\Observe\SinkDispatcher;
+use Watcher\Context\CodeRepository;
+use Watcher\Context\HttpCodeRepository;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\Normalizer;
 use Watcher\Source\Retry;
@@ -338,6 +340,17 @@ final class Factory
                 return $this->store ??= ($this->make)();
             }
         };
+    }
+
+    public static function codeRepository(WatchConfig $c): ?CodeRepository
+    {
+        if (!$c->on('code_aware') || $c->repo === null || !isset($c->repo['api_token'])) {
+            return null;
+        }
+        /** @var array{provider: string, web_url: string, path_map: array<mixed>, api_token: string} $repo */
+        $repo = $c->repo;
+
+        return new HttpCodeRepository($repo, self::http());
     }
 
     /** @param bool $dryRun a billed dry run must not write into the real cost ledger (spec 006, review M3) */

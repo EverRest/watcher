@@ -25,11 +25,12 @@ final class ModelRouter
      * ($triageOnly) is the documented triage-only mode and is not reserved against.
      *
      * @param list<RedactedGroup>     $groups
-     * @param list<DependencyContext> $dependencyContext indexes refer to positions in $groups; goes to analysis and escalation, never triage
+     * @param list<DependencyContext>                                                                      $dependencyContext indexes refer to positions in $groups; goes to analysis and escalation, never triage
+     * @param array<string, list<array{path: string, line: int, partial: bool, body: string}>> $codeByFingerprint
      *
      * @throws AnalyzerFailed
      */
-    public function route(array $groups, bool $triageOnly, array $dependencyContext = [], ?BudgetReservation $reservation = null): RouterResult
+    public function route(array $groups, bool $triageOnly, array $dependencyContext = [], ?BudgetReservation $reservation = null, array $codeByFingerprint = []): RouterResult
     {
         $fresh = [];
         $reused = 0;
@@ -112,7 +113,7 @@ final class ModelRouter
                 $newOverflow = 0;
             } else {
                 try {
-                    $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext));
+                    $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext, self::codeFor($top, $codeByFingerprint)));
                 } catch (AnalyzerFailed $e) {
                     // Triage was paid for: keep its verdicts for the retry of this window.
                     if ($this->s->triageEnabled) {
@@ -146,7 +147,7 @@ final class ModelRouter
                             continue;
                         }
                         ++$escalations;
-                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext));
+                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext, self::codeFor($sub, $codeByFingerprint)));
                         $usage['escalate'] = isset($usage['escalate']) ? $usage['escalate']->plus($again->usage) : $again->usage;
                         if ($again->findings !== []) {
                             foreach ($this->vet($again->findings, $byFp, $detached) as [$e, $w]) {
@@ -410,5 +411,22 @@ final class ModelRouter
         usort($top, $this->byPriority(...));
 
         return [$top, $overflow];
+    }
+
+    /**
+     * @param list<RedactedGroup>                                                                          $groups
+     * @param array<string, list<array{path: string, line: int, partial: bool, body: string}>> $codeByFingerprint
+     *
+     * @return array<string, list<array{path: string, line: int, partial: bool, body: string}>>
+     */
+    private static function codeFor(array $groups, array $codeByFingerprint): array
+    {
+        $out = [];
+        foreach ($groups as $g) {
+            if (isset($codeByFingerprint[$g->fingerprint])) {
+                $out[$g->fingerprint] = $codeByFingerprint[$g->fingerprint];
+            }
+        }
+        return $out;
     }
 }

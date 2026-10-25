@@ -34,6 +34,7 @@ use Watcher\Incident\KnownReferences;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
+use Watcher\Context\CodeFragmentCollector;
 use Watcher\Context\CodeLinkBuilder;
 use Watcher\Context\DependencyContext;
 use Watcher\Context\DependencyContextReader;
@@ -825,11 +826,12 @@ final class Watcher
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
         $checkpoint = new TriageCheckpoint($this->state, $key, $keys->end());
+        $codeByFp = $this->codeFragments($redacted, $read->deploy, $redactor);
         $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
         $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet);
         try {
             try {
-                $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
+                $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation, $codeByFp);
             } finally {
                 $spend->release(); // a step reserved but never called (or a non-analyzer error) must not hold budget
             }
@@ -1240,6 +1242,27 @@ final class Watcher
                 $this->stats?->addUsage($step, new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost));
             }
         };
+    }
+
+    /**
+     * @param list<\Watcher\Privacy\RedactedGroup> $groups
+     *
+     * @return array<string, list<array{path: string, line: int, partial: bool, body: string}>>
+     */
+    private function codeFragments(array $groups, DeployInfo $deploy, Redactor $redactor): array
+    {
+        $c = $this->config;
+        if (!$c->on('code_aware') || $deploy->commit === null || $deploy->commit === '' || $c->repo === null) {
+            return [];
+        }
+        $repository = Factory::codeRepository($c);
+        if ($repository === null) {
+            return [];
+        }
+        $limits = $c->codeAware;
+        unset($limits['enabled']);
+
+        return (new CodeFragmentCollector($repository, new CodeLinkBuilder($c->repo, $deploy->commit), $redactor, $deploy->commit, $limits))->forGroups($groups);
     }
 
     /** FR-040: the service context passes the same redaction scan as templates; unscannable means empty, never raw. */

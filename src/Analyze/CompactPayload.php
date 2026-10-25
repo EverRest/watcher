@@ -32,9 +32,10 @@ final class CompactPayload
 
     /**
      * @param list<RedactedGroup>     $groups
-     * @param list<DependencyContext> $dependencyContext adds the `d` section; absent when empty
+     * @param list<DependencyContext>                                                                      $dependencyContext adds the `d` section; absent when empty
+     * @param array<string, list<array{path: string, line: int, partial: bool, body: string}>> $codeByFingerprint
      */
-    public static function encode(array $groups, array $dependencyContext = []): string
+    public static function encode(array $groups, array $dependencyContext = [], array $codeByFingerprint = []): string
     {
         $templates = [];
         $rows = [];
@@ -82,6 +83,18 @@ final class CompactPayload
         $out = ['t' => $templates, 'g' => $rows];
         if ($deps !== []) {
             $out['d'] = $deps;
+        }
+        if ($codeByFingerprint !== []) {
+            $code = [];
+            foreach ($groups as $g) {
+                $frags = $codeByFingerprint[$g->fingerprint] ?? null;
+                if ($frags !== null && $frags !== []) {
+                    $code[] = ['fp' => $g->fingerprint, 'f' => $frags];
+                }
+            }
+            if ($code !== []) {
+                $out['c'] = $code;
+            }
         }
 
         return json_encode($out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);

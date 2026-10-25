@@ -85,6 +85,14 @@ final class ArchitectureTest extends TestCase
         $this->assertReadOnly(self::ROOT . '/src/Source/DatadogSource.php', ['POST'], ['/api/v2/logs/analytics/aggregate', '/api/v2/logs/events/search']);
     }
 
+    public function testHttpCodeRepositoryOnlyGetsRawFiles(): void
+    {
+        $code = (string) file_get_contents(self::ROOT . '/src/Context/HttpCodeRepository.php');
+        preg_match_all("/->request\(\s*'([A-Z]+)'/", $code, $m);
+        self::assertSame(['GET'], array_values(array_unique($m[1])));
+        self::assertSame(0, preg_match('/\b(PUT|PATCH|DELETE|POST)\b/', $code));
+    }
+
     public function testEverySourceImplementationIsCovered(): void
     {
         $sources = array_map('basename', glob(self::ROOT . '/src/Source/*Source.php') ?: []);

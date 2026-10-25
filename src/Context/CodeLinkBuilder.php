@@ -16,32 +16,40 @@ final class CodeLinkBuilder
     {
     }
 
+    /** @return array{path: string, line: int}|null */
+    public function resolveFrame(string $frame): ?array
+    {
+        $map = $this->repo['path_map'] ?? null;
+        if (!is_array($map) || $this->commit === null || $this->commit === ''
+            || !preg_match('/^(.+):(\d+)$/D', $frame, $m)) {
+            return null;
+        }
+        $path = str_starts_with($m[1], '/') || preg_match('~^(?:[A-Za-z]:|…|\.)~u', $m[1]) === 1 ? $this->mapPath($m[1], $map) : $m[1];
+        if ($path === null || str_starts_with($path, 'vendor/') || str_contains($path, '/vendor/')) {
+            return null;
+        }
+        if (in_array('..', explode('/', ltrim($path, '/')), true)) {
+            return null;
+        }
+        return ['path' => $path, 'line' => (int) $m[2]];
+    }
+
     public function forFrame(string $frame): ?string
     {
         $webUrl = $this->repo['web_url'] ?? null;
-        $map = $this->repo['path_map'] ?? null;
         $blob = match ($this->repo['provider'] ?? null) {
             'gitlab' => '/-/blob/',
             'github' => '/blob/',
             default => null,
         };
-        if ($blob === null || !is_string($webUrl) || $webUrl === '' || !is_array($map) || $this->commit === null || $this->commit === ''
-            || !preg_match('/^(.+):(\d+)$/D', $frame, $m)) {
+        $resolved = $this->resolveFrame($frame);
+        if ($blob === null || !is_string($webUrl) || $webUrl === '' || $resolved === null) {
             return null;
         }
-
-        // A frame the Redactor already rewrote is a repository path (`app/Foo.php`); an absolute one is mapped here.
-        $path = str_starts_with($m[1], '/') || preg_match('~^(?:[A-Za-z]:|…|\.)~u', $m[1]) === 1 ? $this->mapPath($m[1], $map) : $m[1];
-        if ($path === null || str_starts_with($path, 'vendor/') || str_contains($path, '/vendor/')) {
-            return null;
-        }
-        $segments = explode('/', ltrim($path, '/'));
-        if (in_array('..', $segments, true)) {
-            return null;
-        }
-
-        return rtrim($webUrl, '/') . $blob . rawurlencode($this->commit) . '/'
-            . implode('/', array_map('rawurlencode', $segments)) . '#L' . $m[2];
+        $segments = explode('/', ltrim($resolved['path'], '/'));
+        $commit = $this->commit ?? '';
+        return rtrim($webUrl, '/') . $blob . rawurlencode($commit) . '/'
+            . implode('/', array_map('rawurlencode', $segments)) . '#L' . $resolved['line'];
     }
 
     /** @return list<string> */

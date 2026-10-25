@@ -24,14 +24,14 @@ final class WatchConfig implements \JsonSerializable
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
         'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe', 'hygiene',
-        'known_issues', 'drafts', 'report',
+        'known_issues', 'drafts', 'report', 'code_aware',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
         'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest',
-        'known_issues', 'drafts', 'routes',
+        'known_issues', 'drafts', 'routes', 'code_aware',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -84,6 +84,8 @@ final class WatchConfig implements \JsonSerializable
         public readonly ObserveSettings $observe,
         public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
         public readonly \Watcher\Incident\IncidentSettings $incident,
+        /** @var array{enabled: bool, max_frames: int, max_lines: int, max_bytes_per_fragment: int, max_bytes_per_group: int, max_file_bytes: int} */
+        public readonly array $codeAware,
     ) {
     }
 
@@ -255,6 +257,10 @@ final class WatchConfig implements \JsonSerializable
         $flags['drafts'] = $incident->draftsEnabled;
         $flags['routes'] = $incident->routesEnabled;
 
+        $repo = self::repo($config['repo'] ?? null);
+        $codeAware = self::codeAware($config['code_aware'] ?? null, $repo);
+        $flags['code_aware'] = $codeAware['enabled'];
+
         return new self(
             $service,
             $schedule,
@@ -267,7 +273,7 @@ final class WatchConfig implements \JsonSerializable
             $domains,
             $deploySec,
             $links,
-            self::repo($config['repo'] ?? null),
+            $repo,
             $selection,
             $analysis,
             $patterns,
@@ -284,6 +290,7 @@ final class WatchConfig implements \JsonSerializable
             $observe,
             \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
             $incident,
+            $codeAware,
         );
     }
 
@@ -1070,10 +1077,62 @@ final class WatchConfig implements \JsonSerializable
         if (!is_array($repo) || !in_array($repo['provider'] ?? null, ['gitlab', 'github'], true)) {
             throw new InvalidConfig('repo.provider must be gitlab or github');
         }
-        self::only($repo, ['provider', 'web_url', 'path_map'], 'repo');
+        self::only($repo, ['provider', 'web_url', 'path_map', 'api_token'], 'repo');
         self::str($repo, 'web_url', 'repo.web_url');
+        if (array_key_exists('api_token', $repo)) {
+            self::str($repo, 'api_token', 'repo.api_token');
+        }
 
         return $repo;
+    }
+
+    /**
+     * @param array<string, mixed>|null $sec
+     * @param array<string, mixed>|null $repo
+     *
+     * @return array{enabled: bool, max_frames: int, max_lines: int, max_bytes_per_fragment: int, max_bytes_per_group: int, max_file_bytes: int}
+     */
+    /**
+     * @param array<string, mixed>|null $sec
+     * @param array<string, mixed>|null $repo
+     *
+     * @return array{enabled: bool, max_frames: int, max_lines: int, max_bytes_per_fragment: int, max_bytes_per_group: int, max_file_bytes: int}
+     */
+    private static function codeAware(?array $sec, ?array $repo): array
+    {
+        $defaults = [
+            'enabled' => false,
+            'max_frames' => 2,
+            'max_lines' => 60,
+            'max_bytes_per_fragment' => 4096,
+            'max_bytes_per_group' => 6000,
+            'max_file_bytes' => 204800,
+        ];
+        if ($sec === null) {
+            return $defaults;
+        }
+        self::only($sec, ['enabled', 'max_frames', 'max_lines', 'max_bytes_per_fragment', 'max_bytes_per_group', 'max_file_bytes'], 'code_aware');
+        $out = [
+            'enabled' => self::flag($sec, 'enabled', 'code_aware.enabled', false),
+            'max_frames' => self::posInt($sec, 'max_frames', 2, 'code_aware.max_frames'),
+            'max_lines' => self::posInt($sec, 'max_lines', 60, 'code_aware.max_lines'),
+            'max_bytes_per_fragment' => self::posInt($sec, 'max_bytes_per_fragment', 4096, 'code_aware.max_bytes_per_fragment'),
+            'max_bytes_per_group' => self::posInt($sec, 'max_bytes_per_group', 6000, 'code_aware.max_bytes_per_group'),
+            'max_file_bytes' => self::posInt($sec, 'max_file_bytes', 204800, 'code_aware.max_file_bytes'),
+        ];
+        if ($out['max_frames'] > 3) {
+            throw new InvalidConfig('code_aware.max_frames must be at most 3');
+        }
+        if ($out['enabled']) {
+            if ($repo === null || ($repo['api_token'] ?? '') === '') {
+                throw new InvalidConfig('code_aware.enabled needs repo with api_token');
+            }
+            if ($repo['path_map'] === []) {
+                throw new InvalidConfig('code_aware.enabled needs repo.path_map');
+            }
+        }
+
+        return $out;
     }
 
     /**
