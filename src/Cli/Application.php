@@ -157,6 +157,8 @@ final class Application
             }
 
             return 2;
+        } catch (\Throwable $e) {
+            return $this->unexpected($e);
         }
 
         if ($result->outcome === RunOutcome::Disabled) {
@@ -215,6 +217,8 @@ final class Application
             }
 
             return 2;
+        } catch (\Throwable $e) {
+            return $this->unexpected($e);
         }
         foreach ($result->lines() as $line) {
             $this->line($options->json, $line, true);
@@ -250,6 +254,8 @@ final class Application
                 return 2;
             }
             $report = FleetCheck::invalid($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->unexpected($e);
         }
         $this->line($json, rtrim($report->text(), "\n"), true);
         if ($json) {
@@ -285,6 +291,8 @@ final class Application
                 return 2;
             }
             $report = Doctor::configFailure('invalid: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->unexpected($e);
         }
         $this->line($json, rtrim($report->text(), "\n"), true);
         if ($json) {
@@ -335,5 +343,12 @@ final class Application
         fwrite($this->err, self::USAGE);
 
         return 2;
+    }
+
+    private function unexpected(\Throwable $e): int
+    {
+        fwrite($this->err, $e::class . ': ' . $e->getMessage() . "\n");
+
+        return 1;
     }
 }

@@ -111,6 +111,19 @@ final class WatchConfig implements \JsonSerializable
         return $this->flags[$flag] ?? throw new \LogicException('unknown feature flag ' . $flag);
     }
 
+    /**
+     * Single-service config must not carry a sibling `fleet` block (Laravel keeps both under `watcher`).
+     *
+     * @param array<string, mixed> $config
+     * @return array<string, mixed>
+     */
+    public static function withoutFleet(array $config): array
+    {
+        unset($config['fleet']);
+
+        return $config;
+    }
+
     /** @param array<string, mixed> $config */
     public static function fromArray(#[\SensitiveParameter] array $config): self
     {

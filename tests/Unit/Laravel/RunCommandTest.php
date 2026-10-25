@@ -114,6 +114,16 @@ final class RunCommandTest extends TestCase
         self::assertStringContainsString('invalid config: state.driver is required', $out);
     }
 
+    public function testUnexpectedErrorReturnsOneWithClassAndMessage(): void
+    {
+        [$code, $out] = $this->exec(static function (): callable {
+            throw new \RuntimeException('pipeline blew up');
+        });
+        self::assertSame(1, $code);
+        self::assertStringContainsString('RuntimeException: pipeline blew up', $out);
+        self::assertStringNotContainsString('#0 ', $out);
+    }
+
     public function testOptionsAndOutSinkReachTheFactory(): void
     {
         $seen = [];
