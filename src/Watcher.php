@@ -198,7 +198,7 @@ final class Watcher
      */
     public static function fromConfig(#[\SensitiveParameter] array $config, ?LoggerInterface $hostLog = null, ?ClockInterface $clock = null, ?RunOptions $options = null, mixed $out = null): self
     {
-        $c = WatchConfig::fromArray($config);
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
         $http = Factory::http();
         $state = Factory::state($c, $clock, $hostLog); // the one state instance: the unreadable-counter wrapper, the run and the sink counters share it
@@ -732,10 +732,15 @@ final class Watcher
         } catch (AnalyzerFailed $e) {
             // The window was read: keep it as the next window's comparison base. Normally no RunRecord, so the next trigger retries;
             // but a refusal, or a second failure of this window, is recorded as failed so hourly triggers do not re-bill it endlessly.
-            $this->ledger->snapshot($window, $allGroups, $totals);
-            $failuresKey = $keys->analysisFailures();
-            $failures = (int) ($this->state->get($failuresKey)['n'] ?? 0) + 1;
-            $this->state->put($failuresKey, ['n' => $failures], $retention);
+            $failures = 0;
+            try {
+                $this->ledger->snapshot($window, $allGroups, $totals);
+                $failuresKey = $keys->analysisFailures();
+                $failures = (int) ($this->state->get($failuresKey)['n'] ?? 0) + 1;
+                $this->state->put($failuresKey, ['n' => $failures], $retention);
+            } catch (Throwable) {
+                // A state fault must not replace the analysis failure the run will report.
+            }
             if ($e->refused || $failures >= self::MAX_ANALYSIS_FAILURES) {
                 $this->ledger->runRecord($keys->run(), RunOutcome::Failed, null, $started, $e->refused ? 'analysis_refused' : 'analysis_failed');
 

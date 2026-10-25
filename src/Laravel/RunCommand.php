@@ -58,6 +58,10 @@ final class RunCommand extends Command
             }
 
             return 2;
+        } catch (\Throwable $e) {
+            $human->writeln($e::class . ': ' . $e->getMessage());
+
+            return 1;
         }
 
         if ($result->outcome === RunOutcome::Disabled) {
