@@ -236,7 +236,9 @@ final class KubeCredentialFilesTest extends TestCase
     private function api(array $api, array $queue): KubeApi
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $historyLog = [];
+        $this->history = &$historyLog; // Guzzle fills it by reference
+        $stack->push(Middleware::history($historyLog));
         $settings = KubeSettings::fromArray(self::settingsInput($api), true, true, false);
 
         return new KubeApi(new Client(['handler' => $stack]), $settings, $this->clock, static function (int $s): void {
@@ -379,7 +381,9 @@ final class KubeCredentialFilesTest extends TestCase
             symlink($outside, $generation); // the directory the resolved path runs through now points outside
         };
         $stack = HandlerStack::create(new MockHandler([self::ok()]));
-        $stack->push(Middleware::history($this->history));
+        $historyLog = [];
+        $this->history = &$historyLog; // Guzzle fills it by reference
+        $stack->push(Middleware::history($historyLog));
         $settings = KubeSettings::fromArray(self::settingsInput(['server' => 'https://k8s.example', 'token_file' => $t]), true, true, false);
         $api = new KubeApi(new Client(['handler' => $stack]), $settings, $this->clock, static function (int $s): void {
         }, null, [], 16 * 1048576, 60, null, $swap);

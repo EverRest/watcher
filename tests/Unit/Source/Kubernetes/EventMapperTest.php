@@ -20,7 +20,9 @@ final class EventMapperTest extends TestCase
     {
         $out = [];
         foreach ($files as $f) {
-            $out = [...$out, ...json_decode((string) file_get_contents(self::DIR . $f), true)['items']];
+            /** @var array{items: list<array<string, mixed>>} $decoded */
+            $decoded = json_decode((string) file_get_contents(self::DIR . $f), true, flags: JSON_THROW_ON_ERROR);
+            $out = [...$out, ...$decoded['items']];
         }
 
         return $out;

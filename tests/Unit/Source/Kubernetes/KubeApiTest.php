@@ -57,7 +57,9 @@ final class KubeApiTest extends TestCase
     private function api(array $queue, ?array $api = null, ?string $saDir = null, array $env = [], int $maxBody = 16 * 1024 * 1024, int $maxRequests = 60): KubeApi
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $historyLog = [];
+        $this->history = &$historyLog; // Guzzle fills it by reference
+        $stack->push(Middleware::history($historyLog));
         $settings = KubeSettings::fromArray(['namespaces' => ['shop'], 'api' => $api ?? ['server' => 'https://k8s.example:6443', 'token' => self::TOKEN, 'ca_file' => $this->ca]], true, true, false);
 
         return new KubeApi(new Client(['handler' => $stack]), $settings, $this->clock, static function (int $s): void {
@@ -426,7 +428,9 @@ final class KubeApiTest extends TestCase
     public function testABodyWhoseDecodedSizeWouldNotFitInMemoryIsRefusedBeforeJsonDecode(): void
     {
         $stack = HandlerStack::create(new MockHandler([new Response(200, [], str_repeat(' ', 2000) . '{"items":[]}')]));
-        $stack->push(Middleware::history($this->history));
+        $historyLog = [];
+        $this->history = &$historyLog; // Guzzle fills it by reference
+        $stack->push(Middleware::history($historyLog));
         $settings = KubeSettings::fromArray(['namespaces' => ['shop'], 'api' => ['server' => 'https://k8s.example:6443', 'token' => self::TOKEN, 'ca_file' => $this->ca]], true, true, false);
         // 40 KB of room, 2 KB of body: json_decode costs about thirteen times the text.
         $api = new KubeApi(new Client(['handler' => $stack]), $settings, $this->clock, static function (int $s): void {

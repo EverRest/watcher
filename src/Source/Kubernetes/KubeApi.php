@@ -215,6 +215,7 @@ final class KubeApi
             public bool $timedOut = false;
             public bool $unreachable = false;
         };
+        /** @var \ArrayObject<string, bool> $tripped */
         $tripped = new \ArrayObject();
         try {
             // http_errors off: Guzzle's own exception text embeds the URL, which we never surface. No redirects: the bearer token

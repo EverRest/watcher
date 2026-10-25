@@ -54,7 +54,9 @@ final class KubernetesEventsTest extends TestCase
     private function events(Harness $h, array $queue): KubernetesEventsSource
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $historyLog = [];
+        $this->history = &$historyLog; // Guzzle fills it by reference
+        $stack->push(Middleware::history($historyLog));
         $c = WatchConfig::fromArray($h->config());
         self::assertNotNull($c->kubernetes);
         $api = new KubeApi(new Client(['handler' => $stack]), $c->kubernetes, $h->clock, static function (int $s): void {

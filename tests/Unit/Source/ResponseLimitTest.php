@@ -13,6 +13,7 @@ final class ResponseLimitTest extends TestCase
 {
     public function testTheSinkAbortsTheWriteThatCrossesTheCapAndNamesTheCause(): void
     {
+        /** @var \ArrayObject<string, bool> $tripped */
         $tripped = new \ArrayObject();
         $o = ResponseLimit::options($tripped, 100);
 

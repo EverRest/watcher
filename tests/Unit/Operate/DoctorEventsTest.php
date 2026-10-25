@@ -63,12 +63,14 @@ final class DoctorEventsTest extends TestCase
         $events = null;
         if ($c->kubernetes !== null && $c->on('kubernetes')) {
             $stack = HandlerStack::create(new MockHandler($queue));
-            $stack->push(Middleware::history($this->history));
+            $historyLog = [];
+            $this->history = &$historyLog; // Guzzle fills it by reference
+            $stack->push(Middleware::history($historyLog));
             $events = new KubernetesEventsSource(new KubeApi(new Client(['handler' => $stack]), $c->kubernetes, $clock, static function (int $s): void {
             }), $c->kubernetes, $clock, new Normalizer(), 'orders', 86400, 86400 * 30);
         }
 
-        return new Doctor($c, new FakeLogSource(['error' => 1]), new InMemoryStateStore($clock), null, new FakeNotifier(), $clock, $events);
+        return new Doctor($c, new FakeLogSource(['error' => 1]), new InMemoryStateStore($clock), null, new FakeNotifier(), $clock, events: $events);
     }
 
     private static function ok(): Response

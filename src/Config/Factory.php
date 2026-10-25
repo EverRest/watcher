@@ -37,7 +37,6 @@ use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
 use Watcher\Operate\StateInspector;
 use Watcher\Privacy\Redactor;
-use Watcher\Reduce\Normalizer;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
 use Watcher\State\Redis\RedisClient;

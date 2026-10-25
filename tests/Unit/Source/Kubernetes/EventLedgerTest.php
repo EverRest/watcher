@@ -11,6 +11,7 @@ use Watcher\Source\Kubernetes\EventLedger;
 use Watcher\Source\Kubernetes\MappedRead;
 use Watcher\Source\Kubernetes\Observation;
 use Watcher\State\Keys;
+use Watcher\State\StateCodec;
 use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 
@@ -321,11 +322,10 @@ final class EventLedgerTest extends TestCase
         self::assertSame(7, $e->count);
     }
 
-    // The Redis store refuses a value past these budgets (origin/develop src/State/StateCodec.php: MAX_BYTES, MAX_ELEMENTS, MAX_CONTAINERS;
-    // they count every '[' '{' and ',' of the JSON text, punctuation inside strings included). Copied here: lane C has no StateCodec.
-    private const CODEC_MAX_BYTES = 4 * 1024 * 1024;
-    private const CODEC_MAX_ELEMENTS = 100_000;
-    private const CODEC_MAX_CONTAINERS = 16_000;
+    // The Redis store refuses a value past these budgets (src/State/StateCodec.php); they count every '[' '{' and ',' of the JSON text.
+    private const CODEC_MAX_BYTES = StateCodec::MAX_BYTES;
+    private const CODEC_MAX_ELEMENTS = StateCodec::MAX_ELEMENTS;
+    private const CODEC_MAX_CONTAINERS = StateCodec::MAX_CONTAINERS;
 
     /** @return array{int, int, int} bytes, containers, elements of the stored value as the Redis codec counts them */
     private function encodedSize(): array
@@ -352,6 +352,9 @@ final class EventLedgerTest extends TestCase
 
         [$bytes, $containers, $elements] = $this->encodedSize();
 
+        $stored = $this->store->get(Keys::events('svc'));
+        self::assertNotNull($stored);
+        self::assertNotSame('', StateCodec::encode($stored, 1024), 'the real codec writes it (it throws StateValueTooLarge past its budgets)');
         self::assertLessThanOrEqual(self::CODEC_MAX_BYTES / 2, $bytes);
         self::assertLessThanOrEqual(self::CODEC_MAX_CONTAINERS / 2, $containers);
         self::assertLessThanOrEqual(self::CODEC_MAX_ELEMENTS / 2, $elements);

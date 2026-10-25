@@ -90,7 +90,9 @@ final class KubernetesEventsSourceTest extends TestCase
     private function source(array $queue, array $settings = [], bool $bind = true): KubernetesEventsSource
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(\GuzzleHttp\Middleware::history($this->history));
+        $historyLog = [];
+        $this->history = &$historyLog; // Guzzle fills it by reference
+        $stack->push(\GuzzleHttp\Middleware::history($historyLog));
         $s = KubeSettings::fromArray($settings + ['namespaces' => ['shop'], 'api' => ['server' => 'https://k8s.example', 'token' => self::TOKEN]], true, true, false);
         $api = new KubeApi(new Client(['handler' => $stack]), $s, $this->clock, static function (int $x): void {
         });
