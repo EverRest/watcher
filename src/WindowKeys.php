@@ -62,6 +62,11 @@ final class WindowKeys
         return Keys::delivered($this->stateKey, $this->end);
     }
 
+    public function deliveredParts(): string
+    {
+        return Keys::deliveredParts($this->stateKey, $this->end);
+    }
+
     /** Failed analysis attempts of this window. */
     public function analysisFailures(): string
     {

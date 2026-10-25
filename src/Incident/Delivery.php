@@ -31,6 +31,7 @@ final class Delivery
      * @param callable(string): void                     $out
      * @param callable(DeliveryFailed): void             $onDigestFailure
      * @param callable(string): void|null              $observerKind
+     * @param callable(Message): Message|null            $digestProgress wraps the default digest only (resumable parts); routed batches have their own marker
      */
     public static function run(
         WatchConfig $c,
@@ -47,6 +48,7 @@ final class Delivery
         array $groups = [],
         int $deliveredTtl = 21600,
         ?\DateTimeImmutable $now = null,
+        ?callable $digestProgress = null,
     ): int {
         $now = $now ?? new \DateTimeImmutable();
         $at = $now->format(DATE_ATOM);
@@ -105,6 +107,9 @@ final class Delivery
             $draftsSkipped = self::draftsSkipped($c, $defaultFindings, $keys, $state, $groups);
         }
         $message = $buildDigest($defaultFindings, $routedNotice, $draftsSkipped);
+        if ($digestProgress !== null) {
+            $message = $digestProgress($message);
+        }
         try {
             if ($observerKind !== null) {
                 $observerKind('digest');

@@ -37,6 +37,8 @@ final class Redactor
 
     private readonly Normalizer $normalizer;
 
+    private ?Normalizer $normalizerKeepingNumbers = null;
+
     /** @var array<string, string> container root (no trailing slash, longest first) => repository path with its trailing slash, or '' */
     private readonly array $pathRoots;
 
@@ -128,7 +130,11 @@ final class Redactor
         if (preg_match('//u', $text) !== 1) {
             throw new NormalizationException('Input is not valid UTF-8.');
         }
-        return ($keepNumbers ? $this->normalizer->keepingNumbers() : $this->normalizer)->scan($text)['text'];
+        $n = $keepNumbers
+            ? ($this->normalizerKeepingNumbers ??= $this->normalizer->keepingNumbers())
+            : $this->normalizer;
+
+        return $n->scan($text)['text'];
     }
 
     /**

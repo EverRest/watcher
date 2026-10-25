@@ -182,6 +182,7 @@
             "groups": {
                 "3ba2fceef742": 5
             },
+            "fpv": 1,
             "totals": {
                 "error": 5
             },
@@ -275,6 +276,7 @@
                 "3ba2fceef742": 5,
                 "ed1c1517d685": 3
             },
+            "fpv": 1,
             "totals": {
                 "error": 8
             },

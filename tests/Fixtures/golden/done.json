@@ -60,6 +60,7 @@
             "groups": {
                 "3ba2fceef742": 5
             },
+            "fpv": 1,
             "totals": {
                 "error": 5
             },
@@ -98,6 +99,7 @@
         },
         "snap:svc:2026-10-09T06%3A00%3A00Z": {
             "groups": [],
+            "fpv": 1,
             "totals": [],
             "deploy": {
                 "release": null,

@@ -197,6 +197,7 @@
             "groups": {
                 "922a8ce78cec": 5
             },
+            "fpv": 1,
             "totals": {
                 "error": 5,
                 "info": 1000
@@ -300,6 +301,7 @@
                 "922a8ce78cec": 5,
                 "dad8ae6bd5b9": 5
             },
+            "fpv": 1,
             "totals": {
                 "error": 10,
                 "info": 6000
