@@ -23,6 +23,7 @@ final class PrivacyCorpusTest extends TestCase
     {
         $haystack = (string) file_get_contents(self::DIR . '/corpus.log')
             . (string) file_get_contents(self::DIR . '/dependency.log')
+            . (string) file_get_contents(self::DIR . '/hygiene.log')
             . (string) file_get_contents(self::DIR . '/service-context.txt');
         // JSON lines escape nothing we seed (unescaped unicode/slashes), but check raw and decoded forms.
         foreach (self::seeded() as $value) {

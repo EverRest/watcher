@@ -208,7 +208,7 @@ final class Watcher
             config: $c,
             source: Factory::source($c, $http, $clock),
             state: $state,
-            analyzer: Factory::analyzer($c),
+            analyzer: Factory::analyzer($c, $options === null ? false : $options->dryRun),
             notifier: Factory::notifier($http, $c->schedule['lock_ttl']),
             clock: $clock,
             hostLog: $hostLog,

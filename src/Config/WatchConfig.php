@@ -23,7 +23,7 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe', 'hygiene',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
@@ -80,6 +80,7 @@ final class WatchConfig implements \JsonSerializable
         public readonly string $stateKey,
         private readonly array $flags,
         public readonly ObserveSettings $observe,
+        public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
     ) {
     }
 
@@ -304,6 +305,7 @@ final class WatchConfig implements \JsonSerializable
             $environment === null ? $service : $service . '@' . $environment,
             $flags,
             $observe,
+            \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
         );
     }
 

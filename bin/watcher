@@ -44,4 +44,5 @@ exit((new Watcher\Cli\Application(
     static fn (string $path, bool $postTest): Watcher\Operate\CheckReport => Watcher\Fleet\FleetCheck::fromConfig($path)->run($postTest),
     static fn (string $path): Watcher\Fleet\FleetStatus => Watcher\Fleet\FleetStatus::fromConfig($path, null, new Watcher\Cli\StderrLogger(STDERR)),
     stateGetFactory: static fn (array $config, string $key): ?string => Watcher\Config\Factory::stateInspector($config)->render($key),
+    hygieneFactory:static fn (array $config, Watcher\Hygiene\HygieneOptions $options): Watcher\Hygiene\HygieneResult => Watcher\Hygiene\Hygiene::fromConfig($config)->run($options),
 ))->run($argv));

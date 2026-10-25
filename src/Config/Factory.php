@@ -16,6 +16,9 @@ use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\SdkMessagesClient;
+use Watcher\Analyze\CostCalculator;
+use Watcher\Hygiene\Cost\CostLedger;
+use Watcher\Hygiene\Cost\LedgerAnalyzer;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Observe\EventSanitizer;
 use Watcher\Observe\FileSink;
@@ -319,7 +322,8 @@ final class Factory
         };
     }
 
-    public static function analyzer(WatchConfig $c): Analyzer
+    /** @param bool $dryRun a billed dry run must not write into the real cost ledger (spec 006, review M3) */
+    public static function analyzer(WatchConfig $c, bool $dryRun = false): Analyzer
     {
         if ($c->analysis['provider'] !== 'anthropic') {
             throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
@@ -328,12 +332,38 @@ final class Factory
         $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
         $key = (string) $c->analysis['api_key'];
 
-        return new AnthropicAnalyzer(
+        $analyzer = new AnthropicAnalyzer(
             $c->analysis['client'] === 'sdk'
                 ? new SdkMessagesClient($key, new Client($options), null, self::analyzerRequestOptions())
                 : new AnthropicHttpClient($key, new Client($options), $options['timeout']),
             $c->on('advice'),
         );
+
+        return $c->hygiene->enabled ? self::ledgered($c, $analyzer, $dryRun) : $analyzer;
+    }
+
+    /** The store the cost ledger writes to: the real one, or in a dry run a shadow that is read through and never written back. */
+    public static function ledgerState(WatchConfig $c, bool $dryRun, ClockInterface $clock): StateStore
+    {
+        $state = self::state($c, $clock);
+
+        return $dryRun ? new \Watcher\Operate\DryRunStateStore($state) : $state;
+    }
+
+    /** Spec 006: books every billed call per day, step and family so the cost report can explain the spend. */
+    private static function ledgered(WatchConfig $c, Analyzer $inner, bool $dryRun): Analyzer
+    {
+        $clock = new SystemClock();
+        $ledger = new CostLedger(
+            self::ledgerState($c, $dryRun, $clock),
+            $c->stateKey,
+            $c->state['retention'],
+            new \DateTimeZone($c->schedule['timezone']),
+            $clock,
+            new CostCalculator($c->analysis['prices']),
+        );
+
+        return new LedgerAnalyzer($inner, $ledger, (string) $c->analysis['models']['analyze'], (string) $c->analysis['models']['escalate']);
     }
 
     /** $lockTtl bounds the rate-limit wait of the chat notifiers: min(60, max(1, lockTtl / 10)) seconds per message. */
