@@ -35,7 +35,7 @@ The contract is the JSON Schema in `docs/schema/watcher.event.v1.schema.json`. I
 | `finding` | finding | `fingerprint`, `kind`, `severity`, `confidence`, `group_trend`, `group_count`, `group_previous_count` (+ text with `include_text`) |
 | `group` | top group (`observe.top_groups`, default 20) | `rank`, `fingerprint`, `level`, `trend`, `count`, `previous_count`, `has_finding` |
 | `budget` | run that read spend | `state`, `spent_today_usd`, `usd_ratio`, `token_ratio`, `triage_only` |
-| `heartbeat` | run | `state`, `last_ok_at`, `age_seconds`, `warnings` |
+| `heartbeat` | run | `state` (`ok`, `degraded`, `stale`, `failed`, `unknown`; `degraded` = the last run worked but the pod events could not be read), `last_ok_at`, `age_seconds`, `warnings` |
 | `delivery_failure` | failed chat delivery | `channel`, `kind`, `status_class`, `http_status` (never the message or URL) |
 | `config_warning` | warning | `code` (`analysis_partial`, `event_cap_hit`, `group_cap_hit`, `comparison_gap`, `include_text_external`, ...) |
 

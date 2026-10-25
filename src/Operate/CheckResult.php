@@ -24,6 +24,12 @@ final class CheckResult
         return new self($name, 'fail', $reason);
     }
 
+    /** Not a failure (the exit code stays 0): something worth knowing before the first run. */
+    public static function warn(string $name, string $reason): self
+    {
+        return new self($name, 'warn', $reason);
+    }
+
     public static function skip(string $name, string $reason): self
     {
         return new self($name, 'skip', $reason);

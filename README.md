@@ -228,7 +228,7 @@ Every digest ends with a cost line: tokens in/out/cached, model per step, approx
 | 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
-exits 0 when `ok`, 1 when `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
+exits 0 when `ok`, 1 when `degraded` (the last run worked but the pod events could not be read), `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to

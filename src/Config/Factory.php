@@ -37,6 +37,8 @@ use Watcher\Operate\ModelCatalog;
 use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
 use Watcher\Notify\TelegramNotifier;
+use Watcher\Source\Kubernetes\KubeApi;
+use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
@@ -85,17 +87,22 @@ final class Factory
         return ['maxRetries' => 0];
     }
 
-    public static function source(WatchConfig $c, Client $http, ?ClockInterface $clock = null): LogSource
+    /** @param array<string, KubeApi> $apis shared by the entries of a fleet (pod events only) */
+    public static function source(WatchConfig $c, Client $http, ?ClockInterface $clock = null, array &$apis = []): LogSource
     {
         try {
-            return self::buildSource($c, $http, $clock);
+            return self::buildSource($c, $http, $clock, $apis);
         } catch (\InvalidArgumentException) {
             throw new InvalidConfig('source: invalid settings'); // not chained: the message may carry a URL or key
         }
     }
 
-    private static function buildSource(WatchConfig $c, Client $http, ?ClockInterface $clock): LogSource
+    /** @param array<string, KubeApi> $apis */
+    private static function buildSource(WatchConfig $c, Client $http, ?ClockInterface $clock, array &$apis): LogSource
     {
+        if ($c->source['driver'] === 'kubernetes') {
+            return self::kubernetesSource($c, $http, $clock ?? new SystemClock(), $apis);
+        }
         if ($c->source['driver'] === 'datadog') {
             /** @var array<string, mixed> $dd */
             $dd = $c->source['datadog'];
@@ -133,6 +140,33 @@ final class Factory
     private static function maxResponseBytes(WatchConfig $c): int
     {
         return (is_int($c->source['max_response_mb'] ?? null) ? $c->source['max_response_mb'] : 16) * 1024 * 1024;
+    }
+
+    /**
+     * The extra pod-events source declared beside `source` (spec 008), or null: nothing declared, the flag is off, or
+     * Kubernetes already is the main source. $apis is shared by the entries of a fleet: the same cluster and credentials
+     * share one client (and its short list memo), different credentials never do.
+     *
+     * @param array<string, KubeApi> $apis
+     */
+    public static function events(WatchConfig $c, Client $http, ClockInterface $clock, array &$apis = []): ?KubernetesEventsSource
+    {
+        $k = $c->kubernetes;
+        if ($k === null || !$c->on('kubernetes') || !$k->events || $k->asSource) {
+            return null;
+        }
+
+        return self::kubernetesSource($c, $http, $clock, $apis);
+    }
+
+    /** @param array<string, KubeApi> $apis */
+    private static function kubernetesSource(WatchConfig $c, Client $http, ClockInterface $clock, array &$apis): KubernetesEventsSource
+    {
+        $k = $c->kubernetes ?? throw new InvalidConfig('kubernetes: invalid settings');
+        $api = $apis[$k->credentialKey()] ??= new KubeApi($http, $k, $clock);
+        $window = (new \DateTimeImmutable('@0'))->add(new \DateInterval($c->schedule['window']))->getTimestamp();
+
+        return new KubernetesEventsSource($api, $k, $clock, new Normalizer(extraPatterns: $c->redactionPatterns), $c->stateKey, $window, $c->state['retention']);
     }
 
     public static function state(WatchConfig $c, ClockInterface $clock, ?LoggerInterface $log = null): StateStore
@@ -262,10 +296,25 @@ final class Factory
     private static function lazy(Closure $make): StateStore
     {
         return new class ($make) implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter {
+            /** @var array<int, Closure(): StateStore> the factory closes over the connection settings (the Redis password): kept out of the object so no dump of it shows them */
+            private static array $makers = [];
+
             private ?StateStore $store = null;
 
-            public function __construct(private readonly Closure $make)
+            public function __construct(Closure $make)
             {
+                self::$makers[spl_object_id($this)] = $make;
+            }
+
+            public function __destruct()
+            {
+                unset(self::$makers[spl_object_id($this)]);
+            }
+
+            /** @return array<string, string> */
+            public function __debugInfo(): array
+            {
+                return ['store' => $this->store === null ? '<not connected>' : '<connected>'];
             }
 
             public function get(string $key): ?array
@@ -314,7 +363,7 @@ final class Factory
 
             private function store(): StateStore
             {
-                return $this->store ??= ($this->make)();
+                return $this->store ??= (self::$makers[spl_object_id($this)])();
             }
         };
     }
@@ -428,7 +477,7 @@ final class Factory
         $state = self::state($c, $clock);
         $probe = $c->observe->anyEnabled() ? self::observe($c, $clock, null, new ObserveCounters($state, $c->stateKey, $c->state['retention']), probe: true) : null;
 
-        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe);
+        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, events: self::events($c, $http, $clock), kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe);
     }
 
     /**

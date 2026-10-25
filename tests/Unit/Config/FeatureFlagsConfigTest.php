@@ -89,6 +89,7 @@ final class FeatureFlagsConfigTest extends TestCase
             'budget_alerts' => [['budget_alerts' => ['enabled' => false]], 'budget_alerts', 'budget_alerts.enabled'],
             'notice' => [['notify' => ['notice' => ['enabled' => false]]], 'notice', 'notify.notice.enabled'],
             'digest' => [['notify' => ['digest' => ['enabled' => false]]], 'digest', 'notify.digest.enabled'],
+            'kubernetes' => [['kubernetes' => ['enabled' => false]], 'kubernetes', 'kubernetes.enabled'],
         ];
     }
 
@@ -238,7 +239,7 @@ final class FeatureFlagsConfigTest extends TestCase
             }
         });
         $off = [];
-        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST'] as $name) {
+        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST', 'KUBERNETES'] as $name) {
             $off["WATCHER_{$name}_ENABLED"] = 'false';
         }
         self::withEnv($base + $off + ['WATCHER_ENABLED' => 'yes', 'WATCHER_ENVIRONMENT' => 'int'], function () use ($load): void {

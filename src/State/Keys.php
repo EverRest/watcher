@@ -24,6 +24,7 @@ final class Keys
     public const ZERO = 'zero';
     public const DELIVERED = 'sent';
     public const FAILNOTICE = 'failn';
+    public const EVENTS = 'evt';
     public const OBSRUNS = 'obsruns';
     public const OBSFAIL = 'obsfail';
     public const OBSDELIV = 'obsdeliv';
@@ -151,6 +152,12 @@ final class Keys
     public static function weekSent(string $service, string $isoWeek): string
     {
         return self::join(self::WEEKSENT, $service, $isoWeek);
+    }
+
+    /** Pod-event ledger of one service (spec 008): masked fingerprints, counts and times, expiring. */
+    public static function events(string $service): string
+    {
+        return self::join(self::EVENTS, $service);
     }
 
     /** Observability counters (spec 013): runs per outcome. Expire with state.retention like every other record (default of ttl()). */

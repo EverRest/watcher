@@ -261,7 +261,7 @@ final class RunLedger
         }
         try {
             if ($this->window !== null && in_array($outcome, [RunOutcome::Reported, RunOutcome::Quiet, RunOutcome::Baselined, RunOutcome::Failed], true)) {
-                $this->heartbeat->recordRun($outcome, $this->window->start, $this->window->end, $this->startedAt, $this->stats->costUsd, $this->code);
+                $this->heartbeat->recordRun($outcome, $this->window->start, $this->window->end, $this->startedAt, $this->stats->costUsd, $this->code, $this->stats->events['status'] ?? null);
             } else {
                 $this->heartbeat->recordSkip($outcome);
             }
