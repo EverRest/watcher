@@ -142,14 +142,14 @@ path, never a value. Redaction and the event sanitizer have no switch.
 | `observe.file.retention_days` | `30` | 1..365; older files are deleted at each flush. |
 | `observe.file.include_text` | `false` | |
 | `observe.http.enabled` | `false` | NDJSON `POST`. |
-| `observe.http.url` | required when enabled | `https` with a host and no credentials; plain `http` only with `allow_insecure` and a loopback, private-network or cluster-local host. A secret: masked everywhere. Must not point at the log source. |
+| `observe.http.url` | required when enabled | `https` with a host and no credentials; plain `http` only with `allow_insecure` **and** `allow_private_network` and a loopback, private-network or cluster-local host. A ClusterIP in CGNAT (100.64.0.0/10) or unique-local IPv6 space cannot be configured even with the flag: use the service's `*.svc` name. A secret: masked everywhere. Must not point at the log source. |
 | `observe.http.auth_header` | `Authorization` | Header name. |
 | `observe.http.auth_scheme` | `Bearer` | Word before the token; `''` (in code) sends the token alone, for `X-API-Key` style headers. |
 | `observe.http.auth_token` | none | A secret, at least 8 characters; no header is sent when absent. |
 | `observe.http.batch_size` | `100` | 1..1000 events per request. |
 | `observe.http.timeout` | `5` | 1..30 seconds per request; the whole flush is also bounded by what is left of the run deadline. |
 | `observe.http.allowed_hosts` | `[]` | When set, the URL host must be one of them. |
-| `observe.http.allow_insecure` | `false` | Permits `http://` (trusted-network hosts only) and emits `config_warning http_insecure_allowed`. |
+| `observe.http.allow_insecure` | `false` | Permits `http://` (trusted-network hosts only, and only together with `allow_private_network`) and emits `config_warning http_insecure_allowed`. |
 | `observe.http.allow_private_network` | `false` | Permits loopback, RFC 1918 and cluster-local hosts; link-local, CGNAT, metadata, unique-local IPv6 and reserved ranges stay refused (shared classifier). |
 | `observe.http.include_text` | `false` | `true` emits `config_warning include_text_external`. |
 | `observe.prometheus.enabled` | `false` | Textfile in the node_exporter format. |
