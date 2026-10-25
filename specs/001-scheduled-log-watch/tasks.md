@@ -256,7 +256,7 @@ and every finding has a log link and code links at the deployed commit (quicksta
 - [x] T111 [P] Write `README.md`: install, read-only credentials per source, scheduling (hourly trigger + `run_at`), state drivers (file = single runner only), privacy guarantees, cost model, exit codes
 - [x] T112 [P] Add architecture tests: no model id string (`claude-`) under `src/`; no consumer-specific string (`orders-api`, `tenant-a`, `core-api`) under `src/` or `config/` (Principle VI); `LogSource` implementations issue only GET/read-only POST query endpoints (Loki `query`, `query_range`; Datadog `analytics/aggregate`, `events/search`) — FR-004, Principle II — in `tests/Unit/ArchitectureTest.php`
 - [x] T113 Run the full `specs/001-scheduled-log-watch/quickstart.md` (scenarios 1–14) and gates: `composer test`, `composer stan`, `composer style`, each exit 0
-- [ ] T114 Manual smoke with an Operator (quickstart §3) against one orders-api environment; compare the first digest with `docs/context/logs/backlog.md` for SC-001; record result in `CHANGELOG.md`
+- [ ] T114 Manual smoke with an Operator (quickstart §3) against one orders-api environment; compare the first digest with `docs/context/logs/backlog.md` for SC-001; record result in `CHANGELOG.md` — **blocked**: needs live credentials; use `docs/examples/smoke.env.example` + `scripts/smoke-check.sh` for preflight until an operator run is scheduled
 
 ---
 

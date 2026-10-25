@@ -46,6 +46,8 @@ Grafana Cloud Loki or a multi-tenant Loki needs basic auth and/or a tenant heade
 
 ## 2. Prepare the shell
 
+Copy `docs/examples/smoke.env.example` to `~/watcher-smoke.env` (outside the repo; `chmod 600`), fill in placeholders, then run `scripts/smoke-check.sh` before the steps below.
+
 Create `~/watcher-smoke.env` (outside the repo; `chmod 600`):
 
 ```bash
