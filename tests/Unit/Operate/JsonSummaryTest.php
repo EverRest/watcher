@@ -125,4 +125,11 @@ final class JsonSummaryTest extends TestCase
     {
         self::assertSame('unknown', JsonSummary::packageVersion('no/such-package'));
     }
+
+    public function testPackageVersionFitsTheObserveEventSchema(): void
+    {
+        $version = JsonSummary::packageVersion('everrest/watcher');
+        self::assertMatchesRegularExpression('/^[A-Za-z0-9._+-]{1,32}$/', $version);
+        self::assertLessThanOrEqual(32, strlen($version));
+    }
 }
