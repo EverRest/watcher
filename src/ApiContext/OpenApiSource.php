@@ -20,8 +20,7 @@ use Watcher\Source\SourceUnavailable;
  * exception message (never a URL, path, header or body): unreachable, unauthorized, timeout, too_large, bad_format,
  * unsupported_format, unreadable, unsafe_source (URL refused before any request).
  *
- * Remote: Config\SecureUrl (https, no userinfo, loopback only with allow_insecure) plus no private, link-local or metadata
- * address; redirects off; TLS verified. File: `file:` or an absolute canonical path (no `..`, no symlink in any component),
+ * Remote: Config\SecureUrl (https; plain http only with allow_insecure AND allow_private_network AND a loopback/RFC 1918/cluster-local host; no userinfo; no link-local or metadata host); redirects off; TLS verified. File: `file:` or an absolute canonical path (no `..`, no symlink in any component),
  * below `api_context.allowed_roots` when set, no world-writable ancestor without the sticky bit, an opened regular file that is not world-writable.
  * ponytail: a host NAME is not resolved, so DNS that points at a private address passes; resolve-and-pin if specs ever come from untrusted config.
  */
@@ -37,24 +36,48 @@ final class OpenApiSource
 
     private readonly int $maxBytes;
 
+    /** The URL or path (a URL may carry a token) and the bearer token, held in closures so no dump or serialization shows them. */
+    private readonly Closure $source;
+
+    private readonly Closure $authToken;
+
+    private readonly string $sourceId;
+
     public function __construct(
         private readonly ClientInterface $http,
-        private readonly string $source,
-        private readonly ?string $authToken = null,
+        #[\SensitiveParameter] string $source,
+        #[\SensitiveParameter] ?string $authToken = null,
         int $maxBytes = self::DEFAULT_MAX_BYTES,
         private readonly ?Closure $clock = null,
         private readonly ?Closure $fileSize = null,
         private readonly bool $allowInsecure = false,
         /** @var list<string> config `api_context.allowed_roots`: when set, a file source must lie below one of them */
         private readonly array $allowedRoots = [],
+        /** `api_context.allow_private_network`: with allow_insecure, admits plain http to a loopback, RFC 1918 or cluster-local host; alone, admits those hosts over https */
+        private readonly bool $allowPrivateNetwork = false,
     ) {
         $this->maxBytes = min($maxBytes, self::MAX_BYTES_CEILING);
+        $this->source = static fn (): string => $source;
+        $this->authToken = static fn (): ?string => $authToken;
+        $this->sourceId = substr(hash('sha256', $source), 0, 12);
+    }
+
+    /** @return array<string, mixed> */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    /** @return array<string, mixed> */
+    public function __serialize(): array
+    {
+        throw new \LogicException('OpenApiSource is not serializable');
     }
 
     /** Cache key component: a hash, so the URL or path never appears in a key. */
     public function id(): string
     {
-        return substr(hash('sha256', $this->source), 0, 12);
+        return $this->sourceId;
     }
 
     /**
@@ -64,12 +87,12 @@ final class OpenApiSource
      */
     public function read(): array
     {
-        return self::decode(preg_match('~^https?://~i', $this->source) === 1 ? $this->fetch() : $this->readFile());
+        return self::decode(preg_match('~^https?://~i', ($this->source)()) === 1 ? $this->fetch() : $this->readFile());
     }
 
     private function readFile(): string
     {
-        $path = $this->source;
+        $path = ($this->source)();
         if (preg_match('~^file:(?://)?(/.*)$~is', $path, $m) === 1) {
             $path = $m[1];
         }
@@ -143,17 +166,19 @@ final class OpenApiSource
 
     private function fetch(): string
     {
-        if (self::unsafe($this->source, $this->allowInsecure)) {
+        $url = ($this->source)();
+        if ($this->unsafe($url)) {
             throw new SourceUnavailable('unsafe_source');
         }
         $tripped = new ArrayObject(['large' => false]);
         $headers = ['Accept' => 'application/json'];
-        if ($this->authToken !== null && $this->authToken !== '') {
-            $headers['Authorization'] = 'Bearer ' . $this->authToken;
+        $token = ($this->authToken)();
+        if ($token !== null && $token !== '') {
+            $headers['Authorization'] = 'Bearer ' . $token;
         }
         $started = $this->now();
         try {
-            $response = $this->http->request('GET', $this->source, [
+            $response = $this->http->request('GET', $url, [
                 'headers' => $headers,
                 'stream' => true,
                 'connect_timeout' => 5,
@@ -188,10 +213,27 @@ final class OpenApiSource
         return $raw;
     }
 
-    /** The shared classifier (Config\SecureUrl): https, no userinfo, and no internal, private, link-local or metadata host. */
-    private static function unsafe(string $url, bool $allowInsecure): bool
+    private function unsafe(#[\SensitiveParameter] string $url): bool
     {
-        return SecureUrl::problem($url, $allowInsecure, true) !== null;
+        return self::urlProblem($url, $this->allowInsecure, $this->allowPrivateNetwork) !== null;
+    }
+
+    /**
+     * The shared classifier (Config\SecureUrl), same rule as observe.http: https; plain http only with allow_insecure AND
+     * allow_private_network AND a loopback, RFC 1918 or cluster-local host; a private host over https needs allow_private_network;
+     * link-local, CGNAT, metadata and reserved ranges are refused whatever is allowed. Also used by the config validation.
+     */
+    public static function urlProblem(#[\SensitiveParameter] string $url, bool $allowInsecure, bool $allowPrivateNetwork): ?string
+    {
+        $problem = SecureUrl::problem($url, $allowInsecure && $allowPrivateNetwork);
+        if ($problem !== null) {
+            return $problem;
+        }
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return !is_string($host) || SecureUrl::internalHost($host, $allowPrivateNetwork, $allowPrivateNetwork)
+            ? 'must not point at a loopback, link-local, private-network or metadata address'
+            : null;
     }
 
     private function now(): float

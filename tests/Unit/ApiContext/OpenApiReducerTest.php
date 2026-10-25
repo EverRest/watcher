@@ -11,6 +11,7 @@ use Watcher\ApiContext\OperationSummary;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\Normalizer;
 use Watcher\Source\SourceUnavailable;
+use Watcher\State\StateCodec;
 
 final class OpenApiReducerTest extends TestCase
 {
@@ -220,5 +221,26 @@ final class OpenApiReducerTest extends TestCase
     {
         $doc = ['openapi' => '3.0.0', 'servers' => [['url' => 'https://h.example/a b@c.example']], 'paths' => []];
         self::assertSame('', $this->reducer()->reduce($doc)->base);
+    }
+
+    /** The worst entry the reducer can build must be one the real StateCodec accepts (elements and containers count punctuation inside strings). */
+    public function testWorstCaseEntryStaysUnderTheRealStateCodecBudget(): void
+    {
+        foreach ([',', '[', '{', '"'] as $ch) {
+            $paths = [];
+            for ($i = 0; $i < 250; ++$i) {
+                $op = ['summary' => str_repeat($ch, 80), 'tags' => [str_repeat($ch, 80)], 'deprecated' => true];
+                $paths['/a' . $i] = ['get' => $op, 'put' => $op, 'post' => $op, 'delete' => $op];
+            }
+            $reducer = new OpenApiReducer(new Redactor(new Normalizer()), 200, null);
+            $spec = $reducer->reduce(['openapi' => '3.0.0', 'paths' => $paths]);
+            $encoded = (string) json_encode($spec->toCache('2026-10-25T06:00:00+00:00'));
+
+            self::assertTrue(StateCodec::fits($encoded), 'char ' . $ch . ': ' . strlen($encoded) . ' bytes');
+            self::assertGreaterThan(0, count($spec->ops), 'a bounded spec is still kept');
+            self::assertGreaterThan(0, $spec->dropped, 'the rest is counted, not silently lost');
+            self::assertSame(1000, count($spec->ops) + $spec->dropped);
+            StateCodec::encode($spec->toCache('2026-10-25T06:00:00+00:00'), 0); // would throw StateValueTooLarge
+        }
     }
 }

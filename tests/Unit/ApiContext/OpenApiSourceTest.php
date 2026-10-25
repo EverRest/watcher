@@ -58,7 +58,9 @@ final class OpenApiSourceTest extends TestCase
     private function http(array $queue): Client
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $stack->push(Middleware::history($this->history));
+        $log = [];
+        $this->history = &$log; // Guzzle fills it by reference
+        $stack->push(Middleware::history($log));
 
         return new Client(['handler' => $stack]);
     }
@@ -320,17 +322,30 @@ final class OpenApiSourceTest extends TestCase
         }
     }
 
-    public function testLoopbackIsAllowedOnlyWithAllowInsecure(): void
+    public function testPlainHttpNeedsAllowInsecureAndAPrivateHostAndAllowPrivateNetwork(): void
     {
-        foreach (['http://127.0.0.1:8080/openapi.json', 'http://localhost:3000/openapi.json', 'https://localhost/x', 'http://[::1]/x'] as $u) {
-            $src = new OpenApiSource($this->http([new Response(200, [], self::DOC)]), $u, null, 1048576, null, null, true);
+        $ok = ['http://127.0.0.1:8080/openapi.json', 'http://localhost:3000/openapi.json', 'http://[::1]/x', 'http://10.1.2.3/x', 'http://api.default.svc/x', 'https://localhost/x', 'https://10.1.2.3/x'];
+        foreach ($ok as $u) {
+            $src = new OpenApiSource($this->http([new Response(200, [], self::DOC)]), $u, allowInsecure: true, allowPrivateNetwork: true);
             self::assertSame(['openapi' => '3.0.0', 'paths' => []], $src->read(), $u);
         }
-        // allow_insecure does not open the metadata or private ranges, nor plain http to a public host
-        foreach (['http://169.254.169.254/x', 'http://10.0.0.1/x', 'http://docs.example/x', 'https://[fd00::1]/x'] as $u) {
-            $src = new OpenApiSource($this->http([new Response(200, [], self::DOC)]), $u, null, 1048576, null, null, true);
+        // either flag alone is not enough for plain http, and allow_insecure alone opens no private host at all
+        foreach (['http://127.0.0.1:8080/x', 'http://10.1.2.3/x', 'https://127.0.0.1/x', 'https://10.1.2.3/x'] as $u) {
+            foreach ([[true, false], [false, true], [false, false]] as [$insecure, $private]) {
+                if ($u[4] === 's' && $private) {
+                    continue; // https to a private host is what allow_private_network alone admits
+                }
+                $src = new OpenApiSource($this->http([new Response(200, [], self::DOC)]), $u, allowInsecure: $insecure, allowPrivateNetwork: $private);
+                self::assertSame('unsafe_source', $this->token(fn () => $src->read()), $u . ' insecure=' . (int) $insecure . ' private=' . (int) $private);
+            }
+        }
+        // no flag opens metadata, link-local, CGNAT or a public host over http
+        $this->history = [];
+        foreach (['http://169.254.169.254/x', 'https://169.254.169.254/x', 'http://metadata.google.internal/x', 'http://100.64.0.1/x', 'http://docs.example/x', 'https://[fd00::1]/x'] as $u) {
+            $src = new OpenApiSource($this->http([new Response(200, [], self::DOC)]), $u, allowInsecure: true, allowPrivateNetwork: true);
             self::assertSame('unsafe_source', $this->token(fn () => $src->read()), $u);
         }
+        self::assertSame([], $this->history);
     }
 
     public function testFilePrefixAndAbsolutePathAreAccepted(): void

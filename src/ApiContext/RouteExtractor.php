@@ -19,7 +19,7 @@ final class RouteExtractor
             $method = $m['m'] !== '' ? $m['m'] : null;
             $route = $this->route($method, rtrim($m['p'], '.,;:)"\''));
             // "3 / 5" and "a // b" are prose: without a method a route needs a real segment ("GET /" is the only bare root)
-            if ($route !== null && ($method !== null || $route->segments !== [] || $route->unmatchable)) {
+            if ($method !== null || $route->segments !== [] || $route->unmatchable) {
                 return $route;
             }
         }

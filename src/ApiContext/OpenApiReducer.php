@@ -6,6 +6,7 @@ namespace Watcher\ApiContext;
 
 use Watcher\Privacy\Redactor;
 use Watcher\Source\SourceUnavailable;
+use Watcher\State\StateCodec;
 
 /**
  * Decoded OpenAPI array -> ReducedSpec (research R3). Only six fields per operation are ever read out of the array; the
@@ -48,7 +49,12 @@ final class OpenApiReducer
         }
 
         $base = $this->base($doc, $swagger);
-        $size = strlen((string) json_encode(['v' => 1, 'base' => $base, 'ops' => [], 'dropped' => 99999, 'readAt' => '2026-10-24T06:00:00+00:00']));
+        $head = (string) json_encode(['v' => 1, 'base' => $base, 'ops' => [], 'dropped' => 99999, 'readAt' => '2026-10-24T06:00:00+00:00']);
+        $size = strlen($head);
+        // The entry is written through the state store, whose codec refuses a value past MAX_BYTES / MAX_ELEMENTS / MAX_CONTAINERS
+        // (counted on the text, punctuation inside strings included): stay under all three, count the rest as dropped.
+        $containers = substr_count($head, '[') + substr_count($head, '{');
+        $elements = $containers + substr_count($head, ',');
         $ops = [];
         $dropped = 0;
         $full = false;
@@ -70,8 +76,12 @@ final class OpenApiReducer
                     continue;
                 }
                 $op = $this->operation(strtoupper($verb), $template, $item[$verb]);
-                $size += strlen((string) json_encode([$op->method, $op->template, $op->summary, $op->tag, $op->deprecated, $op->operationId])) + 1;
-                $full = $full || $size > $this->maxEntryBytes;
+                $row = (string) json_encode([$op->method, $op->template, $op->summary, $op->tag, $op->deprecated, $op->operationId]);
+                $rowContainers = substr_count($row, '[') + substr_count($row, '{');
+                $size += strlen($row) + 1;
+                $containers += $rowContainers;
+                $elements += $rowContainers + substr_count($row, ',') + 1;
+                $full = $full || $size > min($this->maxEntryBytes, StateCodec::MAX_BYTES) || $containers > StateCodec::MAX_CONTAINERS || $elements > StateCodec::MAX_ELEMENTS;
                 if ($full) {
                     ++$dropped;
                 } else {
