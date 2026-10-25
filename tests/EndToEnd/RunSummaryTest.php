@@ -9,6 +9,7 @@ use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Level;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Operate\JsonSummary;
+use Watcher\Operate\RunOptions;
 use Watcher\Operate\RunSummaryData;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
@@ -201,10 +202,9 @@ final class RunSummaryTest extends TestCase
         self::assertStringContainsString('source_unavailable', $blobs[1]);
     }
 
-    public function testUnreadableStateEntriesAreSurfacedAsACount(): void
+    private static function withUnreadable(StateStore $inner): StateStore
     {
-        $h = self::ready();
-        $h->state = new class ($h->state) implements StateStore, UnreadableCounter {
+        return new class ($inner) implements StateStore, UnreadableCounter {
             public function __construct(private readonly StateStore $inner)
             {
             }
@@ -239,6 +239,12 @@ final class RunSummaryTest extends TestCase
                 return $this->inner->increment($key, $by, $ttlSeconds);
             }
         };
+    }
+
+    public function testUnreadableStateEntriesAreSurfacedAsACount(): void
+    {
+        $h = self::ready();
+        $h->state = self::withUnreadable($h->state);
 
         $d = self::data($h->watcher(self::source())->run());
 
@@ -246,11 +252,45 @@ final class RunSummaryTest extends TestCase
         self::assertStringContainsString('"state_unreadable":3', (new JsonSummary())->render($d));
     }
 
-    public function testNoUnreadableEntriesLeavesTheJsonLineUnchanged(): void
+    public function testADryRunStillReportsTheUnreadableCountOfTheRealStore(): void
+    {
+        $h = self::ready();
+        $h->state = self::withUnreadable($h->state);
+
+        $d = self::data($h->watcher(self::source(), RunOptions::dryRun(), static function (string $s): void {
+        })->run());
+
+        self::assertSame(3, $d->stats?->stateUnreadable);
+    }
+
+    public function testNoUnreadableEntriesIsAnExplicitZero(): void
     {
         $d = self::data(self::ready()->watcher(self::source())->run());
 
         self::assertSame(0, $d->stats?->stateUnreadable);
-        self::assertStringNotContainsString('state_unreadable', (new JsonSummary())->render($d));
+        self::assertStringContainsString('"state_unreadable":0', (new JsonSummary())->render($d));
+    }
+
+    public function testUnscannableEventsAreCountedInTheJsonLineAndNamedOnceInTheDigest(): void
+    {
+        $h = self::ready();
+        $events = Harness::events(Level::Error, "payment \xFF failed in a unique way", 4, 'Alpha');
+
+        $r = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+
+        $d = self::data($r);
+        $json = json_decode((new JsonSummary())->render($d), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(4, $json['unscannable_events']);
+        $texts = [];
+        foreach ($h->notifier->sent as $sent) {
+            foreach ($sent['message']->sections as $section) {
+                $texts[] = $section['text'];
+            }
+        }
+        $lines = array_values(array_filter($texts, static fn (string $t): bool => str_contains($t, 'withheld')));
+        self::assertCount(1, $lines, 'one line, not one per event');
+        self::assertCount(1, array_filter($texts, static fn (string $t): bool => str_contains($t, 'could not be scanned')), 'the digest line is not repeated by an incomplete-read notice');
+        self::assertSame('ℹ️ read quality: 4 events withheld (could not be scanned)', $lines[0]);
+        self::assertStringNotContainsString('payment', $lines[0]);
     }
 }

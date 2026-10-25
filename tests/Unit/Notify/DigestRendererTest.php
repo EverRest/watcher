@@ -79,6 +79,13 @@ final class DigestRendererTest extends TestCase
         self::assertStringNotContainsString('multi-line', $loud);
     }
 
+    public function testUnscannableEventsAreOneCountLine(): void
+    {
+        $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unscannable_events' => 1200]]), 0.5), 'notice');
+
+        self::assertStringContainsString('ℹ️ read quality: 1,200 events withheld (could not be scanned)', $t);
+    }
+
     public function testDroppedOversizedLinesAreNamedInTheReadQualityLine(): void
     {
         $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0, 'oversized_lines' => 4]]), 0.5), 'notice');

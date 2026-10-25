@@ -17,7 +17,13 @@ final class JsonSummaryTest extends TestCase
     private const FIELDS = [
         'schema', 'service', 'outcome', 'reason', 'window_start', 'window_end', 'duration_ms', 'events_read', 'groups',
         'candidates', 'findings', 'calls', 'tokens_in', 'tokens_out', 'tokens_cached', 'cost_usd', 'today_usd',
-        'release', 'version', 'dry_run',
+        'release', 'version', 'dry_run', 'state_unreadable', 'unscannable_events', 'oversized_lines', 'overflowed_events',
+        'pattern_failures', 'read_quality',
+    ];
+
+    /** The names under `read_quality`, fixed: a consumer can rely on every one of them being there. */
+    private const READ_QUALITY = [
+        'unknown_levels', 'orphan_trace_lines', 'message_tails_dropped', 'truncated_lines', 'truncated_structured', 'regex_failures', 'pages_shrunk',
     ];
 
     /** @return array<string, mixed> */
@@ -62,6 +68,29 @@ final class JsonSummaryTest extends TestCase
         self::assertSame([0.01, 0.25, 'v1.2.3', true], [$j['cost_usd'], $j['today_usd'], $j['release'], $j['dry_run']]);
         self::assertIsString($j['version']);
         self::assertNotSame('', $j['version']);
+    }
+
+    public function testTheHealthCountersAreAlwaysThereWithStableNames(): void
+    {
+        $stats = new RunStats();
+        $stats->stateUnreadable = 3;
+        $stats->unscannableEvents = 4;
+        $stats->oversizedLines = 5;
+        $stats->overflowedEvents = 6;
+        $stats->patternFailures = 7;
+        $stats->readQuality = ['unknown_levels' => 8, 'pages_shrunk' => 9, 'not_a_known_key' => 99];
+
+        $j = $this->decode((new JsonSummary())->render(new RunSummaryData(RunOutcome::Reported, 's', null, null, null, $stats)));
+
+        self::assertSame([3, 4, 5, 6, 7], [$j['state_unreadable'], $j['unscannable_events'], $j['oversized_lines'], $j['overflowed_events'], $j['pattern_failures']]);
+        self::assertSame(self::READ_QUALITY, array_keys($j['read_quality']));
+        self::assertSame(8, $j['read_quality']['unknown_levels']);
+        self::assertSame(9, $j['read_quality']['pages_shrunk']);
+        self::assertSame(0, $j['read_quality']['regex_failures'], 'a counter the source did not report is 0, not missing');
+
+        $none = $this->decode((new JsonSummary())->render(new RunSummaryData(RunOutcome::Failed, 's')));
+        self::assertSame([0, 0, 0, 0, 0], [$none['state_unreadable'], $none['unscannable_events'], $none['oversized_lines'], $none['overflowed_events'], $none['pattern_failures']]);
+        self::assertSame(array_fill_keys(self::READ_QUALITY, 0), $none['read_quality']);
     }
 
     public function testInvalidConfigAndSkippedCarryNullsForUnknownValues(): void

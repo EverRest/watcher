@@ -1,0 +1,217 @@
+{
+    "result": {
+        "outcome": "failed",
+        "failureReason": "provider unavailable",
+        "usage": null,
+        "summary": {
+            "@Watcher\\Operate\\RunSummaryData": {
+                "outcome": "failed",
+                "service": "svc",
+                "reason": "analysis_failed",
+                "windowStart": "2026-10-08T06:00:00+00:00",
+                "windowEnd": "2026-10-09T06:00:00+00:00",
+                "stats": {
+                    "@Watcher\\Operate\\RunStats": {
+                        "eventsRead": 8,
+                        "groups": 2,
+                        "unscannableEvents": 0,
+                        "oversizedLines": 0,
+                        "stateUnreadable": 0,
+                        "overflowedEvents": 0,
+                        "patternFailures": 0,
+                        "readQuality": [],
+                        "candidates": 2,
+                        "findings": 0,
+                        "calls": {
+                            "triage": 1,
+                            "analyze": 0,
+                            "escalate": 0
+                        },
+                        "tokensIn": 1200,
+                        "tokensOut": 300,
+                        "tokensCached": 0,
+                        "costUsd": 0.0027,
+                        "durationMs": 0,
+                        "pages": null
+                    }
+                },
+                "todayUsd": null,
+                "release": null,
+                "dryRun": false,
+                "environment": null
+            }
+        },
+        "summaryLine": "outcome=failed reason=\"provider unavailable\"",
+        "exitCode": 1
+    },
+    "sent": [
+        {
+            "text": "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.",
+            "sections": [
+                {
+                    "kind": "notice",
+                    "text": "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run."
+                }
+            ],
+            "to": {
+                "driver": "slack",
+                "secrets": "[redacted]"
+            }
+        },
+        {
+            "text": "❌ watcher · svc · stg — analysis failed: provider unavailable",
+            "sections": [
+                {
+                    "kind": "notice",
+                    "text": "❌ watcher · svc · stg — analysis failed: provider unavailable"
+                }
+            ],
+            "to": {
+                "driver": "slack",
+                "secrets": "[redacted]"
+            }
+        }
+    ],
+    "attempts": 2,
+    "printed": "",
+    "writes": [
+        [
+            "acquire",
+            "lock:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "increment",
+            "spend:svc:2026-10-09:usd"
+        ],
+        [
+            "increment",
+            "spend:svc:2026-10-09:tokens"
+        ],
+        [
+            "put",
+            "triage:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "snap:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "snap:svc:last"
+        ],
+        [
+            "put",
+            "run:svc:2026-10-09T06%3A00%3A00Z:failures"
+        ],
+        [
+            "increment",
+            "failn:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "release",
+            "lock:svc:2026-10-09T06%3A00%3A00Z"
+        ],
+        [
+            "put",
+            "hb:svc"
+        ],
+        [
+            "increment",
+            "hbweek:svc:2026-W41:failed"
+        ],
+        [
+            "increment",
+            "hbweek:svc:2026-W41:cost"
+        ]
+    ],
+    "state": {
+        "snap:svc:2026-10-08T06%3A00%3A00Z": {
+            "groups": {
+                "3ba2fceef742": 5
+            },
+            "totals": {
+                "error": 5
+            },
+            "deploy": {
+                "release": null,
+                "commit": null
+            },
+            "start": "2026-10-07T06:00:00Z"
+        },
+        "snap:svc:last": {
+            "end": "2026-10-09T06:00:00Z"
+        },
+        "run:svc:2026-10-08T06%3A00%3A00Z": {
+            "outcome": "baselined",
+            "usage": null,
+            "startedAt": "2026-10-08T06:00:00+00:00",
+            "finishedAt": "2026-10-08T06:00:00+00:00"
+        },
+        "hb:svc": {
+            "v": 1,
+            "service": "svc",
+            "finishedAt": "2026-10-09T06:00:00+00:00",
+            "outcome": "failed",
+            "reason": "analysis_failed",
+            "windowStart": "2026-10-08T06:00:00+00:00",
+            "windowEnd": "2026-10-09T06:00:00+00:00",
+            "durationSeconds": 0,
+            "costUsd": 0.0027,
+            "lastOkAt": "2026-10-08T06:00:00+00:00"
+        },
+        "hbweek:svc:2026-W41:baselined": {
+            "total": 1
+        },
+        "spend:svc:2026-10-09:usd": {
+            "total": 0.0027
+        },
+        "spend:svc:2026-10-09:tokens": {
+            "total": 1500
+        },
+        "triage:svc:2026-10-09T06%3A00%3A00Z": {
+            "3ba2fceef742": "interesting",
+            "ed1c1517d685": "interesting"
+        },
+        "snap:svc:2026-10-09T06%3A00%3A00Z": {
+            "groups": {
+                "3ba2fceef742": 5,
+                "ed1c1517d685": 3
+            },
+            "totals": {
+                "error": 8
+            },
+            "deploy": {
+                "release": null,
+                "commit": null
+            },
+            "start": "2026-10-08T06:00:00Z"
+        },
+        "run:svc:2026-10-09T06%3A00%3A00Z:failures": {
+            "n": 1
+        },
+        "failn:svc:2026-10-09T06%3A00%3A00Z": {
+            "total": 1
+        },
+        "hbweek:svc:2026-W41:failed": {
+            "total": 1
+        },
+        "hbweek:svc:2026-W41:cost": {
+            "total": 0.0027
+        }
+    },
+    "ttls": {
+        "snap:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "snap:svc:last": 2592000,
+        "run:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "hb:svc": 7776000,
+        "hbweek:svc:2026-W41:baselined": 1123200,
+        "spend:svc:2026-10-09:usd": 172800,
+        "spend:svc:2026-10-09:tokens": 172800,
+        "triage:svc:2026-10-09T06%3A00%3A00Z": 21600,
+        "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
+        "run:svc:2026-10-09T06%3A00%3A00Z:failures": 2592000,
+        "failn:svc:2026-10-09T06%3A00%3A00Z": 172800,
+        "hbweek:svc:2026-W41:failed": 1209600,
+        "hbweek:svc:2026-W41:cost": 1209600
+    }
+}

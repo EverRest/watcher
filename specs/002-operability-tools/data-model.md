@@ -83,6 +83,15 @@ Built from `RunResult` + `RunStats`. Counts, numbers, enumerated outcome names, 
 | `release` | string or null | configured/derived release label |
 | `version` | string | package version (research R8) |
 | `dry_run` | bool | true under `--dry-run` |
+| `state_unreadable` | int | state entries that could not be decoded and were read as missing (0 when none) |
+| `unscannable_events` | int | events the normalizer could not scan, withheld as `<UNSCANNABLE>` (0 when none) |
+| `oversized_lines` | int | lines over 64 KB dropped before parsing |
+| `overflowed_events` | int | events folded into the per-level overflow group (`source.group_cap` hit) |
+| `pattern_failures` | int | regex evaluations that failed open (rules, mutes, backend filters) |
+| `read_quality` | object of ints | what the source's parser guessed or dropped; always these seven names, 0 when not reported: `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk` |
+
+The key list and order are pinned by `JsonSummaryTest`. New counters are added at the end and keep `schema` at 1 (additive); a
+consumer must ignore keys it does not know. All of them are counts: no log text can reach the line.
 
 ## RunStats (value object)
 

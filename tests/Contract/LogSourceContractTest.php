@@ -113,9 +113,10 @@ abstract class LogSourceContractTest extends TestCase
         $this->assertCount(3, $events);
         $this->assertTrue($source->lastReadTruncated());
 
-        $source = $this->makeSourceWithLines($raw);
-        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 5)));
-        $this->assertCount(5, $events);
+        // A cap of 5 or more reserves a newest share (NewestShareTest); below that the read is the plain oldest-first one.
+        $source = $this->makeSourceWithLines(array_slice($raw, 0, 4));
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 4)));
+        $this->assertCount(4, $events);
         $this->assertFalse($source->lastReadTruncated());
     }
 
@@ -123,10 +124,10 @@ abstract class LogSourceContractTest extends TestCase
     {
         $source = $this->makeSourceWithManyLines(5100);
 
-        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 5050)));
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 100000)));
 
-        $this->assertCount(5050, $events);
-        $this->assertTrue($source->lastReadTruncated());
+        $this->assertCount(5100, $events);
+        $this->assertFalse($source->lastReadTruncated());
     }
 
     /** @return array<string, array{int}> */

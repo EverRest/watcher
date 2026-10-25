@@ -16,6 +16,7 @@ final class Keys
     public const LOCK = 'lock';
     public const SPEND = 'spend';
     public const ALERT = 'alert';
+    public const EXHAUSTED = 'exhausted';
     public const HEARTBEAT = 'hb';
     public const TRIGGER = 'trig';
     public const WEEK = 'hbweek';
@@ -103,6 +104,12 @@ final class Keys
         return self::join(self::ALERT, $service, $day, $counter, (string) $percent);
     }
 
+    /** Marks that today's "budget exhausted" notice went out. */
+    public static function exhausted(string $service, string $day): string
+    {
+        return self::join(self::EXHAUSTED, $service, $day);
+    }
+
     public static function heartbeat(string $service): string
     {
         return self::join(self::HEARTBEAT, $service);
@@ -146,7 +153,7 @@ final class Keys
     public static function ttl(string $kind, int $retention, int $lockTtl): int
     {
         return match ($kind) {
-            self::SPEND, self::ALERT => self::SPEND_TTL,
+            self::SPEND, self::ALERT, self::EXHAUSTED => self::SPEND_TTL,
             self::LOCK => $lockTtl,
             self::HEARTBEAT, self::TRIGGER => self::HEARTBEAT_TTL_FACTOR * $retention,
             self::WEEK, self::WEEKSENT => self::WEEK_TTL,

@@ -447,7 +447,7 @@ final class DatadogSourceTest extends LogSourceContractTest
             $this->page([$this->line('ERROR', 'c')], null),
         ], 120, 300, $clock);
 
-        $gen = $source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 100));
+        $gen = $source->lines($this->window(), $this->selector(), new ReadFilter(Level::Warning, [], 4));
         $events = [];
         foreach ($gen as $e) {
             $events[] = $e;

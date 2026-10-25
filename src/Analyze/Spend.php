@@ -7,6 +7,7 @@ namespace Watcher\Analyze;
 use DateTimeZone;
 use Psr\Clock\ClockInterface;
 use Watcher\State\Keys;
+use Watcher\State\ReservableCounters;
 use Watcher\State\StateStore;
 
 /** Per-service, per-calendar-day atomic counters: USD and tokens (FR-022, FR-046). */
@@ -20,18 +21,74 @@ final class Spend
     ) {
     }
 
+    /** What this run reserved for the call in progress and has not settled yet (M2). */
+    private float $pendingUsd = 0.0;
+    private float $pendingTokens = 0.0;
+    /** The day the reservation was made on: it is settled or released on that day's counters, whatever the clock says by then. */
+    private string $pendingDay = '';
+
     public function day(): string
     {
         return $this->clock->now()->setTimezone($this->timezone)->format('Y-m-d');
     }
 
+    /** Books what a call cost. A reservation made for it is settled in the same step: only the difference is added. */
     public function add(Usage $usage, float $costUsd): void
     {
         $day = $this->day();
         $ttl = Keys::ttl(Keys::SPEND, 0, 0);
-        $this->store->increment(Keys::spendUsd($this->service, $day), $costUsd, $ttl);
         $tokens = $usage->inputTokens + $usage->outputTokens + $usage->cacheReadTokens + $usage->cacheWriteTokens;
-        $this->store->increment(Keys::spendTokens($this->service, $day), (float) $tokens, $ttl);
+        // Take the reservation before touching the store: a failure half way leaves an over-count, never a second return of it.
+        [$pendingUsd, $pendingTokens, $pendingDay] = [$this->pendingUsd, $this->pendingTokens, $this->pendingDay];
+        $this->pendingUsd = $this->pendingTokens = 0.0;
+        if ($pendingDay !== '' && $pendingDay !== $day) {
+            $this->giveBack($pendingDay, $pendingUsd, $pendingTokens); // an earlier day's reservation goes back there; today books the real cost
+            $pendingUsd = $pendingTokens = 0.0;
+        }
+        $this->store->increment(Keys::spendUsd($this->service, $day), $costUsd - $pendingUsd, $ttl);
+        $this->store->increment(Keys::spendTokens($this->service, $day), (float) $tokens - $pendingTokens, $ttl);
+    }
+
+    /**
+     * Whether a step of this worst case fits under the caps. On a store that can reserve (Redis) the check and the
+     * reservation are one atomic step, so parallel runs cannot all pass it; the reservation is settled by add() or given
+     * back by release(). Other stores keep the plain check against what is booked so far.
+     */
+    public function reserve(float $usd, int $tokens, float $capUsd, ?int $capTokens): bool
+    {
+        $this->release(); // a reservation is for one call at a time
+        if ($this->store instanceof ReservableCounters) {
+            $day = $this->day();
+            $ok = $this->store->reserve(Keys::spendUsd($this->service, $day), Keys::spendTokens($this->service, $day), $usd, (float) $tokens, $capUsd + 1e-9, $capTokens === null ? null : (float) $capTokens, Keys::ttl(Keys::SPEND, 0, 0));
+            if ($ok !== null) {
+                if ($ok) {
+                    [$this->pendingUsd, $this->pendingTokens, $this->pendingDay] = [$usd, (float) $tokens, $day];
+                }
+
+                return $ok;
+            }
+        }
+        $today = $this->today();
+
+        return ($capTokens === null || $today['tokens'] + $tokens <= $capTokens) && $today['usd'] + $usd <= $capUsd + 1e-9;
+    }
+
+    /** Gives back a reservation whose call failed before anything was billed (or never happened). */
+    public function release(): void
+    {
+        if ($this->pendingUsd === 0.0 && $this->pendingTokens === 0.0) {
+            return;
+        }
+        [$usd, $tokens, $day] = [$this->pendingUsd, $this->pendingTokens, $this->pendingDay];
+        $this->pendingUsd = $this->pendingTokens = 0.0;
+        $this->giveBack($day, $usd, $tokens);
+    }
+
+    private function giveBack(string $day, float $usd, float $tokens): void
+    {
+        $ttl = Keys::ttl(Keys::SPEND, 0, 0);
+        $this->store->increment(Keys::spendUsd($this->service, $day), -$usd, $ttl);
+        $this->store->increment(Keys::spendTokens($this->service, $day), -$tokens, $ttl);
     }
 
     /** @return array{usd: float, tokens: int} */

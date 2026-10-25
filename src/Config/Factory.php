@@ -41,6 +41,7 @@ use Watcher\State\Redis\RedisClient;
 use Watcher\State\RedisStateStore;
 use Watcher\State\UnreadableCounter;
 use Watcher\State\RenewableLock;
+use Watcher\State\ReservableCounters;
 use RuntimeException;
 use Watcher\State\StateStore;
 
@@ -252,7 +253,7 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore, RenewableLock, UnreadableCounter {
+        return new class ($make) implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter {
             private ?StateStore $store = null;
 
             public function __construct(private readonly Closure $make)
@@ -289,6 +290,13 @@ final class Factory
                 $store = $this->store();
 
                 return $store instanceof RenewableLock && $store->renew($key, $owner, $ttlSeconds);
+            }
+
+            public function reserve(string $usdKey, string $tokensKey, float $usd, float $tokens, float $usdCap, ?float $tokenCap, int $ttlSeconds): ?bool
+            {
+                $store = $this->store();
+
+                return $store instanceof ReservableCounters ? $store->reserve($usdKey, $tokensKey, $usd, $tokens, $usdCap, $tokenCap, $ttlSeconds) : null;
             }
 
             public function unreadableEntries(): int
