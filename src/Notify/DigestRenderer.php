@@ -71,6 +71,21 @@ final class DigestRenderer
         return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
     }
 
+    public function renderFingerprintVersionReset(string $service, string $environment, int $groups, int $events, int $fromFpVersion, int $toFpVersion): Message
+    {
+        $text = sprintf(
+            '✅ watcher · %s · %s — baseline reset: fingerprint rules changed (fpv %d → %d). Recorded %s groups, %s events; comparisons and cached verdicts start fresh next run.',
+            $this->esc($service),
+            $this->esc($environment),
+            $fromFpVersion,
+            $toFpVersion,
+            number_format($groups),
+            number_format($events)
+        );
+
+        return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     /**
      * @param list<array{f: Finding, n: int, i: int}> $shown
      *

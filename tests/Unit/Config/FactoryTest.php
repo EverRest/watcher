@@ -11,8 +11,10 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
+use PDO;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
+use Watcher\State\Purgeable;
 use Watcher\Level;
 use Watcher\Schedule\Window;
 use Watcher\Source\ReadFilter;
@@ -146,6 +148,29 @@ final class FactoryTest extends TestCase
         self::assertSame('ok', Factory::heartbeatStatus($config, $clock)->state);
         $clock->advance('+37 hours');
         self::assertSame('stale', Factory::heartbeatStatus($config, $clock)->state);
+    }
+
+    public function testPdoStoreIsPurgeableThroughTheLazyWrapper(): void
+    {
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
+        $config['state'] = ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:']];
+        $store = Factory::state(WatchConfig::fromArray($config), new FrozenClock(new \DateTimeImmutable()));
+
+        self::assertInstanceOf(Purgeable::class, $store);
+    }
+
+    public function testMysqlPdoSetsFoundRowsAtConnect(): void
+    {
+        $method = new \ReflectionMethod(Factory::class, 'pdo');
+        $method->setAccessible(true);
+        $file = (new \ReflectionClass(Factory::class))->getFileName();
+        self::assertIsString($file);
+        $src = file_get_contents($file);
+        self::assertIsString($src);
+        self::assertStringContainsString('MYSQL_ATTR_FOUND_ROWS', $src);
+        self::assertStringContainsString("str_starts_with(\$dsn, 'mysql:')", $src);
+        $pdo = $method->invoke(null, ['dsn' => 'sqlite::memory:']);
+        self::assertSame('sqlite', $pdo->getAttribute(PDO::ATTR_DRIVER_NAME));
     }
 
     public function testTheFileStoreGetsScheduleLockTtlAsItsLockLifetime(): void
