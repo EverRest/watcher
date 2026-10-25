@@ -73,6 +73,9 @@ final class Normalizer
     /** Skips an extra placeholder of an earlier scan (its angle brackets are inert stand-ins by now) before digits are masked. */
     private string $inertExtra = '';
 
+    /** @var list<array{string, string|callable(array<int|string,string>): string}>|null */
+    private ?array $rulesCache = null;
+
     /**
      * @param list<string> $declaredDependencyHosts declared dependency names; a host is recognised as one when it equals it or sits under a domain
      * @param list<string> $dependencyDomains       suffixes allowed after a declared name and at most one label (`payments.prod.svc.cluster.local`);
@@ -239,11 +242,15 @@ final class Normalizer
     /** @return list<array{string, string|callable(array<int|string,string>): string}> */
     private function rules(): array
     {
+        if ($this->rulesCache !== null) {
+            return $this->rulesCache;
+        }
+
         $h = self::H;
 
         $ang = self::ANG;
 
-        return [
+        return $this->rulesCache = [
             [
                 // scheme://user:password@... where the password is NOT RFC-encoded and holds a / ? or #.
                 // After 'user:' (a non-port value) a / ? # appears before a later '@': that is a password

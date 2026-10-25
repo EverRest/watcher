@@ -82,6 +82,13 @@ final class DigestData
         public readonly int $unreported = 0,
         /** @var int new groups kept out of top_m by the per-run cap on new groups */
         public readonly int $newOverflow = 0,
+        public readonly ?string $knownLine = null,
+        /** @var array<string, string> */
+        public readonly array $findingLabels = [],
+        public readonly ?string $routedNotice = null,
+        public readonly int $draftsSkipped = 0,
+        public readonly int $knownCount = 0,
+        public readonly int $knownGrownCount = 0,
     ) {
     }
 }

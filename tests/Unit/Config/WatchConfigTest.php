@@ -60,7 +60,7 @@ final class WatchConfigTest extends TestCase
         $c = WatchConfig::fromArray(self::valid());
 
         self::assertSame('svc', $c->service);
-        self::assertSame('06:00', $c->schedule['run_at']);
+        self::assertSame(['06:00'], $c->schedule['run_at']);
         self::assertSame('UTC', $c->schedule['timezone']);
         self::assertSame('PT24H', $c->schedule['window']);
         self::assertSame(900, $c->schedule['lock_ttl']);

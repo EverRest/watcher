@@ -308,6 +308,19 @@ final class DatadogSourceTest extends LogSourceContractTest
         $this->assertSame(Level::Error, $events[0]->level);
     }
 
+    public function testUnparseableTimestampIsDroppedNotCoercedToNow(): void
+    {
+        $source = $this->source([$this->json(['data' => [
+            ['attributes' => ['timestamp' => 'not-a-timestamp', 'status' => 'error', 'message' => 'bad clock']],
+            ['attributes' => ['timestamp' => '2026-10-22T10:00:00.000Z', 'status' => 'error', 'message' => 'good']],
+        ]])]);
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertCount(1, $events);
+        $this->assertSame('good', $events[0]->message);
+    }
+
     public function testVersionsRequestAndFixtureMapping(): void
     {
         $source = $this->source([new Response(200, [], $this->fixture('versions.json'))]);

@@ -45,7 +45,9 @@ use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
+use Watcher\State\Purgeable;
 use Watcher\Operate\StateInspector;
+use Watcher\Schedule\RunGate;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
 use Watcher\State\Redis\RedisClient;
@@ -73,7 +75,7 @@ final class Factory
     /**
      * A long analysis reply can take well over 30 s, but a model call (two sequential attempts, no SDK retry) must stay within
      * a quarter of lock_ttl, so a second run cannot start while this one is still analysing: timeout = lock_ttl / 4 / 2, within 10..180 s.
-     * The lock itself is not renewed (StateStore has no renew); the router makes at most 2 + escalation_cap model calls.
+     * When the store supports {@see RenewableLock}, Watcher renews the run lock between pipeline steps and before each model call; the router makes at most 2 + escalation_cap model calls.
      *
      * @return array{timeout: int, connect_timeout: int}
      */
@@ -158,8 +160,11 @@ final class Factory
         };
     }
 
-    /** Seconds a Redis call may wait for a reply (default 5, A4-15); a hung server must not hold a run for the 60 s socket default per key. */
-    /** @param array<string, mixed> $r */
+    /**
+     * Seconds a Redis call may wait for a reply (default 5, A4-15); a hung server must not hold a run for the 60 s socket default per key.
+     *
+     * @param array<string, mixed> $r
+     */
     public static function redisReadTimeout(array $r): float
     {
         $t = $r['read_timeout'] ?? null;
@@ -251,8 +256,14 @@ final class Factory
     /** @param array<string, mixed> $p */
     private static function pdo(array $p): PDO
     {
+        $dsn = (string) $p['dsn'];
+        $options = [];
+        // MySQL reports changed rows, not matched; put/renew treat rowCount 0 as a miss (P-M1).
+        if (str_starts_with($dsn, 'mysql:')) {
+            $options[PDO::MYSQL_ATTR_FOUND_ROWS] = true;
+        }
         try {
-            return new PDO((string) $p['dsn'], $p['username'] ?? null, $p['password'] ?? null);
+            return new PDO($dsn, $p['username'] ?? null, $p['password'] ?? null, $options);
         } catch (PDOException) {
             throw new InvalidConfig('state.pdo: cannot connect'); // not chained: the driver message can carry the DSN or password
         }
@@ -264,7 +275,7 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter {
+        return new class ($make) implements StateStore, Purgeable, RenewableLock, ReservableCounters, UnreadableCounter {
             private ?StateStore $store = null;
 
             public function __construct(private readonly Closure $make)
@@ -313,6 +324,13 @@ final class Factory
             public function unreadableEntries(): int
             {
                 return $this->store instanceof UnreadableCounter ? $this->store->unreadableEntries() : 0; // never connects just to count
+            }
+
+            public function purge(int $maxFiles = 5000, float $maxSeconds = 2.0): int
+            {
+                $store = $this->store();
+
+                return $store instanceof Purgeable ? $store->purge($maxFiles, $maxSeconds) : 0;
             }
 
             private function store(): StateStore
@@ -428,6 +446,11 @@ final class Factory
     public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
     {
         return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null;
+    }
+
+    public static function gate(WatchConfig $c): RunGate
+    {
+        return RunGate::fromSchedule($c->schedule);
     }
 
     /** Liveness record reader/writer; every secret of the config is masked in a stored failure reason. */

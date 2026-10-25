@@ -36,6 +36,17 @@ final class CodeLinkBuilderTest extends TestCase
         self::assertSame('https://github.com/o/r/blob/c0ffee/src/a/B.php#L7', $this->b($repo, 'c0ffee')->forFrame('/srv/a/B.php:7'));
     }
 
+    public function testPathMapPrefixRequiresASegmentBoundary(): void
+    {
+        $repo = ['provider' => 'gitlab', 'web_url' => 'https://git.example.com/g/app', 'path_map' => ['/app' => 'app/']];
+
+        self::assertSame(
+            'https://git.example.com/g/app/-/blob/abc123/app/foo.php#L1',
+            $this->b($repo)->forFrame('/app/foo.php:1'),
+        );
+        self::assertNull($this->b($repo)->forFrame('/apple/x.php:1'));
+    }
+
     public function testLongestPrefixWins(): void
     {
         $repo = self::GITLAB;

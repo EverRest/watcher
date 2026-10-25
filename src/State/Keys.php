@@ -30,6 +30,10 @@ final class Keys
     public const OBSSEEN = 'obsseen';
     public const HYGIENE = 'hyg';
     public const LEDGER = 'ledger';
+    public const HIGH_WATER = 'hw';
+    public const KNOWN = 'known';
+    public const DRAFT = 'draft';
+    public const REPORTSENT = 'rsent';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -138,6 +142,32 @@ final class Keys
         return self::join(self::DELIVERED, $service, $windowEnd);
     }
 
+    public static function routeDelivered(string $service, string $windowEnd, int $routeIndex): string
+    {
+        return self::join(self::DELIVERED, $service, $windowEnd, 'r' . $routeIndex);
+    }
+
+    public static function known(string $service, string $fingerprint): string
+    {
+        return self::join(self::KNOWN, $service, $fingerprint);
+    }
+
+    public static function draft(string $service, string $windowEnd, string $fingerprint): string
+    {
+        return self::join(self::DRAFT, $service, $windowEnd, $fingerprint);
+    }
+
+    public static function reportSent(string $service, string $isoWeek): string
+    {
+        return self::join(self::REPORTSENT, $service, $isoWeek);
+    }
+
+    /** Parts of a digest already posted when a later part failed (same window, same TTL as delivered). */
+    public static function deliveredParts(string $service, string $windowEnd): string
+    {
+        return self::join(self::DELIVERED, $service, $windowEnd, 'parts');
+    }
+
     /** Failure notices sent for one window (a counter, at most FAIL_NOTICES_PER_WINDOW are sent). */
     public static function failNotices(string $service, string $windowEnd): string
     {
@@ -219,14 +249,20 @@ final class Keys
         return self::join(self::LEDGER, 'unbooked', $service, $date);
     }
 
+    public static function highWater(string $service): string
+    {
+        return self::join(self::HIGH_WATER, $service);
+    }
+
     /** @param string $kind one of the kind constants */
     public static function ttl(string $kind, int $retention, int $lockTtl): int
     {
         return match ($kind) {
             self::SPEND, self::ALERT, self::EXHAUSTED => self::SPEND_TTL,
             self::LOCK => $lockTtl,
-            self::HEARTBEAT, self::TRIGGER => self::HEARTBEAT_TTL_FACTOR * $retention,
-            self::WEEK, self::WEEKSENT => self::WEEK_TTL,
+            self::HEARTBEAT, self::TRIGGER, self::HIGH_WATER => self::HEARTBEAT_TTL_FACTOR * $retention,
+            self::WEEK, self::WEEKSENT, self::REPORTSENT => self::WEEK_TTL,
+            self::KNOWN => $retention,
             default => $retention,
         };
     }
