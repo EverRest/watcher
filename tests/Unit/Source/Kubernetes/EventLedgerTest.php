@@ -276,8 +276,8 @@ final class EventLedgerTest extends TestCase
 
         $raw = $this->store->get(Keys::events('svc'));
         self::assertNotNull($raw);
-        self::assertSame(['v', 'last_ok', 'since', 'gaps', 'un', 'e', 'capped', 'ovf'], array_keys($raw));
-        self::assertSame(['typ', 'rsn', 'wk', 'wl', 'txt', 'pod', 'rs', 'c', 't', 'f', 'seen', 'd'], array_keys($raw['e']['k1']));
+        self::assertSame(['v', 'last_ok', 'since', 'gaps', 'un', 'e', 'capped', 'ovf', 'ovfc'], array_keys($raw));
+        self::assertSame(['typ', 'rsn', 'wk', 'wl', 'txt', 'pod', 'n', 'd'], array_keys($raw['e']['k1']));
         self::assertSame('a1b2c3d4', $raw['e']['k1']['pod']);
     }
 
@@ -374,5 +374,93 @@ final class EventLedgerTest extends TestCase
         [, $containers] = $this->encodedSize();
 
         self::assertLessThanOrEqual(6, $containers, 'one object per entry plus the few lists of the record, however many points it has');
+    }
+
+    private function stormDay(int $backoffs, string $criticalReason = 'OOMKilling', string $criticalType = 'Warning'): EventLedger
+    {
+        $l = $this->ledger(cap: 20000);
+        $base = self::t('2026-10-23T06:00:00Z');
+        foreach (range(1, 23) as $hour) {
+            $now = $base->modify("+$hour hours")->modify('+5 minutes');
+            $obs = [];
+            if ($hour === 1) {
+                $obs[] = new Observation('critical', 'Pod', 'Deployment', 'payments', $criticalReason, $criticalType, 'Memory cgroup out of memory: killed process', 1, $now->modify('-30 minutes'), $now->modify('-5 minutes'), 'cccccccc', true);
+            }
+            if ($hour >= 2) {
+                for ($i = 0; $i < intdiv($backoffs, 22); ++$i) {
+                    $obs[] = new Observation("b$hour-$i", 'Pod', 'Deployment', 'api', 'BackOff', 'Warning', 'Back-off restarting failed container api', 3, $now->modify('-30 minutes'), $now->modify('-5 minutes'), sprintf('p%07d', $hour * 1000 + $i), false);
+                }
+            }
+            $this->ingest($l, $obs, $now->format(DATE_ATOM));
+        }
+        $l->load();
+
+        return $l;
+    }
+
+    public function testTheExactStormOfAFullDayKeepsTheOomKillingAndFitsTheRealCodec(): void
+    {
+        $l = $this->stormDay(4400);
+
+        $reasons = array_map(static fn ($e): string => $e->reason, $l->window(self::day()));
+        self::assertContains('OOMKilling', $reasons, 'one OOM kill among 4400 distinct BackOff events');
+        [$bytes, $containers, $elements] = $this->encodedSize();
+        self::assertLessThanOrEqual(StateCodec::MAX_ELEMENTS / 2, $elements);
+        self::assertTrue(StateCodec::fits((string) json_encode($this->store->get(Keys::events('svc')))));
+    }
+
+    public function testWhenTheRecordOverflowsTheLowestSeverityGoesFirstAndTheDigestNamesTheClasses(): void
+    {
+        $l = $this->stormDay(12000); // more distinct events than the budget allows
+
+        $reasons = array_map(static fn ($e): string => $e->reason, $l->window(self::day()));
+        self::assertContains('OOMKilling', $reasons, 'never evicted before a lower class');
+        self::assertGreaterThan(0, $l->overflow());
+        $byClass = $l->coverage(self::day())->overflowByClass;
+        self::assertGreaterThan(0, $byClass['warning'] ?? 0, 'BackOff entries were dropped, and counted as warnings');
+        self::assertSame(0, $byClass['critical'] ?? 0, 'nothing critical was dropped');
+        self::assertSame($l->overflow(), array_sum($byClass));
+        $text = $l->coverage(self::day())->overflowText();
+        self::assertNotNull($text);
+        self::assertStringContainsString('warning', $text);
+        self::assertStringContainsString('no critical event was dropped', $text);
+    }
+
+    public function testSeverityClassesAreCriticalWarningAndNormal(): void
+    {
+        $l = $this->ledger(cap: 3);
+        $now = '2026-10-24T00:10:00Z';
+        $this->ingest($l, [
+            self::obs('n1', 5, '2026-10-24T00:00:00Z', reason: 'Pulled'),
+            self::obs('w1', 5, '2026-10-24T00:00:00Z', reason: 'BackOff'),
+            self::obs('c1', 5, '2026-10-24T00:00:00Z', reason: 'Evicted'),
+            self::obs('c2', 5, '2026-10-24T00:01:00Z', reason: 'NodeNotReady'),
+        ], $now);
+
+        $kept = array_map(static fn ($e): string => $e->reason, $l->window(self::day()));
+        sort($kept);
+        self::assertSame(['BackOff', 'Evicted', 'NodeNotReady'], $kept, 'the normal event went before any warning or critical one');
+    }
+
+    public function testTheDefaultEntryCapIsReachableWithinTheBudget(): void
+    {
+        $l = $this->ledger(cap: 5000);
+        $now = self::t('2026-10-23T12:05:00Z');
+        $obs = [];
+        for ($i = 0; $i < 5000; ++$i) {
+            $obs[] = new Observation('k' . $i, 'Pod', 'Deployment', 'api', 'BackOff', 'Warning', 'Back-off restarting failed container api', 3, $now->modify('-30 minutes'), $now->modify('-5 minutes'), sprintf('p%07d', $i), false);
+        }
+        $this->ingest($l, $obs, $now->format(DATE_ATOM));
+
+        self::assertSame(0, $l->overflow(), 'the documented default of 5000 entries fits');
+        self::assertCount(5000, $l->window(self::day()));
+    }
+
+    public function testTheOverflowTextSaysWhenCriticalEventsMayBeMissing(): void
+    {
+        $c = new \Watcher\Source\Kubernetes\Coverage([], null, false, 0, true, 1500, ['normal' => 1000, 'warning' => 499, 'critical' => 1]);
+
+        self::assertSame('ledger_overflow: 1 critical, 499 warning, 1,000 normal; critical events may be missing', $c->overflowText());
+        self::assertNull((new \Watcher\Source\Kubernetes\Coverage([], null, false, 0, false))->overflowText());
     }
 }

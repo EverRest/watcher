@@ -187,7 +187,7 @@ final class EventsRun
             $parts[] = number_format($c->unattributed) . ' events matched no selected workload';
         }
         if ($c->capped) {
-            $parts[] = 'the event record was full: the oldest events were dropped' . ($c->overflow > 0 ? ' (' . number_format($c->overflow) . ' entries, ledger_overflow)' : '');
+            $parts[] = 'the event record was full: the oldest events were dropped' . (($note = $c->overflowText()) !== null ? ' (' . $note . ')' : '');
         }
 
         return [...$stale, 'ℹ️ Pod events: ' . implode('; ', $parts) . '.'];

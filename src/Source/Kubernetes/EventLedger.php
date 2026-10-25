@@ -20,8 +20,9 @@ use Watcher\State\StateStore;
  */
 final class EventLedger
 {
-    public const VERSION = 2;
+    public const VERSION = 3;
     private const MAX_GAPS = 20;
+    private const CLASSES = ['normal', 'warning', 'critical'];
     private const MAX_UNATTRIBUTED = 2000;
     private const MAX_POINTS = 48; // increments kept per entry (two days of hourly reads): a restart storm must not grow the record without bound
 
@@ -74,13 +75,13 @@ final class EventLedger
     public function load(): void
     {
         $raw = $this->store->get(Keys::events($this->service));
-        $this->record = self::valid($raw) ? $raw : self::empty();
+        $this->record = self::valid($raw) ? self::expand($raw) : self::empty();
     }
 
     public function save(): void
     {
         $this->fit();
-        $this->store->put(Keys::events($this->service), $this->record, $this->ttl);
+        $this->store->put(Keys::events($this->service), $this->stored(), $this->ttl);
     }
 
     /** Entries dropped because the record would not fit the state store's budget (ever, within the record's life). */
@@ -89,22 +90,77 @@ final class EventLedger
         return $this->record['ovf'];
     }
 
-    /** Drops the least recently seen entries until the encoded record is within half of the codec's budgets. */
+    /**
+     * Drops entries until the encoded record is within half of the codec's budgets: the LOWEST severity class first (normal, then
+     * warning, then critical), inside a class the least recently seen and the lowest count. Every drop is counted per class.
+     */
     private function fit(): void
     {
         while ($this->record['e'] !== []) {
-            $json = json_encode($this->record, JSON_THROW_ON_ERROR);
+            $json = json_encode($this->stored(), JSON_THROW_ON_ERROR);
             $containers = substr_count($json, '[') + substr_count($json, '{');
             if (strlen($json) <= self::BUDGET_BYTES && $containers <= self::BUDGET_CONTAINERS && $containers + substr_count($json, ',') <= self::BUDGET_ELEMENTS) {
                 return;
             }
-            uasort($this->record['e'], static fn (array $a, array $b): int => [$a['seen'], $a['t']] <=> [$b['seen'], $b['t']]);
-            $drop = max(1, intdiv(count($this->record['e']), 10));
-            $this->record['e'] = array_slice($this->record['e'], $drop, null, true);
-            ksort($this->record['e']);
-            $this->record['ovf'] += $drop;
-            $this->record['capped'] = $this->record['last_ok'] ?? time();
+            $this->shed($this->record, max(1, intdiv(count($this->record['e']), 10)), $this->record['last_ok'] ?? time());
         }
+    }
+
+    /**
+     * @param array<string, mixed> $r
+     */
+    private function shed(array &$r, int $n, int $now): void
+    {
+        uasort($r['e'], static fn (array $a, array $b): int => [self::rank($a['typ'], $a['rsn']), $a['seen'], $a['c']] <=> [self::rank($b['typ'], $b['rsn']), $b['seen'], $b['c']]);
+        foreach (array_slice($r['e'], 0, $n, true) as $dropped) {
+            $class = self::CLASSES[self::rank($dropped['typ'], $dropped['rsn'])];
+            $r['ovfc'][$class] = ($r['ovfc'][$class] ?? 0) + 1;
+            ++$r['ovf'];
+        }
+        $r['e'] = array_slice($r['e'], $n, null, true);
+        ksort($r['e']);
+        $r['capped'] = $now;
+    }
+
+    /** 2 critical (the pod was killed, evicted, failed or its node went away), 1 warning (any other Warning event), 0 normal. */
+    private static function rank(string $type, string $reason): int
+    {
+        if (preg_match('/^(?:OOM|Evict|NodeNotReady|Failed|NodeHas|SystemOOM|Preempt)/i', $reason) === 1) {
+            return 2;
+        }
+
+        return strcasecmp($type, 'Warning') === 0 ? 1 : 0;
+    }
+
+    /**
+     * The record as stored: the numbers of an entry in one string, so an entry is one small object (commas are what the codec budgets).
+     *
+     * @return array<string, mixed>
+     */
+    private function stored(): array
+    {
+        $r = $this->record;
+        foreach ($r['e'] as $key => $e) {
+            $r['e'][$key] = ['typ' => $e['typ'], 'rsn' => $e['rsn'], 'wk' => $e['wk'], 'wl' => $e['wl'], 'txt' => $e['txt'], 'pod' => $e['pod'],
+                'n' => $e['c'] . ':' . $e['t'] . ':' . $e['f'] . ':' . $e['seen'] . ':' . ($e['rs'] ? 1 : 0), 'd' => $e['d']];
+        }
+
+        return $r;
+    }
+
+    /**
+     * @param array<string, mixed> $raw a record that passed valid()
+     * @return array<string, mixed>
+     */
+    private static function expand(array $raw): array
+    {
+        foreach ($raw['e'] as $key => $e) {
+            [$c, $t, $f, $seen, $rs] = array_map('intval', explode(':', $e['n']));
+            $raw['e'][$key] = ['typ' => $e['typ'], 'rsn' => $e['rsn'], 'wk' => $e['wk'], 'wl' => $e['wl'], 'txt' => $e['txt'], 'pod' => $e['pod'],
+                'rs' => $rs === 1, 'c' => $c, 't' => $t, 'f' => $f, 'seen' => $seen, 'd' => $e['d']];
+        }
+
+        return $raw;
     }
 
     /** @return list<array{int, int}> */
@@ -221,7 +277,7 @@ final class EventLedger
 
         $cap = $this->record['capped'];
 
-        return new Coverage($gaps, $since === null ? null : self::time($since), $since !== null && $since > $start + $this->tolerance, $un, is_int($cap) && $cap >= $start - $this->tolerance && $cap <= $end + 3600, $this->record['ovf']);
+        return new Coverage($gaps, $since === null ? null : self::time($since), $since !== null && $since > $start + $this->tolerance, $un, is_int($cap) && $cap >= $start - $this->tolerance && $cap <= $end + 3600, $this->record['ovf'], array_map('intval', $this->record['ovfc']));
     }
 
     /** @return array{int, int} Shifting both ends by the tolerance keeps consecutive windows a partition. */
@@ -247,10 +303,7 @@ final class EventLedger
             $r['e'][$key]['d'] = self::pack(array_values(array_filter(self::points($e['d']), static fn (array $p): bool => $p[0] >= $horizon)));
         }
         if (count($r['e']) > $this->cap) {
-            uasort($r['e'], static fn (array $a, array $b): int => [$b['seen'], $b['t']] <=> [$a['seen'], $a['t']]);
-            $r['e'] = array_slice($r['e'], 0, $this->cap, true);
-            ksort($r['e']);
-            $r['capped'] = $now;
+            $this->shed($r, count($r['e']) - $this->cap, $now);
         }
         $r['gaps'] = array_values(array_filter($r['gaps'], static fn (array $g): bool => $g[1] >= $horizon));
         $r['un'] = array_filter($r['un'], static fn (int $ts): bool => $ts >= $horizon);
@@ -265,7 +318,7 @@ final class EventLedger
     /** @return array<string, mixed> */
     private static function empty(): array
     {
-        return ['v' => self::VERSION, 'last_ok' => null, 'since' => null, 'gaps' => [], 'un' => [], 'e' => [], 'capped' => false, 'ovf' => 0]; // capped: false, or the unix time entries were last dropped
+        return ['v' => self::VERSION, 'last_ok' => null, 'since' => null, 'gaps' => [], 'un' => [], 'e' => [], 'capped' => false, 'ovf' => 0, 'ovfc' => []]; // capped: false, or the unix time entries were last dropped
     }
 
     /**
@@ -275,11 +328,11 @@ final class EventLedger
     private static function valid(?array $raw): bool
     {
         if ($raw === null || ($raw['v'] ?? null) !== self::VERSION || !is_array($raw['e'] ?? null) || !is_array($raw['gaps'] ?? null)
-            || !is_array($raw['un'] ?? null) || !array_key_exists('last_ok', $raw) || !array_key_exists('since', $raw) || !(is_bool($raw['capped'] ?? null) || is_int($raw['capped'] ?? null)) || !is_int($raw['ovf'] ?? null)) {
+            || !is_array($raw['un'] ?? null) || !array_key_exists('last_ok', $raw) || !array_key_exists('since', $raw) || !(is_bool($raw['capped'] ?? null) || is_int($raw['capped'] ?? null)) || !is_int($raw['ovf'] ?? null) || !is_array($raw['ovfc'] ?? null)) {
             return false;
         }
         foreach ($raw['e'] as $e) {
-            if (!is_array($e) || !isset($e['typ'], $e['rsn'], $e['wk'], $e['wl'], $e['txt'], $e['c'], $e['t'], $e['f'], $e['seen']) || !is_string($e['d'] ?? null) || !array_key_exists('pod', $e) || !is_bool($e['rs'] ?? null)) {
+            if (!is_array($e) || !isset($e['typ'], $e['rsn'], $e['wk'], $e['wl'], $e['txt']) || !is_string($e['n'] ?? null) || preg_match('/\A\d+:\d+:\d+:\d+:[01]\z/', $e['n']) !== 1 || !is_string($e['d'] ?? null) || !array_key_exists('pod', $e)) {
                 return false;
             }
         }
