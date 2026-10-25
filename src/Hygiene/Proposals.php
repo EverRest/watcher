@@ -159,11 +159,14 @@ final class Proposals
         foreach ($rows as $fp => $r) {
             $fp = (string) $fp;
             $counts = array_column($r, 'n');
+            if ($counts === []) {
+                continue;
+            }
             $total = array_sum($counts);
             $tpl = array_values(array_filter(array_column($r, 'tpl'), static fn (?string $t): bool => $t !== null))[0] ?? null;
             if (in_array(true, array_column($r, 'severe'), true) || ($tpl !== null && isset($severeTemplates[$tpl]))
                 || count($r) / $h < self::PRESENT || $total / $h < $this->settings->muteMinDaily
-                || ($counts !== [] && max($counts) > self::STABLE * min($counts)) || isset($muted[$fp])) {
+                || max($counts) > self::STABLE * min($counts) || isset($muted[$fp])) {
                 continue;
             }
             $id = substr(hash('sha256', 'mute|' . $fp), 0, 10);
