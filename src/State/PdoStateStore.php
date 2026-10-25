@@ -15,7 +15,7 @@ use Throwable;
  * SQL state for several overlapping runners (FR-028). The key column is `k` because
  * `key` is reserved in MySQL. Owner is kept inside the stored JSON, `{"o":owner}` for locks.
  */
-final class PdoStateStore implements StateStore, RenewableLock
+final class PdoStateStore implements StateStore, Purgeable, RenewableLock
 {
     /** The k column is VARCHAR(191): longer keys fail under strict SQL mode and silently merge when MySQL truncates (A4-14). */
     public const MAX_KEY = 191;
@@ -115,6 +115,23 @@ final class PdoStateStore implements StateStore, RenewableLock
             ->execute([$key, json_encode(['__owner' => $owner], JSON_THROW_ON_ERROR)]);
     }
 
+    public function purge(int $maxFiles = 5000, float $maxSeconds = 2.0): int
+    {
+        $deadline = microtime(true) + $maxSeconds;
+        $now = $this->now();
+        $removed = 0;
+        while ($removed < $maxFiles && microtime(true) < $deadline) {
+            $limit = min(500, $maxFiles - $removed);
+            $n = $this->deleteExpiredBatch($now, $limit);
+            if ($n <= 0) {
+                break;
+            }
+            $removed += $n;
+        }
+
+        return $removed;
+    }
+
     public function increment(string $key, float $by, int $ttlSeconds): float
     {
         self::checkKey($key);
@@ -206,8 +223,26 @@ final class PdoStateStore implements StateStore, RenewableLock
     private function maybePurge(): void
     {
         if ($this->purgeEvery > 0 && ++$this->writes % $this->purgeEvery === 0) {
-            $this->pdo->prepare("DELETE FROM {$this->table} WHERE expires_at <= ?")->execute([$this->now()]);
+            $this->purge();
         }
+    }
+
+    private function deleteExpiredBatch(int $now, int $limit): int
+    {
+        $table = $this->table;
+        $driver = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'mysql') {
+            $stmt = $this->pdo->prepare("DELETE FROM {$table} WHERE expires_at <= ? LIMIT {$limit}");
+            $stmt->execute([$now]);
+        } else {
+            $sql = $driver === 'pgsql'
+                ? "DELETE FROM {$table} WHERE ctid IN (SELECT ctid FROM {$table} WHERE expires_at <= ? LIMIT ?)"
+                : "DELETE FROM {$table} WHERE rowid IN (SELECT rowid FROM {$table} WHERE expires_at <= ? LIMIT ?)";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$now, $limit]);
+        }
+
+        return $stmt->rowCount();
     }
 
     /**
