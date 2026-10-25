@@ -296,10 +296,25 @@ final class Factory
     private static function lazy(Closure $make): StateStore
     {
         return new class ($make) implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter {
+            /** @var array<int, Closure(): StateStore> the factory closes over the connection settings (the Redis password): kept out of the object so no dump of it shows them */
+            private static array $makers = [];
+
             private ?StateStore $store = null;
 
-            public function __construct(private readonly Closure $make)
+            public function __construct(Closure $make)
             {
+                self::$makers[spl_object_id($this)] = $make;
+            }
+
+            public function __destruct()
+            {
+                unset(self::$makers[spl_object_id($this)]);
+            }
+
+            /** @return array<string, string> */
+            public function __debugInfo(): array
+            {
+                return ['store' => $this->store === null ? '<not connected>' : '<connected>'];
             }
 
             public function get(string $key): ?array
@@ -348,7 +363,7 @@ final class Factory
 
             private function store(): StateStore
             {
-                return $this->store ??= ($this->make)();
+                return $this->store ??= (self::$makers[spl_object_id($this)])();
             }
         };
     }
