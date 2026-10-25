@@ -77,5 +77,5 @@ Deferred from batch 8 (not worth the diff now): retry backoff jitter; Loki per-r
 
 | ID | Item | Batch | Status |
 |----|------|-------|--------|
-| H1 | `Watcher::locked()` refactor — `RunLedger` / `EventCollector` extraction | — | deferred |
-| SEC | Security review follow-ups | — | in progress |
+| H1 | `Watcher::locked()` refactor — analyzer decorators extracted (`refactor/locked-decompose`) | — | branch open |
+| SEC | Security review follow-ups | — | in progress (see `SECURITY.md` checklist) |

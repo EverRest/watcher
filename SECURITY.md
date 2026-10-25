@@ -22,3 +22,16 @@ Response targets (best effort, one maintainer): acknowledgement within 5 working
 
 - The configuration file is PHP code and is executed by design: never point `--config` at an untrusted or world-writable path.
 - Log content is untrusted input to the model; redaction runs before anything leaves the process (see `docs/privacy.md`).
+- Outbound URLs (Slack webhooks, Loki, observe sinks, repository raw URLs) are validated for scheme and SSRF risk where the package initiates the fetch; see `src/Config/SecureUrl.php` and architecture tests under `tests/Unit/ArchitectureTest.php`.
+- Secrets belong in the environment or a host secret store, not in committed config; `WatchConfig` redacts credentials in debug output.
+
+## Security review (2026-10)
+
+A dedicated hardening pass (`watcher-sec-hardening` worktree) was merged into `develop` ahead of this policy update. Remaining tracked items live in `docs/review-fixes-2026-10-25.md` under **SEC**; open checklist:
+
+- [ ] Final pass on SSRF rules for optional observe/metrics URLs (internal-host classifier vs operator `allow_insecure`).
+- [ ] Repository read-only token scope documentation in `docs/configuration.md` (code-aware analysis, spec 007).
+- [ ] Third-party dependency audit cadence in CI (Composer audit gate).
+- [ ] Live penetration-style smoke of `check` / `run` with malicious log fixtures (extends privacy corpus).
+
+Report issues via the advisory link above; do not file public issues for unfixed SEC checklist rows.
