@@ -283,7 +283,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
 
 ## Phase 9 (amendment): docs, search, explain, prompts
 
-- [ ] T061 [P] [US11] `tests/Unit/Mcp/DocsIndexTest.php` (red): the allowlist names exist in the repository (`docs/mcp.md` after T031) and none of them is in
+- [X] T061 [P] [US11] `tests/Unit/Mcp/DocsIndexTest.php` (red): the allowlist names exist in the repository (`docs/mcp.md` after T031) and none of them is in
   `.gitattributes` `export-ignore` (reads the file); `resources/read` returns the file bytes unchanged; the path corpus of T044
   adapted to URIs (`watcher-docs://../.env`, `%2e%2e`, absolute, backslash, NUL, other scheme, case variants, a name that is a prefix
   of an allowed one) gives `-32602 resource_not_found` and a spy filesystem sees no read outside the allowlist; a stripped root

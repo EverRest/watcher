@@ -27,6 +27,7 @@ settings, `notify.digest.webhook`.
 | Key | Default | Notes |
 |---|---|---|
 | `service` | required | Prefix for every state key. **Changing it starts from scratch** (a new baseline). |
+| `environment` (`WATCHER_ENVIRONMENT`) | none | Optional label (`int`, `prod`, ...): state keys become `<service>@<environment>`, so two processes with the same service name do not share state. |
 | `schedule.run_at` | required | `HH:MM`. The run is due from `run_at` for one hour, in `schedule.timezone`. |
 | `schedule.timezone` | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
 | `schedule.window` | `PT24H` | ISO-8601 lookback. The window ends at the local `run_at`. |
