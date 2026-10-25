@@ -82,6 +82,7 @@ use Watcher\Select\WatchRules;
 use Watcher\Select\Candidate;
 use Watcher\Select\SelectionResult;
 use Watcher\Select\Selector;
+use Watcher\Select\Tier;
 use Watcher\Source\LogSource;
 use Watcher\Source\ReadDiagnostics;
 use Watcher\Source\SourceUnavailable;
@@ -638,7 +639,7 @@ final class Watcher
             return new RunResult(RunOutcome::Baselined);
         }
 
-        $selection = (new Selector())->select($groups, $c->selection['min_level'], $c->selection['top_n'], $anomalies);
+        $selection = Tier::select($groups, $c->selection['min_level'], $c->selection['top_n'], $anomalies); // log groups as before; Sentry groups never displace a log Error
         $pool = $selection->candidates;
         $payloadExtras = null;
         if ($this->metrics !== null && $c->metrics !== null && $this->guard?->reason() === null) {
@@ -653,8 +654,7 @@ final class Watcher
             $extras['anomaliesNotShown'] = $found->truncated;
             $this->ledger->stats()->setMetrics(['read' => count($context->readings), 'failed' => $context->unavailable ? 1 : 0, 'anomalies' => count($found->candidates)]);
             $payloadExtras = $context->unavailable ? null : PayloadExtras::fromContext($context, $found->metricByFingerprint);
-            $pool = [...$pool, ...$found->candidates];
-            usort($pool, static fn (Candidate $a, Candidate $b): int => [$b->priority, $a->group->fingerprint] <=> [$a->priority, $b->group->fingerprint]);
+            $pool = Tier::merge($pool, $found->candidates);
             $allGroups = [...$allGroups, ...array_map(static fn (Candidate $a): ProblemGroup => $a->group, $found->candidates)];
         }
         $digestExtras = new DigestExtras(...$extras);

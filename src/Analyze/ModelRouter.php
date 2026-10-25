@@ -8,6 +8,7 @@ use Watcher\Context\DependencyContext;
 use Watcher\Level;
 use Watcher\Privacy\GroupStatusLabel;
 use Watcher\Privacy\RedactedGroup;
+use Watcher\Select\Tier;
 
 /** Cost routing: reuse verdicts, one cheap triage, one analysis of the top-M, capped escalation (FR-016..FR-020). */
 final class ModelRouter
@@ -359,9 +360,15 @@ final class ModelRouter
     /** watch rule, then level, then growth; novelty last (a minted fingerprint is always new); then volume, then a salted hash. */
     private function byPriority(RedactedGroup $a, RedactedGroup $b): int
     {
-        return self::rank($b) <=> self::rank($a)
+        return self::shielded($b) <=> self::shielded($a) // a log group at Error or above is never displaced by a Sentry or metric group (spec 009)
+            ?: self::rank($b) <=> self::rank($a)
             ?: $b->count <=> $a->count
             ?: strcmp(hash('sha256', $this->s->tieSalt . $a->fingerprint), hash('sha256', $this->s->tieSalt . $b->fingerprint));
+    }
+
+    private static function shielded(RedactedGroup $g): int
+    {
+        return $g->watchMatches !== [] || (!Tier::isExtra($g->fingerprint) && $g->level->atLeast(Level::Error)) ? 1 : 0;
     }
 
     private static function rank(RedactedGroup $g): int

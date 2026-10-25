@@ -63,9 +63,9 @@ final class MetricsSentryTest extends TestCase
         });
     }
 
-    private static function record(string $id, string $title, string $culprit = 'App\\Pay::charge', int $count = 40): IssueRecord
+    private static function record(string $id, string $title, string $culprit = 'App\\Pay::charge', int $count = 40, Level $level = Level::Error): IssueRecord
     {
-        return new IssueRecord($id, $title, $culprit, Level::Error, new DateTimeImmutable('2026-10-07T10:00:00Z'), new DateTimeImmutable('2026-10-08T05:00:00Z'), $count);
+        return new IssueRecord($id, $title, $culprit, $level, new DateTimeImmutable('2026-10-07T10:00:00Z'), new DateTimeImmutable('2026-10-08T05:00:00Z'), $count);
     }
 
     public function testTheMetricsLineAppearsNextToALogFindingAndTheBaselineRunReadsNothing(): void
@@ -145,6 +145,25 @@ final class MetricsSentryTest extends TestCase
             self::assertSame(RunOutcome::Reported, $result->outcome, "$cur / $base");
             self::assertStringContainsString('change not computable', implode("\n", $h->sentTexts()));
         }
+    }
+
+    /** Review M4: with one analysis slot, a Sentry fatal group (more events, higher level) never takes it from the log Error group. */
+    public function testSentryErrorsNeverTakeTheSlotOfALogError(): void
+    {
+        $h = new Harness(['selection' => ['top_m' => 1]] + self::sections());
+        $records = [];
+        for ($i = 1; $i <= 5; ++$i) {
+            $records[] = self::record((string) $i, "Boom number {$i}", 'App\\Pay::charge', 500, Level::Critical); // outranks a log Error by level alone
+        }
+        $issues = new FakeIssueSource($records);
+        self::make($h, self::errors(5), null, $issues)->run();
+        $h->nextWindow();
+
+        self::make($h, self::errors(20), null, $issues)->run();
+
+        $analysed = array_map(static fn ($g): string => $g->fingerprint, $h->analyzer->requests[0]->groups);
+        self::assertCount(1, $analysed);
+        self::assertStringStartsNotWith('sentry:', $analysed[0]);
     }
 
     public function testAnErrorGroupExplainsTheMetricMoveSoThereIsNoAnomaly(): void
