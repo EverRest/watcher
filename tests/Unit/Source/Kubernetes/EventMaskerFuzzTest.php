@@ -15,6 +15,8 @@ final class EventMaskerFuzzTest extends TestCase
 {
     private const CANARY = 'CANARYxq9zv7';
 
+    private const KEYWORDS = ['secret', 'secrets', 'configmap', 'configmaps', 'container', 'containers', 'endpoint', 'endpoints', 'service', 'services', 'serviceaccount', 'serviceaccounts', 'persistentvolumeclaim', 'persistentvolumeclaims', 'pvc', 'pvcs', 'volume', 'volumes', 'claim', 'pod', 'image'];
+
     /** @return list<callable(string): string> */
     private static function contexts(): array
     {
@@ -52,6 +54,9 @@ final class EventMaskerFuzzTest extends TestCase
             static fn (string $n): string => "configmap\x00{$n} missing",
             static fn (string $n): string => "secret%20{$n} not found",
             static fn (string $n): string => "{\"secret\":{$n}} not found",
+            // credential-shaped tokens whose userinfo holds a keyword followed by a separator the rewrites treat specially
+            static fn (string $n): string => 'https://u:' . self::KEYWORDS[strlen($n) % count(self::KEYWORDS)] . ['%20', '+', '%09', '%0a', '%2520'][strlen($n) % 5] . $n . '@host.example/x',
+            static fn (string $n): string => 'docker://' . self::KEYWORDS[strlen($n) % count(self::KEYWORDS)] . '%20x:' . $n . '@h.example',
             // stray quotes: one open quote and no close
             static fn (string $n): string => "secret \"{$n} not found",
             static fn (string $n): string => "secret \u{201C}{$n} and more text",
