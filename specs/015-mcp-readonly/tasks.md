@@ -264,7 +264,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   (schema check); no model id or price literal in the snippet; hostile inputs (quotes, `$`, backticks, `?>`, newlines, NUL, Unicode
   look-alikes, 10 000 characters) are `-32602` and never reach output; the `file` state adds the single-runner note; an
   `env_names` override must match `WATCHER_*`; identical input gives identical bytes. Then `ConfigGenerator` and `Tools/GenerateConfigTool.php`. (FR-072, US10, SC-011)
-- [ ] T059 [P] [US9] `tests/Unit/Mcp/ConfigFileValidatorTest.php` over `tests/Fixtures/mcp/config/*.php` (red; needs T044, T051): valid file
+- [X] T059 [P] [US9] `tests/Unit/Mcp/ConfigFileValidatorTest.php` over `tests/Fixtures/mcp/config/*.php` (red; needs T044, T051): valid file
   -> `valid:true` and `flags_off` incl. `enabled`; unknown key (`selection.min_levl`) -> `unknown_key` with the key path and
   `did_you_mean`; missing price -> `invalid_value` naming `analysis.prices`; literal secrets at `analysis.api_key`,
   `notify.digest.webhook`, `notify.digest.bot_token`, `source.loki.auth.token` -> `plain_text_secret` with the key path, and the literal
@@ -273,7 +273,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   output holds no string literal of the file other than key paths (a differential test over all fixtures). Then `ConfigFileValidator`,
   `SecretLiteralScan` (when `token_get_all` is missing the scan is skipped and the result says `secret_scan: skipped`, never silently) and
   `Tools/ValidateConfigTool.php`. (FR-066, FR-071, US9)
-- [ ] T060 [P] [US12] `tests/Unit/Mcp/RolloutInspectorTest.php` (red; needs T044): PHP below the floor fails with `php 8.2 required`
+- [X] T060 [P] [US12] `tests/Unit/Mcp/RolloutInspectorTest.php` (red; needs T044): PHP below the floor fails with `php 8.2 required`
   (version injected); extension matrix by state driver with an injected `extension_loaded` callable (`redis` for phpredis/auto,
   predis class fallback, `pdo` + driver, `zlib` warn); Composer constraint fixtures (missing, `^0.1`, allows installed, excludes
   installed); config absent/present/invalid; master switch `enabled=false` is `warn`-free info with reason `enabled=false`, `true`
