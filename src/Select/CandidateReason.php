@@ -12,13 +12,14 @@ enum CandidateReason: string
     case WatchRule = 'watch_rule'; // produced only by the watch-rule task (US4)
     case LevelAnomaly = 'level_anomaly';
     case TopVolume = 'top_volume';
+    case MetricAnomaly = 'metric_anomaly'; // synthetic group from a metric move no log finding explains (spec 009)
 
     /** Higher is more important; used for budget truncation. */
     public function weight(): int
     {
         return match ($this) {
             self::WatchRule => 6,
-            self::Level => 5,
+            self::Level, self::MetricAnomaly => 5,
             self::New => 4,
             self::Grown => 3,
             self::LevelAnomaly => 2,

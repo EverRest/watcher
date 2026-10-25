@@ -1,0 +1,67 @@
+[
+ {
+  "id": "2001",
+  "title": "Cannot charge anna.kowalski@example.org card 4111 1111 1111 1111 token sk_demo_51HxQ2eKzP9vWb3nTq7LmZ4Yc",
+  "culprit": "App\\Pay::charge for customer-4711",
+  "level": "error",
+  "status": "unresolved",
+  "substatus": "ongoing",
+  "firstSeen": "2026-10-22T10:00:00Z",
+  "lastSeen": "2026-10-22T20:00:00Z",
+  "stats": {
+   "24h": [
+    [
+     1792623600,
+     9
+    ],
+    [
+     1792627200,
+     0
+    ],
+    [
+     1792630800,
+     3
+    ],
+    [
+     1792634400,
+     2
+    ],
+    [
+     1792713600,
+     4
+    ]
+   ]
+  },
+  "shortId": "ORDERS-1",
+  "permalink": "https://sentry.test/organizations/acme/issues/2001/",
+  "count": "4711",
+  "userCount": 12,
+  "user": {
+   "email": "anna.kowalski@example.org",
+   "ip_address": "203.0.113.42"
+  },
+  "tags": [
+   {
+    "key": "customer",
+    "value": "customer-4711"
+   }
+  ],
+  "breadcrumbs": [
+   {
+    "message": "clicked pay"
+   }
+  ],
+  "metadata": {
+   "value": "secret"
+  },
+  "assignedTo": {
+   "name": "Anna Kowalski"
+  },
+  "annotations": [
+   "<a>x</a>"
+  ],
+  "project": {
+   "slug": "orders-api"
+  }
+ }
+]
