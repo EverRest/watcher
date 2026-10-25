@@ -78,7 +78,7 @@ final class FleetRunner
         }
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
-        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $sinks, $counters, $state, $analyzer, $notifier, $clock, $log, $out, $share): callable {
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $sinks, $counters, $state, $analyzer, $notifier, $clock, $log, $out, $share, $http): callable {
             $watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
@@ -92,6 +92,7 @@ final class FleetRunner
                 $seam,
                 $sinks[$e->name()],
                 $counters[$e->name()],
+                apiContext: Factory::apiContext($e->config, $http, $clock),
             );
             if ($share !== null) {
                 $watcher->limitRunTo($share);

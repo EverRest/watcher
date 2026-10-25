@@ -7,6 +7,7 @@ namespace Watcher\Notify;
 use DateTimeImmutable;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\Usage;
+use Watcher\ApiContext\EndpointContext;
 use Watcher\Baseline\Comparison;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Reduce\MiningStats;
@@ -82,6 +83,8 @@ final class DigestData
         public readonly int $unreported = 0,
         /** @var int new groups kept out of top_m by the per-run cap on new groups */
         public readonly int $newOverflow = 0,
+        /** @var EndpointContext|null spec 010: one documentation line per fingerprint, what the cap skipped, why none (masked, capped) */
+        public readonly ?EndpointContext $endpoints = null,
     ) {
     }
 }

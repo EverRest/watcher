@@ -8,6 +8,7 @@ use Watcher\Analyze\RouterResult;
 use Watcher\Analyze\TriageCheckpoint;
 use Watcher\Analyze\TruncationResult;
 use Watcher\Analyze\Usage;
+use Watcher\ApiContext\EndpointContext;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\State\BufferedStateStore;
 
@@ -39,6 +40,7 @@ final class Analysis
         public readonly array $annotations,
         public readonly BufferedStateStore $buffer,
         public readonly TriageCheckpoint $checkpoint,
+        public readonly ?EndpointContext $endpoints = null,
     ) {
     }
 }
