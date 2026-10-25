@@ -200,10 +200,10 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   test that the extracted pure matcher (`SecretShapes::matches(string): bool`) is the one the Normalizer calls (no second copy of
   the prefix/JWT/PEM/entropy rules). Add the webhook and bot-token shapes to the table with their own corpus rows (privacy corpus
   extension, Principle I). (FR-064)
-- [ ] T054 [US8] **Touches the file with the `observe.file.path` classifier** (SEQ row 8). Existing observe-sink tests stay green and
+- [X] T054 [US8] **Touches the file with the `observe.file.path` classifier** (SEQ row 8). Existing observe-sink tests stay green and
   unchanged; a test that the extracted `FilePolicy` (owner, mode, not group/world-writable unless sticky, absolute, no `..`) is the
   function both `observe.file.path` and `Mcp\PathPolicy` call. If the logic is private and entangled, extract only the pure check. (FR-067)
-- [ ] T044 [P] [US8] `tests/Unit/Mcp/PathPolicyTest.php` over `tests/Fixtures/mcp/path-corpus.php` (red; needs T054): at least 20 hostile
+- [X] T044 [P] [US8] `tests/Unit/Mcp/PathPolicyTest.php` over `tests/Fixtures/mcp/path-corpus.php` (red; needs T054): at least 20 hostile
   paths (`..`, `%2e%2e`, absolute outside, backslashes, NUL, 2000 characters, directory, device, `.phtml`, case variants, a symlink
   to `/etc/passwd`, a symlink inside the root to a file inside, a symlink chain, a file world-writable, a file owned by another user
   when testable) give `path_not_allowed` before any read (a spy reader sees no call); roots are compared after `realpath` (the
