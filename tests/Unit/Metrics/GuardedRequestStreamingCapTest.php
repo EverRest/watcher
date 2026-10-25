@@ -36,7 +36,7 @@ final class GuardedRequestStreamingCapTest extends TestCase
             return $mock($request, $options);
         });
         (new GuardedRequest(new Client(['handler' => $stack]), new Retry(static function (): void {
-        }, 1), 'metrics'))->send('GET', 'https://prom.example.com/x', []);
+        }, 1), 'metrics'))->send('GET', 'https://prom.invalid/x', []);
 
         self::assertArrayHasKey('sink', $seen);
     }

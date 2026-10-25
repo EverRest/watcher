@@ -64,7 +64,7 @@ final class MetricsSentryPrivacyTest extends TestCase
         $h = new Harness([
             'schedule' => ['run_at' => '06:00'],
             'metrics' => [
-                'source' => ['base_url' => 'https://prom.example.com'],
+                'source' => ['base_url' => 'https://prom.invalid'],
                 'label_allowlist' => ['customer', 'email'],
                 'queries' => ['latency' => ['query' => 'up', 'aggregate' => 'max', 'threshold' => ['relative' => 0.5, 'floor' => 0.1]]],
             ],

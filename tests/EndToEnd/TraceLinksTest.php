@@ -45,7 +45,7 @@ final class TraceLinksTest extends TestCase
 
     public function testTheEarliestIdIsInTheLinkAndNowhereElse(): void
     {
-        $h = new Harness(['links' => ['tempo' => ['base_url' => 'https://grafana.example', 'datasource_uid' => 'tempo']]]);
+        $h = new Harness(['links' => ['tempo' => ['base_url' => 'https://grafana.invalid', 'datasource_uid' => 'tempo']]]);
         $json = self::twoDays($h);
 
         $digest = implode("\n", $h->sentTexts());
@@ -71,7 +71,7 @@ final class TraceLinksTest extends TestCase
 
     public function testAGroupWithoutAnIdGetsTheServiceSearchLink(): void
     {
-        $h = new Harness(['links' => ['tempo' => ['base_url' => 'https://grafana.example', 'datasource_uid' => 'tempo']]]);
+        $h = new Harness(['links' => ['tempo' => ['base_url' => 'https://grafana.invalid', 'datasource_uid' => 'tempo']]]);
         $plain = [new LogEvent(new DateTimeImmutable('2026-10-07T09:00:00', new \DateTimeZone('UTC')), Level::Error, 'Alpha exploded', 'AlphaException', [], [], [])];
         self::twoDays($h, $plain);
 

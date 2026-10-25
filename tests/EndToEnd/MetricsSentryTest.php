@@ -26,7 +26,7 @@ final class MetricsSentryTest extends TestCase
     {
         return [
             'metrics' => [
-                'source' => ['base_url' => 'https://prom.example.com'],
+                'source' => ['base_url' => 'https://prom.invalid'],
                 'label_allowlist' => ['customer'],
                 'queries' => ['p95_latency' => ['query' => 'histogram_quantile(0.95, x{service="{service}"})', 'aggregate' => 'max', 'unit' => 's', 'threshold' => ['relative' => 0.5, 'floor' => 0.1]]],
             ],

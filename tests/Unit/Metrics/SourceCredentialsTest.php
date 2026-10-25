@@ -19,8 +19,8 @@ final class SourceCredentialsTest extends TestCase
     /** @return iterable<string, array{object}> */
     public static function built(): iterable
     {
-        yield 'prometheus' => [new PrometheusSource(new Client(), 'https://prom.example.com', self::CANARY)];
-        yield 'grafana' => [new PrometheusSource(new Client(), 'https://grafana.example.com', self::CANARY, 'uid1')];
+        yield 'prometheus' => [new PrometheusSource(new Client(), 'https://prom.invalid', self::CANARY)];
+        yield 'grafana' => [new PrometheusSource(new Client(), 'https://grafana.invalid', self::CANARY, 'uid1')];
         yield 'sentry' => [new SentryIssueSource(new Client(), 'https://sentry.io', 'acme', 'api', self::CANARY)];
     }
 
@@ -50,7 +50,7 @@ final class SourceCredentialsTest extends TestCase
         yield 'cluster-local allowed with the flag' => ['https://prometheus.monitoring.svc:9090', true, true];
         yield 'metadata never' => ['https://169.254.169.254', true, false];
         yield 'cgnat never' => ['https://100.64.0.1', true, false];
-        yield 'public' => ['https://prom.example.com', false, true];
+        yield 'public' => ['https://prom.invalid', false, true];
     }
 
     #[DataProvider('urls')]

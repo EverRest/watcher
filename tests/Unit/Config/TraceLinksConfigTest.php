@@ -32,7 +32,7 @@ final class TraceLinksConfigTest extends TestCase
     public function testBothAreAccepted(): void
     {
         $c = WatchConfig::fromArray(self::config([
-            'tempo' => ['base_url' => 'https://grafana.example', 'datasource_uid' => 'tempo', 'trace_field' => 'traceId'],
+            'tempo' => ['base_url' => 'https://grafana.invalid', 'datasource_uid' => 'tempo', 'trace_field' => 'traceId'],
             'datadog' => ['app_url' => 'https://app.datadoghq.com'],
             'datadog_apm' => ['service' => 'orders'],
         ]));

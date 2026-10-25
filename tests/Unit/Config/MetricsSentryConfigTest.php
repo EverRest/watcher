@@ -19,7 +19,7 @@ final class MetricsSentryConfigTest extends TestCase
     private static function metrics(): array
     {
         return [
-            'source' => ['type' => 'prometheus', 'base_url' => 'https://prom.example.com', 'auth' => ['type' => 'bearer', 'token' => self::PROM_TOKEN]],
+            'source' => ['type' => 'prometheus', 'base_url' => 'https://prom.invalid', 'auth' => ['type' => 'bearer', 'token' => self::PROM_TOKEN]],
             'queries' => ['error_rate' => ['query' => 'sum(rate(x{service="{service}"}[{window}]))', 'aggregate' => 'sum', 'threshold' => ['relative' => 0.5, 'floor' => 0.01]]],
         ];
     }
@@ -84,11 +84,11 @@ final class MetricsSentryConfigTest extends TestCase
         $m = self::metrics();
         $s = self::sentry();
         yield 'metrics unknown key' => ['metrics', $m + ['nope' => 1], 'metrics.nope'];
-        yield 'metrics http without allow_insecure' => ['metrics', ['source' => ['base_url' => 'http://prom.example.com'] + $m['source']] + $m, 'metrics.source.base_url'];
+        yield 'metrics http without allow_insecure' => ['metrics', ['source' => ['base_url' => 'http://prom.invalid'] + $m['source']] + $m, 'metrics.source.base_url'];
         yield 'metrics RFC1918 without allow_private_network' => ['metrics', ['source' => ['base_url' => 'https://10.1.2.3:9090'] + $m['source']] + $m, 'metrics.source.base_url'];
         yield 'metrics cluster-local without allow_private_network' => ['metrics', ['source' => ['base_url' => 'https://prometheus.monitoring.svc'] + $m['source']] + $m, 'metrics.source.base_url'];
         yield 'metrics metadata even with the flag' => ['metrics', ['source' => ['base_url' => 'https://169.254.169.254', 'allow_private_network' => true] + $m['source']] + $m, 'metrics.source.base_url'];
-        yield 'metrics userinfo' => ['metrics', ['source' => ['base_url' => 'https://u:p@prom.example.com'] + $m['source']] + $m, 'metrics.source.base_url'];
+        yield 'metrics userinfo' => ['metrics', ['source' => ['base_url' => 'https://u:p@prom.invalid'] + $m['source']] + $m, 'metrics.source.base_url'];
         yield 'grafana without uid' => ['metrics', ['source' => ['type' => 'grafana'] + $m['source']] + $m, 'metrics.source.datasource_uid'];
         yield 'grafana dotdot uid' => ['metrics', ['source' => ['type' => 'grafana', 'datasource_uid' => '..'] + $m['source']] + $m, 'metrics.source.datasource_uid'];
         yield 'metrics bad auth' => ['metrics', ['source' => ['auth' => ['type' => 'basic']] + $m['source']] + $m, 'metrics.source.auth'];
@@ -102,7 +102,7 @@ final class MetricsSentryConfigTest extends TestCase
         yield 'metrics max_anomalies' => ['metrics', ['max_anomalies' => 11] + $m, 'metrics.max_anomalies'];
         yield 'metrics max_points' => ['metrics', ['max_points' => 5] + $m, 'metrics.max_points'];
         yield 'sentry unknown key' => ['sentry', $s + ['nope' => 1], 'sentry.nope'];
-        yield 'sentry http' => ['sentry', ['base_url' => 'http://sentry.example.com'] + $s, 'sentry.base_url'];
+        yield 'sentry http' => ['sentry', ['base_url' => 'http://sentry.invalid'] + $s, 'sentry.base_url'];
         yield 'sentry RFC1918 without flag' => ['sentry', ['base_url' => 'https://192.168.1.5'] + $s, 'sentry.base_url'];
         yield 'sentry dotdot org' => ['sentry', ['organization' => '..'] + $s, 'sentry.organization'];
         yield 'sentry slash in project' => ['sentry', ['project' => 'a/b'] + $s, 'sentry.project'];

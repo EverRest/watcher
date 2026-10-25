@@ -34,7 +34,7 @@ final class FactoryMetricsSentryTest extends TestCase
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/x']],
-            'metrics' => ['enabled' => $enabled, 'source' => ['base_url' => 'https://prom.example.com'], 'queries' => ['up' => ['query' => 'up', 'aggregate' => 'max']]],
+            'metrics' => ['enabled' => $enabled, 'source' => ['base_url' => 'https://prom.invalid'], 'queries' => ['up' => ['query' => 'up', 'aggregate' => 'max']]],
             'sentry' => ['enabled' => $enabled, 'organization' => 'acme', 'project' => 'api', 'auth_token' => 'tok'],
         ];
     }
