@@ -240,6 +240,13 @@ A flood of one already-reported fingerprint can still fill `event_cap` with old 
 - **Quiet days.** No message means nothing qualified; to see that the job ran, look at the Job logs (the `outcome=` line).
   A weekly summary line is optional (`heartbeat.weekly_summary`); there is no daily heartbeat message.
 
+## Pod events need an hourly trigger
+
+With `events` (Kubernetes, [kubernetes.md](kubernetes.md)) every trigger reads the cluster, even outside the `run_at` hour,
+because the cluster keeps events about an hour. A daily-only trigger loses most events and the digest says so ("possible gap").
+`run --dry-run` reads the cluster and writes no ledger. If the cluster cannot be read the log part is reported as usual and the
+digest (or, on a quiet day, one notice) says "Pod events were not read: <reason>".
+
 ## Heartbeat, staleness and alerting
 
 Every finished run (reported, quiet, baselined, failed) stores a liveness record; a due-but-skipped trigger

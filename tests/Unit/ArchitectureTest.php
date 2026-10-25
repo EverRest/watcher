@@ -90,8 +90,8 @@ final class ArchitectureTest extends TestCase
         $sources = array_map('basename', glob(self::ROOT . '/src/Source/*Source.php') ?: []);
         sort($sources);
 
-        // LogSource is the contract; a new adapter needs its own read-only rule above.
-        self::assertSame(['DatadogSource.php', 'LogSource.php', 'LokiSource.php'], $sources);
+        // LogSource is the contract; a new adapter needs its own read-only rule (Kubernetes: Architecture/KubernetesReadOnlyTest).
+        self::assertSame(['DatadogSource.php', 'KubernetesEventsSource.php', 'LogSource.php', 'LokiSource.php'], $sources);
     }
 
     /**

@@ -24,6 +24,7 @@ final class Keys
     public const ZERO = 'zero';
     public const DELIVERED = 'sent';
     public const FAILNOTICE = 'failn';
+    public const EVENTS = 'evt';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -147,6 +148,12 @@ final class Keys
     public static function weekSent(string $service, string $isoWeek): string
     {
         return self::join(self::WEEKSENT, $service, $isoWeek);
+    }
+
+    /** Pod-event ledger of one service (spec 008): masked fingerprints, counts and times, expiring. */
+    public static function events(string $service): string
+    {
+        return self::join(self::EVENTS, $service);
     }
 
     /** @param string $kind one of the kind constants */

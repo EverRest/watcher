@@ -1,0 +1,141 @@
+{
+    "kind": "EventList",
+    "apiVersion": "events.k8s.io/v1",
+    "metadata": {
+        "resourceVersion": "881234"
+    },
+    "items": [
+        {
+            "metadata": {
+                "name": "api-7d9f8c6b5-x2k4q.v1.23",
+                "namespace": "shop",
+                "uid": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d0017",
+                "resourceVersion": "880023",
+                "creationTimestamp": "2026-10-24T04:00:00Z",
+                "annotations": {
+                    "owner": "olena.shevchenko@example.com",
+                    "note": "ticket PAY-4411"
+                },
+                "labels": {
+                    "team": "payments-olena"
+                },
+                "managedFields": [
+                    {
+                        "manager": "kubelet",
+                        "operation": "Update",
+                        "time": "2026-10-24T05:00:00Z"
+                    }
+                ]
+            },
+            "eventTime": null,
+            "series": {
+                "count": 21,
+                "lastObservedTime": "2026-10-24T05:40:00Z"
+            },
+            "reportingController": "kubelet",
+            "reportingInstance": "ip-10-0-4-17.eu-west-1.compute.internal",
+            "action": "Pulling",
+            "reason": "BackOff",
+            "type": "Warning",
+            "note": "Back-off restarting failed container api in pod api-7d9f8c6b5-x2k4q_shop(9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d0064)",
+            "regarding": {
+                "kind": "Pod",
+                "namespace": "shop",
+                "name": "api-7d9f8c6b5-x2k4q",
+                "uid": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d020b"
+            },
+            "deprecatedSource": {
+                "component": "kubelet",
+                "host": "ip-10-0-4-17.eu-west-1.compute.internal"
+            }
+        },
+        {
+            "metadata": {
+                "name": "api-7d9f8c6b5-m8v2p.v1.24",
+                "namespace": "shop",
+                "uid": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d0018",
+                "resourceVersion": "880024",
+                "creationTimestamp": "2026-10-24T04:00:00Z",
+                "annotations": {
+                    "owner": "olena.shevchenko@example.com",
+                    "note": "ticket PAY-4411"
+                },
+                "labels": {
+                    "team": "payments-olena"
+                },
+                "managedFields": [
+                    {
+                        "manager": "kubelet",
+                        "operation": "Update",
+                        "time": "2026-10-24T05:00:00Z"
+                    }
+                ]
+            },
+            "eventTime": null,
+            "series": {
+                "count": 9,
+                "lastObservedTime": "2026-10-24T05:41:00Z"
+            },
+            "reportingController": "kubelet",
+            "reportingInstance": "ip-10-0-4-17.eu-west-1.compute.internal",
+            "action": "Pulling",
+            "reason": "BackOff",
+            "type": "Warning",
+            "note": "Back-off restarting failed container api in pod api-7d9f8c6b5-m8v2p_shop(9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d0065)",
+            "regarding": {
+                "kind": "Pod",
+                "namespace": "shop",
+                "name": "api-7d9f8c6b5-m8v2p",
+                "uid": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d020c"
+            },
+            "deprecatedSource": {
+                "component": "kubelet",
+                "host": "ip-10-0-4-17.eu-west-1.compute.internal"
+            }
+        },
+        {
+            "metadata": {
+                "name": "api-7d9f8c6b5-x2k4q.v1.25",
+                "namespace": "shop",
+                "uid": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d0019",
+                "resourceVersion": "880025",
+                "creationTimestamp": "2026-10-24T04:00:00Z",
+                "annotations": {
+                    "owner": "olena.shevchenko@example.com",
+                    "note": "ticket PAY-4411"
+                },
+                "labels": {
+                    "team": "payments-olena"
+                },
+                "managedFields": [
+                    {
+                        "manager": "kubelet",
+                        "operation": "Update",
+                        "time": "2026-10-24T05:00:00Z"
+                    }
+                ]
+            },
+            "eventTime": null,
+            "series": {
+                "count": 1,
+                "lastObservedTime": "2026-10-24T05:00:00Z"
+            },
+            "reportingController": "kubelet",
+            "reportingInstance": "ip-10-0-4-17.eu-west-1.compute.internal",
+            "action": "Pulling",
+            "reason": "Pulled",
+            "type": "Normal",
+            "note": "Container image \"registry.corp.example:5000/payments/api:2.4.1-rc\" already present on machine",
+            "regarding": {
+                "kind": "Pod",
+                "namespace": "shop",
+                "name": "api-7d9f8c6b5-x2k4q",
+                "uid": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d020d"
+            },
+            "deprecatedSource": {
+                "component": "kubelet",
+                "host": "ip-10-0-4-17.eu-west-1.compute.internal"
+            }
+        }
+    ]
+}

@@ -11,6 +11,7 @@ use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\Notifier;
 use Watcher\Schedule\Window;
+use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
@@ -40,6 +41,7 @@ final class Doctor
         private readonly Notifier $notifier,
         private readonly ClockInterface $clock,
         private readonly bool $kubernetes = false,
+        private readonly ?KubernetesEventsSource $events = null,
     ) {
     }
 
@@ -63,6 +65,9 @@ final class Doctor
         }
         $results = [CheckResult::pass('config')];
         $results[] = $this->guard('source', fn (): CheckResult => $this->source());
+        if ($this->config->kubernetes !== null && $this->config->kubernetes->events) {
+            $results[] = $this->guard('events', fn (): CheckResult => $this->events());
+        }
         [$auth, $models] = $this->provider();
         $results[] = $auth;
         $results[] = $models;
@@ -86,8 +91,37 @@ final class Doctor
         }
     }
 
+    /** Spec 008: reads only (GET, limit=1); the wording is a fixed vocabulary, never a URL, a token or a body. */
+    private function events(): CheckResult
+    {
+        $k = $this->config->kubernetes;
+        if ($k === null || !$this->config->on('kubernetes') || $this->events === null) {
+            return CheckResult::skip('events', 'disabled');
+        }
+        foreach ($this->events->probe() as $ns => $reason) {
+            if ($reason !== '') {
+                return CheckResult::fail('events', 'namespace ' . $ns . ': ' . $reason);
+            }
+        }
+        $tags = implode(' ', array_map('strval', $this->config->source['stream_tags'] ?? []));
+        if ($k->exporter || preg_match('/event[-_]?(exporter|router)|kube[-_]?events/i', $tags) === 1) {
+            return CheckResult::warn('events', 'native events and an event exporter are both configured; the same events would be counted twice');
+        }
+
+        return CheckResult::pass('events');
+    }
+
     private function source(): CheckResult
     {
+        if ($this->source instanceof KubernetesEventsSource) {
+            foreach ($this->source->probe() as $ns => $reason) {
+                if ($reason !== '') {
+                    return CheckResult::fail('source', 'namespace ' . $ns . ': ' . $reason);
+                }
+            }
+
+            return CheckResult::pass('source');
+        }
         $window = Window::endingAt($this->clock->now(), 'PT5M');
         try {
             $this->source->totals($window, new StreamSelector(array_map('strval', $this->config->source['stream_tags'])));

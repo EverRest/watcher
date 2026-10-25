@@ -66,12 +66,15 @@ final class FleetRunner
         $analyzer = Factory::analyzer($first);
         $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
         $sources = [];
+        $events = [];
+        $apis = []; // pod events: entries on one cluster with the same credentials share one client and its list memo
         foreach ($fleet->services as $e) {
-            $sources[$e->name()] = Factory::source($e->config, $http, $clock);
+            $sources[$e->name()] = Factory::source($e->config, $http, $clock, $apis);
+            $events[$e->name()] = Factory::events($e->config, $http, $clock, $apis);
         }
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
-        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $state, $analyzer, $notifier, $clock, $log, $out, $share): callable {
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $state, $analyzer, $notifier, $clock, $log, $out, $share): callable {
             $watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
@@ -83,6 +86,7 @@ final class FleetRunner
                 $options,
                 $out,
                 $seam,
+                $events[$e->name()],
             );
             if ($share !== null) {
                 $watcher->limitRunTo($share);

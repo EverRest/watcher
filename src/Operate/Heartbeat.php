@@ -54,12 +54,13 @@ final class Heartbeat
         DateTimeImmutable $startedAt,
         float $costUsd = 0.0,
         ?string $reason = null,
+        ?string $eventsStatus = null,
     ): void {
         if (!in_array($outcome->value, [...self::OK_OUTCOMES, 'failed'], true)) {
             return;
         }
         $now = $this->clock->now();
-        $this->guard('heartbeat write', function () use ($outcome, $windowStart, $windowEnd, $startedAt, $costUsd, $reason, $now): void {
+        $this->guard('heartbeat write', function () use ($outcome, $windowStart, $windowEnd, $startedAt, $costUsd, $reason, $now, $eventsStatus): void {
             $ok = $outcome !== RunOutcome::Failed;
             $previous = $this->store->get(Keys::heartbeat($this->service));
             $lastOk = $ok ? $now->format(DATE_ATOM) : ($previous['lastOkAt'] ?? null);
@@ -74,6 +75,7 @@ final class Heartbeat
                 'durationSeconds' => max(0, $now->getTimestamp() - $startedAt->getTimestamp()),
                 'costUsd' => $costUsd,
                 'lastOkAt' => is_string($lastOk) ? $lastOk : null,
+                ...($eventsStatus === null ? [] : ['events' => $eventsStatus]), // spec 008: only when pod events are configured
             ], Keys::ttl(Keys::HEARTBEAT, $this->retention, 0));
         });
         $this->guard('weekly counter', function () use ($outcome, $costUsd): void {
@@ -112,6 +114,7 @@ final class Heartbeat
             ($record['outcome'] ?? null) === 'failed' => 'failed',
             $age === null => 'unknown',
             $age > $limitSeconds => 'stale',
+            in_array($record['events'] ?? null, ['unavailable', 'stale'], true) => 'degraded', // pod events were not (fully) read: loud even when the run was quiet
             default => 'ok',
         };
 

@@ -141,6 +141,24 @@ Config objects (`WatchConfig`, `FleetConfig`) show `[redacted]` for their creden
 `dd()` and `json_encode`, and the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes
 those arguments from stack traces).
 
+## Kubernetes events (spec 008)
+
+Optional. The cluster is read with `GET` on `events` and `pods` only. Each event is parsed into a closed set of fields
+(annotations, labels other than for the selector, `managedFields`, environment variables, arguments and commands are never read).
+`EventMasker` (pod names -> `api-<POD>`, node names, image registry/path/tag, container ids, quoted secret/configmap/volume names,
+namespaces in front of pods, the free text after an admission webhook's verdict) and then the Normalizer run before grouping; an
+event that cannot be scanned is dropped.
+
+Sent to the model for an event group: the usual allowlisted group plus `src` (`k8s`), `pods` (a number) and `wk` (a workload kind
+from a closed list). Stored (state key `evt:<service>`, expiry = window + tolerance + 1 h at most): the fully masked text (at most
+300 characters), level inputs, counts, unix times, the masked workload name and an 8-character one-way hash of each pod (only to
+count distinct pods). Never stored or sent: raw events, pod/node/image names, registry hosts, annotations, the token or CA.
+`tests/Fixtures/kubernetes/seeded-values.php` lists the values seeded in the fixtures; `tests/EndToEnd/KubernetesEventsTest.php`
+fails if any reaches a model request, a message, a state write, the JSON summary or the host log.
+
+Limit: a name that is identical in every occurrence of an event and not covered by a rule above (for example a person named by
+an operator in free text) is not detectable; see "Limits you must know".
+
 ## Similarity grouping and baselines (spec 004)
 
 Clustering by similarity runs on the already masked tokens, per distinct message, inside the process; nothing new is
