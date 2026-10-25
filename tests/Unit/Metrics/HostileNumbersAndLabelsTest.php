@@ -12,11 +12,14 @@ use Watcher\Analyze\PayloadExtras;
 use Watcher\Metrics\MetricAnomalies;
 use Watcher\Metrics\MetricDefinition;
 use Watcher\Metrics\MetricReading;
+use Watcher\Metrics\MetricResult;
 use Watcher\Metrics\MetricsContext;
+use Watcher\Metrics\MetricsReader;
 use Watcher\Metrics\QueryTemplate;
 use Watcher\Schedule\Window;
+use Watcher\Tests\Fakes\FakeMetricSource;
 
-/** Review H1: a degenerate backend answer never fails the run. */
+/** Review H1 and M3: a hostile or degenerate backend answer never fails the run and never puts markup in the digest line. */
 final class HostileNumbersAndLabelsTest extends TestCase
 {
     /** @return iterable<string, array{float, float}> */
@@ -65,4 +68,25 @@ final class HostileNumbersAndLabelsTest extends TestCase
         CompactPayload::encode([], [], PayloadExtras::fromContext($ctx));
         $this->addToAssertionCount(1);
     }
+
+    /** @return iterable<string, array{string}> */
+    public static function labels(): iterable
+    {
+        foreach (["pay\x1fments", "pay\u{FFFE}ments", "pay\u{200B}ments", '<!channel>', '*bold*', '`code`', '||spoiler||', '[a](b)', '@here', 'a b', str_repeat('a', 65), "pay\nments", ''] as $l) {
+            yield json_encode($l) ?: 'x' => [$l];
+        }
+    }
+
+    #[DataProvider('labels')]
+    public function testOnlyPlainShortLabelsReachTheDigestLine(string $label): void
+    {
+        $source = new FakeMetricSource(static fn (): MetricResult => new MetricResult([1.0], 1, [$label, 'payments_eu-west']));
+        $defs = [new MetricDefinition('m', QueryTemplate::compile('m', 'up', 'svc', []), 'max')];
+        $ctx = (new MetricsReader($source, $defs))->read(new Window(new DateTimeImmutable('2026-10-07T06:00:00Z'), new DateTimeImmutable('2026-10-08T06:00:00Z')));
+
+        self::assertSame(['payments_eu-west'], $ctx->readings[0]->labels);
+        self::assertSame(1, preg_match('/^[\x20-\x7e]+$/D', $ctx->line()));
+        self::assertStringNotContainsString('<', $ctx->line());
+    }
+
 }

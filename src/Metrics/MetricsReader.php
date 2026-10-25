@@ -124,13 +124,17 @@ final class MetricsReader
     {
         $out = [];
         foreach (array_slice($labels, 0, 5) as $label) {
+            // The line goes to chat: only a short plain token passes (no control, format or non-character code point, no markup, no space).
+            if (preg_match('/^[A-Za-z0-9_.:-]{1,64}$/D', $label) !== 1) {
+                continue;
+            }
             try {
                 $masked = $this->normalizer->normalize($label);
             } catch (Throwable) {
                 continue; // unparseable: dropped, never passed through
             }
             // layer 2 (Redactor) as well: a label that either layer would change is dropped, not shown masked
-            if ($masked === $label && preg_match('/[@\s]/', $label) !== 1 && $this->redactor?->redactText($label, false) === $label) {
+            if ($masked === $label && $this->redactor?->redactText($label, false) === $label) {
                 $out[] = $masked;
             }
         }
