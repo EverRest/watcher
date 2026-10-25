@@ -109,6 +109,10 @@ final class ModelRouter
             $topEndpoints = self::only($endpoints, $top);
             $analyzeCap = AnthropicAnalyzer::analysisOutputCap($this->s->analyzeMaxTokens, count($top), $this->s->advice);
 
+            // `ep` is context, not evidence: a budget that fits without it still gets the analysis
+            if ($reservation !== null && $topEndpoints !== [] && !self::fits($reservation, $this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext, $topEndpoints), $analyzeCap)) {
+                $topEndpoints = [];
+            }
             if ($reservation !== null && !self::fits($reservation, $this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext, $topEndpoints), $analyzeCap)) {
                 $notAnalysed = count($interesting);
                 $newOverflow = 0;
@@ -146,6 +150,9 @@ final class ModelRouter
                             $subEndpoints = []; // context, not evidence: it goes before anything else is cut
                         }
                         $escalateCap = AnthropicAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
+                        if ($reservation !== null && $subEndpoints !== [] && !self::fits($reservation, $this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext, $subEndpoints), $escalateCap)) {
+                            $subEndpoints = [];
+                        }
                         if ($reservation !== null && !self::fits($reservation, $this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext, $subEndpoints), $escalateCap)) {
                             ++$skippedBudget;
                             $out[] = [$f, $weak];
