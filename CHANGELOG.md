@@ -6,6 +6,12 @@
 - `schedule.every` (`WATCHER_EVERY`: `PT1H`..`PT12H`) or a list of `schedule.run_at` times; `schedule.catch_up`, `schedule.ingestion_delay`; derived `runs_per_day` and multi-run defaults for `analysis.max_runs_per_day` / `analysis.run_budget_usd` and `heartbeat.stale_after` (single daily run unchanged).
 - `RunGate::pending()` and `Factory::gate()`; `Watcher` picks the oldest undone pending window, clamps reads to the `hw:<service>` high-water mark after reported/quiet/baselined runs.
 
+### Added (spec 005 incident workflow v1, phase 1–3)
+- **Known issues**: `known_issues` maps fingerprint prefixes to ticket keys; compact digest line, skip model analysis below `growth_factor × ref`, `known_grown` candidate reason, labels for resolved/expired entries.
+- **Severity routing**: `notify.routes` sends findings to extra destinations (first match + required catch-all); default digest shows a routed notice line.
+- **Ticket drafts**: optional `drafts` posts paste-ready text per finding (`draft` message sections); no tracker writes.
+- Config/env: `WATCHER_KNOWN_ISSUES_ENABLED`, `WATCHER_DRAFTS_*`, `WATCHER_ROUTES_ENABLED`. Weekly report (`report.weekly`) deferred (see `specs/005-incident-workflow/tasks.md`).
+
 - Fixed (review batch 2): `BufferedStateStore::flush()` no longer drops pending keys when an inner `put` fails mid-flush; Slack webhook delivery retries HTTP 429 like Telegram/Discord and names omitted Block Kit sections instead of truncating silently.
 
 ### Fixed (spec 006 second review, lane B, 0.1.34)

@@ -52,7 +52,7 @@ settings, `notify.digest.webhook`.
 | `source.stream_tags` | `[]` | Labels that select this service's logs, e.g. `['app' => 'orders-api', 'env' => 'prod']`. Loki selector `{app="..",env=".."}`, Datadog query `app:.. env:..`. |
 | `source.read_min_level` | `warning` | Levels below this are only counted in totals (and read in a second pass if their total jumps). |
 | `source.anomaly_cap` | `20000` | Event cap of that second pass. |
-| `source.level_mode` | `text` | How `read_min_level` is pushed to the backend. **Loki:** `text` = LogQL line filter on level words (misses lines whose level lives only in the stream label); `label` = stream matcher on the `level` label, no line filter (with watch rules present it falls back to the unrestricted selector, because LogQL cannot OR a stream matcher with a line filter); `all` = no level restriction. **Datadog:** `all` = no `status:` filter, anything else = status filter. |
+| `source.level_mode` | `text` | How `read_min_level` is pushed to the backend. **Loki:** `text` = LogQL line filter on level words plus stack-trace continuation shapes (misses unworded main lines whose level lives only in the stream label); `label` = stream matcher on the `level` label, no line filter (with watch rules present it falls back to the unrestricted selector, because LogQL cannot OR a stream matcher with a line filter); `all` = no level restriction. **Datadog:** `all` = no `status:` filter, anything else = status filter. |
 | `source.datadog.newest_first` | `false` | `true` sorts `-timestamp`, so an `event_cap` truncation keeps the newest events instead of the oldest. |
 | `source.group_cap` | `5000` | Hard bound on distinct problem groups held in memory per run. Past it, events with a new message are grouped as one "other" group per level and the digest says "cluster cap hit". Events matching a watch rule keep their own group up to 2 x this value. |
 | `source.max_response_mb` | `16` | Largest backend reply accepted, 1 to 64 MB. A page over it is retried at half the page size instead of failing the source. |
@@ -282,6 +282,11 @@ environment variable NAME must be true or false`, naming the variable and never 
 | budget alerts | `budget_alerts.enabled` | `WATCHER_BUDGET_ALERTS_ENABLED` | true | no 25/50/75/90 % notice and no "budget exhausted" notice (the caps themselves still apply) |
 | notices | `notify.notice.enabled` | `WATCHER_NOTICE_ENABLED` | true | no failure, baseline, budget or weekly notice is posted; failures still go to the host log and the exit code |
 | digest | `notify.digest.enabled` | `WATCHER_DIGEST_ENABLED` | true | no digest is posted, so no model is paid for: the window is read and snapshotted and the run ends `quiet` (reason `digest_disabled`) |
+| known_issues | `known_issues.enabled` | `WATCHER_KNOWN_ISSUES_ENABLED` | true | inert with no `entries`; false skips known lines, state writes and suppression |
+| drafts | `drafts.enabled` | `WATCHER_DRAFTS_ENABLED` | false | paste-ready ticket text per finding after the digest (`drafts.destination` or notice) |
+| routes | `notify.routes_enabled` | `WATCHER_ROUTES_ENABLED` | true | inert without `notify.routes`; severity routing to extra destinations (spec 005) |
+
+`known_issues.entries[]`: `fingerprint` (12–64 hex, prefix match), `ticket` (opaque key), optional `status` (`open`/`resolved`), optional `until` (UTC date). `notify.routes[]`: `name`, `severity` list (omitted on the last catch-all route only), optional `to` destination (must differ from `notify.digest`). See `specs/005-incident-workflow/contracts/config.md`.
 | fleet | fleet `enabled` | `WATCHER_FLEET_ENABLED` | true | every service is reported `disabled`; no store, budget, source or notifier is reached |
 | fleet service | entry (or `defaults`) `enabled` | `WATCHER_ENABLED` | **false** (as a service) | that service is skipped with outcome `disabled` (not an error, exit 0) |
 | fleet correlation | `correlation.enabled` | `WATCHER_FLEET_CORRELATION_ENABLED` | true | no cross-service annotation or correlated message |

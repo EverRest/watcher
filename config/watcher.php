@@ -118,7 +118,12 @@ return [
         'digest' => ['driver' => env('WATCHER_DIGEST_DRIVER', 'slack'), 'webhook' => env('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
         // Failure and budget notices. Only `enabled`: use the digest destination. Add driver + webhook for a channel of its own.
         'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
+        'routes_enabled' => Env::bool('WATCHER_ROUTES_ENABLED', true),
+        'routes' => [],
     ],
+
+    'known_issues' => ['enabled' => Env::bool('WATCHER_KNOWN_ISSUES_ENABLED', true), 'entries' => []],
+    'drafts' => ['enabled' => Env::bool('WATCHER_DRAFTS_ENABLED', false)],
 
     'service_context' => [
         'enabled' => Env::bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),

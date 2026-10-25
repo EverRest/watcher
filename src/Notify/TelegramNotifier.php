@@ -37,12 +37,7 @@ final class TelegramNotifier implements Notifier
         }
         $parts = MessageSplitter::split($this->sections($message), self::LIMIT, TelegramText::plain('… (cut)'));
         $retry = new Retry($this->sleeper, $this->retryBudget);
-        foreach ($parts as $i => $text) {
-            $failure = $this->post($to, $text, $retry);
-            if ($failure !== null) {
-                throw new DeliveryFailed('telegram delivery failed: ' . $failure . (count($parts) > 1 ? sprintf(' at part %d of %d', $i + 1, count($parts)) : ''));
-            }
-        }
+        MultipartSend::run($parts, $retry, $message->deliveryProgress, fn (string $text, Retry $r): ?string => $this->post($to, $text, $r), 'telegram');
     }
 
     /** @return ?string why it failed (status or "transport error"), null on success; never throws */
