@@ -336,7 +336,8 @@ final class EventMaskerTest extends TestCase
         foreach ($keywords as $kw) {
             foreach ($separators as $sep) {
                 foreach ($templates as $tpl) {
-                    $input = 'Pull failed: ' . (substr_count($tpl, '%s') === 3 ? sprintf($tpl, '', $kw, $sep) : sprintf($tpl, $kw, $sep));
+                    $args = substr_count($tpl, '%s') === 3 ? ['', $kw, $sep] : [$kw, $sep];
+                    $input = 'Pull failed: ' . vsprintf($tpl, $args);
                     $out = $this->masker()->mask($input, [], []);
 
                     self::assertStringNotContainsString('QPW', $out, $input);
