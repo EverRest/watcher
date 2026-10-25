@@ -18,6 +18,9 @@ final class HttpSink implements EventSink, TimeBoundedSink
 
     private readonly \Closure $sleep;
 
+    /** @var \Closure(): ?string */
+    private readonly \Closure $token;
+
     public function __construct(
         private readonly HttpTarget $target,
         private readonly ClientInterface $client,
@@ -27,11 +30,13 @@ final class HttpSink implements EventSink, TimeBoundedSink
         private int $timeout,
         private readonly string $authHeader,
         private readonly string $authScheme,
-        #[\SensitiveParameter] private readonly ?string $authToken,
+        #[\SensitiveParameter] ?string $authToken,
         private int $flushBudgetSeconds = 15,
         ?callable $now = null,
         ?callable $sleep = null,
     ) {
+        // Held in a closure: var_export and a property dump never show it (same trick as Destination).
+        $this->token = static fn (): ?string => $authToken;
         $this->now = $now === null ? static fn (): float => microtime(true) : \Closure::fromCallable($now);
         $this->sleep = $sleep === null ? static function (int $s): void {
             sleep($s);
@@ -79,8 +84,8 @@ final class HttpSink implements EventSink, TimeBoundedSink
             };
             $retry = $this->retry instanceof \Closure ? ($this->retry)($left, $guarded) : $this->retry;
             $headers = ['Content-Type' => 'application/x-ndjson'];
-            if ($this->authToken !== null) {
-                $headers[$this->authHeader] = trim($this->authScheme . ' ' . $this->authToken);
+            if (($token = ($this->token)()) !== null) {
+                $headers[$this->authHeader] = trim($this->authScheme . ' ' . $token);
             }
             $attempts = 0;
             try {
@@ -110,5 +115,16 @@ final class HttpSink implements EventSink, TimeBoundedSink
                 throw new SinkFailed('http status ' . $status);
             }
         }
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }
