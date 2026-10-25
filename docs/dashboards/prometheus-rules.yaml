@@ -1,0 +1,50 @@
+# Prometheus alerting rules for the watcher textfile metrics (docs/observability.md). Load with rule_files.
+# Thresholds are examples: 36 h assumes a daily run (129600 s). Annotations carry no event text on purpose:
+# an alert must not copy finding text into a pager. Replace the runbook_url and team placeholders.
+groups:
+  - name: watcher
+    rules:
+      - alert: WatcherNoSuccessfulRun36h
+        expr: time() - watcher_last_success_timestamp_seconds > 129600
+        for: 15m
+        labels: {severity: critical, team: platform}
+        annotations:
+          summary: "watcher has not had a successful run for 36 h ({{ $labels.service }}, {{ $labels.environment }})"
+          description: "No reported, quiet or baselined run. A job that never started leaves the series stale, not failing."
+          runbook_url: "https://runbooks.example.invalid/watcher"
+      - alert: WatcherNeverSucceeded
+        expr: absent(watcher_last_success_timestamp_seconds{service="orders-api"})
+        for: 36h
+        labels: {severity: critical, team: platform}
+        annotations:
+          summary: "watcher has never reported a success for the named service"
+          description: "Replace the service label with the one to watch. absent() fires when the series does not exist at all."
+          runbook_url: "https://runbooks.example.invalid/watcher"
+      - alert: WatcherRunFailed
+        expr: watcher_last_run_outcome{outcome="failed"} == 1
+        labels: {severity: warning, team: platform}
+        annotations:
+          summary: "the last watcher run failed ({{ $labels.service }}, {{ $labels.environment }})"
+          description: "See the run event for the reason code."
+          runbook_url: "https://runbooks.example.invalid/watcher"
+      - alert: WatcherBudgetHigh
+        expr: watcher_budget_ratio > 0.9
+        labels: {severity: warning, team: platform}
+        annotations:
+          summary: "watcher used more than 90 % of its daily budget ({{ $labels.service }})"
+          description: "At 100 % the day continues in triage-only mode."
+          runbook_url: "https://runbooks.example.invalid/watcher"
+      - alert: WatcherNewCriticalFinding
+        expr: watcher_last_run_new_findings{severity="critical"} > 0
+        labels: {severity: warning, team: platform}
+        annotations:
+          summary: "watcher found a new critical problem ({{ $labels.service }}, {{ $labels.environment }})"
+          description: "Open the dashboard; the metrics carry counts only."
+          runbook_url: "https://runbooks.example.invalid/watcher"
+      - alert: WatcherDeliveryOrSinkFailures
+        expr: increase(watcher_delivery_failures_total[1d]) > 0 or increase(watcher_sink_failures_total[1d]) > 0
+        labels: {severity: warning, team: platform}
+        annotations:
+          summary: "watcher could not deliver a message or write a sink ({{ $labels.service }})"
+          description: "A failed sink never fails the run, so this is the only signal."
+          runbook_url: "https://runbooks.example.invalid/watcher"

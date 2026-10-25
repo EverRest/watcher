@@ -22,7 +22,7 @@ heartbeat event. Flags must be real booleans in an array config (`'false'` is re
 | `observe.top_groups` | `20` | `WATCHER_OBSERVE_TOP_GROUPS` | integer 0..100; `0` emits no `group` events |
 | `observe.log.enabled` | **false** | `WATCHER_OBSERVE_LOG_ENABLED` | |
 | `observe.log.stream` | `stderr` | `WATCHER_OBSERVE_LOG_STREAM` | `stderr` or `stdout`; with `--json` stdout is forced to stderr for that call |
-| `observe.log.include_text` | **true** | `WATCHER_OBSERVE_LOG_INCLUDE_TEXT` | the host's own log pipeline; see research R4 |
+| `observe.log.include_text` | **false** | `WATCHER_OBSERVE_LOG_INCLUDE_TEXT` | owner decision: opt-in like every sink (was true, research R4) |
 | `observe.file.enabled` | **false** | `WATCHER_OBSERVE_FILE_ENABLED` | |
 | `observe.file.path` | required when enabled | `WATCHER_OBSERVE_FILE_PATH` | absolute path of the active file, no `..`, not a symlink |
 | `observe.file.rotate` | `size` | `WATCHER_OBSERVE_FILE_ROTATE` | `size` or `daily` |
@@ -55,7 +55,7 @@ Config array shape:
 'notify' => ['digest' => ['driver' => Env::string('WATCHER_DIGEST_DRIVER', 'slack')]],
 'observe' => [
     'top_groups' => Env::int('WATCHER_OBSERVE_TOP_GROUPS', 20),
-    'log'        => ['enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false), 'stream' => 'stderr', 'include_text' => true],
+    'log'        => ['enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false), 'stream' => 'stderr', 'include_text' => false],
     'file'       => ['enabled' => Env::bool('WATCHER_OBSERVE_FILE_ENABLED', false), 'path' => Env::string('WATCHER_OBSERVE_FILE_PATH')],
     'http'       => ['enabled' => Env::bool('WATCHER_OBSERVE_HTTP_ENABLED', false), 'url' => Env::string('WATCHER_OBSERVE_HTTP_URL'), 'auth_token' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_TOKEN')],
     'prometheus' => ['enabled' => Env::bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false), 'dir' => Env::string('WATCHER_OBSERVE_PROMETHEUS_DIR')],

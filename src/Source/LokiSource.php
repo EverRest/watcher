@@ -37,8 +37,8 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private const LABEL_WORDS = ['info' => ['information'], 'emergency' => ['panic']];
 
     private readonly string $baseUrl;
-    /** @var array<string, string> */
-    private readonly array $headers;
+    /** @var \Closure(): array<string, string> request headers incl. the credential: a closure, so var_export shows no value */
+    private readonly \Closure $headers;
     private readonly Retry $retry;
     private bool $truncated = false;
     private int $pageLimit = self::PAGE_LIMIT;
@@ -89,7 +89,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         if ($tenant !== null && $tenant !== '') {
             $headers['X-Scope-OrgID'] = $tenant;
         }
-        $this->headers = $headers;
+        $this->headers = static fn (): array => $headers;
         $this->parser = new LineParser();
     }
 
@@ -507,7 +507,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         try {
             $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('GET', $this->baseUrl . $path, [
             'query' => $query,
-            'headers' => $this->headers,
+            'headers' => ($this->headers)(),
             'http_errors' => false,
             'allow_redirects' => false, // X-Scope-OrgID would follow a redirect; a 3xx is an error here
             'verify' => true,
@@ -521,5 +521,16 @@ final class LokiSource implements LogSource, ReadDiagnostics
             throw new SourceUnavailable(trim("loki {$status} " . $response->getReasonPhrase()));
         }
         return ResponseLimit::decode($response, 'loki', $this->maxResponseBytes);
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }

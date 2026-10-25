@@ -19,18 +19,22 @@ final class AnthropicModelCatalog implements ModelCatalog
     /** @var list<string>|null */
     private ?array $ids = null;
 
+    /** @var \Closure(): string */
+    private readonly \Closure $apiKey;
+
     public function __construct(
         private readonly ClientInterface $http,
-        #[\SensitiveParameter] private readonly string $apiKey,
+        #[\SensitiveParameter] string $apiKey,
         private readonly string $baseUrl = 'https://api.anthropic.com',
     ) {
+        $this->apiKey = static fn (): string => $apiKey; // a closure: var_export shows no value
     }
 
     public function probe(): array
     {
         $result = [];
         $ids = [];
-        foreach (['x-api-key' => ['x-api-key' => $this->apiKey], 'bearer' => ['Authorization' => 'Bearer ' . $this->apiKey]] as $scheme => $auth) {
+        foreach (['x-api-key' => ['x-api-key' => ($this->apiKey)()], 'bearer' => ['Authorization' => 'Bearer ' . ($this->apiKey)()]] as $scheme => $auth) {
             [$status, $found] = $this->list($auth);
             $result[$scheme] = $status;
             if ($ids === [] && $status === 200) {
@@ -95,5 +99,16 @@ final class AnthropicModelCatalog implements ModelCatalog
         }
 
         return [200, $ids];
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }

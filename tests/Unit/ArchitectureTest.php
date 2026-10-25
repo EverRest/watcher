@@ -160,8 +160,8 @@ final class ArchitectureTest extends TestCase
         $notifiers = array_map('basename', glob(self::ROOT . '/src/Notify/*Notifier.php') ?: []);
         sort($notifiers);
 
-        // Notifier is the contract; a new transport needs its own endpoint rule above.
-        self::assertSame(['DiscordNotifier.php', 'Notifier.php', 'RoutingNotifier.php', 'SlackWebhookNotifier.php', 'TelegramNotifier.php'], $notifiers);
+        // Notifier is the contract; a new transport needs its own endpoint rule above. NoneNotifier (dashboard-only) has no transport.
+        self::assertSame(['DiscordNotifier.php', 'NoneNotifier.php', 'Notifier.php', 'RoutingNotifier.php', 'SlackWebhookNotifier.php', 'TelegramNotifier.php'], $notifiers);
     }
 
     public function testNoNotifierPutsASecretInAnExceptionMessage(): void
@@ -259,5 +259,67 @@ final class ArchitectureTest extends TestCase
 
         self::assertSame('smoke-service', $parsed->service);
         self::assertSame('file', $parsed->state['driver']);
+    }
+
+    /** @return list<string> */
+    private static function observeFiles(): array
+    {
+        return self::files('src/Observe');
+    }
+
+    public function testObserveReadsNoLogEventAndNoSourceInternals(): void
+    {
+        // Events are built from the typed results of a run (Finding, RedactedGroup, RunStats), never from raw log lines.
+        self::assertSame([], self::grep(self::observeFiles(), '/\bLogEvent\b|use Watcher\\\\Source\\\\(?!Retry;|ResponseLimit;)/'));
+    }
+
+    public function testTheOnlyIoInObserveIsTheConfiguredFilesStdStreamsAndAPostToTheConfiguredUrl(): void
+    {
+        self::assertSame([], self::grep(self::observeFiles(), '/\b(curl_\w+|fsockopen|stream_socket_client|mail|exec|shell_exec|system|passthru|proc_open|popen)\s*\(/'));
+        self::assertSame([], self::grep(self::observeFiles(), '~file_get_contents\(\s*[\'"]https?://|fopen\(\s*[\'"]https?://~'));
+        $requests = self::grep(self::observeFiles(), '/->request\(/');
+        self::assertCount(1, $requests);
+        self::assertStringContainsString("src/Observe/HttpSink.php", $requests[0]);
+        self::assertStringContainsString("'POST', \$this->target->url()", $requests[0]);
+        self::assertSame([], self::grep(self::observeFiles(), '/php:\/\/(?!stderr|stdout|memory)/'));
+    }
+
+    public function testNoObserveClassReadsTheEnvironment(): void
+    {
+        self::assertSame([], self::grep(self::observeFiles(), '/\$_(ENV|SERVER)\b|\bgetenv\s*\(|\bEnv::/'));
+    }
+
+    public function testNoConfigKeyDisablesTheSanitizer(): void
+    {
+        $text = (string) file_get_contents(self::ROOT . '/src/Observe/ObserveSettings.php');
+        preg_match_all('/self::only\(\$\w+, \[([^\]]*)\]/', $text, $m);
+
+        self::assertNotSame([], $m[1]);
+        foreach ($m[1] as $keys) {
+            self::assertDoesNotMatchRegularExpression('/sanitiz|redact|scrub|privacy|raw|unsafe/i', $keys);
+        }
+        // The dispatcher sanitizes every copy it hands to a sink, with no switch.
+        $dispatcher = (string) file_get_contents(self::ROOT . '/src/Observe/SinkDispatcher.php');
+        self::assertStringContainsString('$this->sanitizer->sanitize($e, $includeText)', $dispatcher);
+    }
+
+    public function testNoSinkSwallowsAThrowableThatIsAWriteFailure(): void
+    {
+        foreach (['LogSink', 'FileSink', 'HttpSink', 'PrometheusSink'] as $sink) {
+            $code = (string) file_get_contents(self::ROOT . "/src/Observe/$sink.php");
+            $found = 0;
+            preg_match_all('/catch \((?:\\\\)?Throwable[^)]*\)\s*\{/', $code, $m, PREG_OFFSET_CAPTURE);
+            foreach ($m[0] as [$head, $at]) {
+                $start = $at + strlen($head);
+                $depth = 1;
+                for ($end = $start; $depth > 0 && $end < strlen($code); ++$end) {
+                    $depth += $code[$end] === '{' ? 1 : ($code[$end] === '}' ? -1 : 0);
+                }
+                $block = substr($code, $start, $end - $start);
+                ++$found;
+                self::assertTrue(str_contains($block, 'throw') || str_contains($block, 'not a write failure'), "$sink hides a Throwable from the dispatcher's failure counters");
+            }
+            self::assertGreaterThan(0, $found, $sink);
+        }
     }
 }
