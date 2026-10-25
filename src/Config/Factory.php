@@ -341,7 +341,7 @@ final class Factory
     {
         $budget = min(60, max(1, intdiv($lockTtl, 10)));
 
-        return new RoutingNotifier(new SlackWebhookNotifier($http), new TelegramNotifier($http, $budget), new DiscordNotifier($http, $budget));
+        return new RoutingNotifier(new SlackWebhookNotifier($http, $budget), new TelegramNotifier($http, $budget), new DiscordNotifier($http, $budget));
     }
 
     /** Where the log sink writes; a `--json` call keeps stdout for its one summary line. */
