@@ -7,14 +7,38 @@ namespace Watcher\Reduce;
 use Watcher\Source\LogEvent;
 
 /**
- * Stable problem id: 12 hex of sha256(level|errorType|frame0|tokenCount|firstTwoWords) over the
- * Normalizer-masked message. Deliberately independent of the mined template and of volume, so a
- * problem keeps its id at 1 event or 5, and when messages differ only by a name after word two.
+ * Stable problem id: 12 hex of sha256(level|errorType|frame0|tokenCount|firstTwoWords) over tokens
+ * from the Normalizer output (see {@see TemplateMiner::tokens()}). Deliberately independent of the
+ * mined template and of volume, so a problem keeps its id at 1 event or 5, and when messages differ
+ * only by a name after word two.
+ *
+ * Bump {@see self::FPV} when Normalizer rules change; stored snapshots with a different version are
+ * not compared (baseline reset).
  */
 final class Fingerprinter
 {
+    /** Snapshot field `fpv`: increment when masked text or tokenisation changes. */
+    public const FPV = 1;
+
     public function __construct(private readonly Normalizer $normalizer)
     {
+    }
+
+    /** @param array<mixed>|null $snapshot */
+    public static function snapshotVersion(?array $snapshot): int
+    {
+        if ($snapshot === null) {
+            return 0;
+        }
+        $fpv = $snapshot['fpv'] ?? 0;
+
+        return is_int($fpv) ? $fpv : (is_numeric($fpv) ? (int) $fpv : 0);
+    }
+
+    /** @param array<mixed>|null $snapshot */
+    public static function snapshotUsable(?array $snapshot): bool
+    {
+        return $snapshot !== null && self::snapshotVersion($snapshot) === self::FPV;
     }
 
     public function of(LogEvent $event): string

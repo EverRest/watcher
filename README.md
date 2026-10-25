@@ -28,6 +28,8 @@ Every feature has an on/off flag in the config and a `WATCHER_*` environment var
 
 Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
 
+Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, and what the model costs per day, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
+
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
 ## Requirements

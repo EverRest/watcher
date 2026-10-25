@@ -71,6 +71,21 @@ final class DigestRenderer
         return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
     }
 
+    public function renderFingerprintVersionReset(string $service, string $environment, int $groups, int $events, int $fromFpVersion, int $toFpVersion): Message
+    {
+        $text = sprintf(
+            '✅ watcher · %s · %s — baseline reset: fingerprint rules changed (fpv %d → %d). Recorded %s groups, %s events; comparisons and cached verdicts start fresh next run.',
+            $this->esc($service),
+            $this->esc($environment),
+            $fromFpVersion,
+            $toFpVersion,
+            number_format($groups),
+            number_format($events)
+        );
+
+        return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     /**
      * @param list<array{f: Finding, n: int, i: int}> $shown
      *
@@ -94,6 +109,10 @@ final class DigestRenderer
                 $links = $this->annotationLine($s['f'], $d) . $this->linksLine($s['f'], $d);
                 $out[] = ['kind' => 'finding', 'text' => $this->cap($this->finding($s['f'], $s['n'], $d), self::MAX_SECTION_CHARS - mb_strlen($links)) . $links];
             }
+        }
+
+        if ($d->knownLine !== null && $d->knownLine !== '') {
+            $out[] = ['kind' => 'minor', 'text' => $d->knownLine];
         }
 
         $parts = [];
@@ -170,6 +189,12 @@ final class DigestRenderer
         }
         if ($d->patternFailures > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
+        }
+        if ($d->routedNotice !== null && $d->routedNotice !== '') {
+            $out[] = ['kind' => 'notice', 'text' => 'ℹ️ ' . $this->esc($d->routedNotice)];
+        }
+        if ($d->draftsSkipped > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s more drafts not sent', number_format($d->draftsSkipped))];
         }
 
         if ($d->undeclaredHostCount > 0) {
@@ -296,9 +321,17 @@ final class DigestRenderer
             $trend .= ' · first seen after ' . $this->esc($after);
         }
 
+        $title = $f->title;
+        foreach ($f->fingerprints as $fp) {
+            if (isset($d->findingLabels[$fp])) {
+                $title = $d->findingLabels[$fp] . ' — ' . $title;
+                break;
+            }
+        }
+
         return sprintf(
             "• %s — %s×%s  `%s`\n  Evidence: %s\n  Hypothesis: %s  Next: %s",
-            $this->esc($f->title),
+            $this->esc($title),
             number_format($count),
             $trend,
             substr($f->fingerprints[0], 0, 12),

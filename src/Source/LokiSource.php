@@ -35,6 +35,11 @@ final class LokiSource implements LogSource, ReadDiagnostics
     ];
     /** Extra spellings seen in a `level` stream label (not as words in the text). */
     private const LABEL_WORDS = ['info' => ['information'], 'emergency' => ['panic']];
+    /**
+     * LogQL `|~` alternation (RE2): stack-trace continuation lines with no level word (H5). Kept in sync with
+     * {@see LineParser::continues()} shapes, not the full CONTINUATION regex.
+     */
+    private const TRACE_CONTINUATION_FILTER = '(?:^\\s|^#\\d{1,4}\\b|^at\\s|^Caused by:|^Stack trace:|^PHP (?:Stack trace:|\\d+\\.)|^Traceback|^goroutine \\d+ \\[|^created by |^exit status \\d|^stack backtrace:)';
 
     private readonly string $baseUrl;
     /** @var \Closure(): array<string, string> request headers incl. the credential: a closure, so var_export shows no value */
@@ -49,8 +54,9 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private readonly ClockInterface $clock;
 
     /**
-     * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words (misses
-     *                          lines whose level only lives in the stream `level` label, and trace lines); `label` =
+     * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words plus
+     *                          stack-trace continuation shapes (misses lines whose level only lives in the stream
+     *                          `level` label); `label` =
      *                          stream matcher on the `level` label, no line filter (streams without that label are
      *                          not read; with watch patterns it falls back to `all`, a stream matcher cannot be OR-ed
      *                          with a line filter); `all` = no server-side level restriction, the client decides
@@ -430,7 +436,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         }
         $parts = [];
         if ($filter->minLevel !== Level::Debug) {
-            $parts[] = '(?:\b(?:' . implode('|', $this->words($filter->minLevel, false)) . ')\b)';
+            $parts[] = '(?:\b(?:' . implode('|', $this->words($filter->minLevel, false)) . ')\b|' . self::TRACE_CONTINUATION_FILTER . ')';
         }
         foreach ($filter->watchPatterns as $re) {
             $parts[] = '(?:' . $re . ')';

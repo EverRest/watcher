@@ -26,6 +26,9 @@ final class Reducer
 
     private MiningStats $mining;
 
+    /** @var list<array{template: string, distinct: int}> */
+    private array $variability = [];
+
     /**
      * @param (callable(LogEvent): bool)|null $exempt   true: the event must keep its own group (watch rule hit)
      * @param (callable(LogEvent): void)|null $onFolded called for each event folded into an overflow group
@@ -68,6 +71,16 @@ final class Reducer
     public function unscannableEvents(): int
     {
         return $this->unscannable;
+    }
+
+    /**
+     * Templates with a varying part and the number of distinct masked messages each folds, from the last reduce() (spec 006).
+     *
+     * @return list<array{template: string, distinct: int}>
+     */
+    public function variability(): array
+    {
+        return $this->variability;
     }
 
     /** Events folded into overflow groups by the last reduce(). */
@@ -155,6 +168,7 @@ final class Reducer
             );
         }
         $this->mining = $miner->stats();
+        $this->variability = $miner->variability();
         usort($out, static fn (ProblemGroup $a, ProblemGroup $b): int => [$b->count, $a->fingerprint] <=> [$a->count, $b->fingerprint]);
 
         return $out;

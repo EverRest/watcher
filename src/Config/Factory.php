@@ -16,6 +16,9 @@ use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\SdkMessagesClient;
+use Watcher\Analyze\CostCalculator;
+use Watcher\Hygiene\Cost\CostLedger;
+use Watcher\Hygiene\Cost\LedgerAnalyzer;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Observe\EventSanitizer;
 use Watcher\Observe\FileSink;
@@ -44,7 +47,9 @@ use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
+use Watcher\State\Purgeable;
 use Watcher\Operate\StateInspector;
+use Watcher\Schedule\RunGate;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
 use Watcher\State\Redis\RedisClient;
@@ -72,7 +77,7 @@ final class Factory
     /**
      * A long analysis reply can take well over 30 s, but a model call (two sequential attempts, no SDK retry) must stay within
      * a quarter of lock_ttl, so a second run cannot start while this one is still analysing: timeout = lock_ttl / 4 / 2, within 10..180 s.
-     * The lock itself is not renewed (StateStore has no renew); the router makes at most 2 + escalation_cap model calls.
+     * When the store supports {@see RenewableLock}, Watcher renews the run lock between pipeline steps and before each model call; the router makes at most 2 + escalation_cap model calls.
      *
      * @return array{timeout: int, connect_timeout: int}
      */
@@ -189,8 +194,11 @@ final class Factory
         };
     }
 
-    /** Seconds a Redis call may wait for a reply (default 5, A4-15); a hung server must not hold a run for the 60 s socket default per key. */
-    /** @param array<string, mixed> $r */
+    /**
+     * Seconds a Redis call may wait for a reply (default 5, A4-15); a hung server must not hold a run for the 60 s socket default per key.
+     *
+     * @param array<string, mixed> $r
+     */
     public static function redisReadTimeout(array $r): float
     {
         $t = $r['read_timeout'] ?? null;
@@ -282,8 +290,14 @@ final class Factory
     /** @param array<string, mixed> $p */
     private static function pdo(array $p): PDO
     {
+        $dsn = (string) $p['dsn'];
+        $options = [];
+        // MySQL reports changed rows, not matched; put/renew treat rowCount 0 as a miss (P-M1).
+        if (str_starts_with($dsn, 'mysql:')) {
+            $options[PDO::MYSQL_ATTR_FOUND_ROWS] = true;
+        }
         try {
-            return new PDO((string) $p['dsn'], $p['username'] ?? null, $p['password'] ?? null);
+            return new PDO($dsn, $p['username'] ?? null, $p['password'] ?? null, $options);
         } catch (PDOException) {
             throw new InvalidConfig('state.pdo: cannot connect'); // not chained: the driver message can carry the DSN or password
         }
@@ -295,7 +309,7 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter {
+        return new class ($make) implements StateStore, Purgeable, RenewableLock, ReservableCounters, UnreadableCounter {
             /** @var array<int, Closure(): StateStore> the factory closes over the connection settings (the Redis password): kept out of the object so no dump of it shows them */
             private static array $makers = [];
 
@@ -361,6 +375,13 @@ final class Factory
                 return $this->store instanceof UnreadableCounter ? $this->store->unreadableEntries() : 0; // never connects just to count
             }
 
+            public function purge(int $maxFiles = 5000, float $maxSeconds = 2.0): int
+            {
+                $store = $this->store();
+
+                return $store instanceof Purgeable ? $store->purge($maxFiles, $maxSeconds) : 0;
+            }
+
             private function store(): StateStore
             {
                 return $this->store ??= (self::$makers[spl_object_id($this)])();
@@ -368,7 +389,8 @@ final class Factory
         };
     }
 
-    public static function analyzer(WatchConfig $c): Analyzer
+    /** @param bool $dryRun a billed dry run must not write into the real cost ledger (spec 006, review M3) */
+    public static function analyzer(WatchConfig $c, bool $dryRun = false): Analyzer
     {
         if ($c->analysis['provider'] !== 'anthropic') {
             throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
@@ -377,12 +399,38 @@ final class Factory
         $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
         $key = (string) $c->analysis['api_key'];
 
-        return new AnthropicAnalyzer(
+        $analyzer = new AnthropicAnalyzer(
             $c->analysis['client'] === 'sdk'
                 ? new SdkMessagesClient($key, new Client($options), null, self::analyzerRequestOptions())
                 : new AnthropicHttpClient($key, new Client($options), $options['timeout']),
             $c->on('advice'),
         );
+
+        return $c->hygiene->enabled ? self::ledgered($c, $analyzer, $dryRun) : $analyzer;
+    }
+
+    /** The store the cost ledger writes to: the real one, or in a dry run a shadow that is read through and never written back. */
+    public static function ledgerState(WatchConfig $c, bool $dryRun, ClockInterface $clock): StateStore
+    {
+        $state = self::state($c, $clock);
+
+        return $dryRun ? new \Watcher\Operate\DryRunStateStore($state) : $state;
+    }
+
+    /** Spec 006: books every billed call per day, step and family so the cost report can explain the spend. */
+    private static function ledgered(WatchConfig $c, Analyzer $inner, bool $dryRun): Analyzer
+    {
+        $clock = new SystemClock();
+        $ledger = new CostLedger(
+            self::ledgerState($c, $dryRun, $clock),
+            $c->stateKey,
+            $c->state['retention'],
+            new \DateTimeZone($c->schedule['timezone']),
+            $clock,
+            new CostCalculator($c->analysis['prices']),
+        );
+
+        return new LedgerAnalyzer($inner, $ledger, (string) $c->analysis['models']['analyze'], (string) $c->analysis['models']['escalate']);
     }
 
     /** $lockTtl bounds the rate-limit wait of the chat notifiers: min(60, max(1, lockTtl / 10)) seconds per message. */
@@ -447,6 +495,11 @@ final class Factory
     public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
     {
         return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null;
+    }
+
+    public static function gate(WatchConfig $c): RunGate
+    {
+        return RunGate::fromSchedule($c->schedule);
     }
 
     /** Liveness record reader/writer; every secret of the config is masked in a stored failure reason. */

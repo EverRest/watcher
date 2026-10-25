@@ -95,6 +95,7 @@ final class SlackWebhookNotifier implements Notifier
     private function block(array $s): array
     {
         return match ($s['kind']) {
+            'draft' => ['type' => 'section', 'text' => ['type' => 'mrkdwn', 'text' => "```\n" . str_replace('```', "'''", $s['text']) . "\n```"]],
             // plain_text does not decode entities, so undo the mrkdwn escaping; header limit is 150.
             'header' => ['type' => 'header', 'text' => [
                 'type' => 'plain_text',

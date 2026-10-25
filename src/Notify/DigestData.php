@@ -84,6 +84,13 @@ final class DigestData
         public readonly int $newOverflow = 0,
         /** @var list<string> code-built lines about pod events (source unavailable, coverage); integers, times and fixed words only (spec 008) */
         public readonly array $podEventLines = [],
+        public readonly ?string $knownLine = null,
+        /** @var array<string, string> */
+        public readonly array $findingLabels = [],
+        public readonly ?string $routedNotice = null,
+        public readonly int $draftsSkipped = 0,
+        public readonly int $knownCount = 0,
+        public readonly int $knownGrownCount = 0,
     ) {
     }
 }

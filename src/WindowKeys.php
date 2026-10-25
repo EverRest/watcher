@@ -62,6 +62,11 @@ final class WindowKeys
         return Keys::delivered($this->stateKey, $this->end);
     }
 
+    public function deliveredParts(): string
+    {
+        return Keys::deliveredParts($this->stateKey, $this->end);
+    }
+
     /** Failed analysis attempts of this window. */
     public function analysisFailures(): string
     {
@@ -78,5 +83,15 @@ final class WindowKeys
     public function failNotices(): string
     {
         return Keys::failNotices($this->stateKey, $this->end);
+    }
+
+    public function routeDelivered(int $routeIndex): string
+    {
+        return Keys::routeDelivered($this->stateKey, $this->end, $routeIndex);
+    }
+
+    public function draft(string $fingerprint): string
+    {
+        return Keys::draft($this->stateKey, $this->end, $fingerprint);
     }
 }

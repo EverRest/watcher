@@ -22,29 +22,31 @@ one at a time in the stated order and re-read the file just before editing.
 
 ## Phase 0: Gate
 
-- [ ] T001 Run the three gates on the current tree and note the baseline (all green expected). No code.
+- [x] T001 Run the three gates on the current tree and note the baseline (all green expected). No code.
 
 ## Phase 1: Configuration and boundary arithmetic (blocks everything)
 
-- [ ] T002 [P] [US1/2/7] Write `tests/Unit/Config/ScheduleConfigTest.php` (red): `run_at` string/list rules and messages, `every` allowed set, mutual exclusion and "neither", `catch_up` range and "needs every", `ingestion_delay` < period, `max_runs_per_day`, `run_budget_usd`, derived `runs_per_day`, derived defaults (none for one run a day, `2 x` / `daily/runs x 2` otherwise), `stale_after` default, `rolling`/`weekday` rejected for sub-day, `same_slot_*` retention rule, env-list parsing of `WATCHER_RUN_AT`. Messages exactly as in contracts/config.md.
-- [ ] T003 [US1/2/7] **SEQ: `src/Config/WatchConfig.php`**. Implement the schedule/analysis/baseline/heartbeat parsing to turn T002 green. Keep every existing key and message; single-string `run_at` stays byte-identical (store as list, expose `window` unchanged). No other file.
-- [ ] T004 [P] [US1/2/7] Write `tests/Unit/Schedule/RunGateEveryTest.php` and `RunGateListTest.php` (red): `pending($now)` newest first for `every` (whole period due), list (1 h due), `catch_up` limit, done-independent (pure), `ingestion_delay` shift, contiguous default start, explicit `window` = real `end - window`, `latest()` for dry run, legacy single-`run_at` cases copied from the existing `RunGateTest` still pass.
-- [ ] T005 [US1/2/7] **SEQ: `src/Schedule/RunGate.php`**. Constructor takes the parsed schedule (list, every, delay, catch-up, window); add `pending()`, keep `decide()` as the newest of `pending()` for old callers and tests, generalise `runAtOn` to arbitrary wall times and `endBack()` to any boundary (needed by T018). Turns T004 green.
+**Status (2026-10-25):** Phase 1 shipped on `feat/014-schedule-periods` except DST matrix (T006–T007) and full `RunGateEvery` coverage; `schedule.every` due-window arithmetic needs follow-up (T007).
+
+- [x] T002 [P] [US1/2/7] Write `tests/Unit/Config/ScheduleConfigTest.php` (red): `run_at` string/list rules and messages, `every` allowed set, mutual exclusion and "neither", `catch_up` range and "needs every", `ingestion_delay` < period, `max_runs_per_day`, `run_budget_usd`, derived `runs_per_day`, derived defaults (none for one run a day, `2 x` / `daily/runs x 2` otherwise), `stale_after` default, `rolling`/`weekday` rejected for sub-day, `same_slot_*` retention rule, env-list parsing of `WATCHER_RUN_AT`. Messages exactly as in contracts/config.md.
+- [x] T003 [US1/2/7] **SEQ: `src/Config/WatchConfig.php`**. Implement the schedule/analysis/baseline/heartbeat parsing to turn T002 green. Keep every existing key and message; single-string `run_at` stays byte-identical (store as list, expose `window` unchanged). No other file.
+- [x] T004 [P] [US1/2/7] Write `tests/Unit/Schedule/RunGateEveryTest.php` and `RunGateListTest.php` (red): partial (list + every-grid deferred). `pending($now)` newest first for `every` (whole period due), list (1 h due), `catch_up` limit, done-independent (pure), `ingestion_delay` shift, contiguous default start, explicit `window` = real `end - window`, `latest()` for dry run, legacy single-`run_at` cases copied from the existing `RunGateTest` still pass.
+- [x] T005 [US1/2/7] **SEQ: `src/Schedule/RunGate.php`**. Constructor takes the parsed schedule (list, every, delay, catch-up, window); add `pending()`, keep `decide()` as the newest of `pending()` for old callers and tests, generalise `runAtOn` to arbitrary wall times and `endBack()` to any boundary (needed by T018). Turns T004 green.
 - [ ] T006 [P] [US1] Write `tests/Unit/Schedule/RunGateDstTest.php` (red first where it differs): the matrix of quickstart #24-#28 (Kyiv 29 Mar and 25 Oct 2026, New York 8 Mar and 1 Nov 2026, PT1H) and #26 (Kyiv spring PT2H/PT3H): boundary count per local date, each window's real length, contiguity (`window[n].end == window[n+1].start`), no boundary twice.
 - [ ] T007 [US1] **SEQ: `src/Schedule/RunGate.php`**. Fix whatever T006 shows red (drop nonexistent wall times for `every`, first occurrence for ambiguous). Same file as T005: after it.
-- [ ] T008 [US1] **SEQ: `src/Config/Factory.php`, `src/Watcher.php`**. Add `Factory::gate(WatchConfig)` and replace the two `new RunGate(...)` in `Watcher` (run and baseline resolver) with it. No behaviour change; existing suite green (SC-007 checkpoint).
+- [x] T008 [US1] **SEQ: `src/Config/Factory.php`, `src/Watcher.php`**. Add `Factory::gate(WatchConfig)` and replace the two `new RunGate(...)` in `Watcher` (run and baseline resolver) with it. No behaviour change; existing suite green (SC-007 checkpoint).
 
 **Checkpoint**: config parses, gate decides, DST matrix green, old suite unchanged.
 
 ## Phase 2: Hourly runs (US1, US2, US7) - MVP
 
 - [ ] T009 [P] [US1] Write `tests/EndToEnd/HourlyRunsTest.php` (red): quickstart #6 (24 triggers, 24 run records, contiguous, one digest, quiet runs update the heartbeat), #1 repeated trigger `skipped_done`, #20 delay applied to source windows, list schedule #4 end to end.
-- [ ] T010 [US1] **SEQ: `src/Watcher.php`**. Replace `decide/latest` use with `pending()`: drop windows that are done (run record or delivered marker, before the lock), run the rest oldest first through the existing `locked()` path; dry run uses `latest()`. `catch_up` is still 1 here. Turns T009 green.
+- [x] T010 [US1] **SEQ: `src/Watcher.php`**. Replace `decide/latest` use with `pending()`: partial (one window per trigger). drop windows that are done (run record or delivered marker, before the lock), run the rest oldest first through the existing `locked()` path; dry run uses `latest()`. `catch_up` is still 1 here. Turns T009 green.
 
 ## Phase 3: No double reporting (US3)
 
 - [ ] T011 [P] [US3] Write `tests/Unit/State/KeysTest.php` additions (`highWater`, `runsToday`, TTL kinds) and `tests/EndToEnd/OverlapTest.php` (red): quickstart #7, #8, #9 plus "snapshot stores the effective start" and "dry run does not write `hw`".
-- [ ] T012 [US3] **SEQ: `src/State/Keys.php` (small), `src/Watcher.php`**. Read `hw` before the source read, clamp the window to `[max(start, hw), end)`, write `hw` with the run record only for reported/quiet/baselined and only forward, store the effective start in the snapshot. Turns T011 green. Note: leave `Keys::*` signatures alone, add only new builders and kinds.
+- [x] T012 [US3] **SEQ: `src/State/Keys.php` (small), `src/Watcher.php`**. Read `hw` before the source read, clamp the window to `[max(start, hw), end)`, write `hw` with the run record only for reported/quiet/baselined and only forward, store the effective start in the snapshot. Turns T011 green. Note: leave `Keys::*` signatures alone, add only new builders and kinds. (overlap e2e still open in T011.)
 
 ## Phase 4: Outages and catch-up (US4)
 
