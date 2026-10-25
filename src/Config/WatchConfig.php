@@ -23,7 +23,7 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe', 'hygiene',
         'known_issues', 'drafts', 'report',
     ];
 
@@ -82,6 +82,7 @@ final class WatchConfig implements \JsonSerializable
         public readonly string $stateKey,
         private readonly array $flags,
         public readonly ObserveSettings $observe,
+        public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
         public readonly \Watcher\Incident\IncidentSettings $incident,
     ) {
     }
@@ -281,6 +282,7 @@ final class WatchConfig implements \JsonSerializable
             $environment === null ? $service : $service . '@' . $environment,
             $flags,
             $observe,
+            \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
             $incident,
         );
     }

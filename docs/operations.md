@@ -319,6 +319,18 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   billed**; spend is not recorded.
 - `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
 
+## Log hygiene reports (spec 006)
+
+```bash
+vendor/bin/watcher hygiene --config=config/watcher.php                 # four reports on stdout
+vendor/bin/watcher hygiene --config=config/watcher.php --report=cost --days=14 --json
+vendor/bin/watcher hygiene --config=config/watcher.php --notify       # weekly, from the host's cron
+vendor/bin/watcher hygiene --config=config/watcher.php --decline=<id> # quiet a proposal for hygiene.decline_days
+vendor/bin/watcher hygiene --config=config/watcher.php --dry-run       # read-only look: nothing written, no lock, nothing sent
+```
+
+Run it **daily** (it stores the aggregates proposals need: 14 complete days before the first proposal; a day that was sampled at the event cap or the time budget, or never ran, is missing history) and add `--notify` once a week. One pass at a time per service (a second one exits 1 `another hygiene pass is running`); a pass stops reading at `hygiene.max_seconds` and says it is sampled. A "gone" retraction needs `max(hygiene.repeat_days, 2)` complete quiet days (days that were not sampled) without the site, so a weekly job is not reported gone and new again. The pass lock lives `schedule.lock_ttl` seconds and is renewed while the pass runs when the state store can (`hygiene.max_seconds + schedule.lock_ttl + 60` seconds on a store that cannot); a failed lock release is noted (`lock release failed (<Class>)`) and never changes the result; a state failure names the failing class only (`state unavailable (<Class>)`). Even without `--notify` a pass updates its own state (day record, site registry); `--dry-run` (also `php artisan watcher:hygiene --dry-run`) is the read-only look: the writes are shadowed in memory, no lock is taken (a scheduled pass is not blocked), nothing is sent, and a `--now` more than a day ahead of the clock is refused otherwise. It reads the source once per run (one more read than `run` on those days) and calls no model. Exit 0 reports produced or switched off, 1 source/state/delivery failure (a fixed reason), 2 usage or invalid config. Proposals are text: paste a fragment into `mute` / `watch_rules` yourself. Output schema: `specs/006-log-hygiene/contracts/report-schema.md`.
+
 ## Upgrading
 
 Versions follow semver; read `CHANGELOG.md` first. A config key that was renamed or removed makes validation fail loudly

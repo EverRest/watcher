@@ -161,6 +161,11 @@ return [
         'path_map' => [],                          // ['/var/www/html/' => 'app/']
     ],
 
+    // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default; the cost report works regardless.
+    'hygiene' => [
+        'enabled' => Env::bool('WATCHER_HYGIENE_ENABLED', false),
+    ],
+
     // Event sinks (docs/observability.md). Every sink is OFF until its own `enabled` is true. With driver `none` under notify.digest the
     // chat stays silent and a sink is the only channel (at least one must be on). `log` text defaults to on, the others to off.
     'observe' => [

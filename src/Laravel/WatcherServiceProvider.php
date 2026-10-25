@@ -8,6 +8,9 @@ use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 use Watcher\Config\Factory;
 use Watcher\Fleet\FleetRunner;
+use Watcher\Hygiene\Hygiene;
+use Watcher\Hygiene\HygieneOptions;
+use Watcher\Hygiene\HygieneResult;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\HeartbeatStatus;
 use Watcher\Operate\RunOptions;
@@ -72,11 +75,16 @@ final class WatcherServiceProvider extends ServiceProvider
             StateGetCommand::class,
             static fn ($app): StateGetCommand => new StateGetCommand(static fn (string $key): ?string => Factory::stateInspector((array) $app->make('config')->get('watcher'))->render($key)),
         );
+        // Spec 006: log hygiene reports.
+        $this->app->bind(
+            HygieneCommand::class,
+            static fn ($app): HygieneCommand => new HygieneCommand(static fn (HygieneOptions $options): HygieneResult => Hygiene::fromConfig((array) $app->make('config')->get('watcher'))->run($options)),
+        );
     }
 
     public function boot(): void
     {
-        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, StateGetCommand::class, FleetCommand::class]);
+        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, StateGetCommand::class, FleetCommand::class, HygieneCommand::class]);
         if (method_exists($this->app, 'basePath')) {
             $this->publishes([self::CONFIG => $this->app->basePath('config/watcher.php')], 'watcher-config');
         }
