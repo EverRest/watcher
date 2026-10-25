@@ -191,4 +191,25 @@ return [
         'web_url' => 'https://git.example.com/group/orders-api',
         'path_map' => ['/var/www/html/' => 'app/'],      // container path => repository path, for stack-frame links
     ],
+
+    // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default; the cost report works regardless.
+    'hygiene' => [
+        'enabled' => Env::bool('WATCHER_HYGIENE_ENABLED', false), // true: privacy, shape and proposal reports; the cost ledger is written
+        'read_min_level' => 'info',                      // lowest level the pass reads, default info
+        'event_cap' => 200000,                           // events read; more is sampled and the report says so, default 200000
+        'max_line_length' => 2000,                       // a message longer than this is a "long line", default 2000
+        'noisy_share' => 0.20,                           // one site writing more than this share of all events is noisy, default 0.20
+        'variable_distinct' => 20,                       // distinct messages under one template = variable free text, default 20
+        'repeat_days' => 7,                              // an unchanged finding is sent at most this often, default 7
+        'growth_factor' => 2.0,                          // count ratio that makes a finding "growing" (> 1), default 2.0
+        'min_history_days' => 14,                        // days of history before rule proposals, default 14
+        'mute_min_daily' => 100,                         // mean events per day for a mute proposal, default 100
+        'watch_lead' => 1800,                            // seconds a precursor may precede the severe family, default 1800
+        'decline_days' => 90,                            // a declined proposal is not proposed again for this long, default 90
+        'spike_factor' => 2.0,                           // a day above this x the median of earlier days is flagged (> 1), default 2.0
+        'site_allow_dirs' => [],                         // directory names accepted in a call-site id besides the built-in code names (app, src, Http, Services, ...), default none; needs repo.path_map
+        'allow_constant_labels' => false,                // true: a message that never varies keeps its label and can be a watch proposal (it may be a name), default false
+        'literal_min_sites' => 5,                        // a literal word of a shown template must be common log vocabulary or seen at this many sites (>= 2), default 5
+        'max_seconds' => 900,                            // time budget of one pass; past it the read stops and the report says it is sampled, default 900
+    ],
 ];

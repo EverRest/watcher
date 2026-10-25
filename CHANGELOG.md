@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Fixed (spec 006 second review, lane B, 0.1.34)
+- "gone" retractions are one line per site; only the retractions in the notice are marked as sent (a joined line used to be cut at 600 characters with all of it marked sent).
+- A call-site id from a context `file` or frame needs a `repo.path_map` root (no root, no file site ids: the fingerprint stands in), no `..`, one stem and one known code extension (`.pdf.php` rejected), and no deny-listed directory below the root (`public`, `files`, `data`, ... ; `hygiene.site_allow_dirs` opts one back in).
+- A site is "gone" after `max(repeat_days, 2)` complete quiet days, so weekly jobs no longer flip between gone and new.
+- The pass lock lives `max_seconds + schedule.lock_ttl + 60` s; a failed release is noted and never replaces a successful result; `state unavailable (<Class>)` keeps the failing class (never the message) in the reason and `notes`.
+- Watch-rule fragments carry no invisible format characters; the time-budget test pins the check cadence.
+
+### Fixed (spec 006 review, 0.1.33)
+- Notices: every log-derived string is escaped like the digest's (no ping or link from log text in Slack, Telegram or Discord), sent as sections, capped at 25 sites and 10 templates; only sites shown are marked as sent; shape, proposals and cost are sent at most once per `repeat_days`; `notify.notice.enabled=false` is honoured.
+- A site is a source file below no data directory; uploads, imports and documents fall back to the fingerprint. Integer-typed card/phone values are scanned; undecodable texts are counted (`unscannable`); unique file names cannot crowd real sites out of the table.
+- Proposals ignore sampled days, keep every severe family in the day record, refuse watch rules with fewer than 8 literal characters; "gone" needs two complete passes on different days; `variable_distinct` has a floor of 5.
+- A billed `run --dry-run` writes the cost ledger into a shadow; each fleet service books under its own key. One hygiene pass at a time (lock), a time budget (`hygiene.max_seconds`), memoised scanning; `hygiene` in `config/watcher.php`; `state unavailable` and `failure`/`notes` in `--json`.
+
+### Added (spec 006, log hygiene: command and configuration, 0.1.32)
+- `watcher hygiene --config=<file> [--report=privacy,shape,proposals,cost] [--days=1-30] [--now=] [--notify] [--decline=<id>] [--json]` and `php artisan watcher:hygiene`. Reads one window through the existing source and measures it in code; **no model call, raw values never leave the process**: reports hold call-site identifiers, categories, levels, counts, shares, times and templates that were already allowed to leave. Details and limits: `docs/privacy.md` (hygiene) and `docs/operations.md`.
+- New `hygiene` config section (all defaults in `config/watcher.example.php`); `hygiene.enabled` defaults to **false** and is not in `WatchConfig::FLAGS`. With it off nothing is added to the run path.
+
+### Added (spec 006, log hygiene: cost report and rule proposals, 0.1.31)
+- **Rule proposals:** mute fragments (stable, high-volume, never at or above `selection.min_level`) and watch fragments (a family that repeatedly starts shortly before a severe one), with evidence and a replay through the real `MuteList`; declined proposals are quiet for `hygiene.decline_days`. Needs `hygiene.min_history_days` (14) days of daily passes.
+- **Cost report:** tokens and cost per service and day from the run records (equals the sum of recorded runs), share of the daily caps, spike days with likely causes; calls per step and top spenders from a ledger written only when `hygiene.enabled`. Always available.
+- State: `hyg:*` and `ledger:*` keys, all with the state retention.
+
+### Added (spec 006, log hygiene: measurement and privacy/shape reports, 0.1.30)
+- **Privacy-hygiene report:** which log call sites (file:line from context `file`/`line` or the first frame, else the fingerprint) write e-mails, tokens, IP addresses, phone-like and card-like numbers, host names or other masked patterns, per level, with counts, since when and a trend (new / growing / stable / gone); templates that hide many different texts behind one sentence (possible names).
+- **Log-shape report:** sites producing a large share of all lines, lines over a limit, traces pasted into messages, mixed formats, access-log lines at warning or above, each with a fixed-text proposal.
+- `TemplateMiner::variability()` / `Reducer::variability()`: distinct masked messages per varying template (one integer per cluster); no change to clustering or templates.
+
 ### Added (spec 008, Kubernetes events) - 0.1.20, hardened in 0.1.21, 0.1.22 and 0.1.23
 - `KubernetesEventsSource`: pod-level problems (crash loops, OOM kills, image pull failures, failing probes, restarts, HPA metric errors, evictions) as a third `LogSource`, read-only (`GET` on `events` and `pods` only, enforced by an architecture test), usable beside the main source (`events` => `['driver' => 'kubernetes']`) or alone (`source.driver: kubernetes`). Settings in the new `kubernetes` section (`namespaces` required, no "all namespaces"); flag `kubernetes.enabled` / `WATCHER_KUBERNETES_ENABLED` (default on). Setup, RBAC and limits: `docs/kubernetes.md`.
 - An hourly ledger (state key `evt:<service>`, expiring) merges the events still in the cluster at every trigger, so the daily digest counts each occurrence once; a missed trigger is stated in the digest ("possible gap"). Trigger watcher at least hourly when using it.
@@ -97,6 +124,10 @@ Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fa
 - `kubernetes.api.server` follows the `SecureUrl` rule: https, or http for a trusted network with `kubernetes.api.allow_insecure: true`.
 - The streaming response cap (decoded bytes) now lives in `ResponseLimit::options()` and protects Loki, Datadog and Kubernetes alike.
 - Coverage and a failed latest read reach the digest as `ReadDiagnostics` when Kubernetes is the main source.
+
+### Changed (spec 006 rebased on develop and spec 008; review fixes; temporary block, the integrator assigns the release number)
+- `watcher hygiene` scans through `Normalizer::normalizeOrUnscannable`, sends notices with develop's `SlackText` (one section per line, no private cap or split), runs under `RunGuard` (max_seconds and the memory stop) and renews its lock when the store can; the source's `ReadDiagnostics` become a note.
+- Control, format and invisible characters are removed from every string the scan reads before any mask runs; templates are shown, stored and proposed as watch rules only when they generalise `hygiene.variable_distinct` messages; an empty read is not a complete day; failed cost-ledger writes are counted and shown as `unbooked`; site-id deny list extended; `--decline` takes the pass lock; anonymous exception classes no longer leak a file name.
 
 ### Changed (spec 008, second review)
 - The pod-event ledger is bounded to half of the state codec's budgets (flat per-entry points, overflow counted and shown); a 200 answer that is not a list is an unreadable cluster; the masker matches pod names in one pass per read and the mapping runs under the RunGuard; credentials are held in objects no dump or export prints; the in-cluster service-account token is masked; exotic quotes and invisible characters next to a keyword no longer defeat the masker.

@@ -10,6 +10,8 @@ use Watcher\Config\InvalidConfig;
 use Watcher\Fleet\FleetCheck;
 use Watcher\Fleet\FleetResult;
 use Watcher\Fleet\FleetStatus;
+use Watcher\Hygiene\HygieneOptions;
+use Watcher\Hygiene\HygieneResult;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\Doctor;
 use Watcher\Operate\HeartbeatStatus;
@@ -28,6 +30,7 @@ final class Application
           watcher check --config=<file> [--post-test] [--json]
           watcher status --config=<file> [--json]
           watcher state:get <heartbeat|last-snapshot|snapshot:<window end>|run:<window end>> --config=<file>
+          watcher hygiene --config=<file> [--report=privacy,shape,proposals,cost] [--days=<1-30>] [--now=<ISO-8601>] [--notify] [--decline=<proposal id>] [--json]
           watcher fleet:run --config=<fleet file or directory> [--now=<ISO-8601>] [--only=<service>[,<service>...]] [--dry-run [--estimate]] [--json]
           watcher fleet:check --config=<fleet file or directory> [--post-test] [--json]
           watcher fleet:status --config=<fleet file or directory> [--json]
@@ -42,6 +45,7 @@ final class Application
         'check' => ['--post-test', '--json'],
         'status' => ['--json'],
         'state:get' => [],
+        'hygiene' => ['--notify', '--json', '--dry-run'],
         'fleet:run' => ['--dry-run', '--estimate', '--json'],
         'fleet:check' => ['--post-test', '--json'],
         'fleet:status' => ['--json'],
@@ -59,6 +63,7 @@ final class Application
      *        throws InvalidArgumentException for a refused key, InvalidConfig for a bad config
      * @param (Closure(string, bool): CheckReport)|null $fleetCheckFactory fleet file or directory, --post-test; throws InvalidConfig for an invalid fleet
      * @param (Closure(string): FleetStatus)|null $fleetStatusFactory fleet file or directory; throws InvalidConfig for an invalid fleet
+     * @param (Closure(array<string, mixed>, HygieneOptions): HygieneResult)|null $hygieneFactory spec 006; throws InvalidConfig before any external call
      */
     public function __construct(
         private readonly Closure $factory,
@@ -70,6 +75,7 @@ final class Application
         private readonly ?Closure $fleetCheckFactory = null,
         private readonly ?Closure $fleetStatusFactory = null,
         private readonly ?Closure $stateGetFactory = null,
+        private readonly ?Closure $hygieneFactory = null,
     ) {
     }
 
@@ -94,14 +100,17 @@ final class Application
         $nowRaw = null;
         $only = null;
         $key = null;
+        $hygieneArgs = ['report' => null, 'days' => null, 'decline' => null];
         $flags = [];
         foreach (array_slice($args, 1) as $a) {
             if (str_starts_with($a, '--config=')) {
                 $config = substr($a, 9);
             } elseif ($command === 'state:get' && $key === null && !str_starts_with($a, '-')) {
                 $key = $a;
-            } elseif (($command === 'run' || $command === 'fleet:run') && str_starts_with($a, '--now=')) {
+            } elseif (in_array($command, ['run', 'fleet:run', 'hygiene'], true) && str_starts_with($a, '--now=')) {
                 $nowRaw = substr($a, 6);
+            } elseif ($command === 'hygiene' && preg_match('/^--(report|days|decline)=(.*)$/s', $a, $m) === 1) {
+                $hygieneArgs[$m[1]] = $m[2];
             } elseif ($command === 'fleet:run' && str_starts_with($a, '--only=')) {
                 $only = self::parseOnly(substr($a, 7));
                 if ($only === []) {
@@ -120,6 +129,10 @@ final class Application
 
         if ($command === 'state:get') {
             return $key === null ? $this->usage() : $this->stateGet($config, $key);
+        }
+
+        if ($command === 'hygiene') {
+            return $this->hygiene($config, $hygieneArgs, $nowRaw, isset($flags['--notify']), $json, isset($flags['--dry-run']));
         }
 
         if ($command === 'fleet:check' || $command === 'fleet:status') {
@@ -198,6 +211,49 @@ final class Application
         $this->line(null, $text);
 
         return 0;
+    }
+
+    /** @param array{report: ?string, days: ?string, decline: ?string} $args */
+    private function hygiene(string $config, array $args, ?string $nowRaw, bool $notify, bool $json, bool $dryRun = false): int
+    {
+        if ($this->hygieneFactory === null) {
+            return $this->usage();
+        }
+        $now = null;
+        if ($nowRaw !== null && ($now = self::parseNow($nowRaw)) === null) {
+            fwrite($this->err, "invalid --now: expected ISO-8601, e.g. 2026-10-23T06:00:00Z\n");
+
+            return 2;
+        }
+        try {
+            $options = HygieneOptions::fromInput($args['report'], $args['days'], $args['decline'], $now, $notify, $dryRun);
+        } catch (\InvalidArgumentException $e) {
+            fwrite($this->err, $e->getMessage() . "\n");
+
+            return 2;
+        }
+
+        try {
+            $result = ($this->hygieneFactory)($this->load($config), $options);
+        } catch (InvalidConfig $e) {
+            fwrite($this->err, 'invalid config: ' . $e->getMessage() . "\n");
+
+            return 2;
+        }
+        if ($result->disabled) {
+            fwrite($this->err, self::DISABLED_HINT . "\n");
+        }
+        if ($result->skipped) {
+            fwrite($this->err, "watcher: hygiene reports disabled (set hygiene.enabled=true); only the cost report was produced\n");
+        }
+        if (($text = $result->text()) !== '') {
+            $this->line($json, $text, true);
+        }
+        if ($json) {
+            $this->line(null, $result->toJson());
+        }
+
+        return $result->exitCode();
     }
 
     /** @param list<string> $only */

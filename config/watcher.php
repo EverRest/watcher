@@ -156,4 +156,9 @@ return [
         'web_url' => env('WATCHER_REPO_URL'),
         'path_map' => [],                          // ['/var/www/html/' => 'app/']
     ],
+
+    // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default; the cost report works regardless.
+    'hygiene' => [
+        'enabled' => Env::bool('WATCHER_HYGIENE_ENABLED', false), // true: privacy, shape and proposal reports; the cost ledger is written
+    ],
 ];

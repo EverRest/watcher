@@ -25,6 +25,8 @@ final class Keys
     public const DELIVERED = 'sent';
     public const FAILNOTICE = 'failn';
     public const EVENTS = 'evt';
+    public const HYGIENE = 'hyg';
+    public const LEDGER = 'ledger';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -154,6 +156,48 @@ final class Keys
     public static function events(string $service): string
     {
         return self::join(self::EVENTS, $service);
+    }
+
+    /** Aggregates of one hygiene pass for a service-local date (spec 006, data-model.md). */
+    public static function hygieneDay(string $service, string $date): string
+    {
+        return self::join(self::HYGIENE, 'day', $service, $date);
+    }
+
+    /** Call-site registry: first/last seen, last count and last report time per site. */
+    public static function hygieneSites(string $service): string
+    {
+        return self::join(self::HYGIENE, 'sites', $service);
+    }
+
+    /** Declined rule proposals: id => ISO time until which they are not proposed again. */
+    public static function hygieneDeclined(string $service): string
+    {
+        return self::join(self::HYGIENE, 'declined', $service);
+    }
+
+    /** One hygiene pass at a time per service: the registry and the day record are read-modify-write. */
+    public static function hygieneLock(string $service): string
+    {
+        return self::join(self::HYGIENE, 'lock', $service);
+    }
+
+    /** When each non-privacy report was last sent: name => ISO time. */
+    public static function hygieneSent(string $service): string
+    {
+        return self::join(self::HYGIENE, 'sent', $service);
+    }
+
+    /** Model calls and tokens of one service-local date, by step and family (written only when hygiene is enabled). */
+    public static function ledger(string $service, string $date): string
+    {
+        return self::join(self::LEDGER, $service, $date);
+    }
+
+    /** Number of billed calls whose ledger write failed on a service-local date (so the cost report can say it is understated). */
+    public static function ledgerUnbooked(string $service, string $date): string
+    {
+        return self::join(self::LEDGER, 'unbooked', $service, $date);
     }
 
     /** @param string $kind one of the kind constants */
