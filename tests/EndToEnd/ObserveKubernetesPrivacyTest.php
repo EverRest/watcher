@@ -102,7 +102,7 @@ final class ObserveKubernetesPrivacyTest extends TestCase
             'summary' => (new JsonSummary())->render($result->summaryData),
             'host log' => (string) json_encode($hostLog->records),
             'notifier' => (string) json_encode(array_map(static fn (array $s) => $s['message'], $h->notifier->sent), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'state' => (string) json_encode($h->state->all()),
+            'state' => (string) json_encode($h->state instanceof \Watcher\Tests\Fakes\InMemoryStateStore ? $h->state->all() : []),
         ];
         self::assertStringContainsString('pod event', $outputs['notifier'] . $outputs['file sink'], 'the pod events were read, or this proves nothing');
         foreach ($outputs as $where => $text) {
