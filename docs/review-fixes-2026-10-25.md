@@ -19,6 +19,12 @@ Related: [review-2026-10-23.md](review-2026-10-23.md) (log-source and reducer fi
 | W6 | `CodeLinkBuilder::mapPath` prefix match without path-segment boundary (`/app` vs `/apple`) | closed |
 | H5 | Loki text-mode line filter drops stack-trace continuations server-side | closed (continuations); unworded labelled main lines still use `level_mode: label` |
 
+## Batch 6 — fingerprint versioning (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-H1 | Fingerprint version `fpv` in window snapshots; stale `fpv` → baseline reset notice; golden Normalizer corpus | closed |
+
 ## Batch 7 — Notify + LineParser (closed)
 
 | ID | Item | Status |
@@ -26,3 +32,12 @@ Related: [review-2026-10-23.md](review-2026-10-23.md) (log-source and reducer fi
 | P-M3 | Telegram/Discord partial delivery duplicates on digest retry | closed |
 | P-M6 | `LineParser` decodes the same JSON line repeatedly while classifying continuations | closed |
 | P-M6-low | `LineParser::inRange` used `time()` instead of the injected clock | closed |
+
+## Later batches — open
+
+| ID | Item | Batch | Status |
+|----|------|-------|--------|
+| P-M1 | PDO `StateStore`: MySQL `rowCount` / affected-rows | 3 | open |
+| P-M2 | PDO state purge / `Purgeable` | 3 | open |
+| H1 | `Watcher::locked()` refactor — `RunLedger` / `EventCollector` extraction | — | deferred |
+| SEC | Security review follow-ups | — | in progress |
