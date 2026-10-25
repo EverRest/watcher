@@ -296,7 +296,7 @@ final class KubeApiTest extends TestCase
         $probe->decode = null;
         $handler = function (RequestInterface $r, array $o) use ($chunks, $size, $headers, $gzip, $probe) {
             $probe->decode = $o['decode_content'] ?? null;
-            $response = new Response(200, $headers);
+            $response = self::asInterface(new Response(200, $headers)); // typed as the interface: Guzzle 8's PromiseInterface template is not covariant
             if (isset($o['on_headers'])) {
                 $o['on_headers']($response);
             }
@@ -315,8 +315,13 @@ final class KubeApiTest extends TestCase
         };
         $settings = KubeSettings::fromArray(['namespaces' => ['shop'], 'api' => ['server' => 'https://k8s.example:6443', 'token' => self::TOKEN, 'ca_file' => $this->ca]], true, true, false);
 
-        return [new KubeApi(new Client(['handler' => HandlerStack::create($handler)]), $settings, $this->clock, static function (int $s): void {
+        return [new KubeApi(new Client(['handler' => $handler]), $settings, $this->clock, static function (int $s): void {
         }, null, [], $cap), $probe];
+    }
+
+    private static function asInterface(\Psr\Http\Message\ResponseInterface $r): \Psr\Http\Message\ResponseInterface
+    {
+        return $r;
     }
 
     public function testADeclaredContentLengthOverTheCapIsRefusedBeforeAnyBodyIsRead(): void
