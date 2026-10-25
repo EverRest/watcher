@@ -28,6 +28,7 @@ final class Keys
     public const OBSFAIL = 'obsfail';
     public const OBSDELIV = 'obsdeliv';
     public const OBSSEEN = 'obsseen';
+    public const HIGH_WATER = 'hw';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -175,13 +176,18 @@ final class Keys
         return self::join(self::OBSSEEN, $service, $sink);
     }
 
+    public static function highWater(string $service): string
+    {
+        return self::join(self::HIGH_WATER, $service);
+    }
+
     /** @param string $kind one of the kind constants */
     public static function ttl(string $kind, int $retention, int $lockTtl): int
     {
         return match ($kind) {
             self::SPEND, self::ALERT, self::EXHAUSTED => self::SPEND_TTL,
             self::LOCK => $lockTtl,
-            self::HEARTBEAT, self::TRIGGER => self::HEARTBEAT_TTL_FACTOR * $retention,
+            self::HEARTBEAT, self::TRIGGER, self::HIGH_WATER => self::HEARTBEAT_TTL_FACTOR * $retention,
             self::WEEK, self::WEEKSENT => self::WEEK_TTL,
             default => $retention,
         };

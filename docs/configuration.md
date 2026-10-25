@@ -27,9 +27,14 @@ settings, `notify.digest.webhook`.
 | Key | Default | Notes |
 |---|---|---|
 | `service` | required | Prefix for every state key. **Changing it starts from scratch** (a new baseline). |
-| `schedule.run_at` | required | `HH:MM`. The run is due from `run_at` for one hour, in `schedule.timezone`. |
-| `schedule.timezone` | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
-| `schedule.window` | `PT24H` | ISO-8601 lookback. The window ends at the local `run_at`. |
+| `schedule.run_at` (`WATCHER_RUN_AT`, comma-separated) | required unless `every` | `HH:MM` or a list of times at least one hour apart. Still due for one hour after each time, in `schedule.timezone`. Stored internally as a list; a single string is unchanged in config files. |
+| `schedule.every` (`WATCHER_EVERY`) | — | `PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H`, or `PT12H`. Mutually exclusive with `run_at`. Contiguous windows unless `schedule.window` is set. |
+| `schedule.timezone` (`WATCHER_TIMEZONE`) | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
+| `schedule.window` | `PT24H` for one `run_at`; gap to the previous boundary otherwise | ISO-8601 lookback ending at the window boundary. |
+| `schedule.catch_up` (`WATCHER_CATCH_UP`) | `1` | `1`..`24`; values above `1` require `schedule.every`. |
+| `schedule.ingestion_delay` (`WATCHER_INGESTION_DELAY`) | `PT0S` | Shorter than the period; shifts window ends for late-indexed lines. |
+| `analysis.max_runs_per_day` (`WATCHER_MAX_RUNS_PER_DAY`) | none (one run/day); else `2 × runs_per_day` | Enforced in a later phase; parsed now. |
+| `analysis.run_budget_usd` (`WATCHER_RUN_BUDGET_USD`) | none (one run/day); else `daily_budget_usd / runs_per_day × 2` | Enforced in a later phase; parsed now. |
 | `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (released at the end of every run). With a store that supports renewal (all three) the lock is **extended** between pipeline steps and before each model call whenever less than half of it is left, so a long run keeps it. One model call (two sequential attempts, SDK retries off) is still bounded to `lock_ttl / 4`: HTTP timeout `lock_ttl / 8` s, within 10..180. A run makes at most `2 + escalation_cap` model calls. |
 | `schedule.run_deadline` (`WATCHER_RUN_DEADLINE`) | `lock_ttl` minus `max(30, lock_ttl / 10)` s (810 by default; half of `lock_ttl` when that is 60 or less) | Total wall-clock budget of one run, checked while reading and between pipeline steps. At expiry reading stops (read marked truncated, reason `deadline`), no model call starts, the window is snapshotted and a short notice is sent, but it is NOT recorded as done: the next trigger in the due period reads it again with a full budget, once. A second cut records the window final (quiet, reason `truncated:deadline`) with a second notice naming the number of unanalysed groups. Must not exceed `lock_ttl`. In a fleet it is further limited by `service_time_budget`.
 
@@ -229,6 +234,10 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 | `deploy.version_label` | null | Log label that carries the running version, if your source has one (gives the deploy moment). |
 | `links.grafana.{base_url,datasource_uid}` / `links.datadog.app_url` | none | Builds a log-query link per finding from redacted data only. |
 | `repo.{provider,web_url,path_map}` | none | `provider` is `gitlab` or `github`; `path_map` maps container path prefixes to repository paths for stack-frame links (needs `deploy.commit`). Vendor paths get no link. |
+
+## Log hygiene (spec 006)
+
+`hygiene` section; every key optional. `enabled` (default **false**, `WATCHER_HYGIENE_ENABLED` in the shipped configs) switches on the privacy, shape and proposal reports and the cost ledger; the cost report itself needs no switch. Keys: `read_min_level` (`info`), `event_cap` (200000, more is sampled and said so), `max_line_length` (2000), `noisy_share` (0.20), `variable_distinct` (20), `repeat_days` (7), `growth_factor` (2.0), `min_history_days` (14), `mute_min_daily` (100), `watch_lead` (1800 s), `decline_days` (90), `spike_factor` (2.0), `max_seconds` (900, time budget of one pass), `site_allow_dirs` (`[]`, directory names such as `data` that are accepted below a `repo.path_map` root although the privacy report's deny list names them). `variable_distinct` must be at least 5. Invalid values fail at start naming `hygiene.<key>`. Contract: `specs/006-log-hygiene/contracts/config.md`. `allow_constant_labels` (false) lets a message that never varies keep its label and a watch proposal (it may be one person's name; the privacy floor of [privacy.md](privacy.md#log-hygiene-reports-spec-006) otherwise withholds it), `literal_min_sites` (5, at least 2): a literal word of a shown template must be common log vocabulary or seen at that many different sites in the pass, else it is shown as `<w>`.
 
 ## Digest notices (counts only, never raw content)
 
