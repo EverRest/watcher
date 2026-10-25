@@ -50,6 +50,8 @@ final class EventMaskerFuzzTest extends TestCase
             static fn (string $n): string => "secret\u{00AD}{$n} not found",
             static fn (string $n): string => "container\u{200B}{$n} failed",
             static fn (string $n): string => "configmap\x00{$n} missing",
+            static fn (string $n): string => "secret%20{$n} not found",
+            static fn (string $n): string => "{\"secret\":{$n}} not found",
             // stray quotes: one open quote and no close
             static fn (string $n): string => "secret \"{$n} not found",
             static fn (string $n): string => "secret \u{201C}{$n} and more text",

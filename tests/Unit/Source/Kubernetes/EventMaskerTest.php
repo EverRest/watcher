@@ -259,6 +259,10 @@ final class EventMaskerTest extends TestCase
             'delete after the keyword' => ["configmap\x7Fzqkvcanary missing", ['zqkvcanary']],
             'unassigned after the keyword' => ["secret\u{0378}zqkvcanary not found", ['zqkvcanary']],
             'control inside the name' => ["secret zqkv\x00canary not found", ['zqkvcanary', 'canary']],
+            'percent-encoded space after the keyword' => ['Error: secret%20zqkvcanary not found', ['zqkvcanary']],
+            'percent-encoded keyword and space' => ['Error: %73ecret%20zqkvcanary not found', ['zqkvcanary']],
+            'json-like quoted key with an unquoted value' => ['Error: {"secret":zqkvcanary} not found', ['zqkvcanary']],
+            'json-like key with a space' => ['Error: "configmap": zqkvcanary not found', ['zqkvcanary']],
             'unquoted pvc' => ['persistentvolumeclaim data-acme-ledger-0 not found', ['acme-ledger']],
         ];
     }
