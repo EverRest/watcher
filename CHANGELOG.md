@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added (spec 005 incident workflow v1, phase 1–3)
+- **Known issues**: `known_issues` maps fingerprint prefixes to ticket keys; compact digest line, skip model analysis below `growth_factor × ref`, `known_grown` candidate reason, labels for resolved/expired entries.
+- **Severity routing**: `notify.routes` sends findings to extra destinations (first match + required catch-all); default digest shows a routed notice line.
+- **Ticket drafts**: optional `drafts` posts paste-ready text per finding (`draft` message sections); no tracker writes.
+- Config/env: `WATCHER_KNOWN_ISSUES_ENABLED`, `WATCHER_DRAFTS_*`, `WATCHER_ROUTES_ENABLED`. Weekly report (`report.weekly`) deferred (see `specs/005-incident-workflow/tasks.md`).
+
 - Fixed (review batch 2): `BufferedStateStore::flush()` no longer drops pending keys when an inner `put` fails mid-flush; Slack webhook delivery retries HTTP 429 like Telegram/Discord and names omitted Block Kit sections instead of truncating silently.
 - Changed (internal, no behaviour change): `Watcher::run()` is split into `RunLedger` (run bookkeeping, summary, liveness record), `Reduce\EventCollector` (the streaming read), `analyze()`, `buildDigest()` and `WindowKeys`; pinned by the golden scenarios in `tests/EndToEnd/RefactorGoldenTest.php`. `state_unreadable` is now filled in `RunLedger::finish()`, and `DryRunStateStore` forwards the real store's unreadable count.
 - Added: a capped read keeps a newest share (A4-03). One fifth of `source.event_cap` (`ReadFilter::tailCap()`, 0 below a cap of 5) is reserved: the oldest-first read stops at 80%, then Loki (`direction=backward`) and Datadog (`sort=-timestamp`) read the newest events after the last one kept and yield them oldest to newest. Also after a spent `pages`/`time` budget (two more pages at most). If the backward read reaches back to where the forward read stopped, nothing was lost and the read is not reported as truncated.

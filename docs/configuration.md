@@ -273,6 +273,11 @@ environment variable NAME must be true or false`, naming the variable and never 
 | budget alerts | `budget_alerts.enabled` | `WATCHER_BUDGET_ALERTS_ENABLED` | true | no 25/50/75/90 % notice and no "budget exhausted" notice (the caps themselves still apply) |
 | notices | `notify.notice.enabled` | `WATCHER_NOTICE_ENABLED` | true | no failure, baseline, budget or weekly notice is posted; failures still go to the host log and the exit code |
 | digest | `notify.digest.enabled` | `WATCHER_DIGEST_ENABLED` | true | no digest is posted, so no model is paid for: the window is read and snapshotted and the run ends `quiet` (reason `digest_disabled`) |
+| known_issues | `known_issues.enabled` | `WATCHER_KNOWN_ISSUES_ENABLED` | true | inert with no `entries`; false skips known lines, state writes and suppression |
+| drafts | `drafts.enabled` | `WATCHER_DRAFTS_ENABLED` | false | paste-ready ticket text per finding after the digest (`drafts.destination` or notice) |
+| routes | `notify.routes_enabled` | `WATCHER_ROUTES_ENABLED` | true | inert without `notify.routes`; severity routing to extra destinations (spec 005) |
+
+`known_issues.entries[]`: `fingerprint` (12–64 hex, prefix match), `ticket` (opaque key), optional `status` (`open`/`resolved`), optional `until` (UTC date). `notify.routes[]`: `name`, `severity` list (omitted on the last catch-all route only), optional `to` destination (must differ from `notify.digest`). See `specs/005-incident-workflow/contracts/config.md`.
 | fleet | fleet `enabled` | `WATCHER_FLEET_ENABLED` | true | every service is reported `disabled`; no store, budget, source or notifier is reached |
 | fleet service | entry (or `defaults`) `enabled` | `WATCHER_ENABLED` | **false** (as a service) | that service is skipped with outcome `disabled` (not an error, exit 0) |
 | fleet correlation | `correlation.enabled` | `WATCHER_FLEET_CORRELATION_ENABLED` | true | no cross-service annotation or correlated message |

@@ -84,4 +84,14 @@ final class WindowKeys
     {
         return Keys::failNotices($this->stateKey, $this->end);
     }
+
+    public function routeDelivered(int $routeIndex): string
+    {
+        return Keys::routeDelivered($this->stateKey, $this->end, $routeIndex);
+    }
+
+    public function draft(string $fingerprint): string
+    {
+        return Keys::draft($this->stateKey, $this->end, $fingerprint);
+    }
 }
