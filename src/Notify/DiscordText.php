@@ -11,6 +11,9 @@ final class DiscordText
 
     public static function section(string $kind, string $source): string
     {
+        if ($kind === 'draft') {
+            return '```' . "\n" . str_replace('```', "'''", $source) . "\n```";
+        }
         $out = '';
         foreach (Mrkdwn::tokens($source) as $t) {
             $out .= match ($t[0]) {

@@ -12,10 +12,11 @@ use Watcher\Reduce\ProblemGroup;
 final class Selector
 {
     /**
-     * @param list<ProblemGroup> $groups        already compared with the previous snapshot
-     * @param list<Level>        $anomalyLevels levels whose backend total jumped (FR-038)
+     * @param list<ProblemGroup>  $groups
+     * @param list<Level>         $anomalyLevels
+     * @param array<string, true> $knownGrown
      */
-    public function select(array $groups, Level $minLevel, int $topN, array $anomalyLevels = []): SelectionResult
+    public function select(array $groups, Level $minLevel, int $topN, array $anomalyLevels = [], array $knownGrown = []): SelectionResult
     {
         $ranked = $groups;
         usort($ranked, static fn (ProblemGroup $a, ProblemGroup $b) => [$b->count, $a->fingerprint] <=> [$a->count, $b->fingerprint]);
@@ -33,6 +34,9 @@ final class Selector
             }
             if ($g->status === GroupStatus::Grown) {
                 $reasons[] = CandidateReason::Grown;
+            }
+            if (isset($knownGrown[$g->fingerprint])) {
+                $reasons[] = CandidateReason::KnownGrown;
             }
             if ($g->level->atLeast($minLevel)) {
                 $reasons[] = CandidateReason::Level;

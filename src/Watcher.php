@@ -27,6 +27,10 @@ use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\UnknownModelPrice;
 use Watcher\Analyze\Usage;
 use Watcher\Fleet\FleetSeam;
+use Watcher\Incident\Delivery;
+use Watcher\Incident\KnownIssues;
+use Watcher\Incident\KnownLineRenderer;
+use Watcher\Incident\KnownReferences;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
@@ -554,6 +558,21 @@ final class Watcher
         $muteResult = $mute->filter($groups, $collector->muteHits(), $started);
         $groups = $muteResult->kept;
         $factor = $c->selection['growth_factor'];
+        $knownResult = null;
+        $knownLine = null;
+        $knownGrown = [];
+        $knownBuffer = null;
+        if ($c->on('known_issues') && $c->incident->knownIssues !== []) {
+            $knownBuffer = new BufferedStateStore($this->state);
+            $knownResult = (new KnownIssues($c->incident->knownIssues, $factor))->partition(
+                $groups,
+                $started,
+                new KnownReferences($knownBuffer, $key, $retention),
+            );
+            $groups = $knownResult->kept;
+            $knownGrown = $knownResult->grown;
+            $knownLine = KnownLineRenderer::format($knownResult->lines);
+        }
         // Spec 004: what each group is compared with is decided by baseline.mode; `$prev` stays for deploy info and level anomalies.
         $comparison = (new BaselineResolver(
             $this->state,
@@ -594,7 +613,7 @@ final class Watcher
             return new RunResult(RunOutcome::Baselined);
         }
 
-        $selection = (new Selector())->select($groups, $c->selection['min_level'], $c->selection['top_n'], $anomalies);
+        $selection = (new Selector())->select($groups, $c->selection['min_level'], $c->selection['top_n'], $anomalies, $knownGrown);
         $candidates = [];
         foreach ($selection->candidates as $cand) {
             $reported = $this->state->get($keys->reported($cand->group->fingerprint));
@@ -622,8 +641,8 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
-        $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures);
-        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started);
+        $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures, knownResult: $knownResult, knownLine: $knownLine);
+        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started, buffer: $knownBuffer);
 
         $routed = $analysis->routed;
         $usage = $analysis->usage;
@@ -640,27 +659,28 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet, null, $usage);
         }
 
-        $message = $this->buildDigest($read, $analysis, $selection, $environment);
-        try {
-            $this->observer?->kind('digest');
-            $this->notifier->send($message, $c->destination('digest'));
-            $this->observer?->kind('other');
-        } catch (DeliveryFailed $e) {
-            $this->observer?->kind('other');
-            $this->announceDigestFailure($e, $environment);
-
-            throw $e;
-        }
+        Delivery::run(
+            $c,
+            $read,
+            $routed->findings,
+            $keys,
+            $this->state,
+            $this->notifier,
+            $this->options,
+            function (array $findings, ?string $routedNotice, int $draftsSkipped) use ($read, $analysis, $selection, $environment): Message {
+                return $this->buildDigest($read, $analysis, $selection, $environment, $findings, $routedNotice, $draftsSkipped);
+            },
+            $this->out,
+            function (DeliveryFailed $e) use ($environment): void { $this->announceDigestFailure($e, $environment); },
+            function (string $kind): void { $this->observer?->kind($kind); },
+            $analysis->byFingerprint,
+            self::DELIVERED_TTL,
+            $this->clock->now(),
+        );
 
         $now = $this->clock->now()->format(DATE_ATOM);
-        try {
-            // The digest is out: if a state write below fails, the next trigger must not send it again (A4-07).
-            $this->state->put($keys->delivered(), ['at' => $now], self::DELIVERED_TTL);
-        } catch (Throwable $e) {
-            $this->hostLog?->warning('delivered marker not written: ' . $e::class, ['service' => $service]);
-        }
         $this->blindNotice($blind(false, true), $key, $endKey);
-        foreach ($findings as $finding) {
+        foreach ($routed->findings as $finding) {
             foreach ($finding->fingerprints as $fp) {
                 $analysis->buffer->put($keys->reported($fp), ['lastReportedAt' => $now, 'atCount' => $analysis->byFingerprint[$fp]->count ?? 0], $retention);
             }
@@ -680,7 +700,7 @@ final class Watcher
      *
      * @throws AnalyzerFailed after the window snapshot is kept, so the next trigger retries
      */
-    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, string $environment, WindowKeys $keys, DateTimeImmutable $started): Analysis
+    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, string $environment, WindowKeys $keys, DateTimeImmutable $started, ?BufferedStateStore $buffer = null): Analysis
     {
         $c = $this->config;
         $service = $c->service;
@@ -717,7 +737,7 @@ final class Watcher
         $triageOnly = $cap !== null;
 
         $this->renewLock();
-        $buffer = new BufferedStateStore($this->state); // verdicts and reported markers: kept only once the digest is delivered
+        $buffer = $buffer ?? new BufferedStateStore($this->state); // verdicts, reported markers, known refs: kept only once the digest is delivered
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
         $checkpoint = new TriageCheckpoint($this->state, $key, $keys->end());
@@ -804,7 +824,10 @@ final class Watcher
     }
 
     /** The digest message: findings, what was left out and why, cost, links. */
-    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment): Message
+    /**
+     * @param list<\Watcher\Analyze\Finding>|null $findingsOverride
+     */
+    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment, ?array $findingsOverride = null, ?string $routedNotice = null, int $draftsSkipped = 0): Message
     {
         $c = $this->config;
         $service = $c->service;
@@ -818,7 +841,7 @@ final class Watcher
         $comparedWith = $read->comparedWith;
         $patternFailures = $read->patternFailures;
         $routed = $analysis->routed;
-        $findings = $routed->findings;
+        $findings = $findingsOverride ?? $routed->findings;
         $redacted = $analysis->redacted;
         $usage = $analysis->usage;
         $models = $analysis->models;
@@ -885,6 +908,12 @@ final class Watcher
             triageCoerced: $routed->triageCoerced,
             unreported: $routed->unreported,
             newOverflow: $routed->newOverflow,
+            knownLine: $read->knownLine,
+            findingLabels: $read->knownResult !== null ? $read->knownResult->labels : [],
+            routedNotice: $routedNotice,
+            draftsSkipped: $draftsSkipped,
+            knownCount: $read->knownResult !== null ? $read->knownResult->knownCount : 0,
+            knownGrownCount: $read->knownResult !== null ? $read->knownResult->knownGrownCount : 0,
         ), $c->analysis['confidence_threshold']);
     }
 

@@ -96,6 +96,10 @@ final class DigestRenderer
             }
         }
 
+        if ($d->knownLine !== null && $d->knownLine !== '') {
+            $out[] = ['kind' => 'minor', 'text' => $d->knownLine];
+        }
+
         $parts = [];
         if ($minor > 0) {
             $parts[] = "➕ $minor minor (low confidence / noise)";
@@ -170,6 +174,12 @@ final class DigestRenderer
         }
         if ($d->patternFailures > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
+        }
+        if ($d->routedNotice !== null && $d->routedNotice !== '') {
+            $out[] = ['kind' => 'notice', 'text' => 'ℹ️ ' . $this->esc($d->routedNotice)];
+        }
+        if ($d->draftsSkipped > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s more drafts not sent', number_format($d->draftsSkipped))];
         }
 
         if ($d->undeclaredHostCount > 0) {
@@ -278,9 +288,17 @@ final class DigestRenderer
             $trend .= ' · first seen after ' . $this->esc($after);
         }
 
+        $title = $f->title;
+        foreach ($f->fingerprints as $fp) {
+            if (isset($d->findingLabels[$fp])) {
+                $title = $d->findingLabels[$fp] . ' — ' . $title;
+                break;
+            }
+        }
+
         return sprintf(
             "• %s — %s×%s  `%s`\n  Evidence: %s\n  Hypothesis: %s  Next: %s",
-            $this->esc($f->title),
+            $this->esc($title),
             number_format($count),
             $trend,
             substr($f->fingerprints[0], 0, 12),

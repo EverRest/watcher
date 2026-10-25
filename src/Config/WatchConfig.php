@@ -24,12 +24,14 @@ final class WatchConfig implements \JsonSerializable
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
         'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe',
+        'known_issues', 'drafts', 'report',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
         'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest',
+        'known_issues', 'drafts', 'routes',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -80,6 +82,7 @@ final class WatchConfig implements \JsonSerializable
         public readonly string $stateKey,
         private readonly array $flags,
         public readonly ObserveSettings $observe,
+        public readonly \Watcher\Incident\IncidentSettings $incident,
     ) {
     }
 
@@ -277,6 +280,11 @@ final class WatchConfig implements \JsonSerializable
             throw new InvalidConfig('notify.' . ($notify['digest']['driver'] === 'none' ? 'digest' : 'notice') . '.driver none needs at least one enabled observe sink');
         }
 
+        $incident = \Watcher\Incident\IncidentSettings::fromArray($config, $notify, $observe);
+        $flags['known_issues'] = $incident->knownIssuesEnabled;
+        $flags['drafts'] = $incident->draftsEnabled;
+        $flags['routes'] = $incident->routesEnabled;
+
         return new self(
             $service,
             $schedule,
@@ -304,6 +312,7 @@ final class WatchConfig implements \JsonSerializable
             $environment === null ? $service : $service . '@' . $environment,
             $flags,
             $observe,
+            $incident,
         );
     }
 
@@ -670,13 +679,21 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function notify(array $n): array
     {
-        self::only($n, ['digest', 'notice'], 'notify');
+        self::only($n, ['digest', 'notice', 'routes', 'routes_enabled'], 'notify');
         $digest = self::notifyEntry(self::withoutEnabled($n['digest'] ?? null), 'notify.digest');
         $notice = $n['notice'] ?? null;
         $notice = self::withoutEnabled($notice);
         $notice = $notice === null || $notice === [] ? $digest : self::notifyEntry($notice, 'notify.notice');
+        $routes = $n['routes'] ?? [];
+        if (!is_array($routes) || ($routes !== [] && !array_is_list($routes))) {
+            throw new InvalidConfig('notify.routes must be a list');
+        }
+        $routesEnabled = $n['routes_enabled'] ?? true;
+        if (!is_bool($routesEnabled)) {
+            throw new InvalidConfig('notify.routes_enabled must be true or false');
+        }
 
-        return ['digest' => $digest, 'notice' => $notice];
+        return ['digest' => $digest, 'notice' => $notice, 'routes' => $routes, 'routes_enabled' => $routesEnabled];
     }
 
     private static function withoutEnabled(mixed $entry): mixed
