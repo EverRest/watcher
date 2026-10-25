@@ -9,8 +9,6 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Baseline\BaselineResolver;
-use Watcher\Analyze\AnalysisRequest;
-use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\Budget;
@@ -18,12 +16,13 @@ use Watcher\Analyze\BudgetAlerts;
 use Watcher\Analyze\BudgetReservation;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\CostCalculator;
+use Watcher\Analyze\MeteredAnalyzer;
 use Watcher\Analyze\ModelRouter;
+use Watcher\Analyze\RedactingAnalyzer;
+use Watcher\Analyze\RenewingAnalyzer;
 use Watcher\Analyze\RouterSettings;
 use Watcher\Analyze\Spend;
 use Watcher\Analyze\TriageCheckpoint;
-use Watcher\Analyze\TriageRequest;
-use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\UnknownModelPrice;
 use Watcher\Analyze\Usage;
 use Watcher\Fleet\FleetSeam;
@@ -58,7 +57,6 @@ use Watcher\Operate\CapturingNotifier;
 use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\EstimatingAnalyzer;
 use Watcher\Operate\RunOptions;
-use Watcher\Operate\RunStats;
 use Watcher\Operate\RunSummaryData;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
@@ -825,7 +823,16 @@ final class Watcher
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
         $checkpoint = new TriageCheckpoint($this->state, $key, $keys->end());
-        $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
+        $metered = new MeteredAnalyzer(
+            new RenewingAnalyzer(new RedactingAnalyzer($this->analyzer, $redactor), $this->renewLock(...)),
+            $spend,
+            $calculator,
+            $this->hostLog,
+            $this->options->estimate ? null : $this->ledger->stats(),
+            $c->analysis['models'],
+            $this->fleet,
+        );
+        $router = new ModelRouter($metered, new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
         $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet);
         try {
             try {
@@ -1014,30 +1021,6 @@ final class Watcher
         }));
     }
 
-    /** Renews the run lock before every model call (A4-05). */
-    private static function renewing(Analyzer $inner, \Closure $renew): Analyzer
-    {
-        return new class ($inner, $renew) implements Analyzer {
-            public function __construct(private readonly Analyzer $inner, private readonly \Closure $renew)
-            {
-            }
-
-            public function triage(TriageRequest $req): TriageResult
-            {
-                ($this->renew)();
-
-                return $this->inner->triage($req);
-            }
-
-            public function analyze(AnalysisRequest $req): AnalysisResult
-            {
-                ($this->renew)();
-
-                return $this->inner->analyze($req);
-            }
-        };
-    }
-
     /**
      * Consecutive windows in which the source returned no event and no level total at all; 0 when it saw anything or totals are off.
      *
@@ -1137,109 +1120,6 @@ final class Watcher
         } catch (Throwable $e) {
             $this->hostLog?->warning('incomplete-read notice not delivered: ' . $e::class, ['service' => $this->config->service]);
         }
-    }
-
-    /** Model output is scrubbed at the boundary, so neither the verdict cache nor the digest ever sees the raw text (Principle I). */
-    private static function redacting(Analyzer $inner, Redactor $redactor): Analyzer
-    {
-        return new class ($inner, $redactor) implements Analyzer {
-            public function __construct(private readonly Analyzer $inner, private readonly Redactor $redactor)
-            {
-            }
-
-            public function triage(TriageRequest $req): TriageResult
-            {
-                return $this->inner->triage($req);
-            }
-
-            public function analyze(AnalysisRequest $req): AnalysisResult
-            {
-                $r = $this->inner->analyze($req);
-
-                return new AnalysisResult(array_map($this->redactor->redactFinding(...), $r->findings), $r->usage);
-            }
-        };
-    }
-
-    /**
-     * Each call is priced and added to Spend as it returns, so a later failure in the same run cannot lose what was already paid for.
-     * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 with one warning.
-     */
-    /** @param array<string, string> $models */
-    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = [], ?FleetSeam $fleet = null): Analyzer
-    {
-        return new class ($inner, $spend, $calculator, $log, $stats, $models, $fleet) implements Analyzer {
-            /** @var array<string, true> */
-            private array $warned = [];
-
-            /** @param array<string, string> $models configured model per step, to tell an escalation from the main analysis */
-            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models, private readonly ?FleetSeam $fleet = null)
-            {
-            }
-
-            public function triage(TriageRequest $req): TriageResult
-            {
-                try {
-                    $r = $this->inner->triage($req);
-                } catch (AnalyzerFailed $e) {
-                    throw $this->bookFailed($e, 'triage');
-                }
-                $this->book($r->usage, 'triage');
-
-                return $r;
-            }
-
-            public function analyze(AnalysisRequest $req): AnalysisResult
-            {
-                try {
-                    $r = $this->inner->analyze($req);
-                } catch (AnalyzerFailed $e) {
-                    throw $this->bookFailed($e, $this->analyzeStep($req));
-                }
-                $this->book($r->usage, $this->analyzeStep($req));
-
-                return $r;
-            }
-
-            /** @return 'analyze'|'escalate' */
-            private function analyzeStep(AnalysisRequest $req): string
-            {
-                $escalate = $this->models['escalate'] ?? null;
-
-                return $escalate !== null && $req->model === $escalate && $escalate !== ($this->models['analyze'] ?? null) ? 'escalate' : 'analyze';
-            }
-
-            /** @param 'triage'|'analyze'|'escalate' $step */
-            private function bookFailed(AnalyzerFailed $e, string $step): AnalyzerFailed
-            {
-                if ($e->usage !== null) {
-                    $this->book($e->usage, $step);
-                } else {
-                    $this->spend->release(); // nothing was billed: give the reserved worst case back (M2)
-                }
-
-                return $e;
-            }
-
-            /** A paid call whose model has no price is booked at cost 0 (warned once per model); its result is never discarded. */
-            /** @param 'triage'|'analyze'|'escalate' $step */
-            private function book(Usage $u, string $step): void
-            {
-                $cost = 0.0;
-                try {
-                    $this->spend->add($u, $cost = $this->calculator->cost($u));
-                    $this->fleet?->book($u, $cost);
-                } catch (UnknownModelPrice) {
-                    $this->spend->add($u, 0.0);
-                    $this->fleet?->book($u, 0.0);
-                    if (!isset($this->warned[$u->model])) {
-                        $this->warned[$u->model] = true;
-                        $this->log?->warning('paid analyzer call has no price configured; recorded at cost 0', ['model' => $u->model]);
-                    }
-                }
-                $this->stats?->addUsage($step, new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost));
-            }
-        };
     }
 
     /** FR-040: the service context passes the same redaction scan as templates; unscannable means empty, never raw. */
