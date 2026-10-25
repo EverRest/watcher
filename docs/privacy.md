@@ -31,6 +31,7 @@ Per request, and only this:
 | Service context | `service_context` from your config (up to 1000 characters), after the redaction scan. You write it; keep personal data out. |
 | Groups | For each problem group exactly these fields (`Watcher\Privacy\RedactedGroup::toArray`): `fp` fingerprint, `tpl` masked message template **or null** (at most 300 characters, `CompactPayload::MAX_TEMPLATE_CHARS`; longer templates end in `…`), `lvl` level, `err` exception class, `frames` up to 5 `path:line` strings, `n` count, `prev` previous count, `st` new/grown/unchanged, `watch` names of matching watch rules, `first`/`last` timestamps. |
 | Dependency section | Optional: for declared dependencies, error totals and up to 5 masked top error groups (same shape). |
+| Endpoint field `ep` | Only with `api_context` configured: for a group whose masked template names a documented route (at most 2 segments), one line `METHOD /template — summary` of at most 75 bytes, in analysis and escalation only, never triage. See below. |
 
 The type that carries this to the model has **no other fields**, so nothing else can be added by accident
 (`tests/Unit/Privacy/RedactedGroupTest.php`).
@@ -77,6 +78,18 @@ credentials, anything from `fields`.
    `[A-Za-z0-9_.-]` or looks random drops the frame; digits are masked. Line numbers and file names are kept.
 5. **Model output scrub:** everything the model writes (title, evidence, cause, action, `how_to_check`, every `related_checks` entry) is scanned the same way before it
    is shown, stored or cached; plain numbers are kept.
+
+### OpenAPI summaries (spec 010)
+
+`api_context` adds one allowlisted field class: the **operation summary** (the operationId only when there is no summary), the **first tag** and the
+**deprecated flag** of the operations a finding's route matches. Per operation exactly six fields are read out of the document: method, path
+template, operationId, summary, first tag, deprecated. Examples, schemas, parameters, request and response bodies, descriptions, server variables and
+extensions are never copied. Free text is **masked first** (e-mails, tokens, ids) and then cut to `api_context.summary_cap` (80), so a secret
+straddling the cut cannot survive as a fragment; it is masked again where it is used (digest line, `ep` field), and a text that cannot be
+scanned is dropped. The reduced document, not the raw one, is what the state store keeps (expiring after `api_context.ttl`). **The service owner is
+responsible for the summaries**: they are free text written by people, the masking pass only knows the patterns it knows, and a summary appears
+in the digest as written (after masking). `tests/EndToEnd/ApiContextTest.php` seeds an e-mail and a token in a summary, a description, an
+operationId, a tag, an example, a parameter and an extension and asserts none reaches the model payload, the digest, the log and file sinks, the summary or the cache.
 
 ## What is sent to your notification channel
 
