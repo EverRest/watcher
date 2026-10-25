@@ -43,12 +43,30 @@ MySQL-specific `rowCount` behaviour is covered by contract tests on SQLite plus 
 | W6 | `CodeLinkBuilder::mapPath` prefix match without path-segment boundary (`/app` vs `/apple`) | closed |
 | H5 | Loki text-mode line filter drops stack-trace continuations server-side | closed (continuations); unworded labelled main lines still use `level_mode: label` |
 
+## Batch 6 — fingerprint versioning (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-H1 | Fingerprint version `fpv` in window snapshots; stale `fpv` → baseline reset notice; golden Normalizer corpus | closed |
+
+### `fpv` behaviour
+
+- `Fingerprinter::FPV` (currently `1`) is stored on every window snapshot as field `fpv`.
+- Snapshots without `fpv` or with an older value are not used for growth comparison, rolling/weekday history, or H6 last-good fallback.
+- After a Normalizer upgrade the next run records a fresh baseline and sends a **baseline reset** notice (`fpv N → M`). A true first install still gets **baseline recorded**.
+
+## Batch 7 — Notify + LineParser (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-M3 | Telegram/Discord partial delivery duplicates on digest retry | closed |
+| P-M6 | `LineParser` decodes the same JSON line repeatedly while classifying continuations | closed |
+| P-M6-low | `LineParser::inRange` used `time()` instead of the injected clock | closed |
+
+
 ## Later batches — open
 
 | ID | Item | Batch | Status |
 |----|------|-------|--------|
-| P-H1 | Fingerprint / template versioning | 6 | open |
-| P-M3 | Notifier message parts / splitting | 7 | open |
-| P-M6 | `LineParser` decode memoization / injected clock | 7 | queued |
 | H1 | `Watcher::locked()` refactor — `RunLedger` / `EventCollector` extraction | — | deferred |
 | SEC | Security review follow-ups | — | in progress |

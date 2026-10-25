@@ -372,6 +372,14 @@ final class DigestRendererTest extends TestCase
         self::assertSame($m->sections[0]['text'], $m->text);
     }
 
+    public function testFingerprintVersionResetNotice(): void
+    {
+        $m = (new DigestRenderer())->renderFingerprintVersionReset('svc', 'stg', 12, 400, 0, 1);
+
+        self::assertStringContainsString('baseline reset: fingerprint rules changed (fpv 0 → 1)', $m->sections[0]['text']);
+        self::assertStringNotContainsString('baseline recorded:', $m->sections[0]['text']);
+    }
+
     /**
      * @param list<string> $code
      *
