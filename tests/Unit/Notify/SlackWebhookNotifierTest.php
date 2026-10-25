@@ -23,17 +23,22 @@ final class SlackWebhookNotifierTest extends TestCase
 
     /** @var array<int, array{request: Request}> */
     private array $history = [];
+    /** @var list<int> */
+    private array $slept = [];
 
     /** @param list<Response|\Throwable> $queue */
-    private function notifier(array $queue): SlackWebhookNotifier
+    private function notifier(array $queue, int $budget = 60): SlackWebhookNotifier
     {
         $this->history = [];
+        $this->slept = [];
         $stack = HandlerStack::create(new MockHandler($queue));
         $log = [];
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
 
-        return new SlackWebhookNotifier(new Client(['handler' => $stack]));
+        return new SlackWebhookNotifier(new Client(['handler' => $stack]), $budget, function (int $s): void {
+            $this->slept[] = $s;
+        });
     }
 
     public function testPostsExactBlockKitBody(): void
@@ -70,6 +75,32 @@ final class SlackWebhookNotifierTest extends TestCase
         $body = json_decode((string) $this->history[0]['request']->getBody(), true);
         self::assertSame(4000, mb_strlen($body['text']));
         self::assertCount(50, $body['blocks']);
+        self::assertSame(
+            ['type' => 'section', 'text' => ['type' => 'mrkdwn', 'text' => '… 21 more sections not shown']],
+            $body['blocks'][49],
+        );
+    }
+
+    public function testRateLimitHonoured(): void
+    {
+        $n = $this->notifier([new Response(429, ['Retry-After' => '2']), new Response(200, [], 'ok')]);
+        $n->send(new Message('t'), new Destination(self::HOOK));
+
+        self::assertCount(2, $this->history);
+        self::assertSame([2], $this->slept);
+    }
+
+    public function testServerErrorNotRetried(): void
+    {
+        $n = $this->notifier([new Response(500), new Response(200, [], 'ok')]);
+
+        try {
+            $n->send(new Message('t'), new Destination(self::HOOK));
+            self::fail('expected DeliveryFailed');
+        } catch (DeliveryFailed $e) {
+            self::assertSame('slack delivery failed: HTTP 500', $e->getMessage());
+            self::assertCount(1, $this->history);
+        }
     }
 
     public function testNon2xxThrowsWithoutWebhook(): void
