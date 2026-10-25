@@ -42,6 +42,7 @@ use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
+use Watcher\State\Purgeable;
 use Watcher\Operate\StateInspector;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
@@ -251,8 +252,14 @@ final class Factory
     /** @param array<string, mixed> $p */
     private static function pdo(array $p): PDO
     {
+        $dsn = (string) $p['dsn'];
+        $options = [];
+        // MySQL reports changed rows, not matched; put/renew treat rowCount 0 as a miss (P-M1).
+        if (str_starts_with($dsn, 'mysql:')) {
+            $options[PDO::MYSQL_ATTR_FOUND_ROWS] = true;
+        }
         try {
-            return new PDO((string) $p['dsn'], $p['username'] ?? null, $p['password'] ?? null);
+            return new PDO($dsn, $p['username'] ?? null, $p['password'] ?? null, $options);
         } catch (PDOException) {
             throw new InvalidConfig('state.pdo: cannot connect'); // not chained: the driver message can carry the DSN or password
         }
@@ -264,7 +271,7 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter {
+        return new class ($make) implements StateStore, Purgeable, RenewableLock, ReservableCounters, UnreadableCounter {
             private ?StateStore $store = null;
 
             public function __construct(private readonly Closure $make)
@@ -313,6 +320,13 @@ final class Factory
             public function unreadableEntries(): int
             {
                 return $this->store instanceof UnreadableCounter ? $this->store->unreadableEntries() : 0; // never connects just to count
+            }
+
+            public function purge(int $maxFiles = 5000, float $maxSeconds = 2.0): int
+            {
+                $store = $this->store();
+
+                return $store instanceof Purgeable ? $store->purge($maxFiles, $maxSeconds) : 0;
             }
 
             private function store(): StateStore

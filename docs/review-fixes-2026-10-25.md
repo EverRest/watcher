@@ -19,6 +19,15 @@ Related: [review-2026-10-23.md](review-2026-10-23.md) (log-source and reducer fi
 | P-M4 | Slack webhook retry / transient failure handling | closed |
 | P-M5 | `BufferedStateStore` flush: unset each key only after successful `put` | closed |
 
+## Batch 3 — PDO state (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-M1 | PDO `StateStore`: MySQL `rowCount` / affected-rows (`MYSQL_ATTR_FOUND_ROWS` in `Factory::pdo`) | closed |
+| P-M2 | PDO state purge: `Purgeable` on `PdoStateStore`; lazy PDO wrapper forwards `purge()` | closed |
+
+MySQL-specific `rowCount` behaviour is covered by contract tests on SQLite plus a Factory source check; a CI job with MySQL remains a follow-up.
+
 ## Batch 4 — Laravel + CLI (closed)
 
 | ID | Item | Status |
@@ -31,8 +40,6 @@ Related: [review-2026-10-23.md](review-2026-10-23.md) (log-source and reducer fi
 
 | ID | Item | Batch | Status |
 |----|------|-------|--------|
-| P-M1 | PDO `StateStore`: MySQL `rowCount` / affected-rows | 3 | open |
-| P-M2 | PDO state purge / `Purgeable` | 3 | open |
 | W6 | `CodeLinkBuilder` path prefix boundary | 5 | open |
 | H5 | Loki stack-trace continuation / server-side line filter | 5 | open |
 | P-H1 | Fingerprint / template versioning | 6 | open |
