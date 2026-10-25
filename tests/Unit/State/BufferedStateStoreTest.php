@@ -6,7 +6,9 @@ namespace Watcher\Tests\Unit\State;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use Watcher\State\BufferedStateStore;
+use Watcher\State\StateStore;
 use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 
@@ -45,6 +47,68 @@ final class BufferedStateStoreTest extends TestCase
         $this->inner->release('a', 'x');
         $this->buffer->flush();
         self::assertSame(['a' => 100, 'b' => 200], $this->inner->ttls(), 'a second flush has nothing left to write');
+    }
+
+    public function testFlushKeepsUnwrittenKeysWhenTheInnerPutFails(): void
+    {
+        $inner = new InMemoryStateStore(new FrozenClock(new DateTimeImmutable('2026-10-08T06:00:00+00:00')));
+        $buffer = new BufferedStateStore(new class ($inner) implements StateStore {
+            private bool $failB = true;
+
+            public function __construct(private InMemoryStateStore $inner)
+            {
+            }
+
+            public function get(string $key): ?array
+            {
+                return $this->inner->get($key);
+            }
+
+            public function put(string $key, array $value, int $ttlSeconds): void
+            {
+                if ($key === 'b' && $this->failB) {
+                    $this->failB = false;
+                    throw new RuntimeException('put failed');
+                }
+                $this->inner->put($key, $value, $ttlSeconds);
+            }
+
+            public function acquire(string $key, string $owner, int $ttlSeconds): bool
+            {
+                return $this->inner->acquire($key, $owner, $ttlSeconds);
+            }
+
+            public function release(string $key, string $owner): void
+            {
+                $this->inner->release($key, $owner);
+            }
+
+            public function increment(string $key, float $by, int $ttlSeconds): float
+            {
+                return $this->inner->increment($key, $by, $ttlSeconds);
+            }
+        });
+        $buffer->put('a', ['v' => 1], 100);
+        $buffer->put('b', ['v' => 2], 200);
+        $buffer->put('c', ['v' => 3], 300);
+
+        try {
+            $buffer->flush();
+            self::fail('expected RuntimeException');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(['v' => 1], $inner->get('a'));
+        self::assertNull($inner->get('b'));
+        self::assertSame(['v' => 2], $buffer->get('b'));
+        self::assertSame(['v' => 3], $buffer->get('c'));
+
+        $buffer->flush();
+        self::assertSame(['v' => 2], $inner->get('b'));
+        self::assertSame(['v' => 3], $inner->get('c'));
+        self::assertSame(['a' => 100, 'b' => 200, 'c' => 300], $inner->ttls());
+        $buffer->flush();
+        self::assertSame(['a' => 100, 'b' => 200, 'c' => 300], $inner->ttls(), 'nothing left buffered after a successful retry');
     }
 
     public function testDiscardDropsTheBuffer(): void

@@ -13,10 +13,10 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   the published specification (T002 records the revisions checked and the date). No tool needs a feature of a specific
   revision: results use `content[{type:"text"}]` and `isError`, which all revisions have. (O5)
 - **Not used**: `structuredContent` / `outputSchema` (newer revisions only; the text item carries the same JSON, so old
-  and new clients work), batches (removed from newer revisions), progress, cancellation, logging, resources, prompts,
-  sampling, roots, elicitation.
+  and new clients work), batches (removed from newer revisions), progress, cancellation, logging,
+  sampling, roots, elicitation, `resources/subscribe`. (Amended 2026-10-25: **resources and prompts are now used**, R11.)
 - **Rejected**: an MCP SDK package. A new dependency needs a written reason (Principle VIII); the surface is five
-  methods and one table of tools. **Rejected**: HTTP/SSE transport: it needs authentication, TLS and origin checks, and
+  core methods, five resources/prompts methods (R11) and one table of tools. **Rejected**: HTTP/SSE transport: it needs authentication, TLS and origin checks, and
   turns a local read tool into a network service holding the state credentials.
 
 ## Owner decisions (2026-10-24)
@@ -25,6 +25,12 @@ O1 `lastrep:{key}` record, allowlisted fields only, independent of spec 013 (R3)
 `mcp.allow_dry_run: true`, plus `confirm_cost` per call and the daily-cap check (R5). O3 `estimate_only` needs no
 confirmation (zero model calls). O4 the masked template is never returned (R2, row 12). O5 protocol revision list fixed in
 T002 (R1). Nothing in this file is open for the owner.
+
+## Owner decisions (2026-10-25)
+
+O6 no secret in or out (R12). O7 read-only, no model call, no network by default (R12, R14). O8 groups behind `mcp.groups` (R15).
+O9 five setup tools (R13). O10 resources, search, explain, four prompts, no embeddings (R11, R16). O11 explain tables derived
+from the validator and one registry, with drift gates (R17, R18). O12 rollout check local only, `connect` opt-in (R13).
 
 ## R2. Prompt injection through finding text (the central risk)
 
@@ -172,3 +178,140 @@ method, params) are JSON-RPC errors, not tool results.
 - `Spend::today()` is per day in the configured timezone; the dry-run guard uses it unchanged.
 - `Doctor`'s `state` check cannot be reused as-is (R6).
 - `WatchConfig` rejects unknown top-level keys, so `mcp` is added in the config task (T018), like other sections.
+
+## R11. MCP prompts and resources, protocol revisions, and the hand-written loop (amendment 2026-10-25)
+
+**Facts to confirm in T002** (the published pages for `resources`, `prompts` and the revisions): `resources/list`,
+`resources/read` and `prompts/list`, `prompts/get` exist in every stable revision the package will list; their result shapes
+are `{resources:[{uri,name,description?,mimeType?}]}`, `{contents:[{uri,mimeType,text}]}`, `{prompts:[{name,description?,
+arguments?[{name,description?,required?}]}]}` and `{description?,messages:[{role,content:{type:"text",text}}]}`. Newer
+revisions add optional fields (`title`, `annotations`, `icons`, structured content) that a client may ignore; none is
+required, so the server emits the old shapes only (same approach as R1 for `structuredContent`). T002 records the final
+`PROTOCOL_VERSIONS` and states which of these fields were seen.
+
+**How the loop supports them.** The router of `Server` is a map `method -> callable`; the `docs` group adds five entries:
+`resources/list`, `resources/read`, `resources/templates/list` (constant empty list: some clients call it on connect and treat
+`-32601` as an error), `prompts/list`, `prompts/get`. `initialize` declares `resources` and `prompts` capabilities only when the
+group is on. No `listChanged` notification is ever sent (both lists are fixed per process), no `subscribe`, no cursor
+(`nextCursor` never set; lists of at most ~20 entries). Parameter validation reuses the argument validator of `ToolRegistry`
+(prompt arguments are enumerations or absent). About 60 lines, no dependency.
+
+**Why resources and prompts at all** (rather than only tools): a client that supports them shows the documentation as
+attachable context and the prompts as slash-command-like starters (`onboard-new-service`); a client that does not still has
+every function as a tool, so nothing is lost (edge case "Client without resources/prompts support").
+
+**Rejected**: serving docs by `file://` URIs (a path-building surface); a `resources/templates` pattern with a path
+parameter (the allowlist is small and fixed, listing it is simpler and has no traversal surface).
+
+## R12. Secrets and a setup copilot (O6, O7)
+
+**The risk.** An onboarding conversation naturally invites "here is my Slack webhook". Anything the server accepts it can
+log, echo or put into a generated file. The conversation already holds what the user typed (the server cannot change that,
+A13); the server's job is to never be the reason a secret is moved, stored or repeated.
+
+**Decision: structure first, detection second.**
+1. *No credential-shaped input exists.* Every input is an enumeration, a bounded number, a strictly patterned name or a path
+   (contracts/tools.schema.json). Environment-variable names must start with `WATCHER_`. `additionalProperties: false`, so a
+   `token` or `webhook` property is a `-32602`.
+2. *A guard in front of the schema.* The secret guard runs on every string first, reusing `Reduce\Normalizer`'s rules
+   (known prefixes `sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox*-`, `glpat-`, `AIza`; JWT; PEM; credential headers; long
+   mixed-class high-entropy runs) plus webhook and bot-token shapes (`hooks.slack.com/services/...`,
+   `discord.com/api/webhooks/<id>/<token>`, `\d{6,}:[A-Za-z0-9_-]{30,}`). One shared source, not a second pattern table
+   (Principle I: one table to audit). A hit gives the fixed message; the schema error path (which could describe the
+   value) is never reached.
+3. *Outputs have no value field.* `env_vars[]` has `name`, `secret`, `required`, `purpose`; there is nowhere to put a value.
+4. *Generated code reads the environment.* `getenv('WATCHER_...')` / `Env::...` / `env()`; the shipped example configs already
+   do this, and `watcher_validate_config` flags the opposite (a literal) by key path.
+5. *No logging of inputs.* Server diagnostics stay class name + masked message (FR-002); `SecretRefused` carries no value.
+
+**Rejected**: accepting a secret and masking it in output (it is still handled and logged by the client); a "temporary
+secret" parameter for live checks (the real check is `watcher check`, which the user runs with their own environment);
+asking a model to judge whether a string is a secret (Principle I: redaction is code).
+
+**No model calls from the MCP (O7).** The explain and search answers are tables and a text index. A model call would cost
+money, need a key (a secret) and make answers non-reproducible. The client's own model composes the answer from the
+tool results; the server only supplies facts.
+
+## R13. The setup tools (O9, O12)
+
+- **`watcher_setup_plan`** is a code catalog derived from `docs/smoke-test.md` section 1 ("What you need"), the first
+  integration runbook (collect inputs, config, check, dry run, baseline, second run, `skipped_done`, status, rollback) and
+  `docs/operations.md` ("Before the first run"). Steps are keyed by driver so that the Loki, Datadog, Slack, Telegram, Discord,
+  Redis, PDO and file variants are different strings, not conditionals in prose. A test ties each `docs` reference to an existing
+  heading anchor, so a docs rewrite breaks the build instead of the plan.
+- **`watcher_validate_config`** reuses `WatchConfig::fromArray` (the `check` config stage; `Doctor::configFailure` for the
+  failure shape), so it can never disagree with `watcher check`. Mapping validator messages to hints uses the key path the
+  message already names (configuration.md: "names the key, never the value").
+- **`watcher_generate_config`** is a function of validated inputs, not a template engine over free text: strings are patterned
+  so that no quote, `$`, backtick or `?>` can occur; the one escaping function handles the rest. Output is deterministic
+  (stable key order), so golden files and the validator round-trip (SC-011) work.
+- **`watcher_first_day`** is the runbook's sections 3-4 as data; it is separate from the plan so a user who already has a
+  config can ask for it directly, and the `onboard-new-service` prompt can call it last.
+- **`watcher_rollout_check`**: reads only. PHP version against the floor constant; `extension_loaded('redis')` only when the
+  chosen driver is redis with client `auto`/`phpredis` (else predis class presence); `pdo` and its driver for `pdo`; `zlib` as a
+  warning (compression off). The Composer constraint is read from the nearest `composer.json` (read-only, 3 levels). State
+  reachability is the only networked part: one `get` through `ReadOnlyStateStore`, only with `connect: true` and a configuration
+  that passed the path policy; the tool's `openWorldHint` is true for that reason.
+
+## R14. Executing a configuration file (the one new risk surface)
+
+`watcher check --config=<file>` includes the file. A tool that accepts a path from an assistant therefore could be steered
+into including an attacker-chosen PHP file. Options: (a) static parser (rejected: configs call `Env::bool`, `getenv`, `env()`,
+conditionals; a partial parser would give wrong answers); (b) run the include in a subprocess without the environment
+(rejected for v1: more machinery, and the file is the user's own); (c) **restrict where the file may be** (chosen): realpath
+inside the directory of the server's own config (or the working directory in setup mode), regular `.php` file, owned by the
+process user, not group/world-writable (the classifier `observe.file.path` already applies), 256 KB cap, path never echoed.
+An attacker who can place a file in that directory can already run code as that user, so no privilege is gained. Documented
+in `docs/mcp.md` and the privacy page. A symlink is resolved first and judged by its target.
+
+Plain-text-secret detection uses `token_get_all` on the file text (string literal assigned with `=>` to a key the catalog marks
+`secret`). It is a heuristic with a stated limit (computed keys are not seen); it never reads the literal into the result.
+
+## R15. Groups and setup mode (O8, A1, A2)
+
+`mcp.groups` exists so that an operator can run exactly the original read-only server (`['inspect']`), or only the static
+answers (`['docs']`), without code changes, and so that a security review can reason per group: *inspect* reads state,
+*onboarding* reads one local file (and one store read with `connect`), *docs* reads the package's own files. `--setup` is the
+bootstrap: the existing rule (invalid config -> exit 2, empty stdout) is right for a running service and would make the
+copilot unusable for the person who needs it most. Setup mode has no state store, so it cannot read a heartbeat or spend; the
+`inspect` group is therefore not offered there.
+
+## R16. Why no embeddings for search (O10, A9)
+
+The corpus is about ten small Markdown files (about 150 KB), written in the package's own vocabulary. A lexical index with a
+heading boost answers "where is the Loki proxy URL form" by its words. Embeddings need a model or a vector library (a
+dependency or a network call, and a secret or a cost), make ranking non-reproducible, and cannot be unit-tested to a golden
+order. The cost of being wrong is low: the client's model can call `watcher_explain_config` or read a resource. Upgrade path if
+needed: the `DocsIndex` interface (`search`, `read`) is the seam; nothing else would change. Index building is O(total bytes) once
+per process.
+
+## R17. Deriving `explain_config` from the validator (O11)
+
+Today `WatchConfig` holds `TOP_LEVEL` and `FLAGS` constants and checks the keys of each section inline; there is no single table
+that says what a key is. A table that lives beside the validator and is not consulted by it would drift on the first new key
+(the same failure `docs/README.md` indexes had). Decision: introduce `Config\KeyCatalog` as the table the unknown-key
+rejection reads, and put the explanation fields in the same entry, so adding a key without explaining it is impossible (the
+entry needs them) and removing an explanation removes the key. Gates: (a) every key the example config sets is in the catalog
+and every catalog key is accepted by `fromArray` in a probe config; (b) defaults equal `WatchConfig` values; (c) catalog vs
+`docs/configuration.md` both ways; (d) `related` and `docs` references resolve. Cost: the extraction touches `WatchConfig`
+(shared file, SEQ) and must change no message text (plan risk 7); the existing configuration tests, unchanged, are the proof.
+Fallback if the inline checks are too entangled: the catalog drives only the unknown-key check and the explanation, and a test
+walks every `InvalidConfig` message of the existing test suite to confirm its key path exists in the catalog.
+
+## R18. The outcome registry and where it hooks in (O11)
+
+Today outcomes are an enum (`RunOutcome`), reason codes are string literals at call sites (`Watcher::fail($msg, 'lock_lost')`,
+`failWithNotice(..., 'analysis_refused')`, `RunLedger::setCode('digest_disabled')`, `'truncated:' . $reason`, `'zero_events'`),
+check reasons are vocabulary strings in `Doctor`, and the event stream has its own code lists (`Observe\EventSchema`). Decision:
+`Watcher\OutcomeRegistry` holds a constant and an entry for each; emit sites use the constants (typed, greppable, a typo is a
+fatal error); `RunLedger::setCode()` and `Watcher::fail()` accept only registered codes or a registered family with a reason
+suffix matching `^[a-z0-9_]{1,40}$`. A static test forbids a string literal as the code argument of those calls. Gates are
+listed in FR-085 d-e. Codes of specs not yet in the tree (`k8s_ingest_failed:<reason>`, spec 008) are registered as reserved so
+that the registry already explains them for users who read the 008 documentation, and the reservation list is itself tested.
+Files that emit codes today (inventory is T052's first step; the static test finds any that were missed):
+`src/Watcher.php`, `src/RunLedger.php`, `src/RunOutcome.php`, `src/RunResult.php`, `src/Operate/Heartbeat.php`,
+`src/Operate/Doctor.php` and `CheckResult.php`, `src/Operate/JsonSummary.php`, `src/Observe/EventSchema.php`,
+`src/Observe/EventFactory.php`, `src/Fleet/ServiceResult.php`, `src/Fleet/FleetRunner.php`. The owner's examples map as:
+`disabled`, `skipped_done`, `baselined`, `zero_events`, `lock_lost`, `analysis_refused` are in the tree today;
+`state_unavailable` is the MCP error code (and `state_unreadable` the run-summary counter); `k8s_ingest_failed:<reason>` is
+reserved for spec 008.

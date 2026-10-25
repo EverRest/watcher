@@ -131,6 +131,8 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
 | [012](specs/012-feature-flags/spec.md) | Feature flags and environments | Implemented (changelog) |
 | [013](specs/013-observability-sink/spec.md) | Observability sink | Implemented (changelog) |
+| [014](specs/014-schedule-periods/spec.md) | Schedule periods | Spec written |
+| [015](specs/015-mcp-readonly/spec.md) | Read-only MCP server, onboarding and Q&A | Spec written |
 <!-- docs:end -->
 
 ## Configuration
