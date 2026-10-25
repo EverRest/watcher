@@ -49,7 +49,7 @@ final class LiveObjectDumpTest extends TestCase
     /** @return array<string, array{string}> */
     public static function objects(): array
     {
-        return ['sink dispatcher with its http sink' => ['dispatcher'], 'heartbeat' => ['heartbeat'], 'notice renderer' => ['renderer'], 'notifier' => ['notifier']];
+        return ['sink dispatcher with its http sink' => ['dispatcher'], 'heartbeat' => ['heartbeat'], 'notice renderer' => ['renderer'], 'notifier' => ['notifier'], 'loki source' => ['loki'], 'datadog source' => ['datadog'], 'model catalog' => ['catalog']];
     }
 
     private function build(string $which): object
@@ -62,6 +62,9 @@ final class LiveObjectDumpTest extends TestCase
             'dispatcher' => Factory::observe($c, $clock, null, new ObserveCounters($state, 'svc', 100)) ?? throw new \LogicException('no dispatcher'),
             'heartbeat' => Factory::heartbeat($c, $state, $clock, null),
             'renderer' => new NoticeRenderer($c->secrets()),
+            'loki' => Factory::source($c, Factory::http(), $clock),
+            'datadog' => new \Watcher\Source\DatadogSource(Factory::http(), 'datadoghq.com', 'CANARY-model-key-2', 'CANARY-loki-token-1'),
+            'catalog' => new \Watcher\Operate\AnthropicModelCatalog(Factory::http(), 'CANARY-model-key-2'),
             default => Factory::notifier(Factory::http(), 900),
         };
     }

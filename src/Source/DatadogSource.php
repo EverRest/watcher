@@ -35,8 +35,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     private const VERSION_STEP = 3600;
 
     private readonly string $baseUrl;
-    /** @var array<string, string> */
-    private readonly array $headers;
+    /** @var \Closure(): array<string, string> request headers incl. the credential: a closure, so var_export shows no value */
+    private readonly \Closure $headers;
     private readonly Retry $retry;
     private readonly ClockInterface $clock;
     private bool $truncated = false;
@@ -66,7 +66,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             throw new InvalidArgumentException('Invalid Datadog site.');
         }
         $this->baseUrl = 'https://api.' . $site;
-        $this->headers = ['DD-API-KEY' => $apiKey, 'DD-APPLICATION-KEY' => $appKey, 'Accept' => 'application/json'];
+        $headers = ['DD-API-KEY' => $apiKey, 'DD-APPLICATION-KEY' => $appKey, 'Accept' => 'application/json'];
+        $this->headers = static fn (): array => $headers;
         $this->retry = new Retry($sleeper, $retryBudget);
         $this->clock = $clock ?? new SystemClock();
         $this->parser = new LineParser();
@@ -404,7 +405,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         try {
             $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('POST', $this->baseUrl . $path, [
             'json' => $body,
-            'headers' => $this->headers,
+            'headers' => ($this->headers)(),
             'http_errors' => false,
             'allow_redirects' => false, // DD-API-KEY would follow a redirect; a 3xx is an error here
             'verify' => true,
@@ -418,5 +419,16 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             throw new SourceUnavailable(trim("datadog {$status} " . $response->getReasonPhrase()));
         }
         return ResponseLimit::decode($response, 'datadog', $this->maxResponseBytes);
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }
