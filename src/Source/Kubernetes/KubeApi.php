@@ -347,6 +347,7 @@ final class KubeApi
         if ($this->afterResolve !== null) {
             ($this->afterResolve)(); // test seam: lets a test swap a path component between the check and the open
         }
+        clearstatcache(true); // judge the file system as it is now, not PHP's cached stat/realpath answers (a swap after the check must be seen)
         $before = @lstat($real);
         $h = $before === false || ($before['mode'] & 0170000) !== 0100000 ? false : @fopen($real, 'rn');
         if ($before === false || $h === false) {
@@ -356,6 +357,7 @@ final class KubeApi
             // Judge the opened handle, then the path once more: the file we hold must be the one the check approved, still reached by
             // the same real path, and nothing about it may have changed on the way.
             $st = fstat($h);
+            clearstatcache(true);
             $after = @stat($real);
             if ($st === false || $after === false || realpath($real) !== $real || KubeSettings::resolveTokenFile($path) !== $real
                 || !KubeSettings::safeTokenStat($st, KubeSettings::effectiveUser())
