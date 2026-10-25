@@ -19,6 +19,18 @@ Related: [review-2026-10-23.md](review-2026-10-23.md) (log-source and reducer fi
 | W6 | `CodeLinkBuilder::mapPath` prefix match without path-segment boundary (`/app` vs `/apple`) | closed |
 | H5 | Loki text-mode line filter drops stack-trace continuations server-side | closed (continuations); unworded labelled main lines still use `level_mode: label` |
 
+## Batch 6 — fingerprint versioning (closed)
+
+| ID | Item | Status |
+|----|------|--------|
+| P-H1 | Fingerprint version `fpv` in window snapshots; stale `fpv` → baseline reset notice; golden Normalizer corpus | closed |
+
+### `fpv` behaviour
+
+- `Fingerprinter::FPV` (currently `1`) is stored on every window snapshot as field `fpv`.
+- Snapshots without `fpv` or with an older value are not used for growth comparison, rolling/weekday history, or H6 last-good fallback.
+- After a Normalizer upgrade the next run records a fresh baseline and sends a **baseline reset** notice (`fpv N → M`). A true first install still gets **baseline recorded**.
+
 ## Batch 7 — Notify + LineParser (closed)
 
 | ID | Item | Status |
