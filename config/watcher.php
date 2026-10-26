@@ -17,13 +17,14 @@ use Watcher\Config\EnvSections;
  * All other flags default to on (today's behaviour). There is no flag for redaction: privacy is not optional.
  */
 // Environment-only hosts keep no config file of their own: destinations, prices and stream tags come from variables (docs/configuration.md,
-// "Environment only"). This file never throws: it runs on every request of the host, so a missing or broken variable is recorded in
-// `env_problems` and raised when `watcher:run` or `watcher:check` starts, as a MissingEnvironmentVariable (an InvalidConfig, exit code 2).
+// "Environment only"). This file never throws: it runs on every request of the host, so a missing or broken variable (a feature flag or
+// number included: `$env->bool()`, `$env->int()`) is recorded in `env_problems` and raised when `watcher:run` or `watcher:check` starts, as a
+// MissingEnvironmentVariable or InvalidConfig (exit code 2).
 $env = new EnvSections();
 $models = ['triage' => env('WATCHER_MODEL_TRIAGE'), 'analyze' => env('WATCHER_MODEL_ANALYZE'), 'escalate' => env('WATCHER_MODEL_ESCALATE')];
 
 return [
-    'enabled' => Env::bool('WATCHER_ENABLED', false), // master switch: false = the run does nothing and reports `disabled`
+    'enabled' => $env->bool('WATCHER_ENABLED', false), // master switch: false = the run does nothing and reports `disabled`
     'environment' => Env::string('WATCHER_ENVIRONMENT'), // optional (int, prod, ...): state keys become <service>@<environment>
     'service' => env('WATCHER_SERVICE'),           // required; key prefix for all state
 
@@ -32,7 +33,7 @@ return [
         'timezone' => env('WATCHER_TIMEZONE', 'UTC'),
         'window' => 'PT24H',                       // ISO-8601 duration
         'lock_ttl' => 900,                         // seconds
-        'run_deadline' => Env::int('WATCHER_RUN_DEADLINE', 0) ?: null, // seconds; default lock_ttl minus a margin (810)
+        'run_deadline' => $env->int('WATCHER_RUN_DEADLINE', 0) ?: null, // seconds; default lock_ttl minus a margin (810)
     ],
 
     'source' => [
@@ -59,30 +60,30 @@ return [
     // Explicit matchers; only the rule name leaves the service. One of
     // template | error_type | field (+ equals | matches). Example:
     //   'quota' => ['template' => '/QuotaTracking/'],
-    'watch_rules' => ['enabled' => Env::bool('WATCHER_WATCH_RULES_ENABLED', true)],
+    'watch_rules' => ['enabled' => $env->bool('WATCHER_WATCH_RULES_ENABLED', true)],
 
     // [['fingerprint' => 'abc123', 'until' => '2030-01-31'], ['template' => '/regex/', 'until' => null]]
-    'mute' => ['enabled' => Env::bool('WATCHER_MUTE_ENABLED', true)], // add entries as list items next to `enabled`
+    'mute' => ['enabled' => $env->bool('WATCHER_MUTE_ENABLED', true)], // add entries as list items next to `enabled`
 
     'selection' => [
         'min_level' => 'error',
         'growth_factor' => 3.0,
         'top_n' => 50,
         'top_m' => 10,
-        'escalation' => ['enabled' => Env::bool('WATCHER_ESCALATION_ENABLED', true)], // false: only triage + analysis
+        'escalation' => ['enabled' => $env->bool('WATCHER_ESCALATION_ENABLED', true)], // false: only triage + analysis
     ],
 
-    'level_anomaly' => ['enabled' => Env::bool('WATCHER_LEVEL_ANOMALY_ENABLED', true)],  // second pass on a level whose total grew
-    'budget_alerts' => ['enabled' => Env::bool('WATCHER_BUDGET_ALERTS_ENABLED', true)],  // 25/50/75/90 % notices and the exhausted notice
-    'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                  // expired-file purge (file state store only)
-    'baseline' => ['enabled' => Env::bool('WATCHER_BASELINE_ENABLED', true)],            // false: previous-window comparison only
-    'grouping' => ['enabled' => Env::bool('WATCHER_GROUPING_ENABLED', true)],            // false: exact token-count clusters
-    'kubernetes' => ['enabled' => Env::bool('WATCHER_KUBERNETES_ENABLED', true)],        // pod events: add `events` + this section's settings to use (docs/kubernetes.md)
+    'level_anomaly' => ['enabled' => $env->bool('WATCHER_LEVEL_ANOMALY_ENABLED', true)],  // second pass on a level whose total grew
+    'budget_alerts' => ['enabled' => $env->bool('WATCHER_BUDGET_ALERTS_ENABLED', true)],  // 25/50/75/90 % notices and the exhausted notice
+    'purge' => ['enabled' => $env->bool('WATCHER_PURGE_ENABLED', true)],                  // expired-file purge (file state store only)
+    'baseline' => ['enabled' => $env->bool('WATCHER_BASELINE_ENABLED', true)],            // false: previous-window comparison only
+    'grouping' => ['enabled' => $env->bool('WATCHER_GROUPING_ENABLED', true)],            // false: exact token-count clusters
+    'kubernetes' => ['enabled' => $env->bool('WATCHER_KUBERNETES_ENABLED', true)],        // pod events: add `events` + this section's settings to use (docs/kubernetes.md)
 
     'analysis' => [
         'provider' => 'anthropic',
-        'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis
-        'advice' => ['enabled' => Env::bool('WATCHER_ADVICE_ENABLED', true)], // false: no how_to_check / related_checks (fewer output tokens)
+        'triage' => ['enabled' => $env->bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis
+        'advice' => ['enabled' => $env->bool('WATCHER_ADVICE_ENABLED', true)], // false: no how_to_check / related_checks (fewer output tokens)
         'api_key' => env('WATCHER_ANTHROPIC_KEY'),
         'models' => $models,
         'max_input_tokens' => ['triage' => 20000, 'analyze' => 30000, 'escalate' => 15000],
@@ -122,24 +123,24 @@ return [
     'notify' => [
         // Telegram: WATCHER_DIGEST_BOT_TOKEN + WATCHER_DIGEST_CHAT_ID (+ WATCHER_DIGEST_THREAD_ID, a topic). Slack / Discord: WATCHER_DIGEST_WEBHOOK
         // (the old WATCHER_SLACK_WEBHOOK still works). WATCHER_DIGEST_DRIVER picks one explicitly (slack | telegram | discord | none).
-        'digest' => $env->destination('DIGEST') + ['enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
+        'digest' => $env->destination('DIGEST') + ['enabled' => $env->bool('WATCHER_DIGEST_ENABLED', true)],
         // Failure and budget notices. No WATCHER_NOTICE_* variable: use the digest destination. WATCHER_NOTICE_THREAD_ID alone sends them to another
         // topic of the same Telegram chat; WATCHER_NOTICE_DRIVER / _WEBHOOK / _BOT_TOKEN / _CHAT_ID give a channel of its own.
-        'notice' => ($env->destination('NOTICE') ?? []) + ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
-        'routes_enabled' => Env::bool('WATCHER_ROUTES_ENABLED', true),
+        'notice' => ($env->destination('NOTICE') ?? []) + ['enabled' => $env->bool('WATCHER_NOTICE_ENABLED', true)],
+        'routes_enabled' => $env->bool('WATCHER_ROUTES_ENABLED', true),
         'routes' => [],
     ],
 
-    'known_issues' => ['enabled' => Env::bool('WATCHER_KNOWN_ISSUES_ENABLED', true), 'entries' => []],
-    'drafts' => ['enabled' => Env::bool('WATCHER_DRAFTS_ENABLED', false)],
+    'known_issues' => ['enabled' => $env->bool('WATCHER_KNOWN_ISSUES_ENABLED', true), 'entries' => []],
+    'drafts' => ['enabled' => $env->bool('WATCHER_DRAFTS_ENABLED', false)],
 
     'service_context' => [
-        'enabled' => Env::bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),
+        'enabled' => $env->bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),
         'text' => env('WATCHER_SERVICE_CONTEXT'),  // what the service does and what is critical, <= 1000 chars
     ],
 
     // 'other-service' => ['stream_tags' => ['app' => 'other-service']]
-    'dependencies' => ['enabled' => Env::bool('WATCHER_DEPENDENCIES_ENABLED', true)],
+    'dependencies' => ['enabled' => $env->bool('WATCHER_DEPENDENCIES_ENABLED', true)],
     'dependency_read_cap' => 5000,
     'dependency_domains' => [],
 
@@ -147,20 +148,20 @@ return [
         'release' => env('WATCHER_RELEASE'),
         'commit' => env('WATCHER_COMMIT'),
         'version_label' => null,
-        'enabled' => Env::bool('WATCHER_DEPLOY_ENABLED', true),
+        'enabled' => $env->bool('WATCHER_DEPLOY_ENABLED', true),
     ],
 
     'heartbeat' => [
         // 'stale_after' => 'PT36H',               // default: 1.5 x schedule.window
-        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // one counts-and-cost line per ISO week
-        'enabled' => Env::bool('WATCHER_HEARTBEAT_ENABLED', true),
+        'weekly_summary' => $env->bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // one counts-and-cost line per ISO week
+        'enabled' => $env->bool('WATCHER_HEARTBEAT_ENABLED', true),
     ],
 
     'links' => [
         'grafana' => ['base_url' => env('WATCHER_GRAFANA_URL'), 'datasource_uid' => env('WATCHER_LOKI_DS_UID')],
         'datadog' => ['app_url' => null],
-        'logs' => ['enabled' => Env::bool('WATCHER_LINKS_LOGS_ENABLED', true)],
-        'code' => ['enabled' => Env::bool('WATCHER_LINKS_CODE_ENABLED', true)],
+        'logs' => ['enabled' => $env->bool('WATCHER_LINKS_LOGS_ENABLED', true)],
+        'code' => ['enabled' => $env->bool('WATCHER_LINKS_CODE_ENABLED', true)],
     ],
 
     'repo' => [
@@ -171,42 +172,42 @@ return [
 
     // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default; the cost report works regardless.
     'hygiene' => [
-        'enabled' => Env::bool('WATCHER_HYGIENE_ENABLED', false),
+        'enabled' => $env->bool('WATCHER_HYGIENE_ENABLED', false),
     ],
 
     // Event sinks (docs/observability.md). Every sink is OFF until its own `enabled` is true. With driver `none` under notify.digest the
     // chat stays silent and a sink is the only channel (at least one must be on). `log` text defaults to on, the others to off.
     'observe' => [
-        'top_groups' => Env::int('WATCHER_OBSERVE_TOP_GROUPS', 20),   // 0..100 group events per run
+        'top_groups' => $env->int('WATCHER_OBSERVE_TOP_GROUPS', 20),   // 0..100 group events per run
         'log' => [
-            'enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false),
+            'enabled' => $env->bool('WATCHER_OBSERVE_LOG_ENABLED', false),
             'stream' => Env::string('WATCHER_OBSERVE_LOG_STREAM', 'stderr'),           // stderr | stdout (stderr under --json)
-            'include_text' => Env::bool('WATCHER_OBSERVE_LOG_INCLUDE_TEXT', false),
+            'include_text' => $env->bool('WATCHER_OBSERVE_LOG_INCLUDE_TEXT', false),
         ],
         'file' => [
-            'enabled' => Env::bool('WATCHER_OBSERVE_FILE_ENABLED', false),
+            'enabled' => $env->bool('WATCHER_OBSERVE_FILE_ENABLED', false),
             'path' => Env::string('WATCHER_OBSERVE_FILE_PATH'),                        // absolute; required when enabled
             'rotate' => Env::string('WATCHER_OBSERVE_FILE_ROTATE', 'size'),            // size | daily
-            'max_bytes' => Env::int('WATCHER_OBSERVE_FILE_MAX_BYTES', 10485760),
-            'max_files' => Env::int('WATCHER_OBSERVE_FILE_MAX_FILES', 10),
-            'retention_days' => Env::int('WATCHER_OBSERVE_FILE_RETENTION_DAYS', 30),
-            'include_text' => Env::bool('WATCHER_OBSERVE_FILE_INCLUDE_TEXT', false),
+            'max_bytes' => $env->int('WATCHER_OBSERVE_FILE_MAX_BYTES', 10485760),
+            'max_files' => $env->int('WATCHER_OBSERVE_FILE_MAX_FILES', 10),
+            'retention_days' => $env->int('WATCHER_OBSERVE_FILE_RETENTION_DAYS', 30),
+            'include_text' => $env->bool('WATCHER_OBSERVE_FILE_INCLUDE_TEXT', false),
         ],
         'http' => [
-            'enabled' => Env::bool('WATCHER_OBSERVE_HTTP_ENABLED', false),
+            'enabled' => $env->bool('WATCHER_OBSERVE_HTTP_ENABLED', false),
             'url' => Env::string('WATCHER_OBSERVE_HTTP_URL'),                          // https; a secret, masked everywhere
             'auth_header' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_HEADER', 'Authorization'),
             'auth_scheme' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_SCHEME', 'Bearer'), // '' (set in code) sends the token alone
             'auth_token' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_TOKEN'),
-            'batch_size' => Env::int('WATCHER_OBSERVE_HTTP_BATCH_SIZE', 100),
-            'timeout' => Env::int('WATCHER_OBSERVE_HTTP_TIMEOUT', 5),
+            'batch_size' => $env->int('WATCHER_OBSERVE_HTTP_BATCH_SIZE', 100),
+            'timeout' => $env->int('WATCHER_OBSERVE_HTTP_TIMEOUT', 5),
             'allowed_hosts' => Env::list('WATCHER_OBSERVE_HTTP_ALLOWED_HOSTS'),
-            'allow_insecure' => Env::bool('WATCHER_OBSERVE_HTTP_ALLOW_INSECURE', false),
-            'allow_private_network' => Env::bool('WATCHER_OBSERVE_HTTP_ALLOW_PRIVATE_NETWORK', false),
-            'include_text' => Env::bool('WATCHER_OBSERVE_HTTP_INCLUDE_TEXT', false),
+            'allow_insecure' => $env->bool('WATCHER_OBSERVE_HTTP_ALLOW_INSECURE', false),
+            'allow_private_network' => $env->bool('WATCHER_OBSERVE_HTTP_ALLOW_PRIVATE_NETWORK', false),
+            'include_text' => $env->bool('WATCHER_OBSERVE_HTTP_INCLUDE_TEXT', false),
         ],
         'prometheus' => [
-            'enabled' => Env::bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false),
+            'enabled' => $env->bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false),
             'dir' => Env::string('WATCHER_OBSERVE_PROMETHEUS_DIR'),                    // node_exporter textfile directory
             'name' => Env::string('WATCHER_OBSERVE_PROMETHEUS_NAME'),                  // default watcher_<service>[_<environment>]; unset in a fleet
             'file_mode' => Env::string('WATCHER_OBSERVE_PROMETHEUS_FILE_MODE'),        // default 0644

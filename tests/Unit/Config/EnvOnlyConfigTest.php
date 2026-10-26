@@ -16,7 +16,7 @@ final class EnvOnlyConfigTest extends TestCase
     private const CLEARED = [
         'WATCHER_DIGEST_DRIVER', 'WATCHER_DIGEST_WEBHOOK', 'WATCHER_DIGEST_BOT_TOKEN', 'WATCHER_DIGEST_CHAT_ID', 'WATCHER_DIGEST_THREAD_ID',
         'WATCHER_NOTICE_DRIVER', 'WATCHER_NOTICE_WEBHOOK', 'WATCHER_NOTICE_BOT_TOKEN', 'WATCHER_NOTICE_CHAT_ID', 'WATCHER_NOTICE_THREAD_ID',
-        'WATCHER_SLACK_WEBHOOK', 'WATCHER_STREAM_TAGS', 'WATCHER_ENABLED',
+        'WATCHER_SLACK_WEBHOOK', 'WATCHER_STREAM_TAGS', 'WATCHER_ENABLED', 'WATCHER_TRIAGE_ENABLED', 'WATCHER_RUN_DEADLINE',
         'WATCHER_PRICE_TRIAGE_IN', 'WATCHER_PRICE_TRIAGE_OUT', 'WATCHER_PRICE_ANALYZE_IN', 'WATCHER_PRICE_ANALYZE_OUT',
         'WATCHER_PRICE_ESCALATE_IN', 'WATCHER_PRICE_ESCALATE_OUT',
         'WATCHER_MODEL_TRIAGE', 'WATCHER_MODEL_ANALYZE', 'WATCHER_MODEL_ESCALATE', 'WATCHER_SERVICE', 'WATCHER_RUN_AT',
@@ -133,5 +133,34 @@ final class EnvOnlyConfigTest extends TestCase
         $config = self::load(self::BASE + ['WATCHER_DIGEST_THREAD_ID' => 'oops']);
 
         self::assertTrue(WatchConfig::masterSwitchOff($config), 'the kill switch is read before any validation, so a half-filled environment cannot stop it');
+    }
+    public function testAHostThatSetsItsOwnDigestIsLeftAlone(): void
+    {
+        $config = self::load(self::BASE); // no digest variable at all
+        $config['notify']['digest'] = ['driver' => 'telegram', 'bot_token' => 'own', 'chat_id' => '-1']; // the host's own config/watcher.php, laid over the shipped one
+
+        $c = WatchConfig::fromArray($config);
+
+        self::assertSame('telegram', $c->destination('digest')->driver());
+    }
+
+    public function testABrokenFlagDoesNotThrowWhileLoadingButIsReportedWhenTheRunStarts(): void
+    {
+        $config = self::load(self::BASE + ['WATCHER_SLACK_WEBHOOK' => 'https://hooks.example/x', 'WATCHER_TRIAGE_ENABLED' => 'maybe-secret']);
+
+        try {
+            WatchConfig::fromArray($config);
+            self::fail('expected an exception');
+        } catch (\Watcher\Config\InvalidConfig $e) {
+            self::assertStringContainsString('WATCHER_TRIAGE_ENABLED', $e->getMessage());
+            self::assertStringNotContainsString('maybe-secret', $e->getMessage());
+        }
+    }
+
+    public function testABrokenMasterSwitchFailsSafeToOff(): void
+    {
+        $config = self::load(self::BASE + ['WATCHER_ENABLED' => 'maybe']);
+
+        self::assertTrue(WatchConfig::masterSwitchOff($config));
     }
 }

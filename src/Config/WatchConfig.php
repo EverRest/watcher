@@ -131,7 +131,7 @@ final class WatchConfig implements \JsonSerializable
      * @param array<array-key, mixed> $config
      * @return array<array-key, mixed> the config without the `env_problems` key
      */
-    private static function withoutEnvProblems(array $config): array
+    private static function withoutEnvProblems(#[\SensitiveParameter] array $config): array
     {
         if (!array_key_exists('env_problems', $config)) {
             return $config;
@@ -157,14 +157,16 @@ final class WatchConfig implements \JsonSerializable
             return $config;
         }
 
-        throw $missing ? new MissingEnvironmentVariable(implode('; ', $messages)) : new InvalidConfig(implode('; ', $messages));
+        $text = implode('; ', array_values(array_unique($messages)));
+
+        throw $missing ? new MissingEnvironmentVariable($text) : new InvalidConfig($text);
     }
 
     /**
      * @param array<array-key, mixed> $config
      * @param mixed                   $paths  list of paths, each a list of segments; any non-empty value settles the problem
      */
-    private static function settledByTheHost(array $config, mixed $paths): bool
+    private static function settledByTheHost(#[\SensitiveParameter] array $config, mixed $paths): bool
     {
         if (!is_array($paths)) {
             return false;

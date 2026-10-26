@@ -290,7 +290,7 @@ final class EnvSectionsTest extends TestCase
     {
         $e = new EnvSections();
         $e->destination('DIGEST');
-        self::assertEqualsCanonicalizing([['notify', 'digest', 'webhook'], ['notify', 'digest', 'bot_token']], $e->problems()[0]['unless']);
+        self::assertEqualsCanonicalizing([['notify', 'digest', 'webhook'], ['notify', 'digest', 'bot_token'], ['notify', 'digest', 'driver']], $e->problems()[0]['unless']);
 
         self::set(['WATCHER_DIGEST_DRIVER' => 'telegram', 'WATCHER_DIGEST_BOT_TOKEN' => 'tok']);
         $e = new EnvSections();
@@ -310,5 +310,93 @@ final class EnvSectionsTest extends TestCase
         $e->prices(['triage' => 'haiku', 'analyze' => 'haiku', 'escalate' => null]);
 
         self::assertSame([], $e->problems()[0]['unless']);
+    }
+    public function testNothingSetLeavesTheDigestWithoutADriverSoAHostDriverSettlesTheProblem(): void
+    {
+        $e = new EnvSections();
+
+        self::assertSame([], $e->destination('DIGEST'));
+    }
+
+    // ---- review fixes
+
+    public function testASharedModelNeedsItsPriceOnlyOnce(): void
+    {
+        self::set(['WATCHER_PRICE_TRIAGE_IN' => '0.1', 'WATCHER_PRICE_TRIAGE_OUT' => '0.5']);
+        $e = new EnvSections();
+
+        self::assertSame(['haiku' => [0.1, 0.5, 0.0, 0.0]], $e->prices(['triage' => 'haiku', 'analyze' => 'haiku', 'escalate' => null]));
+        self::assertSame([], $e->problems());
+    }
+
+    public function testAnInfinitePriceIsRefusedByName(): void
+    {
+        self::set(['WATCHER_PRICE_TRIAGE_IN' => '1e999', 'WATCHER_PRICE_TRIAGE_OUT' => '0.5']);
+        $e = new EnvSections();
+
+        self::assertSame([], $e->prices(['triage' => 'haiku', 'analyze' => null, 'escalate' => null]));
+        self::assertSame('invalid', $e->problems()[0]['kind']);
+        self::assertStringContainsString('WATCHER_PRICE_TRIAGE_IN', $e->problems()[0]['message']);
+    }
+
+    public function testStreamTagKeysMayCarryTheCharactersOfRealTags(): void
+    {
+        self::set(['WATCHER_STREAM_TAGS' => 'kube_app.name=orders,team/owner=core,service-name=x']);
+
+        self::assertSame(['kube_app.name' => 'orders', 'team/owner' => 'core', 'service-name' => 'x'], (new EnvSections())->streamTags());
+    }
+
+    public function testADuplicateStreamTagIsRefusedByName(): void
+    {
+        self::set(['WATCHER_STREAM_TAGS' => 'app=a,app=b']);
+        $e = new EnvSections();
+
+        self::assertSame([], $e->streamTags());
+        self::assertStringContainsString('WATCHER_STREAM_TAGS', $e->problems()[0]['message']);
+    }
+
+    public function testAKeyThatCouldBreakOutOfASelectorIsRefused(): void
+    {
+        foreach (['a}=x', 'a"=x', 'a,b=x', '=x'] as $bad) {
+            self::set(['WATCHER_STREAM_TAGS' => $bad . ',app=m']);
+            $e = new EnvSections();
+            self::assertSame([], $e->streamTags(), $bad);
+        }
+    }
+
+    public function testBoolFallsBackToTheDefaultAndRecordsTheVariable(): void
+    {
+        $e = new EnvSections();
+        self::set(['WATCHER_TRIAGE_ENABLED' => 'maybe-secret']);
+
+        self::assertTrue($e->bool('WATCHER_TRIAGE_ENABLED', true));
+        self::assertFalse($e->bool('WATCHER_TRIAGE_ENABLED', false));
+        self::assertSame('invalid', $e->problems()[0]['kind']);
+        self::assertStringContainsString('WATCHER_TRIAGE_ENABLED', $e->problems()[0]['message']);
+        self::assertStringNotContainsString('maybe-secret', $e->problems()[0]['message']);
+        putenv('WATCHER_TRIAGE_ENABLED');
+    }
+
+    public function testBoolAndIntReadAValidValue(): void
+    {
+        self::set(['WATCHER_TRIAGE_ENABLED' => 'off', 'WATCHER_RUN_DEADLINE' => '45']);
+        $e = new EnvSections();
+
+        self::assertFalse($e->bool('WATCHER_TRIAGE_ENABLED', true));
+        self::assertSame(45, $e->int('WATCHER_RUN_DEADLINE', 0));
+        self::assertSame([], $e->problems());
+        putenv('WATCHER_TRIAGE_ENABLED');
+        putenv('WATCHER_RUN_DEADLINE');
+    }
+
+    public function testIntFallsBackToTheDefaultAndRecordsTheVariable(): void
+    {
+        self::set(['WATCHER_RUN_DEADLINE' => 'soon-secret']);
+        $e = new EnvSections();
+
+        self::assertSame(7, $e->int('WATCHER_RUN_DEADLINE', 7));
+        self::assertStringContainsString('WATCHER_RUN_DEADLINE', $e->problems()[0]['message']);
+        self::assertStringNotContainsString('soon-secret', $e->problems()[0]['message']);
+        putenv('WATCHER_RUN_DEADLINE');
     }
 }

@@ -157,4 +157,12 @@ final class EnvProblemsTest extends TestCase
             self::assertStringNotContainsString('WATCHER_STALE', $e->getMessage());
         }
     }
+    public function testNoFrameOfTheValidatorShowsTheConfigInAStackTrace(): void
+    {
+        foreach (['fromArray', 'withoutEnvProblems', 'settledByTheHost'] as $method) {
+            $first = (new \ReflectionMethod(WatchConfig::class, $method))->getParameters()[0];
+
+            self::assertNotSame([], $first->getAttributes(\SensitiveParameter::class), "$method must hide the config from traces: it holds every secret");
+        }
+    }
 }

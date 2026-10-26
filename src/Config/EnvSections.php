@@ -63,6 +63,9 @@ final class EnvSections
                 continue;
             }
             $t = strtoupper($tier);
+            if (isset($out[$model]) && Env::string("WATCHER_PRICE_{$t}_IN") === null && Env::string("WATCHER_PRICE_{$t}_OUT") === null) {
+                continue; // the model is already priced by an earlier tier and this tier says nothing: one price, set once
+            }
             $in = $this->price("WATCHER_PRICE_{$t}_IN", true, $model);
             $outPrice = $this->price("WATCHER_PRICE_{$t}_OUT", true, $model);
             if ($in === null || $outPrice === null) {
@@ -88,6 +91,30 @@ final class EnvSections
         return $out;
     }
 
+    /** A feature flag from the environment. A broken value is recorded by name and the default is used, so the config file never throws. */
+    public function bool(string $name, bool $default): bool
+    {
+        try {
+            return Env::bool($name, $default);
+        } catch (InvalidConfig) {
+            $this->invalid($name, $name, "$name must be true or false");
+
+            return $default;
+        }
+    }
+
+    /** An integer setting from the environment; same contract as {@see bool()}. */
+    public function int(string $name, int $default): int
+    {
+        try {
+            return Env::int($name, $default);
+        } catch (InvalidConfig) {
+            $this->invalid($name, $name, "$name must be an integer");
+
+            return $default;
+        }
+    }
+
     /** @return array<string, string> `WATCHER_STREAM_TAGS="app=m-seq,env=test11"` as label => value */
     public function streamTags(): array
     {
@@ -101,8 +128,8 @@ final class EnvSections
             if ($item === '') {
                 continue;
             }
-            if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/D', $item, $m) !== 1) {
-                $this->invalid('WATCHER_STREAM_TAGS', 'source.stream_tags', 'WATCHER_STREAM_TAGS must be a comma separated list of label=value pairs', [['source', 'stream_tags']]);
+            if (preg_match('/^([A-Za-z_][A-Za-z0-9_.:\/-]{0,63})=(.+)$/D', $item, $m) !== 1 || isset($tags[$m[1]])) {
+                $this->invalid('WATCHER_STREAM_TAGS', 'source.stream_tags', 'WATCHER_STREAM_TAGS must be a comma separated list of label=value pairs, each label once', [['source', 'stream_tags']]);
 
                 return [];
             }
@@ -123,9 +150,9 @@ final class EnvSections
             } elseif ($webhook !== null) {
                 $driver = 'slack';
             } else {
-                $this->missing('WATCHER_DIGEST_BOT_TOKEN', 'notify.digest', 'WATCHER_DIGEST_BOT_TOKEN (Telegram) or WATCHER_DIGEST_WEBHOOK (Slack, Discord) is not set', [['notify', 'digest', 'webhook'], ['notify', 'digest', 'bot_token']]);
+                $this->missing('WATCHER_DIGEST_BOT_TOKEN', 'notify.digest', 'WATCHER_DIGEST_BOT_TOKEN (Telegram) or WATCHER_DIGEST_WEBHOOK (Slack, Discord) is not set', [['notify', 'digest', 'webhook'], ['notify', 'digest', 'bot_token'], ['notify', 'digest', 'driver']]);
 
-                return ['driver' => 'slack'];
+                return []; // no driver: a host that sets its own notify.digest.driver settles the problem
             }
         }
 
@@ -215,24 +242,36 @@ final class EnvSections
 
             return null;
         }
-        if (!is_numeric(trim($raw)) || (float) $raw < 0) {
-            $this->invalid($variable, $key, "$variable must be a number of at least 0 (USD per million tokens)", [['analysis', 'prices', $model]]);
+        $value = is_numeric(trim($raw)) ? (float) trim($raw) : -1.0;
+        if (!is_finite($value) || $value < 0) {
+            $this->invalid($variable, $key, "$variable must be a finite number of at least 0 (USD per million tokens)", [['analysis', 'prices', $model]]);
 
             return null;
         }
 
-        return (float) $raw;
+        return $value;
+    }
+
+    /** @param array{kind: string, variable: string, key: string, message: string, unless: list<list<string>>} $problem */
+    private function record(array $problem): void
+    {
+        foreach ($this->problems as $known) {
+            if ($known['message'] === $problem['message']) {
+                return; // the same variable read twice reports once
+            }
+        }
+        $this->problems[] = $problem;
     }
 
     /** @param list<list<string>> $unless */
     private function missing(string $variable, string $key, string $message, array $unless = []): void
     {
-        $this->problems[] = ['kind' => 'missing', 'variable' => $variable, 'key' => $key, 'message' => $message, 'unless' => $unless];
+        $this->record(['kind' => 'missing', 'variable' => $variable, 'key' => $key, 'message' => $message, 'unless' => $unless]);
     }
 
     /** @param list<list<string>> $unless */
     private function invalid(string $variable, string $key, string $message, array $unless = []): void
     {
-        $this->problems[] = ['kind' => 'invalid', 'variable' => $variable, 'key' => $key, 'message' => $message, 'unless' => $unless];
+        $this->record(['kind' => 'invalid', 'variable' => $variable, 'key' => $key, 'message' => $message, 'unless' => $unless]);
     }
 }

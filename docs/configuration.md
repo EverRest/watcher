@@ -393,10 +393,10 @@ A host that registers `Watcher\Laravel\WatcherServiceProvider` needs **no config
 | `WATCHER_ENABLED` | yes, to run | The master switch. Off unless `1`/`true`. |
 | `WATCHER_SERVICE`, `WATCHER_RUN_AT` | yes | Service name and the `HH:MM` the run is due. |
 | `WATCHER_LOKI_URL`, `WATCHER_LOKI_TOKEN` | yes (Loki) | Log source. The token is read-only. |
-| `WATCHER_STREAM_TAGS` | no | Labels of this service, `app=m-seq,env=test11`. A broken pair is reported by the variable name. |
+| `WATCHER_STREAM_TAGS` | no | Labels of this service, `app=m-seq,env=test11`. A label may contain letters, digits and `_ . : / -`; each label once; a value cannot contain a comma. A broken pair is reported by the variable name. |
 | `WATCHER_ANTHROPIC_KEY` | yes | Model credentials. |
 | `WATCHER_MODEL_TRIAGE`, `_ANALYZE`, `_ESCALATE` | yes | One model id per tier. There is no default model. |
-| `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}` | yes, per model | USD per million tokens. Optional `_CACHE_READ` and `_CACHE_WRITE` (default `0`). **No default price**: the budget is only as good as these. A model used by two tiers must have the same price in both. |
+| `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}` | yes, per model | USD per million tokens. Optional `_CACHE_READ` and `_CACHE_WRITE` (default `0`). **No default price**: the budget is only as good as these. A model used by two tiers needs its price on the first tier only; if the second tier sets one, it must be the same. Prompt caching: set `_CACHE_READ` and `_CACHE_WRITE` when the model reads from a cache, otherwise the spend is under-counted (they default to `0`). |
 | `WATCHER_STATE` and `WATCHER_REDIS_*` or `WATCHER_STATE_PATH` | yes | `redis` (default), `pdo` or `file`. |
 | `WATCHER_REPO_URL` | yes | Web URL of the repository, for code links. |
 
@@ -411,7 +411,7 @@ A host that registers `Watcher\Laravel\WatcherServiceProvider` needs **no config
 
 **Where failures and budget notices go.** With no `WATCHER_NOTICE_*` variable they use the digest destination. For one Telegram group
 with a topic per purpose, set only `WATCHER_NOTICE_THREAD_ID`: it reuses the digest token and chat. `WATCHER_NOTICE_DRIVER`,
-`_WEBHOOK`, `_BOT_TOKEN` and `_CHAT_ID` give the notices a channel of their own. A thread id needs a Telegram destination.
+`_WEBHOOK`, `_BOT_TOKEN` and `_CHAT_ID` give the notices a channel of their own. A notice built from `WATCHER_NOTICE_*` never inherits the digest's topic: set `WATCHER_NOTICE_THREAD_ID` too. A thread id needs a Telegram destination.
 
 **One environment, one topic.** Give each environment its own `WATCHER_ENVIRONMENT` (it is part of the state keys), its own
 `WATCHER_DIGEST_THREAD_ID` and, when several environments share a Redis database, its own `WATCHER_REDIS_PREFIX`.
@@ -419,7 +419,7 @@ with a topic per purpose, set only `WATCHER_NOTICE_THREAD_ID`: it reuses the dig
 **A missing or broken variable never breaks the host.** The config file runs on every request of the application, so it does not
 throw. The problem is raised when `watcher:run` or `watcher:check` starts, as `MissingEnvironmentVariable` (an `InvalidConfig`, exit
 code 2) or `InvalidConfig`, naming the variable and the key, for example `WATCHER_DIGEST_BOT_TOKEN is not set (notify.digest.bot_token)`.
-All problems are listed at once, and a value is never printed. A problem about a key your own config file already sets is ignored.
+All problems are listed at once, and a value is never printed. Feature flags and numbers are covered too: `WATCHER_TRIAGE_ENABLED=maybe` is reported when the run starts, and the flag keeps its default until then. A problem about a key your own config file already sets is ignored (a host that sets its own `notify.digest.driver` owns the digest).
 With the master switch off nothing is validated, so a half-filled environment cannot stop the kill switch.
 
 ## Environment variables used by the shipped configs
