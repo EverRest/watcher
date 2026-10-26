@@ -17,6 +17,11 @@ if (!$autoloaded) {
     exit(1);
 }
 
+// `watcher mcp` owns stdin and stdout (JSON-RPC), so it is dispatched before the Application, which prints usage text.
+if (($argv[1] ?? '') === 'mcp') {
+    exit(Watcher\Mcp\McpCommand::main($argv, STDIN, STDOUT, STDERR));
+}
+
 exit((new Watcher\Cli\Application(
     // Under --json stdout is one JSON line, so the dry-run digest and estimate go to stderr.
     static fn (array $config, Watcher\Operate\RunOptions $options): callable => Watcher\Watcher::fromConfig(

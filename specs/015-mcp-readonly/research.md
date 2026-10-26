@@ -19,6 +19,13 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   core methods, five resources/prompts methods (R11) and one table of tools. **Rejected**: HTTP/SSE transport: it needs authentication, TLS and origin checks, and
   turns a local read tool into a network service holding the state credentials.
 
+**Recorded (T002, 2026-10-25).** `Server::PROTOCOL_VERSIONS` = `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`
+(newest first; `initialize` echoes the client's version when listed, else answers `2025-11-25`). **Note:** the published pages could
+not be fetched in the implementing session (no network); the list and the shapes of R11 (`resources/list`, `resources/read`,
+`prompts/list`, `prompts/get`, `{content:[{type:text}], isError}`) are from the author's knowledge of those revisions and must be
+re-checked against the published pages by the integrator before release. Only the oldest common shapes are emitted, so a newer
+revision's optional fields (`title`, `annotations`, `structuredContent`, `outputSchema`) are never required.
+
 ## Owner decisions (2026-10-24)
 
 O1 `lastrep:{key}` record, allowlisted fields only, independent of spec 013 (R3). O2 `watcher_dry_run` off unless

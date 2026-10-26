@@ -27,6 +27,7 @@ settings, `notify.digest.webhook`.
 | Key | Default | Notes |
 |---|---|---|
 | `service` | required | Prefix for every state key. **Changing it starts from scratch** (a new baseline). |
+| `environment` (`WATCHER_ENVIRONMENT`) | none | Optional label (`int`, `prod`, ...): state keys become `<service>@<environment>`, so two processes with the same service name do not share state. |
 | `schedule.run_at` (`WATCHER_RUN_AT`, comma-separated) | required unless `every` | `HH:MM` or a list of times at least one hour apart. Still due for one hour after each time, in `schedule.timezone`. Stored internally as a list; a single string is unchanged in config files. |
 | `schedule.every` (`WATCHER_EVERY`) | — | `PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H`, or `PT12H`. Mutually exclusive with `run_at`. Contiguous windows unless `schedule.window` is set. |
 | `schedule.timezone` (`WATCHER_TIMEZONE`) | `UTC` | IANA zone. Daily budget and alert days follow this zone. |

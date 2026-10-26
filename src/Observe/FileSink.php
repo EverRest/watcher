@@ -253,7 +253,7 @@ final class FileSink implements EventSink
     private function requirePrivateDirectory(string $dir): void
     {
         $st = $this->lstat($dir);
-        if ($st === false || ($st['mode'] & 0170000) === 0120000 || $this->foreign($st['uid']) || (($st['mode'] & 0022) !== 0 && ($st['mode'] & 01000) === 0)) {
+        if ($st === false || !FilePolicy::privateDirectory($st)) {
             throw new SinkFailed('file directory not private');
         }
     }
