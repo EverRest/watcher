@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+**FIXED**
+- Fixed (F7, follow-up): `Hygiene::fromConfig`, `Factory::doctor` (`watcher check`) and `Factory::heartbeatStatus` (`watcher status`) read the master switch from the raw config before validation, as `Watcher::fromConfig` does. With `enabled` not `true` a broken config no longer throws or exits 2: each returns `disabled` (exit 0) and builds no source, state, catalog or notifier, and reads no store. **Behaviour change:** `watcher check` and `watcher status` no longer report an invalid config while the switch is off (they did before); set `enabled => true` to validate. `status` shows a stale limit of 0 for a switched-off config, since the config is not read.
+
 ## 0.3.0 — 2026-10-26 — Config credentials hidden from dumps, SDK path removed, MCP no longer runs sibling PHP files, notifier reply cap
 
 Product release label **v0.3.0** (root VERSION). Contains everything below, including the notes of the untagged 0.2.1. Do not install `v0.2.0`.

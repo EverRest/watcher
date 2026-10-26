@@ -7,7 +7,6 @@ namespace Watcher\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use Watcher\Cli\Application;
 use Watcher\Config\Factory;
-use Watcher\Config\InvalidConfig;
 use Watcher\Fleet\FleetCheck;
 use Watcher\Fleet\FleetConfig;
 use Watcher\Fleet\FleetRunner;
@@ -112,7 +111,7 @@ final class DisabledCommandsTest extends TestCase
         self::assertStringContainsString('result: ok', $out);
     }
 
-    public function testCheckStillRejectsAnInvalidDisabledConfig(): void
+    public function testCheckOfAnInvalidDisabledConfigIsDisabledAndValidatesNothing(): void
     {
         $bad = self::config();
         $bad['schedule']['run_at'] = 'nonsense';
@@ -120,8 +119,9 @@ final class DisabledCommandsTest extends TestCase
 
         [$code, $out] = $this->cli(['check']);
 
-        self::assertNotSame(0, $code);
-        self::assertStringContainsString('schedule.run_at', $out);
+        self::assertSame(0, $code);
+        self::assertStringContainsString('disabled', $out);
+        self::assertStringNotContainsString('schedule.run_at', $out);
     }
 
     public function testHeartbeatOffAlsoMakesStatusDisabled(): void
@@ -226,7 +226,8 @@ final class DisabledCommandsTest extends TestCase
 
         [$code, $out] = $this->cli(['check']);
 
-        self::assertNotSame(0, $code, 'check validates the single-service config and the fleet keys are not one');
+        self::assertSame(0, $code);
+        self::assertStringContainsString('disabled', $out);
         self::assertStringNotContainsString('bad-one', $out);
         self::assertDirectoryDoesNotExist($dir);
     }
@@ -247,15 +248,11 @@ final class DisabledCommandsTest extends TestCase
         $file = $this->switchedOffFleetFile();
         $dir = self::stateDirOf($file);
 
-        // Hygiene validates the single-service config before its switch (see docs/configuration.md drift note): a fleet file is
-        // rejected as an unknown key, and nothing is built or read.
-        $this->expectException(InvalidConfig::class);
-        $this->expectExceptionMessage('Unknown configuration key: fleet');
-        try {
-            Hygiene::fromConfig(require $file)->run(HygieneOptions::fromInput(null, null, null, null, false));
-        } finally {
-            self::assertDirectoryDoesNotExist($dir);
-        }
+        // Hygiene reads the master switch before validation: the fleet keys are not validated and nothing is built.
+        $result = Hygiene::fromConfig(require $file)->run(HygieneOptions::fromInput(null, null, null, null, false));
+
+        self::assertTrue($result->disabled);
+        self::assertDirectoryDoesNotExist($dir);
     }
 
     private static function stateDirOf(string $file): string

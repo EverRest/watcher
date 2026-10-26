@@ -124,6 +124,45 @@ final class MasterSwitchEntryPointsTest extends TestCase
         self::assertTrue($hygiene->run(new HygieneOptions())->disabled);
     }
 
+    public function testHygieneFromConfigSwitchesOffBeforeValidatingABrokenConfig(): void
+    {
+        $broken = self::valid();
+        $broken['source'] = ['driver' => 'loki', 'loki' => []]; // invalid when on: no source.loki.url
+
+        $hygiene = Hygiene::fromConfig($broken);
+        $source = (new ReflectionProperty(Hygiene::class, 'source'))->getValue($hygiene);
+
+        self::assertNotInstanceOf(LokiSource::class, $source);
+        self::assertTrue($hygiene->run(new HygieneOptions())->disabled);
+    }
+
+    public function testDoctorFactorySwitchesOffBeforeValidatingABrokenConfig(): void
+    {
+        $broken = self::valid();
+        $broken['source'] = ['driver' => 'loki', 'loki' => []]; // invalid when on: no source.loki.url
+
+        $doctor = Factory::doctor($broken);
+        $source = (new ReflectionProperty(Doctor::class, 'source'))->getValue($doctor);
+
+        self::assertNotInstanceOf(LokiSource::class, $source);
+        $report = $doctor->run();
+        self::assertTrue($report->ok());
+        self::assertSame('disabled (enabled=false)', $report->results[0]->reason);
+    }
+
+    public function testHeartbeatStatusSwitchesOffBeforeValidatingABrokenConfigAndReadsNoStore(): void
+    {
+        $dir = sys_get_temp_dir() . '/watcher-killswitch-status-' . bin2hex(random_bytes(4));
+        $broken = self::valid();
+        $broken['source'] = ['driver' => 'loki', 'loki' => []];
+        $broken['state'] = ['driver' => 'file', 'file' => ['path' => $dir]];
+
+        $status = Factory::heartbeatStatus($broken);
+
+        self::assertSame('disabled', $status->state);
+        self::assertDirectoryDoesNotExist($dir);
+    }
+
     public function testFleetRunnerTouchesNothing(): void
     {
         $h = new FleetHarness(fleetPatch: ['enabled' => false]);
