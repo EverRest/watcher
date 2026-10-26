@@ -19,11 +19,31 @@ Package: `everrest/watcher`, repository `https://github.com/EverRest/watcher` (p
 
 ## Release
 
-1. Merge to `main` with the changelog promoted (step 5 above).
-2. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
-3. `.github/workflows/release.yml` runs the full CI gate (`ci.yml`) for the tag; only when it passes, and only when the tagged commit is an ancestor of `origin/main`, does it create the GitHub Release (`gh release create --verify-tag`, generated notes, a build-provenance attestation for the `git archive` tarball; tags containing `-`, such as `v0.2.0-rc1`, become pre-releases). A failed gate or a tag off `main` creates no release. Packagist builds from the tag itself, so also protect `v*` tags (see `repository-settings.md`): the workflow cannot stop someone with write access from pushing a tag, it only refuses to release it.
-4. The webhook makes Packagist pick up `v0.1.0` within a minute; check https://packagist.org/packages/everrest/watcher. `composer.json` carries no `version` field on purpose: the tag is the version, and `main` resolves to `0.1.x-dev` (branch alias).
-5. Verify in a scratch directory: `composer require everrest/watcher` (not in this repository).
+Run these in order. Each tag is cut from the tip of `main`, never from a branch or an older commit.
+
+1. On `develop`: promote the changelog. Rename `## Unreleased` to `## X.Y.Z — YYYY-MM-DD — <title>` and add the line `Product release label **vX.Y.Z** (root VERSION)`.
+2. On `develop`: set `VERSION` to `X.Y.Z` (the same version as the heading). Commit both files together.
+3. Merge `develop` into `main` and wait for the CI run on `main` to be green (all PHP versions).
+4. Fetch and check that `main` is where you expect: `git fetch origin && git rev-parse origin/main`.
+5. Tag the tip of `main` with an annotated tag: `git tag -a vX.Y.Z origin/main -m "release X.Y.Z"`. A lightweight tag is refused by the release workflow.
+6. Push the tag: `git push origin vX.Y.Z`.
+7. `.github/workflows/release.yml` runs the full CI gate (`ci.yml`) for the tag. Then four guards run, each failing with one line, before anything is released (`scripts/check-release.sh`, tested by `make release-guards-test`):
+   - `annotated`: the tag is an annotated tag object.
+   - `tip`: the tagged commit is the tip of `origin/main`, not an older commit that main has since passed.
+   - `version`: `VERSION` in the tagged commit equals the tag without the `v`.
+   - `changelog`: `CHANGELOG.md` in the tagged commit has a `## X.Y.Z` heading for that version.
+
+   Only when all of them pass does the workflow create the GitHub Release (`gh release create --verify-tag`, generated notes, a build-provenance attestation for the `git archive` tarball; tags containing `-`, such as `v0.2.0-rc1`, become pre-releases). A failed gate or guard creates no release. Packagist builds from the tag itself, so also protect `v*` tags (see `repository-settings.md`): the workflow cannot stop someone with write access from pushing a tag, it only refuses to release it.
+
+8. The webhook makes Packagist pick up `v0.1.0` within a minute; check https://packagist.org/packages/everrest/watcher. `composer.json` carries no `version` field on purpose: the tag is the version, and `main` resolves to `0.1.x-dev` (branch alias).
+9. Verify in a scratch directory: `composer require everrest/watcher` (not in this repository).
+
+### After a wrong tag
+
+A tag that is already pushed is published: Packagist and forks may have read it. Never move, re-point or delete it, and never force-push it. Fix forward instead:
+
+1. Say in `CHANGELOG.md` which tag was wrong and what it points to (for example `v0.2.0` on `36673a5`, which predates the kill switch and the API context), and tell users not to install it.
+2. Put the fix on `develop`, promote the changelog and bump `VERSION` to the next patch (`X.Y.(Z+1)`), then run the release steps above for that version.
 
 ## History
 
