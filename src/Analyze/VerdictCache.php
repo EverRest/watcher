@@ -54,6 +54,17 @@ final class VerdictCache
         return $g->level->value >= Level::Error->value || $g->watchMatches !== [];
     }
 
+    /** The lowest severity a finding for this group may carry: the level the logs show, or warn for a watch-rule group. Null when neither applies. */
+    public static function severityFloor(RedactedGroup $g): ?Severity
+    {
+        return match (true) {
+            $g->level->value >= Level::Critical->value => Severity::Critical,
+            $g->level->value >= Level::Error->value => Severity::Error,
+            $g->watchMatches !== [] => Severity::Warn,
+            default => null,
+        };
+    }
+
     /** "Nothing to see": the model's own view of a finding is noise or info. */
     public static function isWeak(Finding $f): bool
     {
@@ -90,9 +101,10 @@ final class VerdictCache
         }
         // The analysis path is the same trust problem as triage: for an error-or-higher / watch-rule group, "analysed, nothing to report"
         // (or only noise/info) must never settle, also not when an older version of the package stored it.
-        $severity = $v['finding']['severity'] ?? null;
-        if (self::mustNotBeSilenced($g) && (!isset($v['finding']) || ($v['finding']['kind'] ?? null) === FindingKind::Noise->value || $severity === Severity::Info->value
-            || ($g->level->value >= Level::Error->value && !in_array($severity, [Severity::Error->value, Severity::Critical->value], true)))) {
+        $floor = self::severityFloor($g);
+        $severity = Severity::tryFrom((string) ($v['finding']['severity'] ?? ''));
+        if (self::mustNotBeSilenced($g) && (!isset($v['finding']) || ($v['finding']['kind'] ?? null) === FindingKind::Noise->value
+            || $severity === null || ($floor !== null && $severity->rank() < $floor->rank()))) {
             return false;
         }
 

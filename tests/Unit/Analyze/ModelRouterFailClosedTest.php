@@ -143,6 +143,18 @@ final class ModelRouterFailClosedTest extends TestCase
         self::assertSame(Severity::Error, $r->findings[0]->severity, 'the logs show an error: a model cannot put the finding below it');
     }
 
+    public function testTheRaisedWarnFindingOfAnErrorGroupIsEscalatedLikeAnyOtherSevereLowConfidenceFinding(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysis = self::analysis([self::finding(['a'], FindingKind::Bug, Severity::Warn, 0.1)]);
+        $this->fake->analysisScript = [$this->fake->analysis, self::analysis([self::finding(['a'], FindingKind::Bug, Severity::Error, 0.95)])];
+
+        $r = $this->router()->route([self::group('a', 10, Level::Error)], false);
+
+        self::assertSame(1, $r->escalations, 'the floored error finding is severe and low-confidence: the strong model checks it');
+        self::assertSame(2, $this->fake->analyzeCalls);
+    }
+
     public function testAnEarlierWarnVerdictForAnErrorGroupIsNotReusedEvenWhenStoredAsInteresting(): void
     {
         $this->cache->put('a', 'interesting', 500, self::finding(['a'], FindingKind::Bug, Severity::Warn, 0.1));

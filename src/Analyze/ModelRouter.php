@@ -331,10 +331,12 @@ final class ModelRouter
     {
         $level = null;
         $protected = false;
+        $floor = 0;
         foreach ($fps as $fp) {
             if (isset($byFp[$fp])) {
                 $level = max($level ?? 0, $byFp[$fp]->level->value);
                 $protected = $protected || VerdictCache::mustNotBeSilenced($byFp[$fp]);
+                $floor = max($floor, VerdictCache::severityFloor($byFp[$fp])?->rank() ?? 0);
             }
         }
         if ($level === null) {
@@ -348,10 +350,8 @@ final class ModelRouter
             default => 0,
         };
         $rank = min((int) array_search($f->severity, $order, true), min(3, $observed + 1));
-        if ($protected) {
-            // The logs already show the level: a model may raise a finding above it, never put it below (warn at least).
-            $rank = max($rank, min(3, max(1, $observed)));
-        }
+        // The logs already show the level: a model may raise a finding above it, never put it below (see VerdictCache::severityFloor).
+        $rank = max($rank, $floor);
         $kind = $protected && $f->kind === FindingKind::Noise ? FindingKind::Anomaly : $f->kind;
 
         return $f->with($fps, $kind, $order[$rank]);
