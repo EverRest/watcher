@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Tests
+- Prompt-injection corpus (F8): 42 hostile log lines run through the real Slack, Telegram and Discord notifiers (`tests/EndToEnd/PromptInjectionTest.php`); error-or-higher groups keep their level whatever the model says (`ErrorGroupLevelTest.php`); the daily budget and `source.group_cap` hold under thousands of distinct hostile groups (`HostileVolumeBudgetTest.php`). No production code changed. `docs/privacy.md` records the residual risk and one known exception (a capitalised host on an unlisted TLD, `EVIL.ABOGADO`).
+
 ## 0.3.0 — 2026-10-26 — Config credentials hidden from dumps, SDK path removed, MCP no longer runs sibling PHP files, notifier reply cap
 
 Product release label **v0.3.0** (root VERSION). Contains everything below, including the notes of the untagged 0.2.1. Do not install `v0.2.0`.
