@@ -19,6 +19,7 @@ use Watcher\Notify\Notifier;
 use Watcher\Observe\ObserveCounters;
 use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\Heartbeat;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Operate\RunOptions;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
@@ -62,6 +63,10 @@ final class FleetRunner
     {
         $fleet = is_array($config) ? FleetConfig::fromArray($config) : FleetConfig::fromPath($config);
         $clock ??= new SystemClock();
+        if (!$fleet->enabled) {
+            // Fleet switch: validate only; no store, source, analyzer or notifier is built.
+            return new self($fleet, static fn (): callable => RefusedAccess::refuse(...), RefusedAccess::state(), $clock, $log);
+        }
         $http = Factory::http();
         $first = $fleet->services[0]->config;
         $state = Factory::state($first, $clock, $log);
@@ -80,7 +85,7 @@ final class FleetRunner
         }
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
-        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share): callable {
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share, $http): callable {
             $watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
@@ -95,6 +100,7 @@ final class FleetRunner
                 events: $events[$e->name()],
                 sinks: $sinks[$e->name()],
                 counters: $counters[$e->name()],
+                apiContext: Factory::apiContext($e->config, $http, $clock),
             );
             if ($share !== null) {
                 $watcher->limitRunTo($share);

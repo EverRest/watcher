@@ -15,6 +15,7 @@ use Watcher\Hygiene\Cost\CostReader;
 use Watcher\Hygiene\Cost\CostReport;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Operate\DryRunStateStore;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Notify\Message;
 use Watcher\Notify\SlackText;
 use Watcher\Notify\Notifier;
@@ -23,6 +24,7 @@ use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\Reducer;
 use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\Window;
+use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\ReadDiagnostics;
 use Watcher\Source\ReadFilter;
@@ -73,14 +75,27 @@ final class Hygiene
     ) {
         $this->realState = $state;
         $this->state = new GuardedState($state);
+        $this->bindSource($state);
+    }
+
+    /** A kubernetes source keeps its ledger in the store it is bound to (a dry run's store swallows those writes). */
+    private function bindSource(StateStore $state): void
+    {
+        if ($this->source instanceof KubernetesEventsSource) {
+            $this->source->bindState($state);
+        }
     }
 
     /** @param array<string, mixed> $config @throws \Watcher\Config\InvalidConfig */
-    public static function fromConfig(array $config, ?ClockInterface $clock = null): self
+    public static function fromConfig(array $config, ?ClockInterface $clock = null, ?\GuzzleHttp\Client $http = null): self
     {
         $c = WatchConfig::fromArray($config);
         $clock ??= new \Watcher\Schedule\SystemClock();
-        $http = \Watcher\Config\Factory::http();
+        if (!$c->enabled) {
+            // Master switch: validate only; no source, state or notifier is built.
+            return new self($c, RefusedAccess::source(), RefusedAccess::state(), RefusedAccess::notifier(), $clock);
+        }
+        $http ??= \Watcher\Config\Factory::http();
 
         return new self($c, \Watcher\Config\Factory::source($c, $http, $clock), \Watcher\Config\Factory::state($c, $clock), \Watcher\Config\Factory::notifier($http, $c->schedule['lock_ttl']), $clock);
     }
@@ -102,8 +117,11 @@ final class Hygiene
         if ($o->dryRun) {
             // Read-only: every write is shadowed in memory, the lock is a no-op (a real pass keeps its lock and is not blocked), nothing is sent.
             $dry = new self($c, $this->source, new DryRunStateStore($this->realState), $this->notifier, $this->clock, $this->guard);
-
-            return $dry->runDry($o, $now);
+            try {
+                return $dry->runDry($o, $now);
+            } finally {
+                $this->bindSource($this->realState); // the dry instance bound the shared source to its shadow store
+            }
         }
         try {
             return $this->execute($o, $now);

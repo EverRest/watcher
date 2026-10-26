@@ -177,6 +177,31 @@ With any sink enabled, `service` must match `[A-Za-z0-9][A-Za-z0-9._@-]{0,63}` a
 In a fleet, `observe` may be set at the fleet level or in `defaults`; a service's own `observe` replaces it as a whole.
 Each service flushes its own events (with its own `service` and `environment`) and writes its own Prometheus file.
 
+### `api_context` (OpenAPI endpoint documentation, spec 010)
+
+**Off** until the section exists with a `source` (an absent section, or `enabled: false`, reads nothing, writes no cache entry and leaves every
+payload byte-identical). Validated even with `enabled: false`; errors name the key path, never a value. It is **not** a feature flag in the
+table below. The Normalizer rewrites any path of 3 or more segments, so only routes of **at most 2 segments** (`GET /orders/<N>`) can match
+a documented operation.
+
+| Key | Default | Notes |
+|---|---|---|
+| `api_context.enabled` | `true` | `false` switches it off and still validates. |
+| `api_context.source` | required when enabled | An absolute file path (or `file:/path`) to a JSON document, or an `https` URL. YAML is not supported. A URL may carry a token: it is a secret (masked everywhere). |
+| `api_context.auth_token` | none | Sent as `Authorization: Bearer` on the one `GET`. A secret. |
+| `api_context.ttl` | `PT24H` (never above the retention) | ISO-8601 duration, at least 1 second, at most `state.retention`. The cache entry expires exactly then; there is no stale fallback. |
+| `api_context.max_endpoints` | `5` | 1..20 distinct endpoints per run; the digest says how many were skipped. |
+| `api_context.summary_cap` | `80` | 20..200 characters kept per summary, operationId and tag, after masking. |
+| `api_context.max_bytes` | `1048576` | 65,536..2,097,152 decoded bytes of the document (a 2 MB flat JSON decodes to about 144 MB in PHP, hence the ceiling). |
+| `api_context.base_path` | none | Overrides `servers[0].url` / `basePath`; `/api/v1`. |
+| `api_context.ignore_prefixes` | `[]` | At most 10 `/segment` prefixes stripped from routes. |
+| `api_context.allow_insecure` | `false` | With `allow_private_network`, permits plain `http://`. |
+| `api_context.allow_private_network` | `false` | Same rule as `observe.http`: `https` only; plain `http` needs `allow_insecure` **and** `allow_private_network` **and** a loopback, RFC 1918 or cluster-local host (`*.svc`, `*.cluster.local`); a private host over `https` needs `allow_private_network`. Link-local, CGNAT, metadata, unique-local IPv6 and reserved ranges stay refused whatever is allowed. Redirects are never followed; names are not resolved (a documented limit); `HTTP_PROXY` is honoured (see [operations.md](operations.md#proxies-and-the-internal-address-check)). |
+| `api_context.allowed_roots` | `[]` | A file source must be a canonical path (no symlink in any component, no world-writable ancestor without the sticky bit) and is judged on the opened handle. With no roots the only file read is the configured `source` itself; with roots the source must lie below one of them. Any refusal is the single token `unreadable`, so a path reveals neither existence nor format. |
+
+Failures are one fixed word in the digest (`API context unavailable (<token>)`) and in `watcher check`: `unreachable`, `unauthorized`, `timeout`,
+`too_large`, `bad_format`, `unsupported_format`, `unsupported_version`, `unreadable`, `unsafe_source`. Nothing else is printed (no URL, path, header or body).
+
 ### Command-line flags (not config keys)
 
 `bin/watcher run --config=<file> [--now=<ISO-8601>] [--dry-run [--estimate]] [--json]`, `bin/watcher check --config=<file>
@@ -270,7 +295,7 @@ environment variable NAME must be true or false`, naming the variable and never 
 
 | Flag | Config key | Environment variable | Default | When false |
 |---|---|---|---|---|
-| master switch | `enabled` | `WATCHER_ENABLED` | **false** | `run` returns outcome `disabled` (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr); no source, state, model or notifier access, not even a heartbeat. `status` reports `disabled` without reading the store; `check` still validates the config and skips the rest as `disabled` |
+| master switch | `enabled` | `WATCHER_ENABLED` | **false** | `run` reads only this raw key first, **before validating anything**: only the boolean `true` turns the package on, so missing, `null`, `false`, `0`, `'0'`, `'false'`, `''`, `'yes'` or any other value is off (fail-safe; `check` still reports a non-boolean as invalid). With the switch off, `run` (also with `--dry-run`/`--estimate`) returns outcome `disabled` even on a broken or half-filled config (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr); the Disabled JSON summary still carries `service` and `environment` when they look like names; no source, state, model or notifier access, not even a heartbeat. The same short-circuit applies to every other entry point: `watcher check` / `Factory::doctor` (validates, builds nothing, skips the rest as `disabled`), `watcher status` / heartbeat (no store read), `watcher hygiene` / `Hygiene::fromConfig`, fleet `FleetRunner::fromConfig` when the fleet switch is off, and MCP inspect tools (`watcher_status`, `watcher_latest_report`, `watcher_finding`, `watcher_hygiene_report`; `watcher_dry_run` is not offered). `check` still validates the config when the switch is off |
 | environment name | `environment` (optional string) | `WATCHER_ENVIRONMENT` | unset | not a flag: state keys become `<service>@<environment>`; shown in the digest header and the JSON summary (`environment`) |
 | heartbeat | `heartbeat.enabled` | `WATCHER_HEARTBEAT_ENABLED` | true | no liveness record, trigger record or weekly counter is written; `status` reports `disabled` |
 | weekly summary | `heartbeat.weekly_summary` | `WATCHER_HEARTBEAT_WEEKLY_SUMMARY` | false (already opt-in) | no weekly line |

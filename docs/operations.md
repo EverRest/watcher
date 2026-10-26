@@ -58,7 +58,7 @@ log text).
 | `skipped_locked` | 0 | Another runner holds this window | none (check you do not run two schedulers) |
 | `failed` | 1 | Source, analysis, delivery or state failed | see the reason and the notice in Slack |
 | `invalid_config` | 2 | Config rejected before any call | fix the named key |
-| `disabled` | 0 | `enabled` is false (the default): nothing was touched | set `enabled=true` / `WATCHER_ENABLED=1` where it should run |
+| `disabled` | 0 | `enabled` is not `true` (the default): nothing was touched, and the rest of the config was not even validated | set `enabled=true` / `WATCHER_ENABLED=1` where it should run |
 
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
@@ -225,6 +225,18 @@ Sources that fetch from a URL they were given (metrics, Sentry, an OpenAPI spec)
 proxy the connection goes where the proxy decides, so the check does not cover it. Loki and Slack keep working behind a proxy and are not
 changed; where a proxy must not be used, leave those variables unset for the process.
 
+## API context (spec 010)
+
+With `api_context` configured, a finding whose masked template names a documented route of at most 2 segments gets one `📖 GET /orders/{id} — Get an order [orders]`
+line in the digest and a short `ep` field in the analysis payload. The OpenAPI description is read only when some selected template names a route, at
+most once per `api_context.ttl`, and cached reduced in the state store (key `api:<service>:<source hash>-<settings fingerprint>`, always with a TTL; a
+change of `summary_cap`, `base_path` or the redaction rules is a cache miss). The cache is bounded by the state codec (4 MiB, 100,000 elements, 16,000
+containers, counted on the text): a document with more operations than fit keeps the first ones and the digest says `N operation(s) not kept (cache limit)`;
+an entry the store still cannot hold is simply not cached and read again next run. A source that cannot be read gives one `⚠️ API context unavailable (<token>)`
+note and never fails the run. `watcher check` adds an `api_context` line (`N operations kept, M not kept`, or the failure token) that bypasses the cache,
+posts nothing and spends no tokens. Under `--dry-run` the source is read and nothing is cached. When the analysis input would exceed `analysis.max_input_tokens`,
+the `ep` fields are the first context dropped (the digest lines stay, with a note).
+
 ## Availability guards
 
 A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.
@@ -336,7 +348,7 @@ vendor/bin/watcher hygiene --config=config/watcher.php --decline=<id> # quiet a 
 vendor/bin/watcher hygiene --config=config/watcher.php --dry-run       # read-only look: nothing written, no lock, nothing sent
 ```
 
-Run it **daily** (it stores the aggregates proposals need: 14 complete days before the first proposal; a day that was sampled at the event cap or the time budget, or never ran, is missing history) and add `--notify` once a week. One pass at a time per service (a second one exits 1 `another hygiene pass is running`); a pass stops reading at `hygiene.max_seconds` and says it is sampled. A "gone" retraction needs `max(hygiene.repeat_days, 2)` complete quiet days (days that were not sampled) without the site, so a weekly job is not reported gone and new again. The pass lock lives `schedule.lock_ttl` seconds and is renewed while the pass runs when the state store can (`hygiene.max_seconds + schedule.lock_ttl + 60` seconds on a store that cannot); a failed lock release is noted (`lock release failed (<Class>)`) and never changes the result; a state failure names the failing class only (`state unavailable (<Class>)`). Even without `--notify` a pass updates its own state (day record, site registry); `--dry-run` (also `php artisan watcher:hygiene --dry-run`) is the read-only look: the writes are shadowed in memory, no lock is taken (a scheduled pass is not blocked), nothing is sent, and a `--now` more than a day ahead of the clock is refused otherwise. It reads the source once per run (one more read than `run` on those days) and calls no model. Exit 0 reports produced or switched off, 1 source/state/delivery failure (a fixed reason), 2 usage or invalid config. Proposals are text: paste a fragment into `mute` / `watch_rules` yourself. Output schema: `specs/006-log-hygiene/contracts/report-schema.md`.
+Run it **daily** (it stores the aggregates proposals need: 14 complete days before the first proposal; a day that was sampled at the event cap or the time budget, or never ran, is missing history) and add `--notify` once a week. One pass at a time per service (a second one exits 1 `another hygiene pass is running`); a pass stops reading at `hygiene.max_seconds` and says it is sampled. A "gone" retraction needs `max(hygiene.repeat_days, 2)` complete quiet days (days that were not sampled) without the site, so a weekly job is not reported gone and new again. The pass lock lives `schedule.lock_ttl` seconds and is renewed while the pass runs when the state store can (`hygiene.max_seconds + schedule.lock_ttl + 60` seconds on a store that cannot); a failed lock release is noted (`lock release failed (<Class>)`) and never changes the result; a state failure names the failing class only (`state unavailable (<Class>)`). Even without `--notify` a pass updates its own state (day record, site registry); `--dry-run` (also `php artisan watcher:hygiene --dry-run`) is the read-only look: the writes are shadowed in memory, no lock is taken (a scheduled pass is not blocked), nothing is sent, and a `--now` more than a day ahead of the clock is refused otherwise. It reads the source once per run (one more read than `run` on those days) and calls no model. Every source driver works (`loki`, `datadog`, `kubernetes`); with `kubernetes` the pass binds the cluster ledger to its state store, and a dry run keeps that ledger in memory. Exit 0 reports produced or switched off, 1 source/state/delivery failure (a fixed reason), 2 usage or invalid config. Proposals are text: paste a fragment into `mute` / `watch_rules` yourself. Output schema: `specs/006-log-hygiene/contracts/report-schema.md`.
 
 ## Upgrading
 
@@ -396,7 +408,7 @@ own `environment` (fleet validation rejects a duplicate `service@environment`).
 
 ## Rollback / disabling
 
-Set `WATCHER_ENABLED=0` (the run then touches nothing), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
+Set `WATCHER_ENABLED=0` (the run then touches nothing and works even if the config is broken or half-filled), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
 nothing in your service or its logs; state can stay or be deleted.
 
 **Rolling back to a release without Redis compression.** An older release cannot decode `z1:` values: it reads them as **missing**, with no crash.

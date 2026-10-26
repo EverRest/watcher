@@ -169,6 +169,6 @@ final class WatcherFromConfigTest extends TestCase
     public function testInvalidConfigThrowsBeforeAnyBuild(): void
     {
         $this->expectException(InvalidConfig::class);
-        Watcher::fromConfig(['service' => 'svc']);
+        Watcher::fromConfig(['service' => 'svc', 'enabled' => true]);
     }
 }

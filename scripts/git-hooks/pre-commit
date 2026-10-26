@@ -41,7 +41,7 @@ fi
 # 2. Files that never belong in the repo, even if .gitignore is edited.
 bad=()
 for f in "${staged[@]}"; do
-  if printf '%s\n' "$f" | grep -qE '(^|/)(\.env(\..*)?|auth\.json|id_rsa|id_ed25519)$|\.(pem|key|p12)$|(^|/)vendor/|\.DS_Store$|settings\.local\.json$' \
+  if printf '%s\n' "$f" | grep -qE '(^|/)(\.env(\..*)?|auth\.json|id_rsa|id_ed25519)$|\.(pem|key|p12)$|\.rdb$|(^|/)vendor/|\.DS_Store$|settings\.local\.json$' \
     && ! printf '%s\n' "$f" | grep -q '\.env\.example$'; then
     bad+=("$f")
   fi

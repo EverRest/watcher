@@ -16,6 +16,10 @@ use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\SdkMessagesClient;
+use Watcher\ApiContext\ApiContextReader;
+use Watcher\ApiContext\ApiSpecCache;
+use Watcher\ApiContext\OpenApiReducer;
+use Watcher\ApiContext\OpenApiSource;
 use Watcher\Analyze\CostCalculator;
 use Watcher\Hygiene\Cost\CostLedger;
 use Watcher\Hygiene\Cost\LedgerAnalyzer;
@@ -37,6 +41,7 @@ use Watcher\Operate\Doctor;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\HeartbeatStatus;
 use Watcher\Operate\ModelCatalog;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
 use Watcher\Notify\TelegramNotifier;
@@ -497,6 +502,28 @@ final class Factory
         return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null;
     }
 
+    /** The OpenAPI context reader (spec 010); null when the section is absent or switched off, so nothing is built, read or cached. */
+    public static function apiContextReader(WatchConfig $config, Client $http, StateStore $state, Redactor $redactor, ?ClockInterface $clock = null): ?ApiContextReader
+    {
+        $a = $config->apiContext;
+        if ($a === null || !$a['enabled']) {
+            return null;
+        }
+
+        return new ApiContextReader(
+            source: new OpenApiSource($http, (string) $a['source'], $a['auth_token'], $a['max_bytes'], null, null, $a['allow_insecure'], $a['allowed_roots'], $a['allow_private_network']),
+            reducer: new OpenApiReducer($redactor, $a['summary_cap'], $a['base_path']),
+            cache: new ApiSpecCache($state, $clock ?? new SystemClock(), $a['ttl']),
+            service: $config->stateKey,
+        );
+    }
+
+    /** What Watcher takes: builds the reader per run, with that run's state (a dry run's wrapper) and redactor. @return \Closure(StateStore, Redactor): ?ApiContextReader */
+    public static function apiContext(WatchConfig $config, Client $http, ?ClockInterface $clock = null): Closure
+    {
+        return static fn (StateStore $state, Redactor $redactor): ?ApiContextReader => self::apiContextReader(config: $config, http: $http, state: $state, redactor: $redactor, clock: $clock);
+    }
+
     public static function gate(WatchConfig $c): RunGate
     {
         return RunGate::fromSchedule($c->schedule);
@@ -526,11 +553,15 @@ final class Factory
     {
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
+        if (!$c->enabled) {
+            // Master switch: validate only; no source, state, catalog or notifier is built.
+            return new Doctor($c, RefusedAccess::source(), RefusedAccess::state(), null, RefusedAccess::notifier(), $clock);
+        }
         $http ??= self::http();
         $state = self::state($c, $clock);
         $probe = $c->observe->anyEnabled() ? self::observe($c, $clock, null, new ObserveCounters($state, $c->stateKey, $c->state['retention']), probe: true) : null;
 
-        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, events: self::events($c, $http, $clock), kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe);
+        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, events: self::events($c, $http, $clock), kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe, apiContext: self::apiContextReader(config: $c, http: $http, state: $state, redactor: new Redactor(new Normalizer(extraPatterns: $c->redactionPatterns), $c->redactionPatterns), clock: $clock));
     }
 
     /**

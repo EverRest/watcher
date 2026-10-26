@@ -29,6 +29,7 @@ use Watcher\Mcp\Tools\ValidateConfigTool;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\CheckResult;
 use Watcher\Operate\HeartbeatStatus;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\Normalizer;
 use Watcher\Schedule\SystemClock;
@@ -136,7 +137,8 @@ final class McpCommand
         $c = WatchConfig::fromArray($values);
 
         $log = new StderrSink($err);
-        $store = self::store($c, $clock, $log);
+        // Master switch off: do not open the configured store (and do not build a dry-run pipeline).
+        $store = $c->enabled ? self::store($c, $clock, $log) : new ReadOnlyStateStore(RefusedAccess::state());
         $normalizer = new Normalizer($c->on('dependencies') ? array_map('strval', array_keys($c->dependencies)) : [], $c->dependencyDomains, extraPatterns: $c->redactionPatterns);
         $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
         $guard = new OutputGuard(new Redactor($normalizer, $c->redactionPatterns, $pathMap));
@@ -162,13 +164,13 @@ final class McpCommand
             new CheckTool(static fn (): CheckReport => $check !== null ? $check($c, $store) : self::configOnlyReport()),
             new LatestReportTool(new LastReport($store, $c->stateKey), $guard, $c->enabled),
             new FindingTool($store, new VerdictCache($store, $c->stateKey, $c->state['retention']), $c->stateKey, array_map('strval', array_keys($c->dependencies)), $guard, $c->enabled),
-            new HygieneTool(new NoHygieneSource()),
+            new HygieneTool(new NoHygieneSource(), $c->enabled),
         ];
         $allowDry = false;
-        if ($settings->allowDryRun && $dryRun !== null) {
+        if ($c->enabled && $settings->allowDryRun && $dryRun !== null) {
             $inspect[] = new DryRunTool($dryRun($c, $store), new DryRunGuard($today, $budget, $limit), $guard);
             $allowDry = true;
-        } elseif ($settings->allowDryRun) {
+        } elseif ($c->enabled && $settings->allowDryRun) {
             fwrite($err, "watcher [error] mcp.allow_dry_run is set but this build has no dry-run adapter; watcher_dry_run is not offered\n");
         }
         $root = dirname(__DIR__, 2);
