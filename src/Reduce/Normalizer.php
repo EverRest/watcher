@@ -304,7 +304,7 @@ final class Normalizer
             // `?token=x&sig=x`. The key stays, the value (quoted: up to the closing quote; else up to space , ; & " ' } ]) goes.
             [
                 '((?<![\w-])(?:[\w-]{0,30}?(?:pass(?:word|wd|phrase)?+|pwd|secret|api[_-]?key|access[_-]?key|private[_-]?key|credentials?+|token|signature)[\w-]{0,30}'
-                . '|(?:x|dd|ocp|proxy)-[\w-]{0,30}?(?:key|sig)[\w-]{0,30}|(?<=[?&])(?:key|sig|auth))'
+                . '|(?:x|dd|ocp|proxy)-[\w-]{0,30}?(?:key|sig)[\w-]{0,30}|(?<=[?&])(?:key|sig|auth)|(?:session|sess|sid)(?:[_-]?(?:id|token|key|cookie))?)'
                 . '["\']?+\s*+(?:=>|[:=])\s*+)(?:(["\'])((?:\\\\.|(?!\\2)[^\r\n])*+)(?:\\2|$)|(?!<|(?:bearer|basic|token|digest)\s++<)[^\s,;&"\'}\]]++)',
                 static fn (array $m): string => $m[1] . (($m[2] ?? '') !== '' ? $m[2] . '<TOKEN>' . $m[2] : '<TOKEN>'),
             ],
@@ -332,6 +332,12 @@ final class Normalizer
                 fn (array $m): string => $this->hostPlaceholder(strtolower($m['host']), 'HOST'),
             ],
             ['\b(?:\d[ -]?){12,18}\d\b', '<PAN>'],
+            // Base64 that ends in padding: the length rule below needs 20 characters and a padded value can be shorter (`dXNlcjpwYXNzd29yZA==`).
+            // Real padding makes the length (with the `=`) a multiple of 4; `authorization=` is not base64, so it keeps its key.
+            [
+                '(?<![A-Za-z0-9_+/-])[A-Za-z0-9+/]{10,}={1,2}(?![A-Za-z0-9+/=])',
+                static fn (array $m): string => strlen($m[0]) % 4 === 0 ? '<TOKEN>' : $m[0],
+            ],
             // Any other long random-looking run (base64, base64url, mixed-case ids). Before the digit rule: digits are part of it.
             [
                 '(?<![A-Za-z0-9_+/-])[A-Za-z0-9_+/-]{20,}+={0,2}+(?![A-Za-z0-9_+/=-])',
