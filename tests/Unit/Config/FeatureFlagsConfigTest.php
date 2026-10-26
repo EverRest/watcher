@@ -43,6 +43,10 @@ final class FeatureFlagsConfigTest extends TestCase
 
         self::assertFalse($c->enabled);
         foreach (WatchConfig::FLAGS as $flag) {
+            if ($flag === 'drafts') {
+                self::assertFalse($c->on($flag));
+                continue;
+            }
             self::assertTrue($c->on($flag), $flag);
         }
         self::assertFalse($c->heartbeat['weekly_summary']);
@@ -90,6 +94,9 @@ final class FeatureFlagsConfigTest extends TestCase
             'notice' => [['notify' => ['notice' => ['enabled' => false]]], 'notice', 'notify.notice.enabled'],
             'digest' => [['notify' => ['digest' => ['enabled' => false]]], 'digest', 'notify.digest.enabled'],
             'kubernetes' => [['kubernetes' => ['enabled' => false]], 'kubernetes', 'kubernetes.enabled'],
+            'known_issues' => [['known_issues' => ['enabled' => false]], 'known_issues', 'known_issues.enabled'],
+            'drafts' => [['drafts' => ['enabled' => false]], 'drafts', 'drafts.enabled'],
+            'routes' => [['notify' => ['routes_enabled' => false]], 'routes', 'notify.routes_enabled'],
         ];
     }
 
@@ -101,7 +108,7 @@ final class FeatureFlagsConfigTest extends TestCase
 
         self::assertFalse($c->on($flag), $path);
         foreach (WatchConfig::FLAGS as $other) {
-            if ($other !== $flag) {
+            if ($other !== $flag && $other !== 'drafts') {
                 self::assertTrue($c->on($other), "$other must stay on when only $flag is off");
             }
         }
@@ -111,6 +118,16 @@ final class FeatureFlagsConfigTest extends TestCase
     #[DataProvider('flags')]
     public function testAFlagMustBeARealBooleanAndTheMessageNamesThePath(array $patch, string $flag, string $path): void
     {
+        if ($flag === 'routes') {
+            try {
+                WatchConfig::fromArray(self::with(['notify' => ['routes_enabled' => 'false']]));
+                self::fail('expected InvalidConfig');
+            } catch (InvalidConfig $e) {
+                self::assertStringContainsString($path, $e->getMessage());
+            }
+
+            return;
+        }
         $bad = json_decode((string) json_encode($patch), true);
         array_walk_recursive($bad, static function (&$v, $k): void {
             if ($k === 'enabled') {
@@ -235,11 +252,15 @@ final class FeatureFlagsConfigTest extends TestCase
             $c = $load();
             self::assertFalse($c->enabled, 'off unless WATCHER_ENABLED');
             foreach (WatchConfig::FLAGS as $flag) {
-                self::assertTrue($c->on($flag), $flag);
+                if ($flag === 'drafts') {
+                    self::assertFalse($c->on($flag));
+                } else {
+                    self::assertTrue($c->on($flag), $flag);
+                }
             }
         });
         $off = [];
-        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST', 'KUBERNETES'] as $name) {
+        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST', 'KNOWN_ISSUES', 'DRAFTS', 'ROUTES', 'KUBERNETES'] as $name) {
             $off["WATCHER_{$name}_ENABLED"] = 'false';
         }
         self::withEnv($base + $off + ['WATCHER_ENABLED' => 'yes', 'WATCHER_ENVIRONMENT' => 'int'], function () use ($load): void {

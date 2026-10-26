@@ -65,7 +65,6 @@ final class FleetRunner
         $http = Factory::http();
         $first = $fleet->services[0]->config;
         $state = Factory::state($first, $clock, $log);
-        $analyzer = Factory::analyzer($first);
         $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
         $sources = [];
         $events = [];
@@ -81,12 +80,12 @@ final class FleetRunner
         }
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
-        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $analyzer, $notifier, $clock, $log, $out, $share): callable {
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share): callable {
             $watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
                 $state,
-                $analyzer,
+                Factory::analyzer($e->config, $options->dryRun), // one per service: the cost ledger books under the service's own key
                 $seam?->notifierFor($e->name(), $notifier) ?? $notifier,
                 $clock,
                 $log,

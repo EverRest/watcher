@@ -27,6 +27,7 @@ final class WindowKeysTest extends TestCase
         self::assertSame(Keys::snapshot('api@stg', Watcher::windowKey($start)), $k->previousSnapshot());
         self::assertSame(Keys::reported('api@stg', 'abc'), $k->reported('abc'));
         self::assertSame(Keys::delivered('api@stg', $w), $k->delivered());
+        self::assertSame(Keys::deliveredParts('api@stg', $w), $k->deliveredParts());
         self::assertSame(Keys::analysisFailures('api@stg', $w), $k->analysisFailures());
         self::assertSame(Keys::partial('api@stg', $w), $k->partial());
         self::assertSame(Keys::failNotices('api@stg', $w), $k->failNotices());
