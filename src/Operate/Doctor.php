@@ -39,6 +39,9 @@ final class Doctor
     private const NAMES = ['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'];
     private const SCRATCH_TTL = 60;
 
+    /** The master switch was read off the raw config before validation (see switchedOff()). */
+    private bool $switchedOff = false;
+
     public function __construct(
         private readonly WatchConfig $config,
         private readonly LogSource $source,
@@ -55,6 +58,21 @@ final class Doctor
     ) {
     }
 
+    /**
+     * A Doctor for a config whose master switch is off, read before validation: nothing is validated, built or read, and
+     * run() reports the switch only.
+     */
+    public static function switchedOff(ClockInterface $clock): self
+    {
+        $self = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
+        $refused = RefusedAccess::state();
+        foreach (['switchedOff' => true, 'source' => RefusedAccess::source(), 'store' => $refused, 'notifier' => RefusedAccess::notifier(), 'clock' => $clock] as $name => $value) {
+            (new \ReflectionProperty(self::class, $name))->setValue($self, $value); // readonly, set as Hygiene::fromConfig does
+        }
+
+        return $self;
+    }
+
     /** The report when the config could not even be loaded: nothing else can be built, so the rest are skipped. */
     public static function configFailure(string $reason): CheckReport
     {
@@ -69,7 +87,7 @@ final class Doctor
     /** @param bool $postTest also post one labelled test message per distinct destination */
     public function run(bool $postTest = false): CheckReport
     {
-        if (!$this->config->enabled) {
+        if ($this->switchedOff || !$this->config->enabled) {
             // The config was validated; a disabled watcher calls nothing, so there is nothing else to check.
             return new CheckReport([CheckResult::pass('config', 'disabled (enabled=false)'), ...array_map(static fn (string $n): CheckResult => CheckResult::skip($n, 'disabled'), array_slice(self::NAMES, 1))]);
         }

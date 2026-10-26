@@ -414,7 +414,7 @@ already does.
 |---|---|---|
 | int on | `WATCHER_ENABLED=1`, `WATCHER_ENVIRONMENT=int`, `WATCHER_HEARTBEAT_WEEKLY_SUMMARY=0` | runs, keys `orders-api@int`, no weekly line |
 | prod on | `WATCHER_ENABLED=1`, `WATCHER_ENVIRONMENT=prod`, `WATCHER_HEARTBEAT_WEEKLY_SUMMARY=1` | runs, keys `orders-api@prod`, weekly line |
-| dev off | nothing (or `WATCHER_ENABLED=0`) | `disabled`: no source, state, model or notifier access; `watcher status` says `disabled` (exit 0); `watcher check` validates the config only |
+| dev off | nothing (or `WATCHER_ENABLED=0`) | `disabled`: no source, state, model or notifier access; `watcher status` says `disabled` (exit 0); `watcher check` says `disabled` (exit 0) without validating the config |
 
 Cheaper variants: `WATCHER_ESCALATION_ENABLED=0` (no stronger model), `WATCHER_TRIAGE_ENABLED=0` (no triage call),
 `WATCHER_DIGEST_ENABLED=0` (read and snapshot only, no model calls), `WATCHER_NOTICE_ENABLED=0` (failures only in the

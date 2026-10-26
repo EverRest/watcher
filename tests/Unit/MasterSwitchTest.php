@@ -96,7 +96,7 @@ final class MasterSwitchTest extends TestCase
         WatchConfig::fromArray($this->halfFilled(false));
     }
 
-    public function testCliRunExitsZeroAndCheckStillReportsTheInvalidConfig(): void
+    public function testCliRunAndCheckExitZeroWhenTheConfigIsBrokenAndSwitchedOff(): void
     {
         $file = sys_get_temp_dir() . '/watcher-switch-cfg-' . bin2hex(random_bytes(4)) . '.php';
         file_put_contents($file, '<?php return ' . var_export($this->halfFilled(false), true) . ';');
@@ -111,8 +111,9 @@ final class MasterSwitchTest extends TestCase
         self::assertStringContainsString(Application::DISABLED_HINT, $run[2]);
         self::assertStringNotContainsString(self::CANARY, $run[1] . $run[2]);
         self::assertStringNotContainsString('invalid config', $run[2]);
-        self::assertSame(1, $check[0]);
-        self::assertStringContainsString('invalid', $check[1]);
+        self::assertSame(0, $check[0]);
+        self::assertStringContainsString('disabled', $check[1]);
+        self::assertStringNotContainsString('invalid', $check[1]);
         self::assertStringNotContainsString(self::CANARY, $check[1] . $check[2]);
         self::assertDirectoryDoesNotExist($this->dir);
     }

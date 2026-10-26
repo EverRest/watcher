@@ -64,6 +64,9 @@ final class Hygiene
 
     private ?RunGuard $activeGuard = null;
 
+    /** The master switch was read off the raw config: no config was validated or built (see fromConfig). */
+    private bool $switchedOff = false;
+
     /** @param RunGuard|null $guard the pass's deadline (hygiene.max_seconds) and memory guard; default: built when the read starts */
     public function __construct(
         private readonly WatchConfig $config,
@@ -89,6 +92,17 @@ final class Hygiene
     /** @param array<string, mixed> $config @throws \Watcher\Config\InvalidConfig */
     public static function fromConfig(array $config, ?ClockInterface $clock = null, ?\GuzzleHttp\Client $http = null): self
     {
+        if (WatchConfig::masterSwitchOff($config)) {
+            // Before validation, as the run path does: a broken config is not validated and nothing is built.
+            $off = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
+            $off->switchedOff = true;
+            $refused = RefusedAccess::state();
+            foreach (['source' => RefusedAccess::source(), 'realState' => $refused, 'state' => new GuardedState($refused), 'notifier' => RefusedAccess::notifier(), 'clock' => $clock ?? new \Watcher\Schedule\SystemClock()] as $name => $value) {
+                (new \ReflectionProperty(self::class, $name))->setValue($off, $value); // readonly, set as Watcher::switchedOff does
+            }
+
+            return $off;
+        }
         $c = WatchConfig::fromArray($config);
         $clock ??= new \Watcher\Schedule\SystemClock();
         if (!$c->enabled) {
@@ -102,6 +116,9 @@ final class Hygiene
 
     public function run(HygieneOptions $o): HygieneResult
     {
+        if ($this->switchedOff) {
+            return new HygieneResult(disabled: true);
+        }
         $c = $this->config;
         if (!$c->enabled) {
             return new HygieneResult(disabled: true);
