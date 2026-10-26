@@ -256,7 +256,7 @@ final class RunLedger
     {
         $took = (float) $this->clock->now()->format('U.u') - (float) $this->startedAt->format('U.u');
         $this->stats->durationMs = max(0, (int) round($took * 1000));
-        $this->stats->stateUnreadable = $this->state instanceof UnreadableCounter ? $this->state->unreadableEntries() : 0;
+        $this->stats->stateUnreadable += $this->state instanceof UnreadableCounter ? $this->state->unreadableEntries() : 0;
         if ($this->heartbeat === null || !$this->due) {
             return;
         }

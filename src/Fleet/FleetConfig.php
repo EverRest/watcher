@@ -20,6 +20,7 @@ final class FleetConfig
      * @param list<ServiceEntry> $services in configuration order (FleetOrder decides the run order)
      * @param array{daily_budget_usd: ?float, daily_token_limit: ?int, alert_percents: list<int>} $budget
      * @param array<string, mixed> $notify fleet default destinations
+     * @param list<string> $offServices the service names of a switched-off fleet (no entry is built)
      */
     private function __construct(
         public readonly string $name,
@@ -33,6 +34,7 @@ final class FleetConfig
         public readonly int $correlationToleranceSeconds,
         public readonly bool $enabled = true,
         private readonly ?int $serviceTimeBudget = null,
+        private readonly array $offServices = [],
     ) {
     }
 
@@ -50,6 +52,21 @@ final class FleetConfig
         return max(1, $floor, intdiv($this->timeBudgetSeconds, max(1, count($this->services))));
     }
 
+    /**
+     * The services by name: `service@environment` when the fleet is on; the raw service names when it is off (only what
+     * the fleet file says inline, never a service file).
+     *
+     * @return list<string>
+     */
+    public function serviceNames(): array
+    {
+        if (!$this->enabled) {
+            return $this->offServices;
+        }
+
+        return array_map(static fn (ServiceEntry $e): string => $e->name(), $this->services);
+    }
+
     /** @return array<string, mixed> a dump shows no webhook or token */
     public function __debugInfo(): array
     {
@@ -59,6 +76,9 @@ final class FleetConfig
     /** @param array<string, mixed> $config */
     public static function fromArray(#[\SensitiveParameter] array $config): self
     {
+        if (($config['enabled'] ?? true) === false) {
+            return self::switchedOff($config); // the fleet switch comes first: a broken entry does not stop a switched-off fleet
+        }
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::KEYS, true)) {
                 throw new InvalidConfig('Unknown configuration key: fleet.' . $key);
@@ -144,6 +164,9 @@ final class FleetConfig
         $files = glob(rtrim($path, '/') . '/*.php') ?: [];
         sort($files);
         $config = self::load($fleetFile);
+        if (($config['enabled'] ?? true) === false) {
+            return self::switchedOff($config); // no service file is opened
+        }
         $config['services'] = [];
         foreach ($files as $file) {
             if ($file !== $fleetFile) {
@@ -152,6 +175,38 @@ final class FleetConfig
         }
 
         return self::fromArray($config);
+    }
+
+    /**
+     * The fleet switch is off: nothing is validated or built. The names are the raw `service` values that look like names.
+     *
+     * @param array<string, mixed> $config
+     */
+    private static function switchedOff(array $config): self
+    {
+        $name = $config['fleet'] ?? null;
+        $names = [];
+        foreach (is_array($config['services'] ?? null) ? $config['services'] : [] as $raw) {
+            $service = is_array($raw) ? ($raw['service'] ?? null) : null;
+            if (is_string($service) && preg_match('/^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/D', $service) === 1) {
+                $names[] = $service;
+            }
+        }
+
+        return new self(
+            is_string($name) && preg_match('/^[A-Za-z0-9._-]+$/D', $name) === 1 ? $name : '',
+            [],
+            'per_service',
+            'UTC',
+            null,
+            ['daily_budget_usd' => null, 'daily_token_limit' => null, 'alert_percents' => []],
+            [],
+            false,
+            0,
+            false,
+            null,
+            $names,
+        );
     }
 
     /** @return list<ServiceEntry> */

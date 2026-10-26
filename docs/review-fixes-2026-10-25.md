@@ -93,3 +93,68 @@ Sibling sweep (`is-ancestor`, `gh release`, `git tag`, `refs/tags`, `tags:` acro
 |----|------|-------|--------|
 | H1 | `Watcher::locked()` refactor — `RunLedger` / `EventCollector` extraction | — | deferred |
 | SEC | Security review follow-ups | — | in progress |
+| F6 | Robust against bad remote and stored data (LOW) | — | closed on `fix/robust-inputs` |
+
+## Batch 9 — F6: robust against bad remote and stored data (fix/robust-inputs)
+
+Finding F6 of the 2026-10-26 security review (LOW), phase 0 of Lane F. The rule below is what the readers now do; the summary keys are in [operations.md](operations.md) under `--json`.
+
+### Rule: unusable remote data
+
+- A value a reader needs is used only when its type and range are usable (`src/Source/RemoteValue.php`): a log timestamp is a nanosecond digit string or an epoch number in 2000..2100; a count is a number or numeric string from 0 to 10^15.
+- An unusable entry (a log line, a series, a bucket, an event) is skipped and counted in `malformed_entries` (`read_quality`). Its content is never kept.
+- A reply where **more than half** of its entries are unusable is not a log read: it fails as `SourceUnavailable('malformed')`, the same as any other source failure. A reply whose `data` is not a list fails the same way.
+- A missing Datadog timestamp still falls back to the clock (existing, tested behaviour). Stream labels that are not scalars are dropped, not counted: a label is metadata.
+- Counters are per read: `malformed_entries` reports the last `lines()` call, as `pages_shrunk` does. Entries skipped by `totals()` and `versions()` add to it and are reported only if no `lines()` call follows them. Known limit, accepted for this phase.
+
+### Rule: stored baseline records
+
+- A snapshot whose group values are not counts (non-negative numbers up to 10^15, finite) is a corrupt record. It is treated as missing (first-run behaviour) and counted in `state_unreadable`. The check is `BaselineResolver::intact()`, applied to the candidate snapshots, to the previous snapshot, and in `Watcher` before any reader sees the previous snapshot.
+
+### Tests (red first)
+
+| Test | Red before | Green after |
+|------|------------|-------------|
+| `LokiSourceTest::testMalformedLinesAreSkippedAndCounted`, `testAVersionPointWithoutATimestampIsSkippedNotDatedTo1970`, `testAnUnusableTotalIsSkippedAndCounted`, `testAReplyMostlyMalformedFailsTheReadAsMalformed` | 1970 entry kept; no count | yes |
+| `LokiSourceTest` / `DatadogSourceTest::testHostileValuesNeverRaiseAWarningOrATypeError` (data provider over `HostileValues`) | out-of-range cast warnings, `Array to string conversion` | yes |
+| `DatadogSourceTest::testMalformedItemsAreSkippedAndCounted`, `testADataFieldThatIsNotAListFailsAsMalformed`, `testAnUnusableTotalBucketIsSkippedAndCounted` | silent drop; `foreach` warning on a non-list `data` | yes |
+| `BaselineResolverTest::testCorruptSnapshotIsTreatedAsMissingAndCounted`, `testCorruptPreviousSnapshotIsTreatedAsMissingAndCounted`, `testHostileStoredValueNeverRaisesAWarningOrATypeError` | `TypeError: Unsupported operand types: float * array` (rolling) | yes |
+| `RunSummaryTest::testCorruptBaselineSnapshotsAreTreatedAsMissingAndCountedNotThrown` (end to end) | run throws | yes |
+| `WatchConfigTest::testHostileModelNameIsInvalidConfig`, `testDatadogSiteIsAHostNameOrInvalidConfig` | already green: the factory already refuses these | guard, kept |
+| `ResponseLimitTest::testADeclaredLengthOverTheCapTripsTheCapWithoutACast` | cast warning on a huge header | yes |
+| `RetryTest::testAHugeRemoteWaitGivesUpWithoutACastWarning` | cast warning on `1e400`, huge digits, `PHP_INT_MAX` hint | yes |
+| `LineParserHardeningTest::testAHugeSeverityIsNotCastToAnIntAndReadsAsUnknown` | cast warning | yes |
+| `EventLedgerTest::testAHugeStoredTimestampIsSkippedNotCast` | cast warning on a stored digit run | yes |
+| `BaselineResolverTest` (`previousFor` read-back of a huge value) | cast warning in `Comparison::previousFor()` | yes |
+
+### Siblings
+
+Grep: `grep -rn '(int)\|(string)\|(float)' src/Source src/State src/Baseline` (104 hits; those that cast a decoded remote or stored value are below, the rest are config, internal values, or already guarded by `is_numeric` / `is_scalar` / a regex that bounds the digits).
+
+| Site | Casts | Verdict |
+|------|-------|---------|
+| `LokiSource::totals`, `versions`, `page` | `(int)` of count, timestamp, line | fixed: `RemoteValue` |
+| `DatadogSource::totals`, `versions`, `lines` | `(int)` of count | fixed: `RemoteValue::count` |
+| `ResponseLimit::options`, `decode` | `(int)` of `Content-Length` header | fixed: `declared()` |
+| `Retry::sendRateLimited`, `retryAfterSeconds` | `(int) ceil` of hint and header | fixed: capped at `MAX_ASK` before the cast |
+| `LineParser::jsonLevel` | `(int)` of `severity` | fixed: range guard |
+| `LineParser::plainLevel` | `(int) $m['n']` | already safe: `\d{1,3}` |
+| `LineParser::time` | `(float)`, `(int) floor` | already safe: range check before the cast |
+| `EventLedger::points` | `(int)` of stored digits | fixed: length guard |
+| `EventLedger` `(int) $delta` | count from the mapper | already safe: the mapper keeps `count` an int >= 1 |
+| `EventMapper` `(string) $k` | array keys | already safe: keys are scalar |
+| `BaselineResolver` `(float)` of group values | arithmetic | fixed: `intact()` |
+| `Comparison::previousFor` `(int) round` | read-back | fixed: `intact()` bounds values to 10^15 |
+| `Watcher` metric anomalies reading `$prev['groups']` | direct read | fixed: corrupt previous snapshot dropped in `Watcher` first |
+| `RedisStateStore::get` `(float) $raw` | stored | already safe: `is_numeric` guard |
+| `RedisStateStore` `(float) $result`, `PhpRedisClient` `(int) pttl` | client reply | already safe: a float cast does not warn; `false` casts to 0 |
+| `FileStateStore::...` `(int) file_get_contents($marker)` | local marker file | not remote; a corrupt marker reads as 0 (existing, local). Not changed. |
+| `FileStateStore` `(float) $current` | stored | already safe: `is_numeric` guard |
+| `PdoStateStore` `(float)`, `(string) getCode()` | stored / driver | already safe: `is_numeric` guard; driver code |
+| `Hygiene/Cost/CostReader` reads stored `groups` | `is_int` guard per value | already safe |
+| `KubeApi`, `KubeSettings`, `LabelSelector`, `Keys`, `LokiSource` label/time/page casts | config or internal values | not remote |
+
+### Not done here (per the brief)
+
+- No change to what a Datadog `site` may contain: the config and the source already accept only `[a-z0-9]+([.-][a-z0-9]+)*`.
+- The Telegram/Discord hint closures accept only an int from the reply; no change.

@@ -56,6 +56,8 @@ final class AnthropicHttpClient implements MessagesClient
             $body['thinking'] = ['type' => 'disabled']; // adaptive thinking tokens count against max_tokens and triage needs none
         }
 
+        /** @var ArrayObject<string, bool> $tripped */
+        $tripped = new ArrayObject();
         try {
             $response = $this->http->request('POST', self::URL, [
                 'headers' => ['x-api-key' => ($this->apiKey)(), 'anthropic-version' => self::VERSION, 'Accept' => 'application/json'],
@@ -65,12 +67,13 @@ final class AnthropicHttpClient implements MessagesClient
                 'verify' => true,
                 'timeout' => $this->timeout,
                 'connect_timeout' => 10,
-            ] + ResponseLimit::options(new ArrayObject()));
+            ] + ResponseLimit::options($tripped));
             $status = $response->getStatusCode();
             $data = $status === 200 ? ResponseLimit::decode($response, 'anthropic') : [];
-        } catch (SourceUnavailable) {
-            throw new AnalyzerFailed('provider unavailable (invalid reply)'); // oversized or not JSON
         } catch (Throwable $e) {
+            if ($e instanceof SourceUnavailable || isset($tripped['large'])) {
+                throw new AnalyzerFailed('provider unavailable (invalid reply)'); // oversized or not JSON
+            }
             throw new AnalyzerFailed('provider unavailable (' . (new \ReflectionClass($e))->getShortName() . ')'); // not chained: the message carries URL and headers
         }
 

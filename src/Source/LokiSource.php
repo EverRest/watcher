@@ -50,6 +50,9 @@ final class LokiSource implements LogSource, ReadDiagnostics
 
     /** Times a page tripped the response cap and was re-read with half the limit during the last lines() call. */
     public int $pagesShrunk = 0;
+
+    /** Entries skipped as unusable (see {@see RemoteValue}) during the last lines() call; totals() and versions() add to it. */
+    private int $malformed = 0;
     private LineParser $parser;
     private readonly ClockInterface $clock;
 
@@ -108,11 +111,20 @@ final class LokiSource implements LogSource, ReadDiagnostics
         ]);
 
         $totals = [];
-        foreach ($this->results($data) as $series) {
-            $label = $series['metric']['level'] ?? '';
+        $bad = 0;
+        $results = $this->results($data);
+        foreach ($results as $series) {
+            $count = is_array($series) && is_array($series['value'] ?? null) ? RemoteValue::count($series['value'][1] ?? null) : null;
+            if ($count === null) {
+                ++$bad;
+                continue;
+            }
+            $label = is_array($series['metric'] ?? null) ? ($series['metric']['level'] ?? '') : '';
             $name = strtolower(Level::parse(is_string($label) ? $label : '')->name);
-            $totals[$name] = ($totals[$name] ?? 0) + (int) ($series['value'][1] ?? 0);
+            $totals[$name] = ($totals[$name] ?? 0) + $count;
         }
+        $this->malformed += $bad;
+        RemoteValue::check($bad, count($results));
 
         return $totals;
     }
@@ -122,6 +134,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         $this->truncated = false;
         $this->pageLimit = self::PAGE_LIMIT;
         $this->pagesShrunk = 0;
+        $this->malformed = 0;
         $this->parser = new LineParser();
         $labelled = $this->levelMode === 'label' && $filter->watchPatterns === [];
         $query = $this->selector($selector, $labelled ? $this->levelMatcher($filter) : '') . $this->lineFilter($filter);
@@ -280,7 +293,9 @@ final class LokiSource implements LogSource, ReadDiagnostics
 
     public function readDiagnostics(): array
     {
-        return $this->parser->diagnostics() + ($this->pagesShrunk > 0 ? ['pages_shrunk' => $this->pagesShrunk] : []);
+        return $this->parser->diagnostics()
+            + ($this->pagesShrunk > 0 ? ['pages_shrunk' => $this->pagesShrunk] : [])
+            + ($this->malformed > 0 ? ['malformed_entries' => $this->malformed] : []);
     }
 
     public function lastReadTruncated(): bool
@@ -299,14 +314,21 @@ final class LokiSource implements LogSource, ReadDiagnostics
 
         // ponytail: sample time is the end of the 1h step that first saw the version; exact first-seen needs a log read.
         $versions = [];
-        foreach ($this->results($data) as $series) {
-            $value = $series['metric'][$label] ?? null;
+        $bad = 0;
+        $results = $this->results($data);
+        foreach ($results as $series) {
+            $points = is_array($series) ? self::points($series['values'] ?? null) : null;
+            if ($points === null) {
+                ++$bad;
+                continue;
+            }
+            $value = is_array($series['metric'] ?? null) ? ($series['metric'][$label] ?? null) : null;
             if (!is_string($value) || $value === '') {
                 continue;
             }
-            foreach ($series['values'] ?? [] as [$ts, $count]) {
-                if ((float) $count > 0) {
-                    $time = (new DateTimeImmutable('@' . (int) $ts))->setTimezone(new DateTimeZone('UTC'));
+            foreach ($points as [$ts, $count]) {
+                if ($count > 0) {
+                    $time = (new DateTimeImmutable('@' . $ts))->setTimezone(new DateTimeZone('UTC'));
                     if (!isset($versions[$value]) || $time < $versions[$value]) {
                         $versions[$value] = $time;
                     }
@@ -314,9 +336,34 @@ final class LokiSource implements LogSource, ReadDiagnostics
                 }
             }
         }
+        $this->malformed += $bad;
+        RemoteValue::check($bad, count($results));
         uasort($versions, static fn (DateTimeImmutable $a, DateTimeImmutable $b): int => $a <=> $b);
 
         return $versions;
+    }
+
+    /**
+     * The [epoch seconds, count] pairs of one series, or null when a pair is unusable (the series is then counted as one bad entry).
+     *
+     * @return list<array{int, int}>|null
+     */
+    private static function points(mixed $values): ?array
+    {
+        if (!is_array($values)) {
+            return null;
+        }
+        $points = [];
+        foreach ($values as $point) {
+            $at = is_array($point) ? RemoteValue::seconds($point[0] ?? null) : null;
+            $count = is_array($point) ? RemoteValue::count($point[1] ?? null) : null;
+            if ($at === null || $count === null) {
+                return null;
+            }
+            $points[] = [$at, $count];
+        }
+
+        return $points;
     }
 
     /**
@@ -348,12 +395,30 @@ final class LokiSource implements LogSource, ReadDiagnostics
         }
 
         $entries = [];
+        $bad = 0;
+        $total = 0;
         foreach ($this->results($data) as $stream) {
-            $labels = array_map('strval', is_array($stream['stream'] ?? null) ? $stream['stream'] : []);
-            foreach ($stream['values'] ?? [] as [$ts, $line]) {
-                $entries[] = [(int) $ts, (string) $line, $labels];
+            // Non-scalar stream labels are dropped: a label is metadata, not an entry.
+            $labels = is_array($stream) && is_array($stream['stream'] ?? null) ? array_map('strval', array_filter($stream['stream'], 'is_scalar')) : [];
+            $values = is_array($stream) && is_array($stream['values'] ?? null) ? $stream['values'] : null;
+            if ($values === null) {
+                ++$bad;
+                ++$total;
+                continue;
+            }
+            foreach ($values as $pair) {
+                ++$total;
+                $ts = is_array($pair) ? RemoteValue::nanos($pair[0] ?? null) : null;
+                $line = is_array($pair) ? ($pair[1] ?? null) : null;
+                if ($ts === null || !is_string($line)) {
+                    ++$bad;
+                    continue;
+                }
+                $entries[] = [$ts, $line, $labels];
             }
         }
+        $this->malformed += $bad;
+        RemoteValue::check($bad, $total);
         usort($entries, static fn (array $a, array $b): int => $a[0] <=> $b[0]);
 
         return $entries;
@@ -491,7 +556,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
     /**
      * @param array<mixed> $data
      *
-     * @return list<array<string, mixed>>
+     * @return list<mixed> each item is one reply entry as sent: the readers check its shape
      */
     private function results(array $data): array
     {
@@ -517,7 +582,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
             'http_errors' => false,
             'allow_redirects' => false, // X-Scope-OrgID would follow a redirect; a 3xx is an error here
             'verify' => true,
-        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'loki', true);
+        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'loki', true, $tripped);
         } catch (SourceUnavailable $e) {
             throw isset($tripped['large']) ? new SourceUnavailable('loki response too large', true) : $e;
         }

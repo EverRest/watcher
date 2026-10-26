@@ -30,6 +30,10 @@ final class FleetCheck
     {
         $fleet = is_array($config) ? FleetConfig::fromArray($config) : FleetConfig::fromPath($config);
         $clock ??= new SystemClock();
+        if (!$fleet->enabled) {
+            // The fleet switch: nothing is built; run() reports the switch and no service is checked.
+            return new self($fleet, static fn (ServiceEntry $e, bool $postTest): CheckReport => throw new \LogicException('a switched-off fleet checks no service'));
+        }
         $http = Factory::http();
         $state = Factory::state($fleet->services[0]->config, $clock);
         $notifier = Factory::notifier($http, $fleet->services[0]->config->schedule['lock_ttl']);
@@ -56,6 +60,9 @@ final class FleetCheck
 
     public function run(bool $postTest): CheckReport
     {
+        if (!$this->fleet->enabled) {
+            return new CheckReport([CheckResult::pass('config', 'disabled (enabled=false)')]);
+        }
         $ordered = $this->fleet->inOrder();
         $results = [CheckResult::pass('order', implode(', ', array_map(static fn (ServiceEntry $e): string => $e->name(), $ordered)))];
         $provided = [];
