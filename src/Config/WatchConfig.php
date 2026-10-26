@@ -12,6 +12,7 @@ use Watcher\Observe\ObserveSettings;
 use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Level;
 use Watcher\State\Redis\RedisClient;
+use Watcher\Source\Kubernetes\KubeSettings;
 
 /**
  * Validated, default-filled, immutable configuration (contracts/configuration.md).
@@ -25,13 +26,15 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe', 'metrics', 'sentry',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
+        'known_issues', 'drafts', 'report',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
-        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest',
+        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest', 'kubernetes',
+        'known_issues', 'drafts', 'routes',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -82,8 +85,13 @@ final class WatchConfig implements \JsonSerializable
         public readonly string $stateKey,
         private readonly array $flags,
         public readonly ObserveSettings $observe,
-        public readonly ?MetricsSettings $metrics = null,
-        public readonly ?SentrySettings $sentry = null,
+        public readonly ?MetricsSettings $metrics,
+        public readonly ?SentrySettings $sentry,
+        public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
+        public readonly \Watcher\Incident\IncidentSettings $incident,
+        public readonly ?KubeSettings $kubernetes = null,
+        /** @var array<string, mixed>|null the validated `api_context` section (spec 010), null when absent; not a feature flag */
+        public readonly ?array $apiContext = null,
     ) {
     }
 
@@ -96,7 +104,7 @@ final class WatchConfig implements \JsonSerializable
     public function __debugInfo(): array
     {
         $out = get_object_vars($this);
-        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags', 'observe', 'metrics', 'sentry'] as $k) {
+        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags', 'observe', 'metrics', 'sentry', 'apiContext'] as $k) {
             $out[$k] = '[redacted]';
         }
 
@@ -113,6 +121,19 @@ final class WatchConfig implements \JsonSerializable
     public function on(string $flag): bool
     {
         return $this->flags[$flag] ?? throw new \LogicException('unknown feature flag ' . $flag);
+    }
+
+    /**
+     * Single-service config must not carry a sibling `fleet` block (Laravel keeps both under `watcher`).
+     *
+     * @param array<string, mixed> $config
+     * @return array<string, mixed>
+     */
+    public static function withoutFleet(array $config): array
+    {
+        unset($config['fleet']);
+
+        return $config;
     }
 
     /** @param array<string, mixed> $config */
@@ -135,40 +156,11 @@ final class WatchConfig implements \JsonSerializable
         }
         $flags = [];
 
-        $sch = self::section($config, 'schedule');
-        self::only($sch, ['run_at', 'timezone', 'window', 'lock_ttl', 'run_deadline'], 'schedule');
-        $runAt = self::str($sch, 'run_at', 'schedule.run_at');
-        if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/D', $runAt) !== 1) {
-            throw new InvalidConfig('schedule.run_at must be HH:MM');
-        }
-        $tz = self::optStr($sch, 'timezone', 'UTC', 'schedule.timezone');
-        if (!in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
-            throw new InvalidConfig('schedule.timezone must be an IANA timezone');
-        }
-        $window = self::optStr($sch, 'window', 'PT24H', 'schedule.window');
-        try {
-            $interval = new \DateInterval($window);
-        } catch (\Exception) {
-            throw new InvalidConfig('schedule.window must be an ISO-8601 duration');
-        }
-        if ($interval->y + $interval->m + $interval->d + $interval->h + $interval->i + $interval->s === 0) {
-            throw new InvalidConfig('schedule.window must be longer than zero');
-        }
-        $lockTtl = self::posInt($sch, 'lock_ttl', 900, 'schedule.lock_ttl');
-        // A4-01: total wall-clock budget of a run. Default: the lock lifetime minus a margin for the post-read steps, never above it.
-        $deadline = self::posInt($sch, 'run_deadline', $lockTtl <= 60 ? max(1, intdiv($lockTtl, 2)) : $lockTtl - max(30, intdiv($lockTtl, 10)), 'schedule.run_deadline');
-        if ($deadline > $lockTtl) {
-            throw new InvalidConfig('schedule.run_deadline must not be longer than schedule.lock_ttl');
-        }
-        $schedule = [
-            'run_at' => $runAt,
-            'timezone' => $tz,
-            'window' => $window,
-            'lock_ttl' => $lockTtl,
-            'run_deadline' => $deadline,
-        ];
+        [$schedule, $interval] = self::schedule(self::section($config, 'schedule'));
 
         $source = self::source(self::section($config, 'source'));
+
+        [$kubernetes, $flags['kubernetes']] = self::kubernetes($config, $source['driver']);
 
         $selSec = self::section($config, 'selection');
         self::only($selSec, ['min_level', 'growth_factor', 'top_n', 'top_m', 'escalation'], 'selection');
@@ -219,7 +211,7 @@ final class WatchConfig implements \JsonSerializable
         $baselineSec = self::section($config, 'baseline');
         $flags['baseline'] = self::flag($baselineSec, 'enabled', 'baseline.enabled');
         unset($baselineSec['enabled']);
-        $baseline = self::baseline($baselineSec, $interval, $state['retention']);
+        $baseline = self::baseline($baselineSec, $interval, $state['retention'], $schedule['runs_per_day'], $schedule['period_seconds']);
         $groupingSec = self::section($config, 'grouping');
         $flags['grouping'] = self::flag($groupingSec, 'enabled', 'grouping.enabled');
         unset($groupingSec['enabled']);
@@ -238,7 +230,7 @@ final class WatchConfig implements \JsonSerializable
         $links = self::links(self::section($config, 'links'));
         $flags['links.logs'] = self::subFlag($links, 'logs', 'links.logs');
         $flags['links.code'] = self::subFlag($links, 'code', 'links.code');
-        $analysis = self::analysis(self::section($config, 'analysis'));
+        $analysis = self::analysis(self::section($config, 'analysis'), $schedule['runs_per_day'], $schedule['period_seconds']);
         $flags['triage'] = self::subFlag($analysis, 'triage', 'analysis.triage');
         $flags['advice'] = self::subFlag($analysis, 'advice', 'analysis.advice');
         $heartbeat = self::heartbeat(self::section($config, 'heartbeat'), $interval);
@@ -267,6 +259,11 @@ final class WatchConfig implements \JsonSerializable
         if (!$observe->anyEnabled() && ($notify['digest']['driver'] === 'none' || $notify['notice']['driver'] === 'none')) {
             throw new InvalidConfig('notify.' . ($notify['digest']['driver'] === 'none' ? 'digest' : 'notice') . '.driver none needs at least one enabled observe sink');
         }
+
+        $incident = \Watcher\Incident\IncidentSettings::fromArray($config, $notify, $observe);
+        $flags['known_issues'] = $incident->knownIssuesEnabled;
+        $flags['drafts'] = $incident->draftsEnabled;
+        $flags['routes'] = $incident->routesEnabled;
 
         return new self(
             $service,
@@ -298,19 +295,180 @@ final class WatchConfig implements \JsonSerializable
             // Spec 009: absent = off. Validated even with `enabled: false`; not a FLAG (the section's own `enabled` is the switch).
             is_array($config['metrics'] ?? null) ? MetricsSettings::fromArray($config['metrics'], $service) : self::absent($config, 'metrics'),
             is_array($config['sentry'] ?? null) ? SentrySettings::fromArray($config['sentry']) : self::absent($config, 'sentry'),
+            \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
+            $incident,
+            $kubernetes,
+            array_key_exists('api_context', $config) ? self::apiContext($config['api_context'], $state['retention']) : null,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $sch
+     * @return array{0: array<string, mixed>, 1: \DateInterval}
+     */
+    private static function schedule(array $sch): array
+    {
+        self::only($sch, ['run_at', 'every', 'timezone', 'window', 'catch_up', 'ingestion_delay', 'lock_ttl', 'run_deadline'], 'schedule');
+        $every = $sch['every'] ?? null;
+        if ($every !== null && !is_string($every)) {
+            throw new InvalidConfig('schedule.every must be one of PT1H, PT2H, PT3H, PT4H, PT6H, PT8H, PT12H');
+        }
+        if ($every !== null && !in_array($every, \Watcher\Schedule\RunGate::allowedEvery(), true)) {
+            throw new InvalidConfig('schedule.every must be one of PT1H, PT2H, PT3H, PT4H, PT6H, PT8H, PT12H');
+        }
+        $runAtRaw = $sch['run_at'] ?? null;
+        $runAtList = [];
+        if ($runAtRaw !== null) {
+            if (is_string($runAtRaw)) {
+                $runAtList = [$runAtRaw];
+            } elseif (is_array($runAtRaw) && array_is_list($runAtRaw)) {
+                $runAtList = $runAtRaw;
+            } else {
+                throw new InvalidConfig('schedule.run_at must be HH:MM or a list of HH:MM');
+            }
+            foreach ($runAtList as $t) {
+                if (!is_string($t) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/D', $t) !== 1) {
+                    throw new InvalidConfig('schedule.run_at must be HH:MM or a list of HH:MM');
+                }
+            }
+            sort($runAtList);
+            if (count($runAtList) !== count(array_unique($runAtList))) {
+                throw new InvalidConfig('schedule.run_at entries must be unique');
+            }
+        }
+        if ($every !== null && $runAtList !== []) {
+            throw new InvalidConfig('schedule.run_at and schedule.every are mutually exclusive');
+        }
+        if ($every === null && $runAtList === []) {
+            throw new InvalidConfig('schedule.run_at (or schedule.every) is required');
+        }
+        if ($runAtList !== []) {
+            self::assertRunAtGaps($runAtList);
+        }
+        $tz = self::optStr($sch, 'timezone', 'UTC', 'schedule.timezone');
+        if (!in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
+            throw new InvalidConfig('schedule.timezone must be an IANA timezone');
+        }
+        $singleDaily = $every === null && count($runAtList) === 1;
+        $windowGiven = array_key_exists('window', $sch);
+        $window = null;
+        if ($windowGiven) {
+            $window = $sch['window'];
+            if (!is_string($window)) {
+                throw new InvalidConfig('schedule.window must be an ISO-8601 duration');
+            }
+            try {
+                $windowInterval = new \DateInterval($window);
+            } catch (\Exception) {
+                throw new InvalidConfig('schedule.window must be an ISO-8601 duration');
+            }
+            if ($windowInterval->y + $windowInterval->m + $windowInterval->d + $windowInterval->h + $windowInterval->i + $windowInterval->s === 0) {
+                throw new InvalidConfig('schedule.window must be longer than zero');
+            }
+        } elseif ($singleDaily) {
+            $window = 'PT24H';
+            $windowInterval = new \DateInterval($window);
+        } else {
+            $windowInterval = new \DateInterval('PT1H');
+        }
+        $catchUp = $sch['catch_up'] ?? 1;
+        if (!is_int($catchUp) || $catchUp < 1 || $catchUp > 24) {
+            throw new InvalidConfig('schedule.catch_up must be an integer from 1 to 24');
+        }
+        if ($catchUp > 1 && $every === null) {
+            throw new InvalidConfig('schedule.catch_up above 1 needs schedule.every');
+        }
+        $delay = $sch['ingestion_delay'] ?? 'PT0S';
+        try {
+            $delaySeconds = (new \DateTimeImmutable('@0'))->add(new \DateInterval($delay))->getTimestamp();
+        } catch (\Exception) {
+            throw new InvalidConfig('schedule.ingestion_delay must be an ISO-8601 duration');
+        }
+        if (!is_string($delay) || $delaySeconds < 0) {
+            throw new InvalidConfig('schedule.ingestion_delay must be an ISO-8601 duration');
+        }
+        $periodSeconds = $every !== null
+            ? (new \DateTimeImmutable('@0'))->add(new \DateInterval($every))->getTimestamp()
+            : self::longestRunAtGapSeconds($runAtList);
+        if ($delaySeconds >= $periodSeconds) {
+            throw new InvalidConfig('schedule.ingestion_delay must be shorter than the period');
+        }
+        $runsPerDay = $every !== null ? intdiv(86400, $periodSeconds) : count($runAtList);
+        $lockTtl = self::posInt($sch, 'lock_ttl', 900, 'schedule.lock_ttl');
+        $deadline = self::posInt($sch, 'run_deadline', $lockTtl <= 60 ? max(1, intdiv($lockTtl, 2)) : $lockTtl - max(30, intdiv($lockTtl, 10)), 'schedule.run_deadline');
+        if ($deadline > $lockTtl) {
+            throw new InvalidConfig('schedule.run_deadline must not be longer than schedule.lock_ttl');
+        }
+        $heartbeatPeriod = $singleDaily
+            ? $windowInterval
+            : new \DateInterval('PT' . max(1, $periodSeconds) . 'S');
+
+        return [[
+            'run_at' => $runAtList,
+            'every' => $every,
+            'timezone' => $tz,
+            'window' => $window,
+            'catch_up' => $catchUp,
+            'ingestion_delay' => $delay,
+            'ingestion_delay_seconds' => $delaySeconds,
+            'lock_ttl' => $lockTtl,
+            'run_deadline' => $deadline,
+            'period_seconds' => $periodSeconds,
+            'runs_per_day' => $runsPerDay,
+            'single_daily_run_at' => $singleDaily,
+        ], $heartbeatPeriod];
+    }
+
+    /** @param list<string> $runAtList sorted */
+    private static function assertRunAtGaps(array $runAtList): void
+    {
+        $n = count($runAtList);
+        for ($i = 0; $i < $n; ++$i) {
+            $a = self::minutesOfDay($runAtList[$i]);
+            $b = self::minutesOfDay($runAtList[($i + 1) % $n]);
+            $gap = $i + 1 < $n ? $b - $a : (1440 - $a) + $b;
+            if ($gap < 60) {
+                throw new InvalidConfig('schedule.run_at entries must be at least 1 hour apart');
+            }
+        }
+    }
+
+    /** @param list<string> $runAtList */
+    private static function longestRunAtGapSeconds(array $runAtList): int
+    {
+        $max = 0;
+        $n = count($runAtList);
+        for ($i = 0; $i < $n; ++$i) {
+            $a = self::minutesOfDay($runAtList[$i]);
+            $b = self::minutesOfDay($runAtList[($i + 1) % $n]);
+            $gap = $i + 1 < $n ? $b - $a : (1440 - $a) + $b;
+            $max = max($max, $gap);
+        }
+
+        return $max * 60;
+    }
+
+    private static function minutesOfDay(string $hhmm): int
+    {
+        return (int) substr($hhmm, 0, 2) * 60 + (int) substr($hhmm, 3, 2);
     }
 
     /**
      * @param array<string, mixed> $b
      * @return array{mode: string, windows: int, max_age: string, max_age_seconds: int, exclude: list<string>, since: ?string}
      */
-    private static function baseline(array $b, \DateInterval $window, int $retention): array
+    private static function baseline(array $b, \DateInterval $window, int $retention, int $runsPerDay, int $periodSeconds): array
     {
         self::only($b, ['mode', 'windows', 'max_age', 'exclude', 'since'], 'baseline');
         $mode = $b['mode'] ?? 'previous';
-        if (!in_array($mode, ['previous', 'rolling', 'weekday'], true)) {
-            throw new InvalidConfig('baseline.mode must be one of previous, rolling, weekday');
+        if (!in_array($mode, ['previous', 'rolling', 'weekday', 'same_slot_yesterday', 'same_slot_last_week'], true)) {
+            throw new InvalidConfig('baseline.mode must be one of previous, rolling, weekday, same_slot_yesterday, same_slot_last_week');
+        }
+        if (in_array($mode, ['rolling', 'weekday'], true) && ($runsPerDay > 1 || $periodSeconds < 86400)) {
+            throw new InvalidConfig('baseline.mode rolling/weekday needs whole-day periods; use same_slot_yesterday or same_slot_last_week with schedule.every');
+        }
+        if ($mode === 'same_slot_last_week' && $retention < 691200) {
+            throw new InvalidConfig('state.retention (691200 s) is shorter than baseline.mode same_slot_last_week needs (691200 s)');
         }
         $min = $mode === 'weekday' ? 3 : 2;
         $windows = $b['windows'] ?? ($mode === 'weekday' ? 4 : 7);
@@ -463,8 +621,8 @@ final class WatchConfig implements \JsonSerializable
             if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iD', self::optStr($dd, 'site', 'datadoghq.com', 'source.datadog.site')) !== 1) {
                 throw new InvalidConfig('source.datadog.site must be a Datadog site host such as datadoghq.eu');
             }
-        } else {
-            throw new InvalidConfig('source.driver must be loki or datadog');
+        } elseif ($driver !== 'kubernetes') { // its settings live in the top-level `kubernetes` section (spec 008)
+            throw new InvalidConfig('source.driver must be loki, datadog or kubernetes');
         }
 
         $tags = $s['stream_tags'] ?? [];
@@ -487,9 +645,9 @@ final class WatchConfig implements \JsonSerializable
      * @param array<string, mixed> $a
      * @return array<string, mixed>
      */
-    private static function analysis(array $a): array
+    private static function analysis(array $a, int $runsPerDay, int $periodSeconds): array
     {
-        self::only($a, ['provider', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'triage', 'advice'], 'analysis');
+        self::only($a, ['provider', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'max_runs_per_day', 'run_budget_usd', 'triage', 'advice'], 'analysis');
         self::str($a, 'api_key', 'analysis.api_key');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
@@ -527,16 +685,36 @@ final class WatchConfig implements \JsonSerializable
             throw new InvalidConfig('analysis.budget_alert_percents must be ascending integers from 1 to 99');
         }
 
+        $dailyBudget = self::num($a, 'daily_budget_usd', 0.50, 'analysis.daily_budget_usd', 0.0);
+        $maxRuns = $a['max_runs_per_day'] ?? null;
+        $runBudget = $a['run_budget_usd'] ?? null;
+        if ($runsPerDay > 1) {
+            if ($maxRuns === null) {
+                $maxRuns = 2 * $runsPerDay;
+            }
+            if ($runBudget === null) {
+                $runBudget = $dailyBudget / $runsPerDay * 2;
+            }
+        }
+        if ($maxRuns !== null && (!is_int($maxRuns) || $maxRuns < 1)) {
+            throw new InvalidConfig('analysis.max_runs_per_day must be an integer >= 1');
+        }
+        if ($runBudget !== null && ((!is_int($runBudget) && !is_float($runBudget)) || $runBudget <= 0)) {
+            throw new InvalidConfig('analysis.run_budget_usd must be greater than zero');
+        }
+
         return array_merge($a, $limits, [
             'provider' => self::optStr($a, 'provider', 'anthropic', 'analysis.provider'),
             'client' => $client,
             'models' => $models,
             'confidence_threshold' => $conf,
             'escalation_cap' => self::posInt($a, 'escalation_cap', 3, 'analysis.escalation_cap'),
-            'daily_budget_usd' => self::num($a, 'daily_budget_usd', 0.50, 'analysis.daily_budget_usd', 0.0),
+            'daily_budget_usd' => $dailyBudget,
             'prices' => $prices,
             'daily_token_limit' => $tokenLimit,
             'budget_alert_percents' => $percents,
+            'max_runs_per_day' => $maxRuns,
+            'run_budget_usd' => $runBudget,
         ]);
     }
 
@@ -664,13 +842,21 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function notify(array $n): array
     {
-        self::only($n, ['digest', 'notice'], 'notify');
+        self::only($n, ['digest', 'notice', 'routes', 'routes_enabled'], 'notify');
         $digest = self::notifyEntry(self::withoutEnabled($n['digest'] ?? null), 'notify.digest');
         $notice = $n['notice'] ?? null;
         $notice = self::withoutEnabled($notice);
         $notice = $notice === null || $notice === [] ? $digest : self::notifyEntry($notice, 'notify.notice');
+        $routes = $n['routes'] ?? [];
+        if (!is_array($routes) || ($routes !== [] && !array_is_list($routes))) {
+            throw new InvalidConfig('notify.routes must be a list');
+        }
+        $routesEnabled = $n['routes_enabled'] ?? true;
+        if (!is_bool($routesEnabled)) {
+            throw new InvalidConfig('notify.routes_enabled must be true or false');
+        }
 
-        return ['digest' => $digest, 'notice' => $notice];
+        return ['digest' => $digest, 'notice' => $notice, 'routes' => $routes, 'routes_enabled' => $routesEnabled];
     }
 
     private static function withoutEnabled(mixed $entry): mixed
@@ -797,9 +983,11 @@ final class WatchConfig implements \JsonSerializable
             $this->state['redis']['password'] ?? null,
             $this->state['pdo']['password'] ?? null,
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
+            ...($this->kubernetes?->maskValues() ?? []), // the API token, or what token_file holds right now
             ...$this->observe->secrets(),
             ...($this->metrics?->secrets() ?? []),
             ...($this->sentry?->secrets() ?? []),
+            ...$this->apiContextSecrets(),
         ];
         $secrets = array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
         // Longest first: masking `sk-ant` before `sk-ant-SECRET` would leave `-SECRET` behind. (usort is stable in PHP 8.)
@@ -816,6 +1004,112 @@ final class WatchConfig implements \JsonSerializable
         }
 
         return null;
+    }
+
+    /**
+     * The OpenAPI bearer token and, for a URL source, the URL itself (it may carry a token in the path or query).
+     *
+     * @return list<string>
+     */
+    private function apiContextSecrets(): array
+    {
+        $source = $this->apiContext['source'] ?? null;
+
+        return array_values(array_filter([
+            $this->apiContext['auth_token'] ?? null,
+            is_string($source) && preg_match('~^https?://~i', $source) === 1 ? $source : null,
+        ], 'is_string'));
+    }
+
+    /**
+     * The `api_context` section (spec 010): validated even when `enabled` is false, so a later flip never reveals a bad value. Key paths only.
+     *
+     * @return array<string, mixed>
+     */
+    private static function apiContext(mixed $sec, int $retention): array
+    {
+        if (!is_array($sec)) {
+            throw new InvalidConfig('api_context must be a map');
+        }
+        self::only($sec, ['enabled', 'source', 'auth_token', 'ttl', 'max_endpoints', 'summary_cap', 'max_bytes', 'base_path', 'ignore_prefixes', 'allow_insecure', 'allow_private_network', 'allowed_roots'], 'api_context');
+        $enabled = self::flag($sec, 'enabled', 'api_context.enabled');
+        $insecure = self::flag($sec, 'allow_insecure', 'api_context.allow_insecure', false);
+        $private = self::flag($sec, 'allow_private_network', 'api_context.allow_private_network', false);
+        $source = $sec['source'] ?? null;
+        if ($source !== null && $source !== '' || $enabled) {
+            $source = is_string($source) && $source !== '' ? $source : throw new InvalidConfig('api_context.source is required');
+            if (preg_match('~\.ya?ml(?:[?#].*)?$~i', $source) === 1) {
+                throw new InvalidConfig('api_context.source must be a JSON document (YAML is not supported yet)');
+            }
+            if (preg_match('~^https?://~i', $source) === 1) {
+                if (\Watcher\ApiContext\OpenApiSource::urlProblem($source, $insecure, $private) !== null) {
+                    throw new InvalidConfig('api_context.source must be an https URL; plain http needs allow_insecure and allow_private_network and a loopback, private-network or cluster-local host, and no internal address is allowed otherwise');
+                }
+            } elseif (preg_match('~^(?:file:(?://)?)?/~i', $source) !== 1 || str_contains(preg_replace('~^file:~i', '', $source) ?? '', '://')) {
+                throw new InvalidConfig('api_context.source must be an https URL or an absolute file path');
+            }
+        }
+        $token = $sec['auth_token'] ?? null;
+        if ($token !== null && (!is_string($token) || $token === '')) {
+            throw new InvalidConfig('api_context.auth_token must be a non-empty string');
+        }
+        $ttl = $retention < 86400 ? $retention : 86400;
+        if (array_key_exists('ttl', $sec)) {
+            $ttl = is_string($sec['ttl']) ? self::seconds($sec['ttl']) : null;
+            if ($ttl === null || $ttl < 1 || $ttl > $retention) {
+                throw new InvalidConfig('api_context.ttl must be a duration between 1 second and state.retention');
+            }
+        }
+        $basePath = $sec['base_path'] ?? null;
+        if ($basePath !== null && (!is_string($basePath) || preg_match('~^/[A-Za-z0-9._\-/]*$~D', $basePath) !== 1 || in_array('..', explode('/', $basePath), true))) {
+            throw new InvalidConfig('api_context.base_path must be a path starting with /');
+        }
+        $prefixes = $sec['ignore_prefixes'] ?? [];
+        if (!is_array($prefixes) || !array_is_list($prefixes) || count($prefixes) > 10 || array_filter($prefixes, static fn (mixed $p): bool => is_string($p) && preg_match('~^/[A-Za-z0-9._\-/]*$~D', $p) === 1 && !in_array('..', explode('/', $p), true)) !== $prefixes) {
+            throw new InvalidConfig('api_context.ignore_prefixes must be a list of at most 10 paths starting with /');
+        }
+        $roots = $sec['allowed_roots'] ?? [];
+        if (!is_array($roots) || !array_is_list($roots) || count($roots) > 10 || array_filter($roots, static fn (mixed $p): bool => is_string($p) && str_starts_with($p, '/') && !str_contains($p, '://') && !in_array('..', explode('/', $p), true)) !== $roots) {
+            throw new InvalidConfig('api_context.allowed_roots must be a list of at most 10 absolute paths');
+        }
+
+        return [
+            'enabled' => $enabled,
+            'source' => is_string($source) ? $source : null,
+            'auth_token' => $token,
+            'ttl' => $ttl,
+            'max_endpoints' => self::boundedInt($sec, 'max_endpoints', 5, 1, 20),
+            'summary_cap' => self::boundedInt($sec, 'summary_cap', 80, 20, 200),
+            'max_bytes' => self::boundedInt($sec, 'max_bytes', 1048576, 65536, 2097152),
+            'base_path' => $basePath,
+            'ignore_prefixes' => $prefixes,
+            'allow_insecure' => $insecure,
+            'allow_private_network' => $private,
+            'allowed_roots' => $roots,
+        ];
+    }
+
+    /** @param array<array-key, mixed> $from */
+    private static function boundedInt(array $from, string $key, int $default, int $min, int $max): int
+    {
+        $v = $from[$key] ?? $default;
+        if (!is_int($v) || $v < $min || $v > $max) {
+            throw new InvalidConfig("api_context.$key must be an integer between $min and $max");
+        }
+
+        return $v;
+    }
+
+    /** ISO-8601 duration -> seconds (a month counts 30 days, a year 365); null when it is not one. */
+    private static function seconds(string $iso): ?int
+    {
+        try {
+            $i = new \DateInterval($iso);
+        } catch (\Exception) {
+            return null;
+        }
+
+        return ((($i->y * 365 + $i->m * 30 + $i->d) * 24 + $i->h) * 60 + $i->i) * 60 + $i->s;
     }
 
     /** @return array<string, array<string, mixed>> */
@@ -955,6 +1249,50 @@ final class WatchConfig implements \JsonSerializable
         }
 
         return $links;
+    }
+
+    /**
+     * Spec 008: the `kubernetes` section plus `events` (beside `source`) and `source.driver: kubernetes`.
+     * A section holding only the flag is not validated further; any other content, or any use, is.
+     *
+     * @param array<string, mixed> $config
+     * @return array{0: ?KubeSettings, 1: bool} settings, the `kubernetes.enabled` flag
+     */
+    private static function kubernetes(array $config, string $driver): array
+    {
+        $sec = self::section($config, 'kubernetes');
+        $on = self::flag($sec, 'enabled', 'kubernetes.enabled');
+        unset($sec['enabled']);
+        $events = $config['events'] ?? null;
+        if ($events !== null) {
+            if (!is_array($events)) {
+                throw new InvalidConfig('events must be a map');
+            }
+            self::only($events, ['driver'], 'events');
+            if (($events['driver'] ?? null) !== 'kubernetes') {
+                throw new InvalidConfig('events.driver must be kubernetes');
+            }
+        }
+        $asSource = $driver === 'kubernetes';
+        if ($sec === [] && $events === null && !$asSource) {
+            return [null, $on];
+        }
+        if ($sec === [] && ($events !== null || $asSource)) {
+            throw new InvalidConfig(($asSource ? 'source.driver kubernetes' : 'events') . ' needs the kubernetes section');
+        }
+        $deps = is_array($config['dependencies'] ?? null) ? $config['dependencies'] : [];
+        unset($deps['enabled']);
+        if ($asSource && $deps !== []) {
+            throw new InvalidConfig('dependencies are not available with source.driver kubernetes: they are read from the service source');
+        }
+        if ($asSource && !$on) {
+            throw new InvalidConfig('source.driver kubernetes needs kubernetes.enabled to be true');
+        }
+        try {
+            return [KubeSettings::fromArray($sec, $on, $events !== null, $asSource), $on];
+        } catch (\InvalidArgumentException $e) {
+            throw new InvalidConfig($e->getMessage()); // paths only, never a value
+        }
     }
 
     /** @param array<string, mixed> $s */

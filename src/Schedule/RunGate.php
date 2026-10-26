@@ -10,85 +10,350 @@ use DateTimeZone;
 use InvalidArgumentException;
 
 /**
- * Decides whether a host trigger is the scheduled run. The host fires at least hourly; the run is due while
- * `now` is within [run_at, run_at + 1h) local time. Idempotency (one run per window) is the pipeline's job.
+ * Decides whether a host trigger is due and which window to read. Supports a daily `run_at`, a list of times, or an
+ * `every` grid (spec 014). Idempotency (one run per window end) is the pipeline's job.
  */
 final class RunGate
 {
-    private int $hour;
-    private int $minute;
+    private const ALLOWED_EVERY = ['PT1H', 'PT2H', 'PT3H', 'PT4H', 'PT6H', 'PT8H', 'PT12H'];
 
+    /** @param list<string> $runAtList sorted HH:MM; empty when `every` is set */
     public function __construct(
-        string $runAt,
         private readonly DateTimeZone $timezone,
-        private readonly DateInterval|string $window = Window::DEFAULT_DURATION,
+        private readonly ?string $every,
+        private readonly array $runAtList,
+        private readonly ?string $explicitWindow,
+        private readonly bool $singleDailyRunAt,
+        private readonly int $periodSeconds,
+        private readonly int $catchUp,
+        private readonly int $ingestionDelaySeconds,
     ) {
-        if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/D', $runAt, $m) !== 1) {
-            throw new InvalidArgumentException("run_at must be HH:MM, got '{$runAt}'.");
+    }
+
+    /** Legacy constructor shape used across the existing suite (one `run_at`, default `PT24H` window). */
+    public static function oncePerDay(string $runAt, DateTimeZone $timezone, DateInterval|string $window = Window::DEFAULT_DURATION): self
+    {
+        $w = is_string($window) ? $window : self::intervalToSpec($window);
+
+        return self::fromSchedule([
+            'run_at' => [$runAt],
+            'every' => null,
+            'timezone' => $timezone->getName(),
+            'window' => $w,
+            'catch_up' => 1,
+            'ingestion_delay_seconds' => 0,
+            'period_seconds' => 86400,
+            'single_daily_run_at' => true,
+        ], $timezone);
+    }
+
+    /** @param array<string, mixed> $schedule validated `WatchConfig::$schedule` */
+    public static function fromSchedule(array $schedule, ?DateTimeZone $timezone = null): self
+    {
+        $tz = $timezone ?? new DateTimeZone((string) $schedule['timezone']);
+
+        return new self(
+            $tz,
+            $schedule['every'] ?? null,
+            $schedule['run_at'] ?? [],
+            $schedule['window'] ?? null,
+            ($schedule['single_daily_run_at'] ?? false) === true,
+            (int) ($schedule['period_seconds'] ?? 86400),
+            (int) ($schedule['catch_up'] ?? 1),
+            (int) ($schedule['ingestion_delay_seconds'] ?? 0),
+        );
+    }
+
+    /**
+     * Up to `catch_up` windows whose boundary is due at `$now`, newest boundary first (done-check is the caller's job).
+     *
+     * @return list<Window>
+     */
+    public function pending(DateTimeImmutable $now, ?DateTimeImmutable $highWaterEnd = null): array
+    {
+        if ($highWaterEnd === null) {
+            $candidates = [];
+            foreach ($this->dueBoundaries($now) as $boundary) {
+                $prev = $this->previousBoundary($boundary);
+                if ($prev === null) {
+                    continue;
+                }
+                $candidates[] = $this->windowBetween($prev, $boundary);
+            }
+            if ($candidates === []) {
+                return [];
+            }
+            usort($candidates, static fn (Window $a, Window $b): int => $b->end <=> $a->end);
+
+            return array_slice($candidates, 0, $this->catchUp);
         }
-        $this->hour = (int) $m[1];
-        $this->minute = (int) $m[2];
+
+        $due = $this->dueBoundaries($now);
+        if ($due === []) {
+            return [];
+        }
+        $candidates = [];
+        $boundary = $due[0];
+        for ($i = 0; $i < $this->catchUp; ++$i) {
+            $prev = $this->previousBoundary($boundary);
+            if ($prev === null) {
+                break;
+            }
+            $window = $this->windowBetween($prev, $boundary);
+            if ($window->end <= $highWaterEnd) {
+                break;
+            }
+            $candidates[] = $window;
+            $boundary = $prev;
+        }
+        if ($candidates === []) {
+            return [];
+        }
+        usort($candidates, static fn (Window $a, Window $b): int => $b->end <=> $a->end);
+
+        return $candidates;
     }
 
     public function decide(DateTimeImmutable $now): ?Window
     {
-        $local = $now->setTimezone($this->timezone);
-        // yesterday too: a late run_at (23:30) stays due after midnight
-        foreach ([0, 1] as $daysBack) {
-            $runAt = $this->runAtOn($local, -$daysBack);
-            if ($now >= $runAt && $now < $runAt->setTimestamp($runAt->getTimestamp() + 3600)) {
-                return new Window($this->start($runAt), $runAt);
+        $pending = $this->pending($now);
+
+        return $pending[0] ?? null;
+    }
+
+    /** The window ending at the most recent boundary <= now, ignoring the due period (dry run). */
+    public function latest(DateTimeImmutable $now): Window
+    {
+        $boundary = $this->latestBoundary($now);
+        $prev = $this->previousBoundary($boundary);
+        if ($prev === null) {
+            throw new InvalidArgumentException('No boundary before the latest one.');
+        }
+
+        return $this->windowBetween($prev, $boundary);
+    }
+
+    /**
+     * The boundary instant `$days` local days before `$end`'s wall-clock slot (DST-safe; list mode uses the first run_at).
+     */
+    public function endBack(DateTimeImmutable $end, int $days): DateTimeImmutable
+    {
+        if ($this->every !== null) {
+            $steps = intdiv($days * 86400, $this->periodSeconds);
+
+            return $this->boundaryBack($end, $steps);
+        }
+        $slot = $this->runAtList[0] ?? '00:00';
+
+        return $this->instantOnLocalDate(
+            $this->localDate($end->setTimezone($this->timezone))->modify("-{$days} days"),
+            $slot,
+        );
+    }
+
+    /**
+     * @return list<DateTimeImmutable> boundaries due at `$now`, newest first
+     */
+    private function dueBoundaries(DateTimeImmutable $now): array
+    {
+        $out = [];
+        foreach ($this->boundariesUpTo($now) as $boundary) {
+            if ($this->isDue($now, $boundary)) {
+                $out[] = $boundary;
             }
         }
 
-        return null;
+        return array_reverse($out);
     }
 
-    /** The window ending at the most recent run_at instant <= now, ignoring the due hour (dry run). */
-    public function latest(DateTimeImmutable $now): Window
+    private function isDue(DateTimeImmutable $now, DateTimeImmutable $boundary): bool
+    {
+        if ($now < $boundary) {
+            return false;
+        }
+        if ($this->every !== null) {
+            $next = $this->nextBoundaryAfter($boundary);
+
+            return $next !== null && $now < $next;
+        }
+        $hourEnd = $boundary->add(new DateInterval('PT1H'));
+
+        return $now < $hourEnd;
+    }
+
+    /** @return list<DateTimeImmutable> ascending */
+    private function boundariesUpTo(DateTimeImmutable $now): array
     {
         $local = $now->setTimezone($this->timezone);
-        $runAt = $this->runAtOn($local, 0);
-        if ($runAt > $now) {
-            $runAt = $this->runAtOn($local, -1);
+        $days = [$local->modify('-1 day'), $local];
+        $out = [];
+        foreach ($days as $day) {
+            foreach ($this->boundariesOnLocalDate($day) as $b) {
+                if ($b <= $now) {
+                    $out[$b->format('U.u')] = $b;
+                }
+            }
         }
+        ksort($out);
 
-        return new Window($this->start($runAt), $runAt);
+        return array_values($out);
     }
 
-    /**
-     * Whole-day windows start at the same local wall-clock time N days earlier, so consecutive windows share
-     * boundaries across DST changes; sub-day windows are end minus duration.
-     */
-    private function start(DateTimeImmutable $end): DateTimeImmutable
+    private function latestBoundary(DateTimeImmutable $now): DateTimeImmutable
     {
-        $d = is_string($this->window) ? new DateInterval($this->window) : $this->window;
+        $all = $this->boundariesUpTo($now);
+        if ($all === []) {
+            throw new InvalidArgumentException('No boundary on or before now.');
+        }
+
+        return $all[array_key_last($all)];
+    }
+
+    /** @return list<DateTimeImmutable> ascending within the local calendar date */
+    private function boundariesOnLocalDate(DateTimeImmutable $localRef): array
+    {
+        $date = $this->localDate($localRef);
+        if ($this->every !== null) {
+            $stepHours = intdiv($this->periodSeconds, 3600);
+            if ($stepHours < 1 || $this->periodSeconds % 3600 !== 0) {
+                throw new InvalidArgumentException('every period must be a whole number of hours.');
+            }
+            $out = [];
+            for ($hour = 0; $hour < 24; $hour += $stepHours) {
+                $boundary = $this->everyBoundaryOnDate($date, $hour, 0);
+                if ($boundary !== null) {
+                    $out[] = $boundary;
+                }
+            }
+
+            return $out;
+        }
+
+        $out = [];
+        foreach ($this->runAtList as $time) {
+            $out[] = $this->instantOnLocalDate($date, $time);
+        }
+        usort($out, static fn (DateTimeImmutable $a, DateTimeImmutable $b): int => $a <=> $b);
+
+        return $out;
+    }
+
+    private function previousBoundary(DateTimeImmutable $boundary): ?DateTimeImmutable
+    {
+        $local = $boundary->setTimezone($this->timezone);
+        $all = [];
+        foreach ([$local->modify('-1 day'), $local] as $day) {
+            foreach ($this->boundariesOnLocalDate($day) as $b) {
+                if ($b < $boundary) {
+                    $all[$b->format('U.u')] = $b;
+                }
+            }
+        }
+        if ($all === []) {
+            return null;
+        }
+        ksort($all);
+
+        return $all[array_key_last($all)];
+    }
+
+    private function boundaryBack(DateTimeImmutable $end, int $steps): DateTimeImmutable
+    {
+        $cursor = $end;
+        for ($i = 0; $i < $steps; ++$i) {
+            $prev = $this->previousBoundary($cursor);
+            if ($prev === null) {
+                break;
+            }
+            $cursor = $prev;
+        }
+
+        return $cursor;
+    }
+
+    private function windowBetween(DateTimeImmutable $prevBoundary, DateTimeImmutable $endBoundary): Window
+    {
+        $end = $endBoundary->sub(new DateInterval('PT' . $this->ingestionDelaySeconds . 'S'));
+        $startBoundary = $prevBoundary->sub(new DateInterval('PT' . $this->ingestionDelaySeconds . 'S'));
+        if ($this->explicitWindow !== null && ($this->singleDailyRunAt || $this->every === null)) {
+            return $this->windowWithExplicitDuration($end, $this->explicitWindow);
+        }
+
+        return new Window($startBoundary, $end);
+    }
+
+    private function windowWithExplicitDuration(DateTimeImmutable $end, string $window): Window
+    {
+        $d = new DateInterval($window);
         $wholeDays = $d->y === 0 && $d->m === 0 && $d->i === 0 && $d->s === 0 && $d->f == 0 && $d->h % 24 === 0
             ? $d->d + intdiv($d->h, 24) : 0;
-        if ($wholeDays > 0 && $d->invert === 0) {
-            return $this->runAtOn($end->setTimezone($this->timezone), -$wholeDays);
+        if ($wholeDays > 0 && $d->invert === 0 && $this->runAtList !== []) {
+            $slot = $this->runAtList[0];
+            $localEnd = $end->setTimezone($this->timezone);
+            $start = $this->instantOnLocalDate($this->localDate($localEnd)->modify("-{$wholeDays} days"), $slot);
+
+            return new Window($start, $end);
         }
 
-        return Window::endingAt($end, $d)->start;
+        return Window::endingAt($end, $d);
     }
 
-    /** The run_at instant `$days` local days before `$end` (same wall-clock time; DST gaps resolve as for runs). */
-    public function endBack(DateTimeImmutable $end, int $days): DateTimeImmutable
+    private function instantOnLocalDate(DateTimeImmutable $localDate, string $hhmm): DateTimeImmutable
     {
-        return $this->runAtOn($end, -$days);
+        if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/D', $hhmm, $m) !== 1) {
+            throw new InvalidArgumentException("run_at must be HH:MM, got '{$hhmm}'.");
+        }
+
+        return $this->runAtOn($localDate, (int) $m[1], (int) $m[2]);
+    }
+
+    private function localDate(DateTimeImmutable $local): DateTimeImmutable
+    {
+        return $local->setTime(0, 0);
+    }
+
+    /** Boundary at local wall time on `$localDate`, or null when that wall time does not exist (`every` grid only). */
+    private function everyBoundaryOnDate(DateTimeImmutable $localDate, int $hour, int $minute): ?DateTimeImmutable
+    {
+        $expected = sprintf('%02d:%02d', $hour, $minute);
+        $instant = $this->runAtOn($localDate, $hour, $minute);
+        if ($instant->setTimezone($this->timezone)->format('H:i') !== $expected) {
+            return null;
+        }
+
+        return $instant;
+    }
+
+    private function nextBoundaryAfter(DateTimeImmutable $boundary): ?DateTimeImmutable
+    {
+        $local = $boundary->setTimezone($this->timezone);
+        $candidates = [];
+        foreach ([$local, $local->modify('+1 day')] as $day) {
+            foreach ($this->boundariesOnLocalDate($day) as $b) {
+                if ($b > $boundary) {
+                    $candidates[$b->format('U.u')] = $b;
+                }
+            }
+        }
+        if ($candidates === []) {
+            return null;
+        }
+        ksort($candidates);
+
+        return $candidates[array_key_first($candidates)];
     }
 
     /**
-     * The run_at instant on the local date `$days` away from `$ref`'s. A time in the spring-forward gap resolves to
-     * the first instant after the gap; an ambiguous (fall-back) time to its first occurrence.
+     * Wall-clock time on `$ref`'s local date. A nonexistent time resolves to the first instant after the gap; an
+     * ambiguous time to its first occurrence.
      */
-    private function runAtOn(DateTimeImmutable $ref, int $days): DateTimeImmutable
+    private function runAtOn(DateTimeImmutable $ref, int $hour, int $minute): DateTimeImmutable
     {
-        $date = $ref->setTimezone($this->timezone)->setDate((int) $ref->format('Y'), (int) $ref->format('n'), (int) $ref->format('j') + $days);
+        $date = $ref->setTimezone($this->timezone);
         $wall = (new DateTimeImmutable('@0'))->setDate((int) $date->format('Y'), (int) $date->format('n'), (int) $date->format('j'))
-            ->setTime($this->hour, $this->minute)->getTimestamp(); // wall-clock digits read as UTC
+            ->setTime($hour, $minute)->getTimestamp();
         $valid = [];
-        foreach ([$wall - 86400, $wall + 86400] as $probe) { // offsets in force either side of the date
+        foreach ([$wall - 86400, $wall + 86400] as $probe) {
             $offset = $date->setTimestamp($probe)->getOffset();
             if ($date->setTimestamp($wall - $offset)->getOffset() === $offset) {
                 $valid[] = $wall - $offset;
@@ -97,12 +362,60 @@ final class RunGate
         if ($valid !== []) {
             return $date->setTimestamp(min($valid));
         }
-        // Nonexistent: the transition itself is the first valid instant.
-        $guess = $wall - $date->setTimestamp($wall - 86400)->getOffset();
-        $transitions = $this->timezone->getTransitions($guess - 86400, $guess);
+        // The wall time falls in a gap: the instant is the transition itself. It is found by bisecting the offset change
+        // (not DateTimeZone::getTransitions(): with system tzdata it lists only transitions stored in the file, not those
+        // that come from the rule at its end, so for the current years it returned a wrong instant).
+        $lo = $wall - 86400;
+        $hi = $wall + 86400;
+        $before = $date->setTimestamp($lo)->getOffset();
+        while ($hi - $lo > 1) {
+            $mid = intdiv($lo + $hi, 2);
+            if ($date->setTimestamp($mid)->getOffset() === $before) {
+                $lo = $mid;
+            } else {
+                $hi = $mid;
+            }
+        }
 
-        $last = end($transitions);
+        return $date->setTimestamp($hi);
+    }
 
-        return $date->setTimestamp($last === false ? $guess : $last['ts']); // getTransitions always lists the start instant, so the fallback is not reached
+    private static function intervalToSpec(DateInterval $interval): string
+    {
+        $parts = [];
+        if ($interval->y > 0) {
+            $parts[] = $interval->y . 'Y';
+        }
+        if ($interval->m > 0) {
+            $parts[] = $interval->m . 'M';
+        }
+        if ($interval->d > 0) {
+            $parts[] = $interval->d . 'D';
+        }
+        $time = '';
+        if ($interval->h > 0) {
+            $time .= $interval->h . 'H';
+        }
+        if ($interval->i > 0) {
+            $time .= $interval->i . 'M';
+        }
+        if ($interval->s > 0) {
+            $time .= $interval->s . 'S';
+        }
+        if ($time !== '') {
+            $parts[] = 'T' . $time;
+        }
+
+        return 'P' . implode('', $parts);
+    }
+
+    /**
+     * @return list<string>
+     *
+     * @internal
+     */
+    public static function allowedEvery(): array
+    {
+        return self::ALLOWED_EVERY;
     }
 }

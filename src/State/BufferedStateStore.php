@@ -29,10 +29,9 @@ final class BufferedStateStore implements StateStore, RenewableLock
 
     public function flush(): void
     {
-        $pending = $this->pending;
-        $this->pending = [];
-        foreach ($pending as $key => [$value, $ttl]) {
+        foreach ($this->pending as $key => [$value, $ttl]) {
             $this->inner->put((string) $key, $value, $ttl);
+            unset($this->pending[$key]);
         }
     }
 

@@ -45,7 +45,7 @@ final class EstimatingAnalyzer implements Analyzer
             'step' => 'analyze',
             'model' => $req->model,
             'groups' => count($req->groups),
-            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups, $req->dependencyContext, $req->extras) . $req->serviceContext),
+            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups, $req->dependencyContext, $req->extras, $req->endpoints) . $req->serviceContext),
             'maxTokensOut' => $req->maxOutputTokens,
         ];
 

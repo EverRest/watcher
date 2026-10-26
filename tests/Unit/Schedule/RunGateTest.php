@@ -18,7 +18,7 @@ final class RunGateTest extends TestCase
 
     public function testDueOnlyWithinTheHourAfterRunAt(): void
     {
-        $g = new RunGate('06:00', new DateTimeZone('UTC'), 'PT24H');
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('UTC'), 'PT24H');
         self::assertNull($g->decide($this->at('2026-03-10 05:59:59')));
         self::assertNotNull($g->decide($this->at('2026-03-10 06:00:00')));
         self::assertNotNull($g->decide($this->at('2026-03-10 06:59:59')));
@@ -27,7 +27,7 @@ final class RunGateTest extends TestCase
 
     public function testWindowEndIsTheSameForAnyTriggerInTheHour(): void
     {
-        $g = new RunGate('06:00', new DateTimeZone('UTC'), 'PT24H');
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('UTC'), 'PT24H');
         $a = $g->decide($this->at('2026-03-10 06:00:00'));
         $b = $g->decide($this->at('2026-03-10 06:59:59'));
         self::assertNotNull($a);
@@ -39,7 +39,7 @@ final class RunGateTest extends TestCase
 
     public function testTimezoneAndWindowLength(): void
     {
-        $g = new RunGate('06:00', new DateTimeZone('Europe/Kyiv'), new \DateInterval('PT12H'));
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('Europe/Kyiv'), new \DateInterval('PT12H'));
         $w = $g->decide($this->at('2026-01-15 06:30:00', 'Europe/Kyiv')); // UTC+2
         self::assertNotNull($w);
         self::assertSame('2026-01-15T04:00:00+00:00', $w->end->format('c'));
@@ -53,7 +53,7 @@ final class RunGateTest extends TestCase
     public function testSpringForwardDay(): void
     {
         // Kyiv 2026-03-29: 03:00 -> 04:00 (UTC+2 -> +3). 06:00 local = 03:00 UTC.
-        $g = new RunGate('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
         $w = $g->decide($this->at('2026-03-29 03:10:00', 'UTC'));
         self::assertNotNull($w);
         self::assertSame('2026-03-29T03:00:00+00:00', $w->end->format('c'));
@@ -63,7 +63,7 @@ final class RunGateTest extends TestCase
     public function testFallBackDay(): void
     {
         // Kyiv 2026-10-25: 04:00 -> 03:00 (UTC+3 -> +2). 06:00 local = 04:00 UTC.
-        $g = new RunGate('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
         $w = $g->decide($this->at('2026-10-25 04:10:00', 'UTC'));
         self::assertNotNull($w);
         self::assertSame('2026-10-25T04:00:00+00:00', $w->end->format('c'));
@@ -74,7 +74,7 @@ final class RunGateTest extends TestCase
     public function testRunAtInsideSkippedHourStillResolves(): void
     {
         // 03:30 does not exist in Kyiv on 2026-03-29; PHP rolls it to 04:30 local (01:30 UTC).
-        $g = new RunGate('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
         self::assertNotNull($g->decide($this->at('2026-03-29 01:45:00', 'UTC')));
     }
 
@@ -96,7 +96,7 @@ final class RunGateTest extends TestCase
     public function testConsecutiveWindowsShareBoundariesAcrossDst(string $tz, string $runAt, string $firstDay, int $days): void
     {
         $zone = new DateTimeZone($tz);
-        $g = new RunGate($runAt, $zone, 'PT24H');
+        $g = RunGate::oncePerDay($runAt, $zone, 'PT24H');
         $prevEnd = null;
         for ($i = 0; $i < $days; ++$i) {
             $day = (new DateTimeImmutable($firstDay, $zone))->setDate(2026, (int) substr($firstDay, 5, 2), (int) substr($firstDay, 8, 2) + $i);
@@ -114,7 +114,7 @@ final class RunGateTest extends TestCase
     public function testStartIsTheSameWallClockTheDayBefore(): void
     {
         // Kyiv fall back: 06:00 on the 25th is 04:00Z; the 24th 06:00 (+3) is 03:00Z, a 25 h window.
-        $g = new RunGate('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
         $w = $g->decide($this->at('2026-10-25 04:10:00', 'UTC'));
         self::assertNotNull($w);
         self::assertSame('2026-10-24T03:00:00+00:00', $w->start->format('c'));
@@ -128,25 +128,25 @@ final class RunGateTest extends TestCase
     {
         $zone = new DateTimeZone('Europe/Kyiv');
         foreach (['PT48H', 'P2D'] as $d) {
-            $w = (new RunGate('06:00', $zone, $d))->decide($this->at('2026-10-26 04:10:00', 'UTC'));
+            $w = (RunGate::oncePerDay('06:00', $zone, $d))->decide($this->at('2026-10-26 04:10:00', 'UTC'));
             self::assertNotNull($w);
             self::assertSame('2026-10-26T04:00:00+00:00', $w->end->format('c'));
             self::assertSame('2026-10-24T03:00:00+00:00', $w->start->format('c'));
         }
-        $w = (new RunGate('06:00', $zone, 'P1D'))->decide($this->at('2026-10-26 04:10:00', 'UTC'));
+        $w = (RunGate::oncePerDay('06:00', $zone, 'P1D'))->decide($this->at('2026-10-26 04:10:00', 'UTC'));
         self::assertSame('2026-10-25T04:00:00+00:00', $w?->start->format('c'));
     }
 
     public function testSubDayWindowStaysEndMinusDuration(): void
     {
-        $w = (new RunGate('06:00', new DateTimeZone('Europe/Kyiv'), 'PT6H'))->decide($this->at('2026-10-25 04:10:00', 'UTC'));
+        $w = (RunGate::oncePerDay('06:00', new DateTimeZone('Europe/Kyiv'), 'PT6H'))->decide($this->at('2026-10-25 04:10:00', 'UTC'));
         self::assertSame('2026-10-24T22:00:00+00:00', $w?->start->format('c'));
     }
 
     public function testNonexistentRunAtResolvesToFirstInstantAfterTheGap(): void
     {
         // Kyiv 2026-03-29: 03:00 -> 04:00. 03:30 does not exist; the run is due from 04:00 local (01:00Z) for an hour.
-        $g = new RunGate('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
         self::assertNull($g->decide($this->at('2026-03-29 00:59:00', 'UTC')));
         $w = $g->decide($this->at('2026-03-29 01:00:00', 'UTC'));
         self::assertNotNull($w);
@@ -159,7 +159,7 @@ final class RunGateTest extends TestCase
     public function testAmbiguousRunAtIsDueExactlyOncePerLocalDate(): void
     {
         // Kyiv 2026-10-25: 03:30 happens at 00:30Z (+3) and again at 01:30Z (+2). Only the first counts.
-        $g = new RunGate('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
         $ends = [];
         $due = 0;
         for ($t = $this->at('2026-10-24 21:00:00', 'UTC'); $t < $this->at('2026-10-25 06:00:00', 'UTC'); $t = $t->modify('+1 minute')) {
@@ -177,7 +177,7 @@ final class RunGateTest extends TestCase
 
     public function testEndBackKeepsTheLocalWallClockAcrossClockChanges(): void
     {
-        $g = new RunGate('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('Europe/Kyiv'), 'PT24H');
 
         // autumn: 2026-10-25 03:00 clocks go back; 06:00 local is 04:00Z after, 03:00Z before
         self::assertSame('2026-10-19T03:00:00+00:00', $g->endBack($this->at('2026-10-26 06:00', 'Europe/Kyiv'), 7)->setTimezone(new DateTimeZone('UTC'))->format('c'));
@@ -187,14 +187,14 @@ final class RunGateTest extends TestCase
 
     public function testEndBackIntoASpringForwardGapUsesTheFirstInstantAfterIt(): void
     {
-        $g = new RunGate('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
+        $g = RunGate::oncePerDay('03:30', new DateTimeZone('Europe/Kyiv'), 'PT24H');
 
         self::assertSame('2026-03-29T01:00:00+00:00', $g->endBack($this->at('2026-03-30 03:30', 'Europe/Kyiv'), 1)->setTimezone(new DateTimeZone('UTC'))->format('c'));
     }
 
     public function testEndBackSevenAndTwentyEightDays(): void
     {
-        $g = new RunGate('06:00', new DateTimeZone('UTC'), 'PT24H');
+        $g = RunGate::oncePerDay('06:00', new DateTimeZone('UTC'), 'PT24H');
         $end = $this->at('2026-10-28 06:00');
 
         self::assertSame('2026-10-21T06:00:00+00:00', $g->endBack($end, 7)->format('c'));

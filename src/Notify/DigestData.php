@@ -7,6 +7,7 @@ namespace Watcher\Notify;
 use DateTimeImmutable;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\Usage;
+use Watcher\ApiContext\EndpointContext;
 use Watcher\Baseline\Comparison;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Reduce\MiningStats;
@@ -84,6 +85,21 @@ final class DigestData
         public readonly int $newOverflow = 0,
         /** @var DigestExtras|null spec 009: metrics line, Sentry/metrics notes; null = neither source is configured (output unchanged) */
         public readonly ?DigestExtras $extras = null,
+        /** @var EndpointContext|null spec 010: one documentation line per fingerprint, what the cap skipped, why none (masked, capped) */
+        public readonly ?EndpointContext $endpoints = null,
+        /** @var list<string> code-built lines about pod events (source unavailable, coverage); integers, times and fixed words only (spec 008) */
+        public readonly array $podEventLines = [],
+        public readonly ?string $knownLine = null,
+        /** @var array<string, string> */
+        public readonly array $findingLabels = [],
+        public readonly ?string $routedNotice = null,
+        public readonly int $draftsSkipped = 0,
+        public readonly int $knownCount = 0,
+        public readonly int $knownGrownCount = 0,
+        public readonly ?DateTimeImmutable $gapFrom = null,
+        public readonly ?DateTimeImmutable $gapTo = null,
+        public readonly ?int $gapWindows = null,
+        public readonly ?int $catchUpBatch = null,
     ) {
     }
 }

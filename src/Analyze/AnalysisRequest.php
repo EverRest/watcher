@@ -20,6 +20,8 @@ final class AnalysisRequest
         public readonly int $maxOutputTokens,
         public readonly array $dependencyContext = [],
         public readonly ?PayloadExtras $extras = null,
+        /** @var array<string, string> fingerprint => `ep`, the masked one-line endpoint documentation (spec 010) */
+        public readonly array $endpoints = [],
     ) {
     }
 }

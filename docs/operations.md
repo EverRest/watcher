@@ -248,6 +248,17 @@ slots that remain. A Sentry Error still counts as explaining a metric move, so n
 **Metric labels in the digest.** A label value reaches the `Metrics:` line only when it is 1 to 64 characters of `A-Za-z0-9_.:-` and survives masking
 unchanged; anything else (control, format or non-character code points, spaces, chat markup) is dropped, not shown masked. A ratio that is not a finite
 number (a baseline near zero) prints `change not computable`; a metric problem never fails the run.
+## API context (spec 010)
+
+With `api_context` configured, a finding whose masked template names a documented route of at most 2 segments gets one `📖 GET /orders/{id} — Get an order [orders]`
+line in the digest and a short `ep` field in the analysis payload. The OpenAPI description is read only when some selected template names a route, at
+most once per `api_context.ttl`, and cached reduced in the state store (key `api:<service>:<source hash>-<settings fingerprint>`, always with a TTL; a
+change of `summary_cap`, `base_path` or the redaction rules is a cache miss). The cache is bounded by the state codec (4 MiB, 100,000 elements, 16,000
+containers, counted on the text): a document with more operations than fit keeps the first ones and the digest says `N operation(s) not kept (cache limit)`;
+an entry the store still cannot hold is simply not cached and read again next run. A source that cannot be read gives one `⚠️ API context unavailable (<token>)`
+note and never fails the run. `watcher check` adds an `api_context` line (`N operations kept, M not kept`, or the failure token) that bypasses the cache,
+posts nothing and spends no tokens. Under `--dry-run` the source is read and nothing is cached. When the analysis input would exceed `analysis.max_input_tokens`,
+the `ep` fields are the first context dropped (the digest lines stay, with a note).
 
 ## Availability guards
 
@@ -273,6 +284,13 @@ A flood of one already-reported fingerprint can still fill `event_cap` with old 
 - **Quiet days.** No message means nothing qualified; to see that the job ran, look at the Job logs (the `outcome=` line).
   A weekly summary line is optional (`heartbeat.weekly_summary`); there is no daily heartbeat message.
 
+## Pod events need an hourly trigger
+
+With `events` (Kubernetes, [kubernetes.md](kubernetes.md)) every trigger reads the cluster, even outside the `run_at` hour,
+because the cluster keeps events about an hour. A daily-only trigger loses most events and the digest says so ("possible gap").
+`run --dry-run` reads the cluster and writes no ledger. If the cluster cannot be read the log part is reported as usual and the
+digest (or, on a quiet day, one notice) says "Pod events were not read: <reason>".
+
 ## Heartbeat, staleness and alerting
 
 Every finished run (reported, quiet, baselined, failed) stores a liveness record; a due-but-skipped trigger
@@ -286,8 +304,8 @@ last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
 compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
 ```
 
-`state` is `ok`, `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
-failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 stale or
+`state` is `ok`, `degraded` (the last run worked but the Kubernetes pod events could not be read: `events:` shows `unavailable` or `stale`, and `reason=k8s_ingest_failed:<code>`), `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
+failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 degraded, stale or
 failed, 3 unknown, 2 bad config. A wrong host clock shows in the `compared:` line, which prints both instants.
 
 Alert from the monitor you already have, probing every 15 minutes:
@@ -319,7 +337,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   runs a subset; correlation then uses only what ran. `--json` prints one line on stdout.
 - **Check and status**: `fleet:check` runs the single-service check for every service plus one shared state check, prints
   the resolved order and warns when a declared dependency is provided by no fleet service. `fleet:status` prints the
-  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` stale or failed, `3` unknown, `0` ok. Alert on the
+  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` degraded (pod events unread), stale or failed, `3` unknown, `0` ok. Alert on the
   fleet heartbeat as in [Heartbeat](#heartbeat-staleness-and-alerting).
 - **Dry run**: `fleet:run --dry-run` prints every service's digest, the combined digest (with `digest: combined`) and the
   correlated finding; nothing is posted, no state is written, the fleet counters are untouched.
@@ -342,6 +360,18 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
   billed**; spend is not recorded.
 - `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). With `metrics` or `sentry` configured the summary also carries `metrics` (`read`, `failed`, `anomalies`) and `sentry` (`read`, `dropped`, `merged`, `failed`); counts only, absent when the section is not configured. Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
+
+## Log hygiene reports (spec 006)
+
+```bash
+vendor/bin/watcher hygiene --config=config/watcher.php                 # four reports on stdout
+vendor/bin/watcher hygiene --config=config/watcher.php --report=cost --days=14 --json
+vendor/bin/watcher hygiene --config=config/watcher.php --notify       # weekly, from the host's cron
+vendor/bin/watcher hygiene --config=config/watcher.php --decline=<id> # quiet a proposal for hygiene.decline_days
+vendor/bin/watcher hygiene --config=config/watcher.php --dry-run       # read-only look: nothing written, no lock, nothing sent
+```
+
+Run it **daily** (it stores the aggregates proposals need: 14 complete days before the first proposal; a day that was sampled at the event cap or the time budget, or never ran, is missing history) and add `--notify` once a week. One pass at a time per service (a second one exits 1 `another hygiene pass is running`); a pass stops reading at `hygiene.max_seconds` and says it is sampled. A "gone" retraction needs `max(hygiene.repeat_days, 2)` complete quiet days (days that were not sampled) without the site, so a weekly job is not reported gone and new again. The pass lock lives `schedule.lock_ttl` seconds and is renewed while the pass runs when the state store can (`hygiene.max_seconds + schedule.lock_ttl + 60` seconds on a store that cannot); a failed lock release is noted (`lock release failed (<Class>)`) and never changes the result; a state failure names the failing class only (`state unavailable (<Class>)`). Even without `--notify` a pass updates its own state (day record, site registry); `--dry-run` (also `php artisan watcher:hygiene --dry-run`) is the read-only look: the writes are shadowed in memory, no lock is taken (a scheduled pass is not blocked), nothing is sent, and a `--now` more than a day ahead of the clock is refused otherwise. It reads the source once per run (one more read than `run` on those days) and calls no model. Exit 0 reports produced or switched off, 1 source/state/delivery failure (a fixed reason), 2 usage or invalid config. Proposals are text: paste a fragment into `mute` / `watch_rules` yourself. Output schema: `specs/006-log-hygiene/contracts/report-schema.md`.
 
 ## Upgrading
 

@@ -69,8 +69,9 @@ pod counts 8, 2, 1 and the HPA group, and no pod name, node name or image tag in
    `LogEvent` whose message is the event reason and message with pod suffixes, node names and image references replaced by
    placeholders, so eight pods of one deployment produce one fingerprint.
 2. **Given** an event of type `Warning`, **When** it is mapped, **Then** its level is Warning, raised to Error for the
-   configured critical reasons (default: `OOMKilled`, `CrashLoopBackOff` / `BackOff`, `Failed`, `FailedScheduling`,
-   `Evicted`, `FailedMount`, `Unhealthy` when repeated beyond a threshold, `FailedGetResourceMetric`); an event of type
+   configured critical reasons (default per Owner decision 3 and amendment A4: `CrashLoopBackOff`, `BackOff`, `OOMKilled`,
+   `ImagePullBackOff`, `ErrImagePull`, `Failed`, `Evicted`, `FailedMount`, `FailedScheduling`, and `Unhealthy` when repeated
+   beyond a threshold or the pod has restarted; `FailedGetResourceMetric` stays Warning unless configured); an event of type
    `Normal` is Info and is dropped by the existing minimum-level filter unless a watch rule keeps it (for example
    `Killing`, `Pulled`).
 3. **Given** the same fingerprint seen in several hourly triggers, **When** the daily window is built, **Then** it is one
@@ -208,8 +209,8 @@ truncation notice behave as for Loki.
 
 - **FR-009**: When the events source is configured, each hourly trigger MUST ingest the events still present in the cluster
   into a per-service accumulator in the state store; every accumulator item MUST carry an expiry (default 30 days maximum,
-  window-sized by default); raw event objects MUST NOT be persisted, only masked fingerprints, levels, counts and
-  timestamps.
+  window-sized by default); raw event objects MUST NOT be persisted, only masked fingerprints, levels, the fully masked
+  message text (at most 300 characters), counts, timestamps and one-way pod hashes (amendment A1).
 - **FR-010**: The due-hour run MUST build its events from the accumulator plus a fresh read; the digest MUST carry a
   coverage note when triggers were missed for longer than the observed event retention or when the earliest event in the
   window is later than the window start by more than the tolerance.
@@ -232,8 +233,8 @@ truncation notice behave as for Loki.
 
 **Operability**
 
-- **FR-016**: `check` MUST verify reachability, TLS, list permission per namespace, event retention hint, and absence of
-  write permission where determinable; `--dry-run` MUST read the cluster (reads are real) and write no state, including
+- **FR-016**: `check` MUST verify reachability, TLS and list permission per namespace with GET requests only, and warn when an event
+  exporter is also configured (amendment A3: write permission is not probed); `--dry-run` MUST read the cluster (reads are real) and write no state, including
   no accumulator update.
 - **FR-017**: The `--json` summary and heartbeat MUST include the events source status (read, unavailable, not
   configured), event counts read and deduplicated, and truncation.
@@ -252,7 +253,8 @@ is introduced, so no constitution amendment is needed.
 - Image references: registry host replaced by `<REGISTRY>` unless on an allowlist; tag and digest replaced by `<TAG>`;
   repository path kept only if allowlisted, otherwise `<IMAGE>`.
 - Container IDs, UIDs, resource versions, secret / configmap / PVC / volume names and any name inside quotes: `<ID>` /
-  `<STR>`; probe URLs and ports: path template kept, host and query masked by the existing URL rule.
+  `<STR>`; probe URLs and ports: masked whole by the existing URL rule, which removes host, port, path and query
+  (amendment A2).
 - Annotations, labels other than the selector keys, environment variables, command lines and arguments: never read into
   the event model; dropped at parse time.
 - Namespaces: masked unless on an allowlist (default allowlist: the configured namespaces, shown as given by the Operator).
@@ -288,7 +290,7 @@ notifier payload, summary, accumulator, state write or log, and that eight pod n
 - **SC-004**: With `events` absent, a service's output, payloads and tokens are byte-identical to the previous release; 0
   cluster requests are made.
 - **SC-005**: The request log of the fake API contains only GET on `events`, `pods` (and owner metadata) in 100% of the test
-  matrix; 0 watch, write or exec requests; `check` flags a write-capable account.
+  matrix; 0 watch, write or exec requests (amendment A3: `check` does not probe the account's rights).
 - **SC-006**: An events source failure leaves the log part of the digest identical to a run without the failure, plus one
   visible notice; exit code per the partial-failure rule (fault matrix: 401, 403, 404, 429, timeout, invalid JSON).
 - **SC-007**: A quiet cluster (Normal events only) costs 0 model tokens; a window with only events costs no more than the
@@ -320,3 +322,20 @@ notifier payload, summary, accumulator, state write or log, and that eight pod n
 1. Hourly ingestion into an expiring accumulator is accepted for clusters without an event exporter; an exporter into Loki or Datadog stays the preferred path and the native source optional.
 2. The native source and an exporter must not both be enabled for the same events. The package cannot detect it; the docs say so and `watcher check` warns when both are configured for one service.
 3. The default list of reasons that raise an event to Error is accepted: CrashLoopBackOff, OOMKilled, ImagePullBackOff and ErrImagePull, Evicted, FailedMount, FailedScheduling, and a failing probe with a restart count. The list is extendable in configuration.
+
+## Amendments (2026-10-24, from planning and implementation; confirmed by the owner's "fix everything")
+
+- **A1 (FR-009).** The accumulator also stores the fully masked message text and one-way pod hashes: the daily run must report
+  text for an event the cluster forgot an hour after it happened, and distinct pods need counting. Same privacy class as a
+  template; never raw.
+- **A2 (privacy, probe URLs).** The Normalizer's URL rule is stricter than "path template kept" and fails closed; it wins. A
+  probe's status code is masked by the number rule.
+- **A3 (FR-016, SC-005).** The only way to learn an account's rights is a non-GET request (`SelfSubjectRulesReview`) or a GET of
+  a forbidden resource, which FR-003 and Principle II forbid. `check` verifies read access only; the documentation gives the
+  minimal RBAC. Allowing the review POST would need a constitution amendment, not assumed.
+- **A4 (acceptance 2 vs Owner decision 3).** The Owner decisions list wins; `BackOff` and `Failed` are included because they
+  are the real event reasons behind crash loops and pull errors.
+- **A5 (Principle III, shared contract suite).** The shared `LogSource` suite assumes a per-line version label and a message
+  equal to the log text; an events source has neither (`versions()` is `[]`, message is `Reason: text`). Its contract is run by
+  `tests/Contract/KubernetesEventsSourceTest.php`, which keeps every other behaviour of the shared suite (lazy generator, minimum
+  level, cap and truncation, failures without leaking credentials).

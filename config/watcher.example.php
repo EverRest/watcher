@@ -199,6 +199,17 @@ return [
     //     'queries' => ['error_rate' => ['query' => 'sum(rate(http_requests_total{service="{service}",code=~"5.."}[{window}])) / sum(rate(http_requests_total{service="{service}"}[{window}]))', 'aggregate' => 'sum', 'threshold' => ['relative' => 0.5, 'floor' => 0.01]]],
     // ],
     // 'sentry' => ['organization' => 'acme', 'project' => 'orders-api', 'auth_token' => Env::string('WATCHER_SENTRY_TOKEN'), 'max_issues' => 50],
+    // OpenAPI endpoint documentation (docs/configuration.md#api_context, spec 010). OFF unless this section exists. Routes of at most 2 segments only.
+    // 'api_context' => [
+    //     'source' => Env::string('WATCHER_OPENAPI_SOURCE'),         // absolute JSON file path, or an https URL (a secret if it holds a token)
+    //     'auth_token' => Env::string('WATCHER_OPENAPI_TOKEN'),      // optional bearer token
+    //     'ttl' => 'PT24H',                                          // the reduced spec is cached this long, then read again
+    //     'max_endpoints' => 5,                                      // 1..20 per run
+    // ],
+    // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default; the cost report works regardless.
+    'hygiene' => [
+        'enabled' => false,
+    ],
 
     // Event sinks (docs/observability.md). Every sink is OFF until its own `enabled` is true. With driver `none` under notify.digest the
     // chat stays silent and a sink is the only channel (at least one must be on). `log` text defaults to on, the others to off.

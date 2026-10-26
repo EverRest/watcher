@@ -46,7 +46,7 @@ final class EventSchema
         'trend' => ['new', 'grown', 'unchanged', 'expected'],
         'level' => ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'],
         'budget.state' => ['ok', 'high', 'exhausted'],
-        'heartbeat.state' => ['ok', 'stale', 'failed', 'unknown'],
+        'heartbeat.state' => ['ok', 'degraded', 'stale', 'failed', 'unknown'],
         'channel' => ['slack', 'telegram', 'discord'],
         'status_class' => ['http_4xx', 'http_429', 'http_5xx', 'network', 'timeout', 'other'],
         'code' => ['include_text_external', 'http_insecure_allowed', 'event_cap_hit', 'group_cap_hit', 'comparison_gap', 'analysis_partial', 'check_test'],

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Reduce;
 
 use Watcher\Config\WatchConfig;
+use Watcher\Events\EventsRun;
 use Watcher\Level;
 use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\Window;
@@ -25,6 +26,9 @@ use Watcher\Source\StreamSelector;
 final class EventCollector
 {
     private int $eventsRead = 0;
+
+    /** Events of the main source only: pod events are not log lines and must not hide a dead log source. */
+    private int $mainEventsRead = 0;
 
     private bool $truncated = false;
 
@@ -54,6 +58,7 @@ final class EventCollector
         private readonly ?RunGuard $guard = null,
         /** @var (\Closure(LogEvent, string): void)|null forwarded to the Reducer (spec 009 trace ids) */
         private readonly ?\Closure $onEvent = null,
+        private readonly ?EventsRun $events = null,
     ) {
         foreach ($config->mute as $i => $entry) {
             if (!isset($entry['fingerprint'])) {
@@ -92,6 +97,11 @@ final class EventCollector
         );
 
         return $this->reducer->reduce($this->stream($window, $selector, $anomalies));
+    }
+
+    public function mainEventsRead(): int
+    {
+        return $this->mainEventsRead;
     }
 
     public function eventsRead(): int
@@ -185,12 +195,21 @@ final class EventCollector
             yield $this->observe($e);
         }
         $this->truncated = $this->source->lastReadTruncated() || $this->truncated;
+        if ($this->events !== null && $stop() === null) {
+            $this->filters[] = $filter = new ReadFilter($this->config->source['read_min_level'], $this->rules->backendPatterns(), $this->config->kubernetes->eventCap ?? 1);
+            $filter->stopWhen($stop);
+            foreach ($this->events->lines($window, $selector, $filter) as $e) {
+                yield $this->observe($e, false);
+            }
+            $this->truncated = $this->events->truncated() || $this->truncated;
+        }
     }
 
     /** Field VALUES are matched here and dropped: only rule names and mute indexes are kept per fingerprint. */
-    private function observe(LogEvent $e): LogEvent
+    private function observe(LogEvent $e, bool $main = true): LogEvent
     {
         ++$this->eventsRead; // counted as they stream, so muted events are included
+        $this->mainEventsRead += $main ? 1 : 0;
         $names = $this->rules->namesMatchingEvent($e);
         $this->ruleMatched = $names !== [];
         $hits = [];

@@ -13,6 +13,7 @@ use Watcher\Notify\DigestExtras;
 use Watcher\Reduce\EventCollector;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Schedule\Window;
+use Watcher\Incident\KnownResult;
 use Watcher\Select\MuteResult;
 
 /**
@@ -42,6 +43,8 @@ final class WindowRead
         public readonly ?DigestExtras $extras = null,
         public readonly ?PayloadExtras $payloadExtras = null,
         public readonly ?TraceIdCollector $traces = null,
+        public readonly ?KnownResult $knownResult = null,
+        public readonly ?string $knownLine = null,
     ) {
     }
 }

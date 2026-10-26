@@ -126,6 +126,13 @@ final class DigestRendererTest extends TestCase
         self::assertStringContainsString('ℹ️ read quality: 1,200 events withheld (could not be scanned)', $t);
     }
 
+    public function testPodEventCoverageIsPartOfTheReadQualityLine(): void
+    {
+        $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0, 'k8s_read_failed' => 1, 'k8s_gaps' => 2, 'k8s_unattributed' => 1200, 'k8s_record_full' => 1]]), 0.5), 'notice');
+
+        self::assertStringContainsString('read quality: the latest cluster read failed (earlier reads reported), 2 gaps in the pod-event record, 1,200 pod events matched no selected workload, the pod-event record was full (1 entries dropped, oldest first)', $t);
+    }
+
     public function testDroppedOversizedLinesAreNamedInTheReadQualityLine(): void
     {
         $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0, 'oversized_lines' => 4]]), 0.5), 'notice');
@@ -412,6 +419,14 @@ final class DigestRendererTest extends TestCase
         self::assertSame($m->sections[0]['text'], $m->text);
     }
 
+    public function testFingerprintVersionResetNotice(): void
+    {
+        $m = (new DigestRenderer())->renderFingerprintVersionReset('svc', 'stg', 12, 400, 0, 1);
+
+        self::assertStringContainsString('baseline reset: fingerprint rules changed (fpv 0 → 1)', $m->sections[0]['text']);
+        self::assertStringNotContainsString('baseline recorded:', $m->sections[0]['text']);
+    }
+
     /**
      * @param list<string> $code
      *
@@ -517,5 +532,32 @@ final class DigestRendererTest extends TestCase
 
         self::assertStringContainsString('5× (expected for this weekday)', $render('weekday'));
         self::assertStringContainsString('5× (seen in earlier windows)', $render('rolling'));
+    }
+
+    public function testEndpointLineStandsUnderItsFindingAndIsEscapedLikeModelText(): void
+    {
+        $f = $this->finding(1);
+        $ep = new \Watcher\ApiContext\EndpointContext([$f->fingerprints[0] => 'GET /orders/{id} — Get an order <!channel> *x* [orders] (deprecated)']);
+        $m = (new DigestRenderer())->render($this->data([$f, $this->finding(2)], [], ['endpoints' => $ep]), 0.5);
+        $t = $this->text($m, 'finding');
+
+        self::assertStringContainsString("\n  📖 GET /orders/{id} — Get an order", $t);
+        self::assertStringNotContainsString('<!channel>', $t);
+        self::assertSame(1, substr_count($t, '📖'), 'only the finding with a line gets one');
+    }
+
+    public function testEndpointFootnotesAndNoOutputWithoutContext(): void
+    {
+        $f = $this->finding(1);
+        $none = $this->text((new DigestRenderer())->render($this->data([$f]), 0.5));
+        $null = $this->text((new DigestRenderer())->render($this->data([$f], [], ['endpoints' => new \Watcher\ApiContext\EndpointContext()]), 0.5));
+        $loud = $this->text((new DigestRenderer())->render($this->data([$f], [], ['endpoints' => new \Watcher\ApiContext\EndpointContext([], ['x' => 'y'], 3, 12, null, true)]), 0.5), 'notice');
+        $down = $this->text((new DigestRenderer())->render($this->data([$f], [], ['endpoints' => \Watcher\ApiContext\EndpointContext::unavailable('too_large')]), 0.5), 'notice');
+
+        self::assertSame($none, $null, 'an empty context prints nothing');
+        self::assertStringContainsString('ℹ️ 3 endpoint line(s) skipped (api_context.max_endpoints)', $loud);
+        self::assertStringContainsString('ℹ️ 12 operation(s) not kept (cache limit)', $loud);
+        self::assertStringContainsString('ℹ️ endpoint documentation not sent to the model (token budget)', $loud);
+        self::assertStringContainsString('⚠️ API context unavailable (too_large)', $down);
     }
 }

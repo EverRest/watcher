@@ -60,7 +60,8 @@ final class HostileLabelsNotifiersTest extends TestCase
 
         self::assertArrayHasKey(0, $log);
         self::assertArrayNotHasKey(1, $log);
-        $raw = json_encode(json_decode((string) $log[0]['request']->getBody(), true), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $request = $log[0]['request'] ?? throw new \LogicException('the notifier sent no request');
+        $raw = json_encode(json_decode((string) $request->getBody(), true), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         self::assertIsString($raw);
         self::assertStringContainsString('payments.eu-west', $raw);
         foreach (["\x1f", "\u{FFFE}", "\u{200B}", '<!channel>', '*bold*', '[a](b)', '||spoiler||', '@here'] as $bad) {

@@ -93,7 +93,8 @@ effect on cost and noise.
 **Why this priority**: configuration is where the value of the digest is tuned; proposing it from data replaces guesses.
 
 **Independent Test**: simulate 14 days of history with a stable noisy family and a repeating precursor; the proposal
-contains a mute for the first and a watch rule for the second, each with its evidence; applying the mute in a replay
+contains a mute for the first and, for the second, a watch rule *when its masked template may be shown* (see FR-010a); each with
+its evidence; applying the mute in a replay
 removes the family from candidates.
 
 **Acceptance Scenarios**:
@@ -174,6 +175,12 @@ by tokens, and flags a day that exceeded twice the weekly median.
 
 - **FR-010**: With at least 14 days of history, the package MUST propose mute entries (stable, high-volume, never severe)
   and watch rules (repeated precursors of severe events) as configuration fragments with evidence and estimated effect.
+- **FR-010a** (privacy floor, review of lane B): a masked template leaves the service (report, notice, stored record, watch fragment) only
+  when it generalises at least `hygiene.variable_distinct` different messages, and each literal word of it is common log vocabulary or
+  was seen at `hygiene.literal_min_sites` different sites in the same pass; every other word is shown as `<w>`. A constant message
+  (one that never varies) therefore has no label and no watch proposal, because it may be one person's name. The operator can opt in with
+  `hygiene.allow_constant_labels: true` (the word floor still applies). Mute proposals never need the text: they carry a fingerprint only.
+  The guard of FR-011 also covers a message whose text is withheld, through a stored hash of its masked template.
 - **FR-011**: A family that has ever been severe within the retained history MUST NOT be proposed for muting.
 - **FR-012**: The package MUST be able to replay a proposal against stored history and show the effect before it is
   applied; it MUST NOT change its own configuration.

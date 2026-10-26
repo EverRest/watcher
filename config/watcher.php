@@ -70,6 +70,7 @@ return [
     'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                  // expired-file purge (file state store only)
     'baseline' => ['enabled' => Env::bool('WATCHER_BASELINE_ENABLED', true)],            // false: previous-window comparison only
     'grouping' => ['enabled' => Env::bool('WATCHER_GROUPING_ENABLED', true)],            // false: exact token-count clusters
+    'kubernetes' => ['enabled' => Env::bool('WATCHER_KUBERNETES_ENABLED', true)],        // pod events: add `events` + this section's settings to use (docs/kubernetes.md)
 
     'analysis' => [
         'provider' => 'anthropic',
@@ -118,7 +119,12 @@ return [
         'digest' => ['driver' => env('WATCHER_DIGEST_DRIVER', 'slack'), 'webhook' => env('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
         // Failure and budget notices. Only `enabled`: use the digest destination. Add driver + webhook for a channel of its own.
         'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
+        'routes_enabled' => Env::bool('WATCHER_ROUTES_ENABLED', true),
+        'routes' => [],
     ],
+
+    'known_issues' => ['enabled' => Env::bool('WATCHER_KNOWN_ISSUES_ENABLED', true), 'entries' => []],
+    'drafts' => ['enabled' => Env::bool('WATCHER_DRAFTS_ENABLED', false)],
 
     'service_context' => [
         'enabled' => Env::bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),
@@ -154,6 +160,11 @@ return [
         'provider' => 'gitlab',                    // gitlab | github
         'web_url' => env('WATCHER_REPO_URL'),
         'path_map' => [],                          // ['/var/www/html/' => 'app/']
+    ],
+
+    // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default; the cost report works regardless.
+    'hygiene' => [
+        'enabled' => Env::bool('WATCHER_HYGIENE_ENABLED', false),
     ],
 
     // Event sinks (docs/observability.md). Every sink is OFF until its own `enabled` is true. With driver `none` under notify.digest the

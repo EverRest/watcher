@@ -15,8 +15,6 @@ use Psr\Http\Message\ResponseInterface;
  * (headers and decoded body, JSON depth), a wall-clock budget per call plus an optional stop hook (`RunGuard::reason()`),
  * both checked before every attempt, so neither retries nor paging can outlive the run. Failures carry a fixed token,
  * never a URL, token, query or body.
- * ponytail: a chunked or gzip body without Content-Length is only bounded by the call budget and the post-decode check until
- * ResponseLimit::options gains its streaming sink (lane C, feat/k8s-c-020); GuardedRequestStreamingCapTest turns real then. No second sink here.
  */
 final class GuardedRequest
 {
@@ -57,12 +55,12 @@ final class GuardedRequest
     {
         /** @var \ArrayObject<string, bool> $tripped */
         $tripped = new \ArrayObject();
-        $options = ['http_errors' => false, 'allow_redirects' => false, 'verify' => true] + $options + ResponseLimit::options($tripped);
+        $options = ['http_errors' => false, 'allow_redirects' => false, 'verify' => true] + $options;
         try {
             $response = $this->retry->send(function () use ($method, $url, $options, $tripped): ResponseInterface {
                 $this->checkpoint();
                 try {
-                    return $this->http->request($method, $url, $options);
+                    return $this->http->request($method, $url, $options + ResponseLimit::options($tripped)); // a fresh sink per attempt
                 } catch (GuzzleException $e) {
                     if (preg_match('/timed out|error 28|timeout/i', $e->getMessage()) === 1) { // read for classification only
                         $tripped['timeout'] = true;

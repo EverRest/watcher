@@ -136,7 +136,7 @@ final class LokiSourceTest extends LogSourceContractTest
         $req = $this->history[0]['request'];
         $this->assertSame('/loki/api/v1/query_range', $req->getUri()->getPath());
         $q = $this->query($req);
-        $this->assertStringStartsWith('{app="svc", env="stg"} |~ "(?i)(?:\\\\b(?:warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal)\\\\b)|(?:(?i)timeout \\\\d+)"', $q['query']);
+        $this->assertStringStartsWith('{app="svc", env="stg"} |~ "(?i)(?:\\\\b(?:warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal)\\\\b|(?:^\\\\s|^#\\\\d{1,4}\\\\b|^at\\\\s|^Caused by:|^Stack trace:|^PHP (?:Stack trace:|\\\\d+\\\\.)|^Traceback|^goroutine \\\\d+ \\\\[|^created by |^exit status \\\\d|^stack backtrace:))|(?:(?i)timeout \\\\d+)"', $q['query']);
         $this->assertSame('5000', $q['limit']);
         $this->assertSame('forward', $q['direction']);
         $this->assertSame($this->ns(self::BASE_NS), $q['start']);
@@ -452,8 +452,36 @@ final class LokiSourceTest extends LogSourceContractTest
 
         $this->assertCount(1, $events);
         $this->assertSame(Level::Error, $events[0]->level);
-        // H5: the server-side filter below only matches level words in the TEXT, so Loki never returns such a line;
-        // see docs/review-2026-10-23.md. This pins the client side so a future query change cannot regress it.
+        // Unworded main lines still need `level_mode: label` (or `all`) so Loki returns them; text mode only adds
+        // stack-trace continuation shapes to the line filter (H5).
+    }
+
+    public function testTextModeLineFilterAdmitsStackContinuationLines(): void
+    {
+        $source = $this->source([new Response(200, [], $this->fixture('empty.json'))]);
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $query = $this->query($this->history[0]['request'])['query'];
+        $this->assertStringContainsString('|~ ', $query);
+        $this->assertStringContainsString('stack backtrace:', $query);
+        $this->assertStringContainsString('^#', $query);
+    }
+
+    public function testTextModeAssemblesStackFramesIntoTheErrorRecord(): void
+    {
+        $source = $this->makeSourceWithLines([
+            'ERROR payment failed',
+            '#0 /app/Pay.php(12): charge()',
+            "\t at gateway.php:9",
+        ]);
+
+        /** @var list<LogEvent> $events */
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertCount(1, $events);
+        $this->assertSame('ERROR payment failed', $events[0]->message);
+        $this->assertContains('/app/Pay.php:12', $events[0]->frames);
     }
 
     public function testLabelModeUsesAStreamMatcherAndNoLineFilter(): void

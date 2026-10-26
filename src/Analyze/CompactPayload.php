@@ -34,8 +34,9 @@ final class CompactPayload
      * @param list<RedactedGroup>     $groups
      * @param list<DependencyContext> $dependencyContext adds the `d` section; absent when empty
      * @param PayloadExtras|null      $extras adds the `m` section and the `mi` field of metric anomalies (spec 009); absent when null
+     * @param array<string, string>   $endpoints fingerprint => `ep` (spec 010, already masked and capped); a group without one has no key
      */
-    public static function encode(array $groups, array $dependencyContext = [], ?PayloadExtras $extras = null): string
+    public static function encode(array $groups, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): string
     {
         $templates = [];
         $rows = [];
@@ -60,7 +61,7 @@ final class CompactPayload
             unset($row['tpl']);
             // "t" first, right after the fingerprint
             $mi = $extras?->indexFor($g->fingerprint);
-            $rows[] = ['fp' => $row['fp'], 't' => $idx] + ($mi === null ? [] : ['mi' => $mi]) + $row;
+            $rows[] = ['fp' => $row['fp'], 't' => $idx] + ($mi === null ? [] : ['mi' => $mi]) + $row + (isset($endpoints[$g->fingerprint]) ? ['ep' => $endpoints[$g->fingerprint]] : []);
         }
 
         $deps = [];

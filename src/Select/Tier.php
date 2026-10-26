@@ -24,13 +24,14 @@ final class Tier
     /**
      * @param list<ProblemGroup> $groups        log and Sentry groups together
      * @param list<Level>        $anomalyLevels
+     * @param array<string, true> $knownGrown
      */
-    public static function select(array $groups, Level $minLevel, int $topN, array $anomalyLevels): SelectionResult
+    public static function select(array $groups, Level $minLevel, int $topN, array $anomalyLevels, array $knownGrown = []): SelectionResult
     {
         $log = array_values(array_filter($groups, static fn (ProblemGroup $g): bool => !self::isExtra($g->fingerprint)));
         $extra = array_values(array_filter($groups, static fn (ProblemGroup $g): bool => self::isExtra($g->fingerprint)));
         $selector = new Selector();
-        $primary = $selector->select($log, $minLevel, $topN, $anomalyLevels);
+        $primary = $selector->select($log, $minLevel, $topN, $anomalyLevels, $knownGrown);
         if ($extra === []) {
             return $primary;
         }

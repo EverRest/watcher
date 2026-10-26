@@ -18,12 +18,16 @@ final class Reducer
 {
     public const DEFAULT_GROUP_CAP = 5000;
     public const OVERFLOW_TEMPLATE = '<other clusters>';
+    private const MAX_PODS = 1000;
 
     private int $overflowed = 0;
 
     private int $unscannable = 0;
 
     private MiningStats $mining;
+
+    /** @var list<array{template: string, distinct: int}> */
+    private array $variability = [];
 
     /**
      * @param (callable(LogEvent): bool)|null $exempt   true: the event must keep its own group (watch rule hit)
@@ -51,6 +55,14 @@ final class Reducer
         $this->mining = new MiningStats();
     }
 
+    /** @param array<string, true> $pods */
+    private function addPod(array &$pods, LogEvent $e): void
+    {
+        if ($e->podId !== null && count($pods) < self::MAX_PODS) {
+            $pods[$e->podId] = true;
+        }
+    }
+
     /** What the template miner gave up in the last reduce() (spec 004 FR-010). */
     public function mining(): MiningStats
     {
@@ -61,6 +73,16 @@ final class Reducer
     public function unscannableEvents(): int
     {
         return $this->unscannable;
+    }
+
+    /**
+     * Templates with a varying part and the number of distinct masked messages each folds, from the last reduce() (spec 006).
+     *
+     * @return list<array{template: string, distinct: int}>
+     */
+    public function variability(): array
+    {
+        return $this->variability;
     }
 
     /** Events folded into overflow groups by the last reduce(). */
@@ -77,7 +99,7 @@ final class Reducer
     {
         $fingerprinter = new Fingerprinter($this->normalizer);
         $miner = new TemplateMiner($this->minGroupEventsForText, $this->similarity, $this->maxDistinctMessages, $this->comparisonBudget, $this->groupBySimilarity, $this->memoryBudgetBytes);
-        /** @var array<string, array{own: bool, level: Level, type: ?string, frames: list<string>, count: int, first: DateTimeImmutable, last: DateTimeImmutable}> $groups */
+        /** @var array<string, array{own: bool, level: Level, type: ?string, frames: list<string>, count: int, first: DateTimeImmutable, last: DateTimeImmutable, origin: ?string, kind: ?string, pods: array<string, true>}> $groups */
         $groups = [];
         $ownCount = 0;
         $this->overflowed = 0;
@@ -106,11 +128,22 @@ final class Reducer
             }
             if (!isset($groups[$fp])) {
                 $groups[$fp] = ['own' => $own, 'level' => $e->level, 'type' => $own ? $e->errorType : null, 'frames' => $own ? $e->frames : [],
-                    'count' => 1, 'first' => $e->time, 'last' => $e->time];
+                    'count' => $e->occurrences, 'first' => $e->time, 'last' => $e->time, 'origin' => null, 'kind' => null, 'pods' => []];
+                if ($own && $e->origin !== null) {
+                    $groups[$fp]['origin'] = $e->origin;
+                    $groups[$fp]['kind'] = $e->workloadKind;
+                    $this->addPod($groups[$fp]['pods'], $e);
+                }
                 continue;
             }
             $g = &$groups[$fp];
-            $g['count']++;
+            $g['count'] += $e->occurrences;
+            if ($g['origin'] !== null) {
+                $this->addPod($g['pods'], $e);
+                if ($g['kind'] !== $e->workloadKind) {
+                    $g['kind'] = null; // one message across several kinds of workload: name none rather than the first
+                }
+            }
             $g['level'] = $e->level->atLeast($g['level']) ? $e->level : $g['level'];
             $g['first'] = min($g['first'], $e->time);
             $g['last'] = max($g['last'], $e->time);
@@ -125,9 +158,22 @@ final class Reducer
             if ($template === '<UNSCANNABLE>') {
                 $template = null; // a group nothing could scan has no template text, not even the placeholder
             }
-            $out[] = new ProblemGroup((string) $fp, $template, $g['level'], $g['type'], $g['frames'], $g['count'], $g['first'], $g['last']);
+            $out[] = new ProblemGroup(
+                (string) $fp,
+                $template,
+                $g['level'],
+                $g['type'],
+                $g['frames'],
+                $g['count'],
+                $g['first'],
+                $g['last'],
+                origin: $g['origin'],
+                pods: $g['origin'] === null ? null : count($g['pods']),
+                workloadKind: $g['kind']
+            );
         }
         $this->mining = $miner->stats();
+        $this->variability = $miner->variability();
         usort($out, static fn (ProblemGroup $a, ProblemGroup $b): int => [$b->count, $a->fingerprint] <=> [$a->count, $b->fingerprint]);
 
         return $out;

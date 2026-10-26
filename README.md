@@ -28,6 +28,8 @@ Every feature has an on/off flag in the config and a `WATCHER_*` environment var
 
 Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
 
+Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, and what the model costs per day, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
+
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
 ## Requirements
@@ -131,6 +133,8 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
 | [012](specs/012-feature-flags/spec.md) | Feature flags and environments | Implemented (changelog) |
 | [013](specs/013-observability-sink/spec.md) | Observability sink | Implemented (changelog) |
+| [014](specs/014-schedule-periods/spec.md) | Schedule periods | Spec written |
+| [015](specs/015-mcp-readonly/spec.md) | Read-only MCP server, onboarding and Q&A | Spec written |
 <!-- docs:end -->
 
 ## Configuration
@@ -185,6 +189,7 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 - Fail closed per field or event: a field that cannot be scanned is dropped, and a line the rules cannot scan becomes `<UNSCANNABLE>` (it never fails the window). A shape no rule recognises is not an error and passes; see the limits in `docs/privacy.md`.
   Add your own patterns with `redaction.extra_patterns`.
 - Model output is scrubbed again before it is cached or shown.
+- The model cannot lower an error-or-higher group: its findings are never shown below the group's level, and a cached verdict below that level is not reused (see `docs/privacy.md`).
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.
 
 What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,
@@ -226,7 +231,7 @@ Every digest ends with a cost line: tokens in/out/cached, model per step, approx
 | 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
-exits 0 when `ok`, 1 when `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
+exits 0 when `ok`, 1 when `degraded` (the last run worked but the pod events could not be read), `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to

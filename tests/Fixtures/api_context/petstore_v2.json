@@ -1,0 +1,16 @@
+{
+  "swagger": "2.0",
+  "info": {"title": "Petstore", "version": "1.0"},
+  "basePath": "/v2",
+  "paths": {
+    "/pets": {
+      "get": {"summary": "List pets", "tags": ["pets", "public"], "operationId": "listPets"},
+      "post": {"operationId": "addPet", "tags": ["pets"]}
+    },
+    "/pets/{petId}": {
+      "delete": {"summary": "Delete a pet", "deprecated": true, "tags": ["pets"]},
+      "parameters": [{"name": "petId", "in": "path"}]
+    },
+    "/shared": {"$ref": "#/x-paths/shared"}
+  }
+}

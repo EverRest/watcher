@@ -113,4 +113,29 @@ final class BudgetTest extends TestCase
         self::assertSame(0, Budget::truncate($cs, 25, self::ser(...))->droppedCount);
         self::assertSame(1, Budget::truncate($cs, 25, self::ser(...), 10)->droppedCount, '20 + 10 > 25');
     }
+
+    public function testEndpointFieldsAreDroppedAllTogetherWhenTheAnalysisInputWouldNotFit(): void
+    {
+        $t = new \DateTimeImmutable('2026-10-25T06:00:00Z');
+        $g = new \Watcher\Privacy\RedactedGroup('a', 'GET /x', \Watcher\Level::Error, null, [], 1, null, \Watcher\Privacy\GroupStatusLabel::New, [], $t, $t);
+        $ep = ['a' => 'GET /x — ' . str_repeat('s', 40)];
+        $with = Budget::estimateTokens(\Watcher\Analyze\CompactPayload::encode([$g], [], null, $ep));
+        $without = Budget::estimateTokens(\Watcher\Analyze\CompactPayload::encode([$g]));
+        self::assertGreaterThan($without, $with);
+
+        self::assertSame($ep, Budget::fitEndpoints([$g], [], $ep, $with, 0), 'fits exactly: kept');
+        self::assertSame([], Budget::fitEndpoints([$g], [], $ep, $with - 1, 0), 'one token short: every ep goes, nothing else is touched');
+        self::assertSame([], Budget::fitEndpoints([$g], [], [], 1, 0));
+    }
+
+    public function testTheEndpointSentenceIsAppendedOnlyWhenThereIsAnEpAndThePrefixIsOtherwiseByteStable(): void
+    {
+        $plain = Budget::systemPrompt('analyze', 'ctx');
+
+        self::assertSame($plain, Budget::systemPrompt('analyze', 'ctx', true, false, false));
+        $with = Budget::systemPrompt('analyze', 'ctx', true, false, true);
+        self::assertStringContainsString('not evidence of the cause', $with);
+        self::assertTrue(str_starts_with($with, substr($plain, 0, (int) strpos($plain, '## Service context'))));
+        self::assertStringNotContainsString('not evidence of the cause', Budget::systemPrompt('triage', 'ctx', true, false, true), 'triage never carries ep');
+    }
 }
