@@ -89,6 +89,9 @@ final class Redactor
             $p->watchMatches,
             $p->firstSeen,
             $p->lastSeen,
+            origin: $p->origin,
+            pods: $p->pods,
+            workloadKind: $p->workloadKind,
         );
     }
 

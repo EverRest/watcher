@@ -6,7 +6,7 @@ namespace Watcher\Operate;
 
 use DateTimeImmutable;
 
-/** Answer of {@see Heartbeat::status()}. `state` is ok|stale|failed|unknown|disabled; only `ok` is healthy. Not stored. */
+/** Answer of {@see Heartbeat::status()}. `state` is ok|degraded|stale|failed|unknown|disabled; only `ok` is healthy. `degraded`: the last run worked but could not read the pod events. Not stored. */
 final class HeartbeatStatus
 {
     /** @param array<mixed>|null $record the stored heartbeat record */
@@ -55,11 +55,12 @@ final class HeartbeatStatus
         $rec = $this->record;
         $at = static fn (?DateTimeImmutable $d): string => $d?->format(DATE_ATOM) ?? '-';
         $last = $rec === null ? '-' : sprintf(
-            '%s  outcome=%s  duration=%ss  cost_usd=%s',
+            '%s  outcome=%s  duration=%ss  cost_usd=%s%s',
             is_string($rec['finishedAt'] ?? null) ? $rec['finishedAt'] : '-',
             is_string($rec['outcome'] ?? null) ? $rec['outcome'] : '-',
             is_int($rec['durationSeconds'] ?? null) ? $rec['durationSeconds'] : '-',
             is_numeric($rec['costUsd'] ?? null) ? number_format((float) $rec['costUsd'], 4, '.', '') : '-',
+            is_string($rec['reason'] ?? null) && $rec['reason'] !== '' ? '  reason=' . $rec['reason'] : '',
         );
 
         return "service:        $service\n"
@@ -67,6 +68,7 @@ final class HeartbeatStatus
             . "last run:       $last\n"
             . 'last ok:        ' . $at($this->comparedWith) . '  age=' . ($this->ageSeconds === null ? '-' : self::span($this->ageSeconds)) . '  limit=' . self::span($this->limitSeconds) . "\n"
             . 'last trigger:   ' . $at($this->lastTriggerAt) . "\n"
+            . (is_string($rec['events'] ?? null) ? 'events:         ' . $rec['events'] . "\n" : '')
             . (is_string($rec['reason'] ?? null) && $rec['reason'] !== '' ? 'last warning:   ' . $rec['reason'] . "\n" : '')
             . 'compared:       now=' . $this->now->format(DATE_ATOM) . ' against last ok ' . $at($this->comparedWith) . "\n"
             . implode('', array_map(static fn (string $w): string => 'warning: ' . $w . "\n", $this->warnings));

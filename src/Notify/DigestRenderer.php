@@ -204,12 +204,16 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => '⚠️ dependency unavailable: ' . $this->esc($name)];
         }
 
+        foreach ($d->podEventLines as $line) {
+            $out[] = ['kind' => 'notice', 'text' => $this->esc($line)];
+        }
+
         $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
 
         return $out;
     }
 
-    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, oversized_lines?: int, unscannable_events?: int} $diag */
+    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, oversized_lines?: int, unscannable_events?: int, k8s_read_failed?: int, k8s_gaps?: int, k8s_unattributed?: int, k8s_record_full?: int} $diag */
     private function readQualityLine(array $diag): ?string
     {
         $parts = [];
@@ -223,6 +227,10 @@ final class DigestRenderer
             'unscannable_events' => '%s events withheld (could not be scanned)',
             'pages_shrunk' => '%s pages re-read at a smaller size (response cap)',
             'regex_failures' => '%s lines the parser could not read (kept, level guessed)',
+            'k8s_read_failed' => 'the latest cluster read failed (earlier reads reported)',
+            'k8s_gaps' => '%s gaps in the pod-event record',
+            'k8s_unattributed' => '%s pod events matched no selected workload',
+            'k8s_record_full' => 'the pod-event record was full (%s entries dropped, oldest first)',
         ] as $key => $format) {
             if (($diag[$key] ?? 0) > 0) {
                 $parts[] = sprintf($format, number_format($diag[$key]));
@@ -296,6 +304,16 @@ final class DigestRenderer
             } elseif ($group->status === GroupStatusLabel::Expected) {
                 $trend = $d->comparison?->usedMode === 'weekday' ? ' (expected for this weekday)' : ' (seen in earlier windows)';
             }
+        }
+
+        if ($group !== null && $group->origin !== null) {
+            $pods = $group->pods ?? 0; // an HPA or a Deployment is not a pod: no count to show
+            $trend .= sprintf(
+                ' · pod event: %s%s · %s',
+                $this->esc($group->errorType ?? 'unknown'),
+                $pods > 0 ? sprintf(' · %d pod%s', $pods, $pods === 1 ? '' : 's') : '',
+                $this->esc($group->workloadKind ?? 'Pod'),
+            );
         }
 
         $after = $group !== null ? ($d->afterReleaseFingerprints[$group->fingerprint] ?? null) : null;

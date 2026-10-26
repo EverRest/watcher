@@ -32,6 +32,7 @@
                         "tokensCached": 0,
                         "costUsd": 0.0027,
                         "durationMs": 0,
+                        "events": null,
                         "pages": null
                     }
                 },

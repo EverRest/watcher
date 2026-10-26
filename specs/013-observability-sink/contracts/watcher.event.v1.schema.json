@@ -155,7 +155,7 @@
       "required": ["event_type", "state", "last_outcome", "last_ok_at", "age_seconds", "stale_after_seconds", "warnings"],
       "properties": {
         "event_type": { "const": "heartbeat" },
-        "state": { "enum": ["ok", "stale", "failed", "unknown"] },
+        "state": { "enum": ["ok", "degraded", "stale", "failed", "unknown"] },
         "last_outcome": { "type": ["string", "null"], "pattern": "^[a-z_]{1,24}$" },
         "last_ok_at": { "$ref": "#/$defs/tsOrNull" },
         "age_seconds": { "type": ["integer", "null"], "minimum": 0 },

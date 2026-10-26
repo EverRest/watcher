@@ -82,6 +82,8 @@ final class DigestData
         public readonly int $unreported = 0,
         /** @var int new groups kept out of top_m by the per-run cap on new groups */
         public readonly int $newOverflow = 0,
+        /** @var list<string> code-built lines about pod events (source unavailable, coverage); integers, times and fixed words only (spec 008) */
+        public readonly array $podEventLines = [],
         public readonly ?string $knownLine = null,
         /** @var array<string, string> */
         public readonly array $findingLabels = [],
