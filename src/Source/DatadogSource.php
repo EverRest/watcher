@@ -43,6 +43,9 @@ final class DatadogSource implements LogSource, ReadDiagnostics
 
     /** Times a page tripped the response cap and was re-read with half the limit during the last lines() call. */
     public int $pagesShrunk = 0;
+
+    /** Entries skipped as unusable (see {@see RemoteValue}) during the last lines() call; totals() and versions() add to it. */
+    private int $malformed = 0;
     private LineParser $parser;
 
     /** @param (callable(int): void)|null $sleeper receives whole seconds to wait between retries; defaults to sleep() */
@@ -82,12 +85,20 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         ]);
 
         $totals = [];
-        foreach ($this->buckets($data) as $bucket) {
+        $bad = 0;
+        $buckets = $this->buckets($data);
+        foreach ($buckets as $bucket) {
             $status = $bucket['by']['status'] ?? '';
             $name = strtolower(Level::parse(is_string($status) ? $status : '')->name);
-            $count = $bucket['computes']['c0'] ?? 0;
-            $totals[$name] = ($totals[$name] ?? 0) + (is_numeric($count) ? (int) $count : 0);
+            $count = RemoteValue::count($bucket['computes']['c0'] ?? null);
+            if ($count === null) {
+                ++$bad;
+                continue;
+            }
+            $totals[$name] = ($totals[$name] ?? 0) + $count;
         }
+        $this->malformed += $bad;
+        RemoteValue::check($bad, count($buckets));
 
         return $totals;
     }
@@ -96,6 +107,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     {
         $this->truncated = false;
         $this->pagesShrunk = 0;
+        $this->malformed = 0;
         $limit = self::PAGE_LIMIT;
         $this->parser = new LineParser();
         $query = $this->tagQuery($selector) . $this->readQuery($filter);
@@ -115,8 +127,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             }
             $data = $this->search($window, $query, $this->newestFirst ? '-timestamp' : 'timestamp', $limit, $cursor);
             foreach ($data['data'] ?? [] as $raw) {
-                if (!is_array($raw)) {
-                    continue;
+                if (!is_array($raw) || !$this->usable($raw)) {
+                    continue; // counted by screen()
                 }
                 if ($filter->oversized(is_string($raw['attributes']['message'] ?? null) ? $raw['attributes']['message'] : '')) {
                     continue; // never reaches the parser (A4-01)
@@ -168,11 +180,11 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     {
         while (true) {
             try {
-                return $this->post('/api/v2/logs/events/search', [
+                return $this->screen($this->post('/api/v2/logs/events/search', [
                     'filter' => $this->filter($window, $query),
                     'sort' => $sort,
                     'page' => ['limit' => $limit] + ($cursor === null ? [] : ['cursor' => $cursor]),
-                ]);
+                ]));
             } catch (SourceUnavailable $e) {
                 if (!$e->tooLarge || $limit <= self::MIN_PAGE_LIMIT) {
                     throw $e;
@@ -181,6 +193,48 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                 ++$this->pagesShrunk;
             }
         }
+    }
+
+    /**
+     * Counts the items of one events/search reply that usable() refuses. A reply where most items are refused fails the read.
+     *
+     * @param array<mixed> $data
+     *
+     * @return array<mixed>
+     *
+     * @throws SourceUnavailable when the reply has no list of items, or most of its items are unusable
+     */
+    private function screen(array $data): array
+    {
+        $items = $data['data'] ?? [];
+        if (!is_array($items)) {
+            throw new SourceUnavailable('malformed');
+        }
+        $bad = 0;
+        foreach ($items as $raw) {
+            if (!is_array($raw) || !$this->usable($raw)) {
+                ++$bad;
+            }
+        }
+        $this->malformed += $bad;
+        RemoteValue::check($bad, count($items));
+
+        return $data;
+    }
+
+    /**
+     * An item event() can read: its attributes are an object, and its timestamp is absent (the clock stands in) or parses.
+     *
+     * @param array<mixed> $raw
+     */
+    private function usable(array $raw): bool
+    {
+        if (!is_array($raw['attributes'] ?? null)) {
+            return false;
+        }
+        $ts = $raw['attributes']['timestamp'] ?? '';
+
+        return is_string($ts) && ($ts === '' || $this->time($ts) !== null);
     }
 
     /**
@@ -210,7 +264,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                 break; // even the smallest page is over the response cap: keep what the head and this tail read, report the cut
             }
             foreach ($data['data'] ?? [] as $raw) {
-                if (!is_array($raw) || $filter->oversized(is_string($raw['attributes']['message'] ?? null) ? $raw['attributes']['message'] : '')) {
+                if (!is_array($raw) || !$this->usable($raw) || $filter->oversized(is_string($raw['attributes']['message'] ?? null) ? $raw['attributes']['message'] : '')) {
                     continue;
                 }
                 $event = $this->event($raw);
@@ -238,7 +292,9 @@ final class DatadogSource implements LogSource, ReadDiagnostics
 
     public function readDiagnostics(): array
     {
-        return $this->parser->diagnostics() + ($this->pagesShrunk > 0 ? ['pages_shrunk' => $this->pagesShrunk] : []);
+        return $this->parser->diagnostics()
+            + ($this->pagesShrunk > 0 ? ['pages_shrunk' => $this->pagesShrunk] : [])
+            + ($this->malformed > 0 ? ['malformed_entries' => $this->malformed] : []);
     }
 
     public function lastReadTruncated(): bool
@@ -256,22 +312,34 @@ final class DatadogSource implements LogSource, ReadDiagnostics
 
         // ponytail: first-seen is the end of the first 1h bucket with a non-zero count; exact time needs a log read.
         $versions = [];
-        foreach ($this->buckets($data) as $bucket) {
+        $bad = 0;
+        $buckets = $this->buckets($data);
+        foreach ($buckets as $bucket) {
             $value = $bucket['by'][$label] ?? null;
             if (!is_string($value) || $value === '') {
                 continue;
             }
             $series = $bucket['computes']['c0'] ?? [];
+            $unusable = false;
             foreach (is_array($series) ? $series : [] as $point) {
-                if (is_array($point) && is_numeric($point['value'] ?? null) && (float) $point['value'] > 0 && is_string($point['time'] ?? null)) {
-                    $time = $this->time($point['time'])?->modify('+' . self::VERSION_STEP . ' seconds');
-                    if ($time !== null && (!isset($versions[$value]) || $time < $versions[$value])) {
+                $count = is_array($point) ? RemoteValue::count($point['value'] ?? null) : null;
+                $at = is_array($point) && is_string($point['time'] ?? null) ? $this->time($point['time']) : null;
+                if ($count === null || $at === null) {
+                    $unusable = true;
+                    continue;
+                }
+                if ($count > 0) {
+                    $time = $at->modify('+' . self::VERSION_STEP . ' seconds');
+                    if (!isset($versions[$value]) || $time < $versions[$value]) {
                         $versions[$value] = $time;
                     }
                     break;
                 }
             }
+            $bad += $unusable ? 1 : 0;
         }
+        $this->malformed += $bad;
+        RemoteValue::check($bad, count($buckets));
         uasort($versions, static fn (DateTimeImmutable $a, DateTimeImmutable $b): int => $a <=> $b);
 
         return $versions;

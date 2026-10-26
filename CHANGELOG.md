@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Fixed (F6: robust against bad remote and stored data)
+- Loki and Datadog replies: a value the reader needs (a timestamp, a count, a point) is used only when its type and range are usable. Before, `(int) null` gave a 1970 log timestamp silently, and a huge or nested count was cast with a warning or read as 0. An unusable entry is skipped and counted as `malformed_entries` in `read_quality` of the run summary. A reply where more than half of its entries are unusable fails the read as `SourceUnavailable('malformed')`. A reply whose `data` is not a list fails the same way.
+- A stored baseline snapshot with a group value that is not a count (text, a list, a negative or huge number) is treated as missing, as on a first run, and counted in `state_unreadable`. It used to abort the run with a `TypeError` in the baseline arithmetic. A corrupt previous snapshot is treated the same way before any other reader sees it.
+- `Retry-After` and rate-limit hints are capped before they are cast: `1e400`, a 23-digit number or an integer hint beyond int range gave a warning and a zero wait.
+- A `Content-Length` header is read as digits only and never cast as is; an oversized one trips the response cap without a warning.
+- A stored event-ledger point with a digit run longer than 15 places is skipped instead of cast with a warning.
+- A JSON log line with a `severity` beyond int range is read as its text level instead of cast with a warning.
+- Config: a model name that is not a string and a Datadog `site` that is not a host name are refused as `InvalidConfig`. Both were already refused; the change pins that with tests.
+
+### Documentation (security: F5, Redis over TLS)
+- Checked, no code change: both Redis clients verify the server certificate by default. phpredis (`tls://` host) and Predis (`scheme` `tls`) refuse a self-signed certificate against Redis 8 with the system trust store (`certificate verify failed`); the password is never sent to such a server. A private CA is trusted through PHP's `openssl.cafile`; both clients connect with it. No `state.redis.tls.*` key was added, because nothing was missing.
+- `docs/operations.md` ("Redis requirements"): use a `tls://` host outside a trusted network. On a plain TCP connection `AUTH` (the password and the ACL username) travels in clear text.
+
+## 0.3.0 — 2026-10-26 — Config credentials hidden from dumps, SDK path removed, MCP no longer runs sibling PHP files, notifier reply cap
+
+Product release label **v0.3.0** (root VERSION). Contains everything below, including the notes of the untagged 0.2.1. Do not install `v0.2.0`.
+
+**FIXED**
+- Fixed (F7, fleet master switch): with the fleet `enabled` set to `false`, `fleet:run`, `fleet:status` and `fleet:check` validated every entry and opened every service file first, so one broken service file broke a switched-off fleet. The fleet file's raw `enabled` key is now read before anything else: a switched-off fleet validates no entry, opens no service file, builds no source, state or notifier, and exits 0 with each service reported `disabled`. The disabled names are the raw `service` values that look like names; a directory fleet switched off shows none. Only `enabled: false` switches a fleet off, as before (absent stays on).
+
 **BREAKING / UPGRADE**
 - Changed (**breaking for code that reads the config arrays**): the credentials of a built config are no longer plain strings. `WatchConfig` keeps every secret leaf (`source.loki.auth.token` and `.password`, `source.datadog.api_key` and `app_key`, `analysis.api_key`, `notify.{digest,notice}.webhook` and `bot_token`, `state.redis.password`, `state.pdo.dsn`, `username` and `password`, `api_context.source` and `auth_token`) as a `SecretValue`, in the public arrays `source`, `analysis`, `notify`, `state` and `apiContext`, and `FleetConfig::` the same way. `var_export`, `print_r`, `serialize` and an object dump of a config, of a Watcher or of the Factory results no longer show a credential (they showed one before, through `var_export`, `print_r` and `serialize`). Upgrade: read a leaf with `WatchConfig::reveal()` (a plain string passes through), call `->reveal()` on a `SecretValue` directly, or use `WatchConfig::plain()` to compare sections. `WatchConfig::secrets()` and `destination()` keep their signatures. `serialize()` of a config now throws, since a credential cannot be serialized.
 - Removed: the `analysis.client = sdk` path. `SdkMessagesClient` and the `anthropic-ai/sdk` dev dependency and suggestion are gone, together with the `php-http/discovery` floor and its `allow-plugins` entry (nothing else used them). `analysis.client` is kept for compatibility but accepts only `http` (the default); `sdk` fails config load with `analysis.client: the SDK client was removed; use analysis.client=http (the default)`. Upgrade: delete `analysis.client = sdk` (or set `http`); nothing to install. `Factory::analyzerRequestOptions()` was removed with it.
@@ -15,9 +35,9 @@
 - The Slack, Discord and Telegram notifiers read the reply through `ResponseLimit` (the streaming cap every backend uses) at 64 KB (`Notifier::MAX_RESPONSE_BYTES`). A hostile or misconfigured endpoint can no longer make a delivery read an unbounded body. A declared oversize `Content-Length` and a chunked oversize body fail with `<driver> delivery failed: transport error`, with no body text. A slow reply under the cap is still bounded only by the 30 s timeout.
 - The streaming cap now cuts a reply at once, for the notifiers and for every backend (`CappedSink` refuses the write over the cap, so curl ends the transfer instead of reading on to the end). Before, a trickling oversize reply from Loki, Datadog, Kubernetes, OpenAPI, Anthropic or the HTTP sink ran to the 30 s timeout first. `Retry` does not repeat a reply the cap cut. A body that a non-curl transport truncates is refused by its reported size.
 
-## 0.2.1 — 2026-10-26 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
+## 0.2.1 — 2026-10-26 — not tagged, shipped in 0.3.0 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
 
-Product release label **v0.2.1** (root VERSION). This release contains everything listed below. Do not install `v0.2.0`: that tag was created on an earlier commit and lacks the kill switch, the API context, the hygiene fixes and the notes below.
+This version was prepared but never tagged; its notes are part of 0.3.0. The tag `v0.2.0` was created on an earlier commit and lacks the kill switch, the API context, the hygiene fixes and the notes below.
 
 - Changed (**behaviour change**): the master switch now short-circuits before validation. `run` (`bin/watcher`, `watcher:run`, `Watcher::fromConfig`) reads only the raw `enabled` key first; when it is not the boolean `true` the run returns `disabled` (exit 0) without validating the rest of the config and without building the state store, source, analyzer or notifier, so a broken or half-filled config (e.g. no `source.loki.url`) no longer exits 2 with the switch off. The Disabled summary carries `service` and `environment` when they look like names. Fail-safe parsing: only `true` is on; missing, `null`, `false`, `0`/`1`, strings (`'0'`, `'false'`, `'yes'`, `''`) and anything else is off (before, a non-boolean was an `invalid config` error; `check` still reports it). `--dry-run`/`--estimate` with the switch off are `disabled` too (as before). The same "build nothing" rule applies to `Factory::doctor` / `watcher check`, `Hygiene::fromConfig` / `watcher hygiene`, `FleetRunner::fromConfig` when the fleet switch is off, and MCP inspect tools (no configured store open; `watcher_dry_run` not offered). `status` and `state:get` still validate the whole config; `status` does not read the store when disabled. **Upgrade note:** a config that relied on `Watcher::fromConfig()` throwing for an invalid config while `enabled` was unset/false no longer throws; set `enabled => true` to validate.
 
@@ -123,9 +143,9 @@ Lane E-009, planned for the next MINOR (the integrator assigns the number). **Up
 - Added: trace links (`links.tempo`, `links.datadog_apm`): the earliest valid trace id of a log group (optional `Reducer` per-event observer) goes only inside the digest's link URL; a group without one gets a service-search link. Nothing is fetched.
 - Added: `docs/examples/metrics-queries.md`.
 - Known limits: a Sentry or metric-anomaly group reaches the observability sinks with a `null` fingerprint (the sanitizer only passes 12-hex fingerprints); the anomaly's name reaches the model as the Redactor masks it (`p95` shows as `p<N>`) while the `m` section carries the exact name; the Tempo/Datadog URL shapes and the Grafana proxy path are UNVERIFIED against live systems (T052).
-## 0.2.0 — 2026-10-26 — superseded by 0.2.1
+## 0.2.0 — 2026-10-26 — superseded by 0.3.0
 
-The tag `v0.2.0` points at an earlier commit of `main` (before the kill switch and the last lane merges). Use `0.2.1`.
+The tag `v0.2.0` points at an earlier commit of `main` (before the kill switch and the last lane merges). Use `0.3.0`.
 
 ## 0.1.3 — 2026-10-24 — Redis state and own Anthropic client
 

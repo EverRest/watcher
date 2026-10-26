@@ -225,4 +225,19 @@ final class LineParserHardeningTest extends TestCase
         self::assertFalse($p->continues('    at ' . str_repeat('x', 200000), $open));
         self::assertTrue($p->continues('    at ' . str_repeat('x', 100), $open));
     }
+
+    /** @return array<string, array{string}> */
+    public static function hugeSeverities(): array
+    {
+        return ['beyond int' => ['1e30'], 'negative beyond int' => ['-1e30'], 'digits beyond int' => ['99999999999999999999999']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('hugeSeverities')]
+    public function testAHugeSeverityIsNotCastToAnIntAndReadsAsUnknown(string $severity): void
+    {
+        $e = (new LineParser())->parse('{"severity":' . $severity . ',"message":"m"}');
+
+        self::assertSame(Level::Info, $e->level);
+        self::assertSame('m', $e->message);
+    }
 }

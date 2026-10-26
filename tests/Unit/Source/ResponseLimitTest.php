@@ -52,4 +52,27 @@ final class ResponseLimitTest extends TestCase
         $b->write(str_repeat('x', 10));
         self::assertNotSame($a, $b);
     }
+
+    /** @return array<string, array{string}> */
+    public static function declaredLengths(): array
+    {
+        return ['huge digits' => ['99999999999999999999999'], 'just over the cap' => ['101']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('declaredLengths')]
+    public function testADeclaredLengthOverTheCapTripsTheCapWithoutACast(string $length): void
+    {
+        /** @var \ArrayObject<string, bool> $tripped */
+        $tripped = new \ArrayObject();
+        $on = ResponseLimit::options($tripped, 100)['on_headers'];
+        $response = new \GuzzleHttp\Psr7\Response(200, ['Content-Length' => $length]);
+
+        try {
+            $on($response);
+            self::fail('expected SourceUnavailable');
+        } catch (SourceUnavailable $e) {
+            self::assertTrue($e->tooLarge);
+        }
+        self::assertTrue($tripped['large']);
+    }
 }

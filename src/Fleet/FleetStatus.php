@@ -10,6 +10,7 @@ use Psr\Log\LoggerInterface;
 use Watcher\Config\Factory;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\HeartbeatStatus;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Schedule\SystemClock;
 use Watcher\State\StateStore;
 
@@ -29,19 +30,26 @@ final class FleetStatus
     {
         $fleet = is_array($config) ? FleetConfig::fromArray($config) : FleetConfig::fromPath($config);
         $clock ??= new SystemClock();
+        $state = $fleet->enabled ? Factory::state($fleet->services[0]->config, $clock) : RefusedAccess::state();
 
-        return self::forState($fleet, Factory::state($fleet->services[0]->config, $clock), $clock, $log);
+        return self::forState($fleet, $state, $clock, $log);
     }
 
     public static function forState(FleetConfig $fleet, StateStore $state, ClockInterface $clock, ?LoggerInterface $log = null): self
     {
+        if (!$fleet->enabled) {
+            // The fleet switch: the store is not read; the fleet and every service are shown disabled.
+            $disabled = HeartbeatStatus::disabled(0, $clock->now());
+
+            return new self($fleet->name, $disabled, array_fill_keys($fleet->serviceNames(), $disabled));
+        }
         $first = $fleet->services[0]->config;
-        $own = !$fleet->enabled || !$first->on('heartbeat')
+        $own = !$first->on('heartbeat')
             ? HeartbeatStatus::disabled($first->heartbeat['stale_after'], $clock->now())
             : (new Heartbeat($state, $clock, 'fleet/' . $fleet->name, new DateTimeZone($fleet->timezone), $first->state['retention'], $log))->status($first->heartbeat['stale_after']);
         $services = [];
         foreach ($fleet->inOrder() as $e) {
-            $services[$e->name()] = !$fleet->enabled || !$e->config->enabled || !$e->config->on('heartbeat')
+            $services[$e->name()] = !$e->config->enabled || !$e->config->on('heartbeat')
                 ? HeartbeatStatus::disabled($e->config->heartbeat['stale_after'], $clock->now())
                 : Factory::heartbeat($e->config, $state, $clock, $log)->status($e->config->heartbeat['stale_after']);
         }
