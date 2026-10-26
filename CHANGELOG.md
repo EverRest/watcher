@@ -1,20 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Fixed (F6: robust against bad remote and stored data)
-- Loki and Datadog replies: a value the reader needs (a timestamp, a count, a point) is used only when its type and range are usable. Before, `(int) null` gave a 1970 log timestamp silently, and a huge or nested count was cast with a warning or read as 0. An unusable entry is skipped and counted as `malformed_entries` in `read_quality` of the run summary. A reply where more than half of its entries are unusable fails the read as `SourceUnavailable('malformed')`. A reply whose `data` is not a list fails the same way.
-- A stored baseline snapshot with a group value that is not a count (text, a list, a negative or huge number) is treated as missing, as on a first run, and counted in `state_unreadable`. It used to abort the run with a `TypeError` in the baseline arithmetic. A corrupt previous snapshot is treated the same way before any other reader sees it.
-- `Retry-After` and rate-limit hints are capped before they are cast: `1e400`, a 23-digit number or an integer hint beyond int range gave a warning and a zero wait.
-- A `Content-Length` header is read as digits only and never cast as is; an oversized one trips the response cap without a warning.
-- A stored event-ledger point with a digit run longer than 15 places is skipped instead of cast with a warning.
-- A JSON log line with a `severity` beyond int range is read as its text level instead of cast with a warning.
-- Config: a model name that is not a string and a Datadog `site` that is not a host name are refused as `InvalidConfig`. Both were already refused; the change pins that with tests.
-
-### Documentation (security: F5, Redis over TLS)
-- Checked, no code change: both Redis clients verify the server certificate by default. phpredis (`tls://` host) and Predis (`scheme` `tls`) refuse a self-signed certificate against Redis 8 with the system trust store (`certificate verify failed`); the password is never sent to such a server. A private CA is trusted through PHP's `openssl.cafile`; both clients connect with it. No `state.redis.tls.*` key was added, because nothing was missing.
-- `docs/operations.md` ("Redis requirements"): use a `tls://` host outside a trusted network. On a plain TCP connection `AUTH` (the password and the ACL username) travels in clear text.
-
 ## 0.3.0 — 2026-10-26 — Config credentials hidden from dumps, SDK path removed, MCP no longer runs sibling PHP files, notifier reply cap
 
 Product release label **v0.3.0** (root VERSION). Contains everything below, including the notes of the untagged 0.2.1. Do not install `v0.2.0`.
@@ -34,6 +19,19 @@ Product release label **v0.3.0** (root VERSION). Contains everything below, incl
 ### Fixed (notifier response cap)
 - The Slack, Discord and Telegram notifiers read the reply through `ResponseLimit` (the streaming cap every backend uses) at 64 KB (`Notifier::MAX_RESPONSE_BYTES`). A hostile or misconfigured endpoint can no longer make a delivery read an unbounded body. A declared oversize `Content-Length` and a chunked oversize body fail with `<driver> delivery failed: transport error`, with no body text. A slow reply under the cap is still bounded only by the 30 s timeout.
 - The streaming cap now cuts a reply at once, for the notifiers and for every backend (`CappedSink` refuses the write over the cap, so curl ends the transfer instead of reading on to the end). Before, a trickling oversize reply from Loki, Datadog, Kubernetes, OpenAPI, Anthropic or the HTTP sink ran to the 30 s timeout first. `Retry` does not repeat a reply the cap cut. A body that a non-curl transport truncates is refused by its reported size.
+
+### Fixed (F6: robust against bad remote and stored data)
+- Loki and Datadog replies: a value the reader needs (a timestamp, a count, a point) is used only when its type and range are usable. Before, `(int) null` gave a 1970 log timestamp silently, and a huge or nested count was cast with a warning or read as 0. An unusable entry is skipped and counted as `malformed_entries` in `read_quality` of the run summary. A reply where more than half of its entries are unusable fails the read as `SourceUnavailable('malformed')`. A reply whose `data` is not a list fails the same way.
+- A stored baseline snapshot with a group value that is not a count (text, a list, a negative or huge number) is treated as missing, as on a first run, and counted in `state_unreadable`. It used to abort the run with a `TypeError` in the baseline arithmetic. A corrupt previous snapshot is treated the same way before any other reader sees it.
+- `Retry-After` and rate-limit hints are capped before they are cast: `1e400`, a 23-digit number or an integer hint beyond int range gave a warning and a zero wait.
+- A `Content-Length` header is read as digits only and never cast as is; an oversized one trips the response cap without a warning.
+- A stored event-ledger point with a digit run longer than 15 places is skipped instead of cast with a warning.
+- A JSON log line with a `severity` beyond int range is read as its text level instead of cast with a warning.
+- Config: a model name that is not a string and a Datadog `site` that is not a host name are refused as `InvalidConfig`. Both were already refused; the change pins that with tests.
+
+### Documentation (security: F5, Redis over TLS)
+- Checked, no code change: both Redis clients verify the server certificate by default. phpredis (`tls://` host) and Predis (`scheme` `tls`) refuse a self-signed certificate against Redis 8 with the system trust store (`certificate verify failed`); the password is never sent to such a server. A private CA is trusted through PHP's `openssl.cafile`; both clients connect with it. No `state.redis.tls.*` key was added, because nothing was missing.
+- `docs/operations.md` ("Redis requirements"): use a `tls://` host outside a trusted network. On a plain TCP connection `AUTH` (the password and the ACL username) travels in clear text.
 
 ## 0.2.1 — 2026-10-26 — not tagged, shipped in 0.3.0 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
 
