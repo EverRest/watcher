@@ -7,9 +7,9 @@ declare(strict_types=1);
  *
  *   php scripts/badges.php
  *
- * Coverage comes from build/coverage/cobertura.xml (or clover.xml), produced by `make coverage` / CI; without a
- * report the existing coverage badge is kept. A file is rewritten only when its content changes, so the
- * pre-commit hook can `git add` exactly what moved.
+ * Only values that cannot go stale are committed (php, license). Version and coverage have no committed badge: the
+ * README shows the live "last successful release" badge, and CI enforces the coverage floor (scripts/coverage-floor.php).
+ * A file is rewritten only when its content changes, so the pre-commit hook can `git add` exactly what moved.
  */
 
 const BADGE_START = '<!-- badges:start -->';
@@ -60,19 +60,6 @@ function badges_license(string $composerJson): string
     return is_array($data) && is_string($data['license'] ?? null) ? $data['license'] : 'unknown';
 }
 
-/** Latest git tag, else the first "## X.Y.Z" heading of the changelog, else "unreleased". */
-function badges_version(?string $latestTag, string $changelog): string
-{
-    if ($latestTag !== null && $latestTag !== '') {
-        return ltrim($latestTag, 'v');
-    }
-    if (preg_match('/^## v?(\d+\.\d+\.\d+\S*)(?![^\n]*unreleased)/mi', $changelog, $m) === 1) {
-        return $m[1];
-    }
-
-    return 'unreleased';
-}
-
 /** Line coverage in percent from a Cobertura (line-rate) or Clover (statements) report; null when unreadable. */
 function badges_coverage(string $xml): ?float
 {
@@ -86,11 +73,6 @@ function badges_coverage(string $xml): ?float
     }
 
     return null;
-}
-
-function badges_coverage_color(float $pct): string
-{
-    return $pct >= 80 ? '#4c1' : ($pct >= 60 ? '#97ca00' : ($pct >= 40 ? '#dfb317' : '#e05d44'));
 }
 
 /** Replaces the text between the markers; returns the input untouched when the markers are missing. */
@@ -110,9 +92,7 @@ function badges_block(): string
     return implode("\n", [
         '[![CI](https://github.com/EverRest/watcher/actions/workflows/ci.yml/badge.svg)](https://github.com/EverRest/watcher/actions/workflows/ci.yml)',
         '[![Last released version](https://img.shields.io/github/v/release/EverRest/watcher?label=last%20successful%20release)](https://github.com/EverRest/watcher/releases)',
-        '![Version](docs/badges/version.svg)',
         '![PHP](docs/badges/php.svg)',
-        '![Coverage](docs/badges/coverage.svg)',
         '![License](docs/badges/license.svg)',
     ]);
 }
@@ -130,30 +110,10 @@ function badges_write(string $path, string $content): void
 function badges_run(string $root): void
 {
     $composer = (string) @file_get_contents("{$root}/composer.json");
-    $changelog = (string) @file_get_contents("{$root}/CHANGELOG.md");
-    $tag = null;
-    if (is_dir("{$root}/.git") || is_file("{$root}/.git")) {
-        $out = [];
-        exec('git -C ' . escapeshellarg($root) . ' describe --tags --abbrev=0 2>/dev/null', $out, $code);
-        $tag = $code === 0 ? ($out[0] ?? null) : null;
-    }
 
     $dir = "{$root}/docs/badges";
     badges_write("{$dir}/php.svg", badges_svg('php', badges_php($composer), '#777bb4'));
-    badges_write("{$dir}/version.svg", badges_svg('version', badges_version($tag, $changelog), '#007ec6'));
     badges_write("{$dir}/license.svg", badges_svg('license', badges_license($composer), '#9f9f9f'));
-
-    foreach (['cobertura', 'clover'] as $report) {
-        $xml = @file_get_contents("{$root}/build/coverage/{$report}.xml");
-        $pct = $xml === false ? null : badges_coverage($xml);
-        if ($pct !== null) {
-            badges_write("{$dir}/coverage.svg", badges_svg('coverage', $pct . '%', badges_coverage_color($pct)));
-            break;
-        }
-    }
-    if (! is_file("{$dir}/coverage.svg")) {
-        badges_write("{$dir}/coverage.svg", badges_svg('coverage', 'n/a', '#9f9f9f'));
-    }
 
     $readmePath = "{$root}/README.md";
     $readme = (string) @file_get_contents($readmePath);

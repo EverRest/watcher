@@ -7,8 +7,8 @@ Package: `everrest/watcher`, repository `https://github.com/EverRest/watcher` (p
 1. `make ci; echo $?` prints `0` on `main`, and the CI run on GitHub is green (all PHP versions).
 2. `composer validate --strict` and `composer audit --locked` are clean.
 3. T114 (specs/001-scheduled-log-watch/tasks.md) is done: a live smoke run against one real environment (quickstart section 3, `docs/smoke-test.md`) and its result is recorded in `CHANGELOG.md`.
-4. The coverage number is read from the first CI coverage artifact (`build/coverage/summary.txt`), then `make badges` is run so `docs/badges/coverage.svg` shows that number, not a placeholder.
-5. `CHANGELOG.md`: rename `## 0.1.0 — unreleased draft` to `## 0.1.0 — YYYY-MM-DD — <title>` (keep a fresh `## Unreleased` above). The version badge shows `unreleased` while the heading says "unreleased" and no tag exists.
+4. The CI `coverage` job is green (it enforces the floor in `scripts/coverage-floor.php`); the number is in its job summary. There is no committed coverage badge.
+5. `CHANGELOG.md`: rename `## 0.1.0 — unreleased draft` to `## 0.1.0 — YYYY-MM-DD — <title>` (keep a fresh `## Unreleased` above).
 6. `grep -rniE '<owner-internal-names>' --exclude-dir=.git --exclude-dir=vendor .` returns nothing (the identifier list is kept outside the repository).
 
 ## Submit to Packagist (once)

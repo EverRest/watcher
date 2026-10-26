@@ -16,8 +16,8 @@ Tests must stay parallel-safe: any directory a test writes to is unique per test
 The block between `<!-- badges:start -->` and `<!-- badges:end -->` in `README.md` is generated; do not edit it by hand.
 
 - **php**: `require.php` of `composer.json`. **license**: `license` of `composer.json`.
-- **version**: latest git tag, else the first `## X.Y.Z` heading of `CHANGELOG.md`, else `unreleased`.
-- **coverage**: from `build/coverage/cobertura.xml` (or `clover.xml`) of the last `make coverage`. Without a report the existing badge is kept, so a commit never runs the suite.
+- There is no committed version badge: it went stale (it showed 0.1.2 after 0.3.1, because the tags sit on `main` merge commits that `develop` does not contain, so `git describe` never saw them). The version shown in the README is the live **Last successful release** badge below.
+- There is no committed coverage badge either: the number went stale (96.5% two days and thousands of lines before it was removed). CI is the check: the `coverage` job fails below the floor (`php scripts/coverage-floor.php 92`) and writes the summary to the job page.
 - The pre-commit hook runs the script and `git add`s README / SVGs only if they changed (and only if you had no unstaged edits in them).
 
 ### "Last successful version"

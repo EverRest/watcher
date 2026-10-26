@@ -3,9 +3,7 @@
 <!-- badges:start -->
 [![CI](https://github.com/EverRest/watcher/actions/workflows/ci.yml/badge.svg)](https://github.com/EverRest/watcher/actions/workflows/ci.yml)
 [![Last released version](https://img.shields.io/github/v/release/EverRest/watcher?label=last%20successful%20release)](https://github.com/EverRest/watcher/releases)
-![Version](docs/badges/version.svg)
 ![PHP](docs/badges/php.svg)
-![Coverage](docs/badges/coverage.svg)
 ![License](docs/badges/license.svg)
 <!-- badges:end -->
 
