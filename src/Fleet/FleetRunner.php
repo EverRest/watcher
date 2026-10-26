@@ -126,13 +126,14 @@ final class FleetRunner
      */
     public function run(?DateTimeImmutable $now, RunOptions $options, array $only = []): FleetResult
     {
-        $unknown = array_diff($only, array_map(static fn (ServiceEntry $e): string => $e->name(), $this->config->services));
+        $names = $this->config->serviceNames();
+        $unknown = array_diff($only, $names);
         if ($unknown !== []) {
             throw new InvalidConfig('--only names a service that is not in the fleet');
         }
         if (!$this->config->enabled) {
             // The fleet switch: no store, budget, source or notifier is reached.
-            return new FleetResult($this->config->name, array_map(static fn (ServiceEntry $e): ServiceResult => ServiceResult::disabled($e->name()), array_values(array_filter($this->config->inOrder(), static fn (ServiceEntry $e): bool => $only === [] || in_array($e->name(), $only, true)))));
+            return new FleetResult($this->config->name, array_map(static fn (string $n): ServiceResult => ServiceResult::disabled($n), array_values(array_filter($names, static fn (string $n): bool => $only === [] || in_array($n, $only, true)))));
         }
         $startedAt = $this->clock->now();
         $now ??= $startedAt; // one instant for the whole trigger
