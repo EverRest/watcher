@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed (tooling)
+- The committed `version` badge (`docs/badges/version.svg`) is gone from the README and from `scripts/badges.php`: it went stale (0.1.2 after 0.3.1). The version shown is the live "last successful release" badge, which reads the latest GitHub Release.
+
 ## 0.3.1 — 2026-10-26 — Hygiene, check and status read the master switch first; release guards; prompt-injection tests
 
 Product release label **v0.3.1** (root VERSION).

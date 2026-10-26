@@ -18,14 +18,12 @@ final class BadgesTest extends TestCase
         self::assertSame('unknown', badges_php('not json'));
     }
 
-    public function testVersionPrefersTagThenChangelogThenUnreleased(): void
+    public function testTheOnlyVersionBadgeIsTheLiveLatestRelease(): void
     {
-        $log = "# Changelog\n\n## Unreleased\n\n## 1.2.3 - 2026-01-01\n";
-        self::assertSame('2.0.0', badges_version('v2.0.0', $log));
-        self::assertSame('1.2.3', badges_version(null, $log));
-        self::assertSame('unreleased', badges_version('', "## Unreleased\n"));
-        self::assertSame('unreleased', badges_version(null, "## Unreleased\n\n## 0.1.0 — unreleased draft\n"));
-        self::assertSame('0.1.0', badges_version(null, "## Unreleased\n\n## 0.1.0 — 2026-11-01 — first release\n"));
+        $block = badges_block();
+        self::assertStringContainsString('img.shields.io/github/v/release/EverRest/watcher', $block);
+        self::assertStringNotContainsString('version.svg', $block);
+        self::assertFalse(function_exists('badges_version'), 'a committed version badge goes stale: it was 0.1.2 after 0.3.1');
     }
 
     public function testCoverageFromCoberturaAndClover(): void
