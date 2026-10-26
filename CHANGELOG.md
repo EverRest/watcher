@@ -6,6 +6,14 @@
 - The committed `coverage` badge (`docs/badges/coverage.svg`) is gone too: it said 96.5% while the code had grown by thousands of lines. CI still fails the build below the 92% floor and shows the number in the job summary.
 - The committed `version` badge (`docs/badges/version.svg`) is gone from the README and from `scripts/badges.php`: it went stale (0.1.2 after 0.3.1). The version shown is the live "last successful release" badge, which reads the latest GitHub Release.
 
+## Unreleased
+
+### Added (environment-only configuration)
+- The shipped `config/watcher.php` is now enough for a Lumen or Laravel host: **Telegram** (`WATCHER_DIGEST_BOT_TOKEN`, `WATCHER_DIGEST_CHAT_ID`, `WATCHER_DIGEST_THREAD_ID` for a forum topic) and Discord destinations, a separate **notice** destination (`WATCHER_NOTICE_*`; `WATCHER_NOTICE_THREAD_ID` alone reuses the digest token and chat for another topic), **prices** (`WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}`, no default price) and **stream tags** (`WATCHER_STREAM_TAGS=app=m-seq,env=test11`). The digest driver is chosen from what is set: a bot token means Telegram, a webhook only means Slack; `WATCHER_DIGEST_DRIVER` still wins. `WATCHER_SLACK_WEBHOOK` works as before, so Slack hosts need no change.
+- `MissingEnvironmentVariable` (extends `InvalidConfig`, exit code 2): a missing or broken variable is reported when `watcher:run` or `watcher:check` starts, naming the variable and the key (`WATCHER_DIGEST_BOT_TOKEN is not set (notify.digest.bot_token)`), never a value, and all problems at once. The config file itself never throws on a missing variable, so a host application still boots. A problem about a key the host's own config already sets is ignored.
+- `Watcher\Config\EnvSections` builds these sections; docs: "Environment only" in `docs/configuration.md`.
+- `InvalidConfig` is no longer `final` (the one exemption in the architecture test).
+
 ## 0.3.1 — 2026-10-26 — Hygiene, check and status read the master switch first; release guards; prompt-injection tests
 
 Product release label **v0.3.1** (root VERSION).

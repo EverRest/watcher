@@ -78,9 +78,10 @@ A failed **digest delivery** is only logged (the channel is the one that broke).
 composer require everrest/watcher        # from Packagist once published; before that add the GitHub repository as a VCS repository
 ```
 
-Register the provider (Lumen: `bootstrap/app.php`), copy `vendor/everrest/watcher/config/watcher.php` to
-`config/watcher.php` (Laravel can `vendor:publish`; Lumen has no publish command), fill in `prices` and set the
-environment variables from [configuration.md](configuration.md):
+Register the provider (Lumen: `bootstrap/app.php`). The provider merges the shipped `config/watcher.php`, so a host can run on
+environment variables alone: see "Environment only" in [configuration.md](configuration.md) (Telegram with topics, prices, stream
+tags). Copy `vendor/everrest/watcher/config/watcher.php` to `config/watcher.php` (Laravel can `vendor:publish`; Lumen has no publish
+command) only to change something a variable cannot express:
 
 ```php
 $app->register(Watcher\Laravel\WatcherServiceProvider::class);

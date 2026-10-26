@@ -383,6 +383,45 @@ return [
 ];
 ```
 
+## Environment only (Lumen and Laravel)
+
+A host that registers `Watcher\Laravel\WatcherServiceProvider` needs **no config file of its own**: the provider merges the shipped
+`config/watcher.php`, which reads these variables. Copy that file only to change something a variable cannot express.
+
+| Variable | Needed | Meaning |
+|---|---|---|
+| `WATCHER_ENABLED` | yes, to run | The master switch. Off unless `1`/`true`. |
+| `WATCHER_SERVICE`, `WATCHER_RUN_AT` | yes | Service name and the `HH:MM` the run is due. |
+| `WATCHER_LOKI_URL`, `WATCHER_LOKI_TOKEN` | yes (Loki) | Log source. The token is read-only. |
+| `WATCHER_STREAM_TAGS` | no | Labels of this service, `app=m-seq,env=test11`. A broken pair is reported by the variable name. |
+| `WATCHER_ANTHROPIC_KEY` | yes | Model credentials. |
+| `WATCHER_MODEL_TRIAGE`, `_ANALYZE`, `_ESCALATE` | yes | One model id per tier. There is no default model. |
+| `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}` | yes, per model | USD per million tokens. Optional `_CACHE_READ` and `_CACHE_WRITE` (default `0`). **No default price**: the budget is only as good as these. A model used by two tiers must have the same price in both. |
+| `WATCHER_STATE` and `WATCHER_REDIS_*` or `WATCHER_STATE_PATH` | yes | `redis` (default), `pdo` or `file`. |
+| `WATCHER_REPO_URL` | yes | Web URL of the repository, for code links. |
+
+**Where the digest goes.** The driver is chosen from what is set, unless `WATCHER_DIGEST_DRIVER` names it (`slack`, `telegram`,
+`discord`, `none`):
+
+| Set | Driver | Variables |
+|---|---|---|
+| `WATCHER_DIGEST_BOT_TOKEN` | `telegram` | `WATCHER_DIGEST_BOT_TOKEN`, `WATCHER_DIGEST_CHAT_ID`, optional `WATCHER_DIGEST_THREAD_ID` (a forum topic) |
+| only a webhook | `slack` | `WATCHER_DIGEST_WEBHOOK`, or the older `WATCHER_SLACK_WEBHOOK` (still works) |
+| `WATCHER_DIGEST_DRIVER=discord` | `discord` | `WATCHER_DIGEST_WEBHOOK` |
+
+**Where failures and budget notices go.** With no `WATCHER_NOTICE_*` variable they use the digest destination. For one Telegram group
+with a topic per purpose, set only `WATCHER_NOTICE_THREAD_ID`: it reuses the digest token and chat. `WATCHER_NOTICE_DRIVER`,
+`_WEBHOOK`, `_BOT_TOKEN` and `_CHAT_ID` give the notices a channel of their own. A thread id needs a Telegram destination.
+
+**One environment, one topic.** Give each environment its own `WATCHER_ENVIRONMENT` (it is part of the state keys), its own
+`WATCHER_DIGEST_THREAD_ID` and, when several environments share a Redis database, its own `WATCHER_REDIS_PREFIX`.
+
+**A missing or broken variable never breaks the host.** The config file runs on every request of the application, so it does not
+throw. The problem is raised when `watcher:run` or `watcher:check` starts, as `MissingEnvironmentVariable` (an `InvalidConfig`, exit
+code 2) or `InvalidConfig`, naming the variable and the key, for example `WATCHER_DIGEST_BOT_TOKEN is not set (notify.digest.bot_token)`.
+All problems are listed at once, and a value is never printed. A problem about a key your own config file already sets is ignored.
+With the master switch off nothing is validated, so a half-filled environment cannot stop the kill switch.
+
 ## Environment variables used by the shipped configs
 
 `config/watcher.php` (Laravel/Lumen) reads these through `env()`. `config/watcher.example.php` reads the subset marked
@@ -396,6 +435,10 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_SOURCE` | `source.driver` |
 | `WATCHER_LOKI_URL*`, `WATCHER_LOKI_TOKEN*`, `WATCHER_LOKI_TENANT` | `source.loki.*` |
 | `WATCHER_DD_SITE`, `WATCHER_DD_API_KEY*`, `WATCHER_DD_APP_KEY*` | `source.datadog.*` |
+| `WATCHER_STREAM_TAGS` | `source.stream_tags` (`app=m-seq,env=test11`) |
+| `WATCHER_DIGEST_DRIVER`, `WATCHER_DIGEST_WEBHOOK`, `WATCHER_DIGEST_BOT_TOKEN`, `WATCHER_DIGEST_CHAT_ID`, `WATCHER_DIGEST_THREAD_ID` (`WATCHER_SLACK_WEBHOOK` still works) | `notify.digest.*`, see [Environment only](#environment-only-lumen-and-laravel) |
+| `WATCHER_NOTICE_DRIVER`, `WATCHER_NOTICE_WEBHOOK`, `WATCHER_NOTICE_BOT_TOKEN`, `WATCHER_NOTICE_CHAT_ID`, `WATCHER_NOTICE_THREAD_ID` | `notify.notice.*` |
+| `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT,CACHE_READ,CACHE_WRITE}` | `analysis.prices.<model>` |
 | `WATCHER_ANTHROPIC_KEY*` | `analysis.api_key` |
 | `WATCHER_MODEL_TRIAGE*`, `WATCHER_MODEL_ANALYZE*`, `WATCHER_MODEL_ESCALATE*` | `analysis.models.*` |
 | `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}*` | `analysis.prices` (example config only) |
