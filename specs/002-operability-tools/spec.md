@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-23
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Operability tools for everrest/watcher: a heartbeat the host can alert on, a `watcher check` doctor command that validates config and credentials without posting, a `--dry-run` mode that writes no state and prints the digest to stdout, a machine-readable `--json` run summary, and purge of expired files in the file state store. Source: docs/audit-2026-10-23.md, section 'Operational features'."
 

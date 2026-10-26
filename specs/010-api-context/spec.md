@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Implemented in 0.2.1, off by default (open tasks: T002, T005, T028, T029, T032)
 
 **Input**: User description: "API context for everrest/watcher: OpenAPI/Swagger summaries for the endpoints named in a finding (route templates from logs or stack frames) so the model and the digest get one line saying what the endpoint is for. Source is a local OpenAPI file or a URL read-only, cached in state with a TTL; only operationId, summary, tag and the deprecation flag are used (never examples, schemas with data, or descriptions longer than a cap); route matching by method and path template with parameter placeholders after the Normalizer's path masking (`<ID>` against `{id}`); low value per token, so off by default and capped to N endpoints per run, counted in the token budget. Source: docs/roadmap.md item 010."
 

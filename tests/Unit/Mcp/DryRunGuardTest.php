@@ -89,7 +89,8 @@ final class DryRunGuardTest extends TestCase
         for ($i = 0; $i < 10; ++$i) {
             try {
                 $b = $g->admit(true, $p);
-                $g->end($b);
+                $g->enter($b);
+                $g->end();
                 $allowed += $b['usd'];
             } catch (ToolError $e) {
                 self::assertContains($e->errorCode, ['would_exceed_daily_limit', 'daily_limit_reached']);
@@ -118,14 +119,15 @@ final class DryRunGuardTest extends TestCase
         $g = $this->guard();
         $g->admit(true, new FakePipeline());
         self::assertSame('busy', $this->refusal($g, true, new FakePipeline()));
-        $g->end(null);
+        $g->end();
     }
 
     public function testAFailedRunBooksTheBoundAndBlocksFurtherRuns(): void
     {
         $g = $this->guard();
         $b = $g->admit(true, new FakePipeline());
-        $g->end($b, failed: true);
+        $g->enter($b);
+        $g->end(failed: true);
         self::assertEqualsWithDelta(0.5 - $b['usd'], $g->spendToday()['remaining_usd'], 1e-9);
         self::assertSame('daily_limit_reached', $this->refusal($g, true, new FakePipeline()));
     }
@@ -135,9 +137,9 @@ final class DryRunGuardTest extends TestCase
         $g = $this->guard();
         $g->admit(true, new FakePipeline());
         self::assertSame('busy', $this->refusal($g, true, new FakePipeline()));
-        $g->end(null);
+        $g->end();
         $g->admit(true, new FakePipeline());
-        $g->end(null);
+        $g->end();
         self::assertFalse($g->busy());
     }
 }

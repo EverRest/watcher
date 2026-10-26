@@ -16,7 +16,6 @@ use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Analyze\AnthropicHttpClient;
-use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Issues\IssueSource;
 use Watcher\Issues\SentryIssueSource;
 use Watcher\Metrics\MetricSource;
@@ -85,7 +84,7 @@ final class Factory
     }
 
     /**
-     * A long analysis reply can take well over 30 s, but a model call (two sequential attempts, no SDK retry) must stay within
+     * A long analysis reply can take well over 30 s, but a model call (two sequential attempts) must stay within
      * a quarter of lock_ttl, so a second run cannot start while this one is still analysing: timeout = lock_ttl / 4 / 2, within 10..180 s.
      * When the store supports {@see RenewableLock}, Watcher renews the run lock between pipeline steps and before each model call; the router makes at most 2 + escalation_cap model calls.
      *
@@ -94,12 +93,6 @@ final class Factory
     public static function analyzerHttpOptions(int $lockTtl = 900): array
     {
         return ['timeout' => max(10, min(180, intdiv($lockTtl, 8))), 'connect_timeout' => 10];
-    }
-
-    /** @return array{maxRetries: int} an SDK retry would multiply the worst case of a call; the next scheduled trigger is the retry */
-    public static function analyzerRequestOptions(): array
-    {
-        return ['maxRetries' => 0];
     }
 
     /** @param array<string, KubeApi> $apis shared by the entries of a fleet (pod events only) */
@@ -466,9 +459,7 @@ final class Factory
         $key = (string) $c->analysis['api_key'];
 
         $analyzer = new AnthropicAnalyzer(
-            $c->analysis['client'] === 'sdk'
-                ? new SdkMessagesClient($key, new Client($options), null, self::analyzerRequestOptions())
-                : new AnthropicHttpClient($key, new Client($options), $options['timeout']),
+            new AnthropicHttpClient($key, new Client($options), $options['timeout']),
             $c->on('advice'),
         );
 
