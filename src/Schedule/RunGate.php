@@ -362,11 +362,22 @@ final class RunGate
         if ($valid !== []) {
             return $date->setTimestamp(min($valid));
         }
-        $guess = $wall - $date->setTimestamp($wall - 86400)->getOffset();
-        $transitions = $this->timezone->getTransitions($guess - 86400, $guess);
-        $last = end($transitions);
+        // The wall time falls in a gap: the instant is the transition itself. It is found by bisecting the offset change
+        // (not DateTimeZone::getTransitions(): with system tzdata it lists only transitions stored in the file, not those
+        // that come from the rule at its end, so for the current years it returned a wrong instant).
+        $lo = $wall - 86400;
+        $hi = $wall + 86400;
+        $before = $date->setTimestamp($lo)->getOffset();
+        while ($hi - $lo > 1) {
+            $mid = intdiv($lo + $hi, 2);
+            if ($date->setTimestamp($mid)->getOffset() === $before) {
+                $lo = $mid;
+            } else {
+                $hi = $mid;
+            }
+        }
 
-        return $date->setTimestamp($last === false ? $guess : $last['ts']);
+        return $date->setTimestamp($hi);
     }
 
     private static function intervalToSpec(DateInterval $interval): string
