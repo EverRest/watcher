@@ -79,7 +79,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | Key | Default | Notes |
 |---|---|---|
 | `analysis.provider` | `anthropic` | The only one. |
-| `analysis.client` | `http` | `http` is the built-in Guzzle client. `sdk` is the rollback to the official SDK; it needs `composer require anthropic-ai/sdk` and is refused at config load otherwise. |
+| `analysis.client` | `http` | Only `http` (the built-in Guzzle client) is accepted. `sdk` was removed and is refused at config load. |
 | `analysis.api_key` | required | |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
 | `analysis.prices` | required | `model id => [input, output, cache_read, cache_write]`, **USD per million tokens**, for every model above. Drives the cost line, the daily cap and the alerts: keep it current. |

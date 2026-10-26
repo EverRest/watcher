@@ -7,7 +7,6 @@ namespace Watcher\Config;
 use Watcher\Notify\Destination;
 use Watcher\Observe\EventSchema;
 use Watcher\Observe\ObserveSettings;
-use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Level;
 use Watcher\State\Redis\RedisClient;
 use Watcher\Source\Kubernetes\KubeSettings;
@@ -672,11 +671,11 @@ final class WatchConfig implements \JsonSerializable
         }
 
         $client = self::optStr($a, 'client', 'http', 'analysis.client');
-        if (!in_array($client, ['http', 'sdk'], true)) {
-            throw new InvalidConfig('analysis.client must be http or sdk');
+        if ($client === 'sdk') {
+            throw new InvalidConfig('analysis.client: the SDK client was removed; use analysis.client=http (the default)');
         }
-        if ($client === 'sdk' && !SdkMessagesClient::available()) {
-            throw new InvalidConfig('analysis.client is sdk but anthropic-ai/sdk is not installed: run composer require anthropic-ai/sdk, or set analysis.client to http');
+        if ($client !== 'http') {
+            throw new InvalidConfig('analysis.client must be http');
         }
 
         $prices = self::prices(self::section($a, 'prices'), $models);

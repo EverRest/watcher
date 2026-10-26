@@ -159,8 +159,8 @@ host log gets the key kind (`snap`, `run`, ...) only, never the key or any conte
 ## What reaches host logs and exit output
 
 The one-line summary on stdout and `watcher [error] ...` lines on stderr carry messages only, with line breaks and
-terminal control characters (ESC and the other C0 characters) removed. Exception objects are not logged, because the SDK's
-request (including the API key) hangs on them; delivery failures are logged as the exception class and a masked message.
+terminal control characters (ESC and the other C0 characters) removed. Exception objects are not logged, because an HTTP
+request (including the API key) can hang on them; delivery failures are logged as the exception class and a masked message.
 Config objects (`WatchConfig`, `FleetConfig`) show `[redacted]` for their credential sections in `var_dump`, `print_r`,
 `dd()` and `json_encode`, and the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes
 those arguments from stack traces).
