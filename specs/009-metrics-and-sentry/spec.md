@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Not released: lives on branch feat/metrics-e009-030
 
 **Input**: User description: "Metrics and traces for everrest/watcher: (a) read-only Prometheus (or Grafana datasource proxy) instant and range queries for error-rate and p95 latency deltas against the baseline window, shown next to log findings and as stand-alone 'metric anomaly' candidates when no log finding explains them; queries declared per service with named placeholders, numbers only, no label values unless allowlisted; (b) Sentry issues as an already-grouped source: read-only issue list per project and window (new, regressed, frequency), keyed by Sentry's own fingerprint, titles redacted by the Normalizer rules, no event payloads, user data or breadcrumbs; (c) trace ids turned into Tempo or Datadog APM links like the existing log links, links only. Source: docs/audit-2026-10-23.md, feature 8, and docs/roadmap.md item 009."
 
