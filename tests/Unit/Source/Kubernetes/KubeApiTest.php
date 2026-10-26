@@ -314,7 +314,7 @@ final class KubeApiTest extends TestCase
                 }
             }
 
-            return \GuzzleHttp\Promise\Create::promiseFor(new Response(200, $headers, $sink));
+            return \GuzzleHttp\Promise\Create::promiseFor(self::asInterface(new Response(200, $headers, $sink)));
         };
         $settings = KubeSettings::fromArray(['namespaces' => ['shop'], 'api' => ['server' => 'https://k8s.example:6443', 'token' => self::TOKEN, 'ca_file' => $this->ca]], true, true, false);
 
