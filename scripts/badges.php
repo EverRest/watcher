@@ -7,9 +7,9 @@ declare(strict_types=1);
  *
  *   php scripts/badges.php
  *
- * Coverage comes from build/coverage/cobertura.xml (or clover.xml), produced by `make coverage` / CI; without a
- * report the existing coverage badge is kept. A file is rewritten only when its content changes, so the
- * pre-commit hook can `git add` exactly what moved.
+ * Only values that cannot go stale are committed (php, license). Version and coverage have no committed badge: the
+ * README shows the live "last successful release" badge, and CI enforces the coverage floor (scripts/coverage-floor.php).
+ * A file is rewritten only when its content changes, so the pre-commit hook can `git add` exactly what moved.
  */
 
 const BADGE_START = '<!-- badges:start -->';
@@ -75,11 +75,6 @@ function badges_coverage(string $xml): ?float
     return null;
 }
 
-function badges_coverage_color(float $pct): string
-{
-    return $pct >= 80 ? '#4c1' : ($pct >= 60 ? '#97ca00' : ($pct >= 40 ? '#dfb317' : '#e05d44'));
-}
-
 /** Replaces the text between the markers; returns the input untouched when the markers are missing. */
 function badges_inject(string $readme, string $block): string
 {
@@ -98,7 +93,6 @@ function badges_block(): string
         '[![CI](https://github.com/EverRest/watcher/actions/workflows/ci.yml/badge.svg)](https://github.com/EverRest/watcher/actions/workflows/ci.yml)',
         '[![Last released version](https://img.shields.io/github/v/release/EverRest/watcher?label=last%20successful%20release)](https://github.com/EverRest/watcher/releases)',
         '![PHP](docs/badges/php.svg)',
-        '![Coverage](docs/badges/coverage.svg)',
         '![License](docs/badges/license.svg)',
     ]);
 }
@@ -120,18 +114,6 @@ function badges_run(string $root): void
     $dir = "{$root}/docs/badges";
     badges_write("{$dir}/php.svg", badges_svg('php', badges_php($composer), '#777bb4'));
     badges_write("{$dir}/license.svg", badges_svg('license', badges_license($composer), '#9f9f9f'));
-
-    foreach (['cobertura', 'clover'] as $report) {
-        $xml = @file_get_contents("{$root}/build/coverage/{$report}.xml");
-        $pct = $xml === false ? null : badges_coverage($xml);
-        if ($pct !== null) {
-            badges_write("{$dir}/coverage.svg", badges_svg('coverage', $pct . '%', badges_coverage_color($pct)));
-            break;
-        }
-    }
-    if (! is_file("{$dir}/coverage.svg")) {
-        badges_write("{$dir}/coverage.svg", badges_svg('coverage', 'n/a', '#9f9f9f'));
-    }
 
     $readmePath = "{$root}/README.md";
     $readme = (string) @file_get_contents($readmePath);

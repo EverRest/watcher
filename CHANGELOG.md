@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed (tooling)
+- The committed `coverage` badge (`docs/badges/coverage.svg`) is gone too: it said 96.5% while the code had grown by thousands of lines. CI still fails the build below the 92% floor and shows the number in the job summary.
 - The committed `version` badge (`docs/badges/version.svg`) is gone from the README and from `scripts/badges.php`: it went stale (0.1.2 after 0.3.1). The version shown is the live "last successful release" badge, which reads the latest GitHub Release.
 
 ## 0.3.1 — 2026-10-26 — Hygiene, check and status read the master switch first; release guards; prompt-injection tests

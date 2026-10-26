@@ -34,10 +34,10 @@ final class BadgesTest extends TestCase
         self::assertNull(badges_coverage('<nothing/>'));
     }
 
-    public function testColorThresholds(): void
+    public function testThereIsNoCommittedCoverageBadge(): void
     {
-        self::assertSame('#4c1', badges_coverage_color(80.0));
-        self::assertSame('#e05d44', badges_coverage_color(10.0));
+        self::assertStringNotContainsString('coverage.svg', badges_block());
+        self::assertFalse(function_exists('badges_coverage_color'), 'a committed coverage number goes stale: 96.5% two days and thousands of lines ago; CI enforces the floor');
     }
 
     public function testInjectReplacesOnlyBetweenMarkers(): void
