@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed (F6: robust against bad remote and stored data)
+- Loki and Datadog replies: a value the reader needs (a timestamp, a count, a point) is used only when its type and range are usable. Before, `(int) null` gave a 1970 log timestamp silently, and a huge or nested count was cast with a warning or read as 0. An unusable entry is skipped and counted as `malformed_entries` in `read_quality` of the run summary. A reply where more than half of its entries are unusable fails the read as `SourceUnavailable('malformed')`. A reply whose `data` is not a list fails the same way.
+- A stored baseline snapshot with a group value that is not a count (text, a list, a negative or huge number) is treated as missing, as on a first run, and counted in `state_unreadable`. It used to abort the run with a `TypeError` in the baseline arithmetic. A corrupt previous snapshot is treated the same way before any other reader sees it.
+- `Retry-After` and rate-limit hints are capped before they are cast: `1e400`, a 23-digit number or an integer hint beyond int range gave a warning and a zero wait.
+- A `Content-Length` header is read as digits only and never cast as is; an oversized one trips the response cap without a warning.
+- A stored event-ledger point with a digit run longer than 15 places is skipped instead of cast with a warning.
+- A JSON log line with a `severity` beyond int range is read as its text level instead of cast with a warning.
+- Config: a model name that is not a string and a Datadog `site` that is not a host name are refused as `InvalidConfig`. Both were already refused; the change pins that with tests.
+
 ### Documentation (security: F5, Redis over TLS)
 - Checked, no code change: both Redis clients verify the server certificate by default. phpredis (`tls://` host) and Predis (`scheme` `tls`) refuse a self-signed certificate against Redis 8 with the system trust store (`certificate verify failed`); the password is never sent to such a server. A private CA is trusted through PHP's `openssl.cafile`; both clients connect with it. No `state.redis.tls.*` key was added, because nothing was missing.
 - `docs/operations.md` ("Redis requirements"): use a `tls://` host outside a trusted network. On a plain TCP connection `AUTH` (the password and the ACL username) travels in clear text.

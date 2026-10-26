@@ -18,6 +18,9 @@ final class Retry
     private const ATTEMPTS = 3;
     private const MAX_WAIT = 30;
 
+    /** A remote wait asked for above this is capped here, which is above any budget: the caller gives up instead of sleeping. */
+    private const MAX_ASK = 1_000_000_000;
+
     /** @var Closure(int): void */
     private readonly Closure $sleeper;
     private int $waited = 0;
@@ -97,7 +100,7 @@ final class Retry
             }
             $asked = $hint === null ? null : $hint($response);
             $header = $response->getHeaderLine('Retry-After');
-            $seconds = max(1, (int) ceil($asked ?? $this->retryAfterSeconds($header) ?? 1));
+            $seconds = max(1, (int) min(ceil($asked ?? $this->retryAfterSeconds($header) ?? 1), self::MAX_ASK));
             if ($this->waited + $seconds > $this->budget) {
                 return $response;
             }
@@ -132,7 +135,7 @@ final class Retry
             return null;
         }
         if (is_numeric($header)) {
-            return max(1, (int) ceil((float) $header));
+            return max(1, (int) min(ceil((float) $header), self::MAX_ASK));
         }
         try {
             $at = new \DateTimeImmutable($header);

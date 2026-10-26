@@ -169,7 +169,8 @@ final class EventLedger
         $out = [];
         foreach (explode(';', $packed) as $p) {
             $pair = explode(':', $p);
-            if (count($pair) === 2 && ctype_digit($pair[0]) && ctype_digit($pair[1])) {
+            // Digits of at most 15 places: a longer run would not cast to int without a warning (stored data is not trusted to be small).
+            if (count($pair) === 2 && ctype_digit($pair[0]) && ctype_digit($pair[1]) && strlen($pair[0]) <= 15 && strlen($pair[1]) <= 15) {
                 $out[] = [(int) $pair[0], (int) $pair[1]];
             }
         }

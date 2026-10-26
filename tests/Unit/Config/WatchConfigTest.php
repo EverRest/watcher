@@ -318,4 +318,46 @@ final class WatchConfigTest extends TestCase
     {
         self::assertInstanceOf(\InvalidArgumentException::class, new InvalidConfig('x'));
     }
+
+    /** @return array<string, array{string, mixed}> */
+    public static function hostileModelNames(): array
+    {
+        $out = [];
+        foreach (\Watcher\Tests\Fakes\HostileValues::all() as $label => [$value]) {
+            foreach (['triage', 'analyze', 'escalate'] as $step) {
+                $out[$step . ' ' . $label] = [$step, $value];
+            }
+        }
+
+        return $out;
+    }
+
+    /** A model name or Datadog site that is not a plain string must be refused as InvalidConfig, never a TypeError or a warning. */
+    #[DataProvider('hostileModelNames')]
+    public function testHostileModelNameIsInvalidConfig(string $step, mixed $value): void
+    {
+        $c = self::valid();
+        $c['analysis']['models'][$step] = $value;
+
+        $this->expectException(InvalidConfig::class);
+
+        WatchConfig::fromArray($c);
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function hostileSites(): array
+    {
+        return ['array' => [['x']], 'number' => [5], 'path' => ['evil.example/x'], 'userinfo' => ['evil.example@x'], 'space' => ['datadoghq eu']];
+    }
+
+    #[DataProvider('hostileSites')]
+    public function testDatadogSiteIsAHostNameOrInvalidConfig(mixed $site): void
+    {
+        $c = self::valid();
+        $c['source'] = ['driver' => 'datadog', 'datadog' => ['site' => $site, 'api_key' => 'a', 'app_key' => 'b']];
+
+        $this->expectException(InvalidConfig::class);
+
+        WatchConfig::fromArray($c);
+    }
 }

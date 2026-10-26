@@ -252,6 +252,56 @@ final class RunSummaryTest extends TestCase
         self::assertStringContainsString('"state_unreadable":3', (new JsonSummary())->render($d));
     }
 
+    /** Every stored snapshot with its group counts replaced by text: a baseline a bad write left behind. */
+    private static function withCorruptSnapshots(StateStore $inner): StateStore
+    {
+        return new class ($inner) implements StateStore {
+            public function __construct(private readonly StateStore $inner)
+            {
+            }
+
+            public function get(string $key): ?array
+            {
+                $doc = $this->inner->get($key);
+                if ($doc !== null && is_array($doc['groups'] ?? null)) {
+                    $doc['groups'] = array_map(static fn (): string => 'abc', $doc['groups']);
+                }
+
+                return $doc;
+            }
+
+            public function put(string $key, array $value, int $ttlSeconds): void
+            {
+                $this->inner->put($key, $value, $ttlSeconds);
+            }
+
+            public function acquire(string $key, string $owner, int $ttlSeconds): bool
+            {
+                return $this->inner->acquire($key, $owner, $ttlSeconds);
+            }
+
+            public function release(string $key, string $owner): void
+            {
+                $this->inner->release($key, $owner);
+            }
+
+            public function increment(string $key, float $by, int $ttlSeconds): float
+            {
+                return $this->inner->increment($key, $by, $ttlSeconds);
+            }
+        };
+    }
+
+    public function testCorruptBaselineSnapshotsAreTreatedAsMissingAndCountedNotThrown(): void
+    {
+        $h = self::ready();
+        $h->state = self::withCorruptSnapshots($h->state);
+
+        $d = self::data($h->watcher(self::source())->run());
+
+        self::assertGreaterThan(0, $d->stats?->stateUnreadable);
+    }
+
     public function testADryRunStillReportsTheUnreadableCountOfTheRealStore(): void
     {
         $h = self::ready();

@@ -14,6 +14,7 @@ final class JsonSummary
     /** The names under `read_quality`: fixed, each always present (0 when the source did not report it). */
     public const READ_QUALITY = [
         'unknown_levels', 'orphan_trace_lines', 'message_tails_dropped', 'truncated_lines', 'truncated_structured', 'regex_failures', 'pages_shrunk',
+        'malformed_entries',
     ];
 
     private const PACKAGE = 'everrest/watcher';
