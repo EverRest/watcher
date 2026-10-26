@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Changed (**behaviour change**): the master switch now short-circuits before validation. `run` (`bin/watcher`, `watcher:run`, `Watcher::fromConfig`) reads only the raw `enabled` key first; when it is not the boolean `true` the run returns `disabled` (exit 0) without validating the rest of the config and without building the state store, source, analyzer or notifier, so a broken or half-filled config (e.g. no `source.loki.url`) no longer exits 2 with the switch off. The Disabled summary carries `service` and `environment` when they look like names. Fail-safe parsing: only `true` is on; missing, `null`, `false`, `0`/`1`, strings (`'0'`, `'false'`, `'yes'`, `''`) and anything else is off (before, a non-boolean was an `invalid config` error; `check` still reports it). `--dry-run`/`--estimate` with the switch off are `disabled` too (as before). The same "build nothing" rule applies to `Factory::doctor` / `watcher check`, `Hygiene::fromConfig` / `watcher hygiene`, `FleetRunner::fromConfig` when the fleet switch is off, and MCP inspect tools (no configured store open; `watcher_dry_run` not offered). `status` and `state:get` still validate the whole config; `status` does not read the store when disabled. **Upgrade note:** a config that relied on `Watcher::fromConfig()` throwing for an invalid config while `enabled` was unset/false no longer throws; set `enabled => true` to validate.
+
 `VERSION` is 0.2.0 (minor bump on this branch). The bullets below are not yet promoted to a release heading; they are grouped by feature.
 
 ### Fixed (protected groups keep their level)

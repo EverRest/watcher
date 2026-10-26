@@ -120,6 +120,17 @@ final class WatchConfig implements \JsonSerializable
     }
 
     /**
+     * The master switch, read from the raw array before anything is validated: only the boolean `true` turns the package on.
+     * Missing, null, a string ('0', 'false', 'yes') or any other value is off (fail-safe); fromArray() still rejects a non-boolean.
+     *
+     * @param array<array-key, mixed> $config
+     */
+    public static function masterSwitchOff(#[\SensitiveParameter] array $config): bool
+    {
+        return ($config['enabled'] ?? false) !== true;
+    }
+
+    /**
      * Single-service config must not carry a sibling `fleet` block (Laravel keeps both under `watcher`).
      *
      * @param array<string, mixed> $config

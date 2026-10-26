@@ -10,7 +10,8 @@ use Watcher\Mcp\Tool;
 /** FR-034: the hygiene report of spec 006 when there is one; until 006 exists the source is empty and the answer is `hygiene_not_enabled`. */
 final class HygieneTool implements Tool
 {
-    public function __construct(private readonly HygieneSource $source)
+    /** @param bool $enabled false: the master switch is off, nothing is read (FR-007) */
+    public function __construct(private readonly HygieneSource $source, private readonly bool $enabled = true)
     {
     }
 
@@ -41,6 +42,9 @@ final class HygieneTool implements Tool
 
     public function call(array $args): array
     {
+        if (!$this->enabled) {
+            return ['available' => false, 'reason' => 'disabled'];
+        }
         $report = $this->source->latest();
 
         return $report === null ? ['available' => false, 'reason' => 'hygiene_not_enabled'] : ['available' => true, 'report' => $report];
