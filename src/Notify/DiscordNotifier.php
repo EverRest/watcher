@@ -7,6 +7,7 @@ namespace Watcher\Notify;
 use Closure;
 use GuzzleHttp\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
+use Watcher\Source\ResponseLimit;
 use Watcher\Source\Retry;
 use Watcher\Source\SourceUnavailable;
 
@@ -47,7 +48,7 @@ final class DiscordNotifier implements Notifier
         $body = ['content' => $text, 'allowed_mentions' => ['parse' => []], 'flags' => self::SUPPRESS_EMBEDS];
         try {
             $response = $retry->sendRateLimited(
-                fn (): ResponseInterface => $this->http->request('POST', $to->webhook(), ['json' => $body, 'http_errors' => false, 'allow_redirects' => false]),
+                fn (): ResponseInterface => $this->http->request('POST', $to->webhook(), ['json' => $body, 'http_errors' => false, 'allow_redirects' => false] + ResponseLimit::options(new \ArrayObject(), Notifier::MAX_RESPONSE_BYTES)),
                 'discord',
                 static function (ResponseInterface $r): ?float {
                     $after = json_decode((string) $r->getBody(), true)['retry_after'] ?? null;

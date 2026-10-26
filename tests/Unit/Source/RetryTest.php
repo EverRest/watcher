@@ -43,6 +43,24 @@ final class RetryTest extends TestCase
         };
     }
 
+    public function testACutReplyIsNotRequestedAgain(): void
+    {
+        $retry = $this->retry();
+        $tripped = new \ArrayObject(['large' => true]); // the sink refused the reply: the transfer ended with a Guzzle exception
+        try {
+            $retry->send(function (): ResponseInterface {
+                ++$this->calls;
+
+                throw new \GuzzleHttp\Exception\RequestException('cURL error 23', new Request('GET', 'http://x/'));
+            }, 'test', true, $tripped);
+            self::fail('expected SourceUnavailable');
+        } catch (SourceUnavailable $e) {
+            self::assertTrue($e->tooLarge);
+        }
+        self::assertSame(1, $this->calls);
+        self::assertSame([], $this->slept);
+    }
+
     public function testNetworkFailureDoesNotChainTheGuzzleExceptionWhichCarriesTheUrl(): void
     {
         $url = 'https://api.telegram.org/botSECRET-TOKEN/sendMessage';

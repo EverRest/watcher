@@ -517,7 +517,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
             'http_errors' => false,
             'allow_redirects' => false, // X-Scope-OrgID would follow a redirect; a 3xx is an error here
             'verify' => true,
-        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'loki', true);
+        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'loki', true, $tripped);
         } catch (SourceUnavailable $e) {
             throw isset($tripped['large']) ? new SourceUnavailable('loki response too large', true) : $e;
         }

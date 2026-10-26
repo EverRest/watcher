@@ -88,8 +88,9 @@ final class HttpSink implements EventSink, TimeBoundedSink
                 $headers[$this->authHeader] = trim($this->authScheme . ' ' . $token);
             }
             $attempts = 0;
+            $tripped = new \ArrayObject();
             try {
-                $response = $retry->send(function () use ($headers, $body, $start, $left, &$attempts, &$stop) {
+                $response = $retry->send(function () use ($headers, $body, $start, $left, $tripped, &$attempts, &$stop) {
                     $timeout = min($this->timeout, $left);
                     if ($attempts++ > 0) {
                         $spent = ($this->now)() - $start;
@@ -105,8 +106,8 @@ final class HttpSink implements EventSink, TimeBoundedSink
                         'timeout' => $timeout,
                         'allow_redirects' => false,
                         'http_errors' => false,
-                    ] + ResponseLimit::options(new \ArrayObject()));
-                }, 'observe http', false);
+                    ] + ResponseLimit::options($tripped));
+                }, 'observe http', false, $tripped);
             } catch (\Throwable) {
                 throw new SinkFailed('http request failed'); // not chained: the cause carries the URL
             }
