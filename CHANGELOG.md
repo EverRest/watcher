@@ -5,6 +5,10 @@
 **BREAKING / UPGRADE**
 - Removed: the `analysis.client = sdk` path. `SdkMessagesClient` and the `anthropic-ai/sdk` dev dependency and suggestion are gone, together with the `php-http/discovery` floor and its `allow-plugins` entry (nothing else used them). `analysis.client` is kept for compatibility but accepts only `http` (the default); `sdk` fails config load with `analysis.client: the SDK client was removed; use analysis.client=http (the default)`. Upgrade: delete `analysis.client = sdk` (or set `http`); nothing to install. `Factory::analyzerRequestOptions()` was removed with it.
 
+### Fixed (notifier response cap)
+- The Slack, Discord and Telegram notifiers read the reply through `ResponseLimit` (the streaming cap every backend uses) at 64 KB (`Notifier::MAX_RESPONSE_BYTES`). A hostile or misconfigured endpoint can no longer make a delivery read an unbounded body. A declared oversize `Content-Length` and a chunked oversize body fail with `<driver> delivery failed: transport error`, with no body text. A slow reply under the cap is still bounded only by the 30 s timeout.
+- The streaming cap now cuts a reply at once, for the notifiers and for every backend (`CappedSink` refuses the write over the cap, so curl ends the transfer instead of reading on to the end). Before, a trickling oversize reply from Loki, Datadog, Kubernetes, OpenAPI, Anthropic or the HTTP sink ran to the 30 s timeout first. `Retry` does not repeat a reply the cap cut. A body that a non-curl transport truncates is refused by its reported size.
+
 ## 0.2.1 — 2026-10-26 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
 
 Product release label **v0.2.1** (root VERSION). This release contains everything listed below. Do not install `v0.2.0`: that tag was created on an earlier commit and lacks the kill switch, the API context, the hygiene fixes and the notes below.

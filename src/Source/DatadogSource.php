@@ -416,7 +416,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             'http_errors' => false,
             'allow_redirects' => false, // DD-API-KEY would follow a redirect; a 3xx is an error here
             'verify' => true,
-        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'datadog', false);
+        ] + ResponseLimit::options($tripped, $this->maxResponseBytes)), 'datadog', false, $tripped);
         } catch (SourceUnavailable $e) {
             throw isset($tripped['large']) ? new SourceUnavailable('datadog response too large', true) : $e;
         }
