@@ -110,6 +110,9 @@ final class WatchRules
                 $g->previousCount,
                 $g->status,
                 $names,
+                origin: $g->origin,
+                pods: $g->pods,
+                workloadKind: $g->workloadKind,
             );
         }
 

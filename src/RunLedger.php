@@ -20,6 +20,7 @@ use Watcher\Reduce\EventCollector;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\RunStats;
 use Watcher\Operate\RunSummaryData;
+use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Schedule\Window;
 use Watcher\State\BufferedStateStore;
@@ -229,7 +230,7 @@ final class RunLedger
         $key = Watcher::windowKey($window->end);
         $this->state->put(
             Keys::snapshot($this->config->stateKey, $key),
-            ['groups' => $counts, ...($this->config->on('level_anomaly') ? ['totals' => $totals] : []), 'deploy' => $this->deployInfo?->toSnapshot(), 'start' => Watcher::windowKey($window->start)],
+            ['groups' => $counts, 'fpv' => Fingerprinter::FPV, ...($this->config->on('level_anomaly') ? ['totals' => $totals] : []), 'deploy' => $this->deployInfo?->toSnapshot(), 'start' => Watcher::windowKey($window->start)],
             $this->config->state['retention'],
         );
         $this->state->put(Keys::lastSnapshot($this->config->stateKey), ['end' => $key], $this->config->state['retention']);
@@ -261,7 +262,7 @@ final class RunLedger
         }
         try {
             if ($this->window !== null && in_array($outcome, [RunOutcome::Reported, RunOutcome::Quiet, RunOutcome::Baselined, RunOutcome::Failed], true)) {
-                $this->heartbeat->recordRun($outcome, $this->window->start, $this->window->end, $this->startedAt, $this->stats->costUsd, $this->code);
+                $this->heartbeat->recordRun($outcome, $this->window->start, $this->window->end, $this->startedAt, $this->stats->costUsd, $this->code, $this->stats->events['status'] ?? null);
             } else {
                 $this->heartbeat->recordSkip($outcome);
             }

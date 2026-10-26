@@ -24,10 +24,18 @@ final class Keys
     public const ZERO = 'zero';
     public const DELIVERED = 'sent';
     public const FAILNOTICE = 'failn';
+    public const EVENTS = 'evt';
     public const OBSRUNS = 'obsruns';
     public const OBSFAIL = 'obsfail';
     public const OBSDELIV = 'obsdeliv';
     public const OBSSEEN = 'obsseen';
+    public const HYGIENE = 'hyg';
+    public const LEDGER = 'ledger';
+    public const HIGH_WATER = 'hw';
+    public const KNOWN = 'known';
+    public const DRAFT = 'draft';
+    public const REPORTSENT = 'rsent';
+    public const RUNS = 'runs';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -136,6 +144,32 @@ final class Keys
         return self::join(self::DELIVERED, $service, $windowEnd);
     }
 
+    public static function routeDelivered(string $service, string $windowEnd, int $routeIndex): string
+    {
+        return self::join(self::DELIVERED, $service, $windowEnd, 'r' . $routeIndex);
+    }
+
+    public static function known(string $service, string $fingerprint): string
+    {
+        return self::join(self::KNOWN, $service, $fingerprint);
+    }
+
+    public static function draft(string $service, string $windowEnd, string $fingerprint): string
+    {
+        return self::join(self::DRAFT, $service, $windowEnd, $fingerprint);
+    }
+
+    public static function reportSent(string $service, string $isoWeek): string
+    {
+        return self::join(self::REPORTSENT, $service, $isoWeek);
+    }
+
+    /** Parts of a digest already posted when a later part failed (same window, same TTL as delivered). */
+    public static function deliveredParts(string $service, string $windowEnd): string
+    {
+        return self::join(self::DELIVERED, $service, $windowEnd, 'parts');
+    }
+
     /** Failure notices sent for one window (a counter, at most FAIL_NOTICES_PER_WINDOW are sent). */
     public static function failNotices(string $service, string $windowEnd): string
     {
@@ -151,6 +185,12 @@ final class Keys
     public static function weekSent(string $service, string $isoWeek): string
     {
         return self::join(self::WEEKSENT, $service, $isoWeek);
+    }
+
+    /** Pod-event ledger of one service (spec 008): masked fingerprints, counts and times, expiring. */
+    public static function events(string $service): string
+    {
+        return self::join(self::EVENTS, $service);
     }
 
     /** Observability counters (spec 013): runs per outcome. Expire with state.retention like every other record (default of ttl()). */
@@ -175,14 +215,67 @@ final class Keys
         return self::join(self::OBSSEEN, $service, $sink);
     }
 
+    /** Aggregates of one hygiene pass for a service-local date (spec 006, data-model.md). */
+    public static function hygieneDay(string $service, string $date): string
+    {
+        return self::join(self::HYGIENE, 'day', $service, $date);
+    }
+
+    /** Call-site registry: first/last seen, last count and last report time per site. */
+    public static function hygieneSites(string $service): string
+    {
+        return self::join(self::HYGIENE, 'sites', $service);
+    }
+
+    /** Declined rule proposals: id => ISO time until which they are not proposed again. */
+    public static function hygieneDeclined(string $service): string
+    {
+        return self::join(self::HYGIENE, 'declined', $service);
+    }
+
+    /** One hygiene pass at a time per service: the registry and the day record are read-modify-write. */
+    public static function hygieneLock(string $service): string
+    {
+        return self::join(self::HYGIENE, 'lock', $service);
+    }
+
+    /** When each non-privacy report was last sent: name => ISO time. */
+    public static function hygieneSent(string $service): string
+    {
+        return self::join(self::HYGIENE, 'sent', $service);
+    }
+
+    /** Model calls and tokens of one service-local date, by step and family (written only when hygiene is enabled). */
+    public static function ledger(string $service, string $date): string
+    {
+        return self::join(self::LEDGER, $service, $date);
+    }
+
+    /** Number of billed calls whose ledger write failed on a service-local date (so the cost report can say it is understated). */
+    public static function ledgerUnbooked(string $service, string $date): string
+    {
+        return self::join(self::LEDGER, 'unbooked', $service, $date);
+    }
+
+    public static function runsToday(string $service, string $localDay): string
+    {
+        return self::join(self::RUNS, $service, $localDay);
+    }
+
+    public static function highWater(string $service): string
+    {
+        return self::join(self::HIGH_WATER, $service);
+    }
+
     /** @param string $kind one of the kind constants */
     public static function ttl(string $kind, int $retention, int $lockTtl): int
     {
         return match ($kind) {
-            self::SPEND, self::ALERT, self::EXHAUSTED => self::SPEND_TTL,
+            self::SPEND, self::ALERT, self::EXHAUSTED, self::RUNS => self::SPEND_TTL,
             self::LOCK => $lockTtl,
-            self::HEARTBEAT, self::TRIGGER => self::HEARTBEAT_TTL_FACTOR * $retention,
-            self::WEEK, self::WEEKSENT => self::WEEK_TTL,
+            self::HEARTBEAT, self::TRIGGER, self::HIGH_WATER => self::HEARTBEAT_TTL_FACTOR * $retention,
+            self::WEEK, self::WEEKSENT, self::REPORTSENT => self::WEEK_TTL,
+            self::KNOWN => $retention,
             default => $retention,
         };
     }

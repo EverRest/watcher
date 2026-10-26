@@ -49,17 +49,32 @@ final class HttpTargetSharedClassifierTest extends TestCase
         HttpTarget::parse($url, [], false, $allowPrivate, null);
     }
 
-    public function testTheStreamingResponseCapExistsOnEveryRequest(): void
+    public function testTheStreamingResponseCapAbortsAnOversizedBodyAtTheCapInOneAttempt(): void
     {
-        /** @var array<string, mixed> $options */
-        $options = ResponseLimit::options(new \ArrayObject());
-        if (!array_key_exists('sink', $options)) {
-            self::markTestSkipped('characterisation: ResponseLimit::options has no streaming sink yet (a chunked or gzip body is only time-bounded)');
+        /** @var \ArrayObject<string, bool> $tripped */
+        $tripped = new \ArrayObject();
+        $attempts = 0;
+        $written = 0;
+
+        try {
+            (new \Watcher\Source\Retry(static function (int $s): void {
+            }, 30))->send(function () use (&$attempts, &$written, $tripped): \Psr\Http\Message\ResponseInterface {
+                ++$attempts;
+                $sink = ResponseLimit::options($tripped, 1024)['sink']; // built inside the retry closure, so a retry starts a fresh count
+                for ($i = 0; $i < 1000; ++$i) { // 512 KB offered in 512-byte chunks, as a chunked reply without Content-Length would
+                    $sink->write(str_repeat('x', 512));
+                    $written += 512;
+                }
+
+                return new Response(200);
+            }, 'target', true);
+            self::fail('expected the abort');
+        } catch (\Watcher\Source\SourceUnavailable $e) {
+            self::assertTrue($e->tooLarge, 'named as the response cap');
         }
 
-        // With the sink in place a body over the cap must abort the transfer, not buffer it.
-        self::assertNotNull($options['sink']);
-        $response = new Response(200, [], str_repeat('x', 16));
-        self::assertSame(16, $response->getBody()->getSize());
+        self::assertSame(1, $attempts, 'the abort is not retried');
+        self::assertLessThanOrEqual(1024, $written, 'the write that crossed the cap is the last one: the body is not read to the end');
+        self::assertTrue($tripped['large']);
     }
 }

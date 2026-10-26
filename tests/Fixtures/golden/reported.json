@@ -42,6 +42,7 @@
                         "tokensCached": 0,
                         "costUsd": 0.0108,
                         "durationMs": 0,
+                        "events": null,
                         "pages": null
                     }
                 },
@@ -154,6 +155,10 @@
             "run:svc:2026-10-09T06%3A00%3A00Z"
         ],
         [
+            "put",
+            "hw:svc"
+        ],
+        [
             "release",
             "lock:svc:2026-10-09T06%3A00%3A00Z"
         ],
@@ -175,6 +180,7 @@
             "groups": {
                 "3ba2fceef742": 5
             },
+            "fpv": 1,
             "totals": {
                 "error": 5
             },
@@ -192,6 +198,11 @@
             "usage": null,
             "startedAt": "2026-10-08T06:00:00+00:00",
             "finishedAt": "2026-10-08T06:00:00+00:00"
+        },
+        "hw:svc": {
+            "v": 1,
+            "end": "2026-10-09T06:00:00+00:00",
+            "run": "2026-10-09T06:00:00Z"
         },
         "hb:svc": {
             "v": 1,
@@ -268,6 +279,7 @@
                 "3ba2fceef742": 5,
                 "ed1c1517d685": 3
             },
+            "fpv": 1,
             "totals": {
                 "error": 8
             },
@@ -302,6 +314,7 @@
         "snap:svc:2026-10-08T06%3A00%3A00Z": 2505600,
         "snap:svc:last": 2592000,
         "run:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "hw:svc": 7776000,
         "hb:svc": 7776000,
         "hbweek:svc:2026-W41:baselined": 1123200,
         "spend:svc:2026-10-09:usd": 172800,

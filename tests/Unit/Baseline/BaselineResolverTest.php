@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
 use Watcher\Baseline\BaselineResolver;
+use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\GroupStatus;
 use Watcher\Schedule\RunGate;
 use Watcher\Schedule\Window;
@@ -42,14 +43,14 @@ final class BaselineResolverTest extends TestCase
         ];
         $zone = new DateTimeZone($tz);
 
-        return new BaselineResolver($this->state, new RunGate($runAt, $zone), 'svc', $baseline, $zone, 3.0);
+        return new BaselineResolver($this->state, RunGate::oncePerDay($runAt, $zone), 'svc', $baseline, $zone, 3.0);
     }
 
     /** @param array<string, int> $groups */
     private function snap(string $end, array $groups, ?string $start = 'auto'): void
     {
         $e = new DateTimeImmutable($end, new DateTimeZone('UTC'));
-        $doc = ['groups' => $groups, 'totals' => []];
+        $doc = ['groups' => $groups, 'totals' => [], 'fpv' => Fingerprinter::FPV];
         if ($start === 'auto') {
             $doc['start'] = $e->modify('-24 hours')->format('Y-m-d\TH:i:s\Z');
         } elseif ($start !== null) {
@@ -77,7 +78,7 @@ final class BaselineResolverTest extends TestCase
 
     public function testPreviousModeReproducesTodaysNumbers(): void
     {
-        $prev = ['groups' => ['a' => 10]];
+        $prev = ['groups' => ['a' => 10], 'fpv' => Fingerprinter::FPV];
         $c = $this->resolver([])->resolve(self::window(), ['a', 'b'], $prev, new DateTimeImmutable('2026-10-27 06:00 UTC'));
 
         self::assertFalse($c->isBaseline());
@@ -103,7 +104,7 @@ final class BaselineResolverTest extends TestCase
     public function testScalesToWindowLength(): void
     {
         // yesterday's 24 h window had 24 events; today's window is 12 h long
-        $prev = ['groups' => ['a' => 24], 'start' => '2026-10-26T06:00:00Z'];
+        $prev = ['groups' => ['a' => 24], 'start' => '2026-10-26T06:00:00Z', 'fpv' => Fingerprinter::FPV];
         $c = $this->resolver([])->resolve(self::window('2026-10-28 06:00', 'UTC', 'PT12H'), ['a'], $prev, new DateTimeImmutable('2026-10-27 06:00 UTC'));
 
         self::assertSame(12, $c->previousFor('a'));
@@ -198,7 +199,7 @@ final class BaselineResolverTest extends TestCase
     public function testWeekdayWithTwoSnapshotsFallsBackToPrevious(): void
     {
         $this->weekdays([10, 10]);
-        $prev = ['groups' => ['a' => 7]];
+        $prev = ['groups' => ['a' => 7], 'fpv' => Fingerprinter::FPV];
         $c = $this->resolver(['mode' => 'weekday', 'windows' => 4])->resolve(self::window(), ['a'], $prev, new DateTimeImmutable('2026-10-27 06:00 UTC'));
 
         self::assertSame('previous', $c->usedMode);
@@ -233,6 +234,19 @@ final class BaselineResolverTest extends TestCase
         $c = $this->resolver(['mode' => 'rolling', 'windows' => 7, 'since' => '2026-10-25'])->resolve(self::window(), ['a'], null, null);
 
         self::assertCount(3, $c->ends); // ends 27, 26, 25 (local date of the end)
+        self::assertSame(4, $c->previousFor('a'));
+    }
+
+    public function testRollingIgnoresSnapshotsWithStaleFpVersion(): void
+    {
+        $end = (new DateTimeImmutable('2026-10-27 06:00', new DateTimeZone('UTC')));
+        $this->state->put(Keys::snapshot('svc', $end->format('Y-m-d\TH:i:s\Z')), ['groups' => ['a' => 99], 'totals' => []], 86400 * 60);
+        $this->days([4, 4, 4, 4, 4, 4]);
+
+        $c = $this->resolver(['mode' => 'rolling'])->resolve(self::window(), ['a'], null, null);
+
+        self::assertSame('rolling', $c->usedMode);
+        self::assertCount(6, $c->ends);
         self::assertSame(4, $c->previousFor('a'));
     }
 

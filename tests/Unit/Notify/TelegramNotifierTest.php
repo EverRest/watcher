@@ -13,6 +13,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Watcher\Notify\DeliveryFailed;
+use Watcher\Notify\DeliveryProgress;
 use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\TelegramNotifier;
@@ -147,6 +148,32 @@ final class TelegramNotifierTest extends TestCase
             self::assertSame('telegram delivery failed: HTTP 429 at part 2 of 2', $e->getMessage());
             self::assertSame([2], $this->slept);
         }
+    }
+
+    public function testRetryAfterPartialDeliverySkipsAcceptedParts(): void
+    {
+        $saved = 0;
+        $n = $this->notifier([self::fixture('ok'), self::fixture('400', 400), self::fixture('ok')]);
+        $base = self::msg(str_repeat('a', 3000), str_repeat('b', 3000));
+        $message = new Message($base->text, $base->sections, new DeliveryProgress(0, function (int $p) use (&$saved): void {
+            $saved = $p;
+        }));
+
+        try {
+            $n->send($message, self::dest());
+            self::fail('expected DeliveryFailed');
+        } catch (DeliveryFailed $e) {
+            self::assertSame('telegram delivery failed: HTTP 400 at part 2 of 2', $e->getMessage());
+            self::assertSame(1, $saved);
+            self::assertCount(2, $this->history);
+        }
+
+        $this->history = [];
+        $resume = $this->notifier([self::fixture('ok')]);
+        $resume->send(new Message($base->text, $base->sections, new DeliveryProgress(1)), self::dest());
+
+        self::assertCount(1, $this->history);
+        self::assertStringStartsWith('(2/2) ', $this->body(0)['text']);
     }
 
     public function testServerErrorNotRetried(): void

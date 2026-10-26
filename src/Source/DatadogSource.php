@@ -122,7 +122,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                     continue; // never reaches the parser (A4-01)
                 }
                 $event = $this->event($raw);
-                if (!$this->wanted($event, $filter)) {
+                if ($event === null || !$this->wanted($event, $filter)) {
                     continue;
                 }
                 if ($kept >= $cap) {
@@ -214,7 +214,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                     continue;
                 }
                 $event = $this->event($raw);
-                if ($this->wanted($event, $filter)) {
+                if ($event !== null && $this->wanted($event, $filter)) {
                     $events[] = $event;
                 }
             }
@@ -278,10 +278,17 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     }
 
     /** @param array<mixed> $raw one item of `data` from events/search */
-    private function event(array $raw): LogEvent
+    private function event(array $raw): ?LogEvent
     {
         $attrs = is_array($raw['attributes'] ?? null) ? $raw['attributes'] : [];
-        $time = $this->time(is_string($attrs['timestamp'] ?? null) ? $attrs['timestamp'] : '') ?? $this->clock->now()->setTimezone(new DateTimeZone('UTC'));
+        $rawTs = is_string($attrs['timestamp'] ?? null) ? $attrs['timestamp'] : '';
+        $time = $this->time($rawTs);
+        if ($time === null) {
+            if ($rawTs !== '') {
+                return null;
+            }
+            $time = $this->clock->now()->setTimezone(new DateTimeZone('UTC'));
+        }
         $labels = [];
         foreach (is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [] as $tag) {
             if (is_string($tag) && str_contains($tag, ':')) {
