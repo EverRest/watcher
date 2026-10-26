@@ -143,6 +143,9 @@ final class Watcher
 
     private ?WindowKeys $keys = null;
 
+    /** @var array{gapFrom: ?DateTimeImmutable, gapTo: ?DateTimeImmutable, gapWindows: ?int, catchUpBatch: ?int}|null */
+    private ?array $scheduleMeta = null;
+
     /**
      * @param callable(string): void|null $out dry-run output (default: stdout); ignored for a real run
      */
@@ -255,36 +258,57 @@ final class Watcher
     {
         $c = $this->config;
         $now ??= $this->clock->now();
-        // Before any external call and before the lock: a trigger outside the run_at hour costs nothing (FR-002).
-        // A dry run previews the window the real run would analyse, whatever the hour.
         $gate = Factory::gate($c);
         if ($this->options->dryRun) {
-            $window = $gate->latest($now);
-        } else {
-            $pending = $gate->pending($now);
-            if ($pending === []) {
-                return new RunResult(RunOutcome::SkippedNotDue);
-            }
-            $todo = [];
-            foreach ($pending as $candidate) {
-                $probe = new WindowKeys($c->stateKey, $candidate, $c->state['retention'], $c->schedule['lock_ttl']);
-                try {
-                    if ($this->state->get($probe->run()) !== null || $this->state->get($probe->delivered()) !== null) {
-                        continue;
-                    }
-                } catch (Throwable) {
-                    // Cannot tell whether the window is done; attempt the run and let the lock path decide.
-                }
-                $todo[] = $candidate;
-            }
-            if ($todo === []) {
-                $this->ledger->started($pending[0]);
+            $this->scheduleMeta = null;
 
-                return new RunResult(RunOutcome::SkippedDone);
-            }
-            usort($todo, static fn (Window $a, Window $b): int => $a->end <=> $b->end);
-            $window = $todo[0];
+            return $this->runLockedAttempt($gate->latest($now), $now);
         }
+
+        $pending = $gate->pending($now);
+        if ($pending === []) {
+            return new RunResult(RunOutcome::SkippedNotDue);
+        }
+        if (($c->schedule['every'] ?? null) !== null) {
+            $pending = $gate->pending($now, $this->highWaterEnd());
+        }
+        $todo = [];
+        foreach ($pending as $candidate) {
+            $probe = new WindowKeys($c->stateKey, $candidate, $c->state['retention'], $c->schedule['lock_ttl']);
+            try {
+                if ($this->state->get($probe->run()) !== null || $this->state->get($probe->delivered()) !== null) {
+                    continue;
+                }
+            } catch (Throwable) {
+            }
+            $todo[] = $candidate;
+        }
+        if ($todo === []) {
+            $this->ledger->started($pending[0]);
+
+            return new RunResult(RunOutcome::SkippedDone);
+        }
+        usort($todo, static fn (Window $a, Window $b): int => $a->end <=> $b->end);
+
+        $last = null;
+        $batch = count($todo);
+        foreach ($todo as $index => $window) {
+            $this->scheduleMeta = $this->buildScheduleMeta($window, $batch, $index === 0);
+            $last = $this->runLockedAttempt($window, $now);
+            if ($index + 1 < $batch && $this->continueCatchUp($last)) {
+                $this->betweenCatchUpWindows($last);
+                continue;
+            }
+            break;
+        }
+        $this->scheduleMeta = null;
+
+        return $last;
+    }
+
+    private function runLockedAttempt(Window $window, DateTimeImmutable $now): RunResult
+    {
+        $c = $this->config;
         $this->ledger->started($window);
         $this->purge();
         $owner = bin2hex(random_bytes(8));
@@ -296,7 +320,6 @@ final class Watcher
         try {
             if ($this->options->dryRun) {
                 if (!$this->options->estimate && $this->dailyCapReached()) {
-                    // A dry run bills real calls and records nothing: with the cap spent it would be an unlimited free pass (A4-06).
                     return $this->fail('daily budget already reached; a dry run would bill model calls beyond the cap', 'budget_exhausted');
                 }
                 $this->announceDryRun($keys);
@@ -307,6 +330,9 @@ final class Watcher
             $this->lockKey = $lockKey;
             $this->lockOwner = $owner;
             $this->lockRenewedAt = $this->clock->now()->getTimestamp();
+            if (!$this->options->dryRun && $this->runsCapExceeded()) {
+                return $this->cappedRun($lockKey, $owner);
+            }
             $fatal = new FatalGuard(fn () => $this->state->release($lockKey, $owner), $this->hostLog, $c->service);
             $fatal->arm();
 
@@ -314,26 +340,134 @@ final class Watcher
         } catch (SourceUnavailable $e) {
             return $this->failWithNotice('source', $e->getMessage(), 'source_unavailable');
         } catch (Config\InvalidConfig $e) {
-            // A state directory the store refuses: the message names the setting only, so it is safe to show.
             return $this->failWithNotice('config', $e->getMessage(), 'invalid_config');
         } catch (AnalyzerFailed $e) {
             return $this->failWithNotice('analysis', $e->getMessage(), $e->refused ? 'analysis_refused' : 'analysis_failed');
         } catch (LockLost $e) {
-            return $this->fail($e->getMessage(), 'lock_lost'); // host log and exit code only: the new owner reports the window
+            return $this->fail($e->getMessage(), 'lock_lost');
         } catch (DeliveryFailed $e) {
-            // The channel that just failed cannot carry the news: host log and exit code only.
             return $this->fail($e->getMessage(), 'delivery_failed');
         } catch (Throwable $e) {
-            // State and unexpected faults: class name only, never a message or chain that might carry a secret.
             return $this->failWithNotice('run', 'internal error (' . $e::class . ')', 'internal_error');
         } finally {
             $fatal?->disarm();
             try {
                 $this->state->release($lockKey, $owner);
             } catch (Throwable) {
-                // The lock expires by TTL; nothing more to do.
             }
         }
+    }
+
+    private function continueCatchUp(RunResult $result): bool
+    {
+        return in_array($result->outcome, [RunOutcome::Reported, RunOutcome::Quiet, RunOutcome::Baselined], true);
+    }
+
+    private function betweenCatchUpWindows(RunResult $result): void
+    {
+        $this->ledger->finish($result->outcome, $this->notices(), $this->environment());
+        $this->ledger->reset();
+        $this->guard = new RunGuard($this->clock, min($this->config->schedule['run_deadline'], $this->fleetDeadline ?? PHP_INT_MAX));
+    }
+
+    /** @return array{gapFrom: ?DateTimeImmutable, gapTo: ?DateTimeImmutable, gapWindows: ?int, catchUpBatch: ?int} */
+    private function buildScheduleMeta(Window $window, int $batch, bool $first): array
+    {
+        $gap = $this->gapSpan($window);
+
+        return [
+            'gapFrom' => $gap['from'] ?? null,
+            'gapTo' => $gap['to'] ?? null,
+            'gapWindows' => ($this->config->schedule['every'] ?? null) === null ? null : ($gap['n'] ?? null),
+            'catchUpBatch' => $batch > 1 && $first ? $batch : null,
+        ];
+    }
+
+    private function highWaterEnd(): ?DateTimeImmutable
+    {
+        if ($this->options->dryRun) {
+            return null;
+        }
+        try {
+            $stored = $this->state->get(Keys::highWater($this->config->stateKey));
+        } catch (Throwable) {
+            return null;
+        }
+        if (!is_array($stored) || !is_string($stored['end'] ?? null)) {
+            return null;
+        }
+        try {
+            return new DateTimeImmutable($stored['end']);
+        } catch (\Exception) {
+            return null;
+        }
+    }
+
+    /** @return array{from: DateTimeImmutable, to: DateTimeImmutable, n: int}|null */
+    private function gapSpan(Window $window): ?array
+    {
+        if ($this->options->dryRun) {
+            return null;
+        }
+        try {
+            $stored = $this->state->get(Keys::highWater($this->config->stateKey));
+        } catch (Throwable) {
+            return null;
+        }
+        if (!is_array($stored) || !is_string($stored['end'] ?? null)) {
+            return null;
+        }
+        try {
+            $hw = new DateTimeImmutable($stored['end']);
+        } catch (\Exception) {
+            return null;
+        }
+        if ($hw >= $window->start) {
+            return null;
+        }
+        $period = max(1, (int) ($this->config->schedule['period_seconds'] ?? 3600));
+
+        return [
+            'from' => $hw,
+            'to' => $window->start,
+            'n' => max(1, (int) round(($window->start->getTimestamp() - $hw->getTimestamp()) / $period)),
+        ];
+    }
+
+    private function runsCapExceeded(): bool
+    {
+        $max = $this->config->analysis['max_runs_per_day'];
+        if ($max === null) {
+            return false;
+        }
+        $tz = new \DateTimeZone($this->config->schedule['timezone']);
+        $day = $this->clock->now()->setTimezone($tz)->format('Y-m-d');
+        $ttl = Keys::ttl(Keys::RUNS, $this->config->state['retention'], $this->config->schedule['lock_ttl']);
+
+        return (int) $this->state->increment(Keys::runsToday($this->config->stateKey, $day), 1, $ttl) > $max;
+    }
+
+    private function cappedRun(string $lockKey, string $owner): RunResult
+    {
+        $c = $this->config;
+        $max = (int) $c->analysis['max_runs_per_day'];
+        $tz = new \DateTimeZone($c->schedule['timezone']);
+        $until = $this->clock->now()->setTimezone($tz)->modify('tomorrow')->setTime(0, 0)->format('Y-m-d H:i');
+        if ($c->on('notice')) {
+            try {
+                $day = (new Spend($this->state, $this->clock, $tz, $c->stateKey))->day();
+                $this->noticeOnce(
+                    'capped:' . rawurlencode($c->stateKey) . ':' . $day,
+                    $this->notices()->runCapReached($c->service, $this->environment(), $max, $until, $c->schedule['timezone']),
+                    $this->noticeDestination(),
+                );
+            } catch (Throwable $e) {
+                $this->hostLog?->warning('run cap notice not delivered: ' . $this->notices()->describe($e), ['service' => $c->service]);
+            }
+        }
+        $this->state->release($lockKey, $owner);
+
+        return new RunResult(RunOutcome::Capped);
     }
 
     private function dailyCapReached(): bool
@@ -825,8 +959,9 @@ final class Watcher
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
         $checkpoint = new TriageCheckpoint($this->state, $key, $keys->end());
-        $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
-        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet);
+        $runBudget = $c->analysis['run_budget_usd'];
+        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet, is_numeric($runBudget) ? (float) $runBudget : null);
+        $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet, $reservation), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
         try {
             try {
                 $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
@@ -998,6 +1133,10 @@ final class Watcher
             draftsSkipped: $draftsSkipped,
             knownCount: $read->knownResult !== null ? $read->knownResult->knownCount : 0,
             knownGrownCount: $read->knownResult !== null ? $read->knownResult->knownGrownCount : 0,
+            gapFrom: $this->scheduleMeta['gapFrom'] ?? null,
+            gapTo: $this->scheduleMeta['gapTo'] ?? null,
+            gapWindows: $this->scheduleMeta['gapWindows'] ?? null,
+            catchUpBatch: $this->scheduleMeta['catchUpBatch'] ?? null,
         ), $c->analysis['confidence_threshold']);
     }
 
@@ -1127,8 +1266,18 @@ final class Watcher
     }
 
     /** Once per window; a delivery fault is logged, never fatal. */
+    private function gapNotice(string $key, string $endKey): void
+    {
+        $m = $this->scheduleMeta;
+        if ($m === null || $m['gapFrom'] === null || $m['gapTo'] === null || !$this->config->on('notice')) {
+            return;
+        }
+        $this->noticeOnce('gap:' . rawurlencode($key) . ':' . $endKey, self::plainNotice(DigestRenderer::formatGapLine($m['gapFrom'], $m['gapTo'], $m['gapWindows'])), $this->noticeDestination());
+    }
+
     private function blindNotice(?string $line, string $key, string $endKey): void
     {
+        $this->gapNotice($key, $endKey);
         if ($line === null || !$this->config->on('notice')) {
             return;
         }
@@ -1166,14 +1315,14 @@ final class Watcher
      * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 with one warning.
      */
     /** @param array<string, string> $models */
-    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = [], ?FleetSeam $fleet = null): Analyzer
+    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = [], ?FleetSeam $fleet = null, ?BudgetReservation $reservation = null): Analyzer
     {
-        return new class ($inner, $spend, $calculator, $log, $stats, $models, $fleet) implements Analyzer {
+        return new class ($inner, $spend, $calculator, $log, $stats, $models, $fleet, $reservation) implements Analyzer {
             /** @var array<string, true> */
             private array $warned = [];
 
             /** @param array<string, string> $models configured model per step, to tell an escalation from the main analysis */
-            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models, private readonly ?FleetSeam $fleet = null)
+            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models, private readonly ?FleetSeam $fleet = null, private readonly ?BudgetReservation $reservation = null)
             {
             }
 
@@ -1238,6 +1387,7 @@ final class Watcher
                     }
                 }
                 $this->stats?->addUsage($step, new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost));
+                $this->reservation?->addRunSpend($cost);
             }
         };
     }

@@ -89,6 +89,10 @@ final class DigestData
         public readonly int $draftsSkipped = 0,
         public readonly int $knownCount = 0,
         public readonly int $knownGrownCount = 0,
+        public readonly ?DateTimeImmutable $gapFrom = null,
+        public readonly ?DateTimeImmutable $gapTo = null,
+        public readonly ?int $gapWindows = null,
+        public readonly ?int $catchUpBatch = null,
     ) {
     }
 }

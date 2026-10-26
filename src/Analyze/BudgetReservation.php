@@ -14,18 +14,29 @@ use Watcher\Fleet\FleetSeam;
  */
 final class BudgetReservation
 {
+    private float $runSpentUsd = 0.0;
+
     public function __construct(
         private readonly Spend $spend,
         private readonly CostCalculator $calculator,
         private readonly float $dailyBudgetUsd,
         private readonly ?int $dailyTokenLimit,
         private readonly ?FleetSeam $fleet = null,
+        private readonly ?float $runBudgetUsd = null,
     ) {
+    }
+
+    public function addRunSpend(float $usd): void
+    {
+        $this->runSpentUsd += $usd;
     }
 
     public function allows(string $model, int $inputTokens, int $maxOutputTokens): bool
     {
         $worst = $this->worstCase($model, $inputTokens, $maxOutputTokens);
+        if ($this->runBudgetUsd !== null && $this->runSpentUsd + $worst > $this->runBudgetUsd) {
+            return false;
+        }
         if ($this->fleet !== null && !$this->fleet->allows($worst, $inputTokens + $maxOutputTokens)) {
             return false; // the fleet's remaining counts as well as the service's
         }

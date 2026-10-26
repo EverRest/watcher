@@ -136,6 +136,12 @@ final class DigestRenderer
         if ($d->comparedWith !== null) {
             $out = [...$out, ...$this->comparedWith($d, $d->comparedWith)];
         }
+        if ($d->gapFrom !== null && $d->gapTo !== null) {
+            $out[] = ['kind' => 'notice', 'text' => $this->gapLine($d)];
+        }
+        if ($d->catchUpBatch !== null) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ catch-up: %d windows run, oldest first, because the host did not trigger in time.', $d->catchUpBatch)];
+        }
         if ($d->levelAnomalyLine !== null) {
             $out[] = ['kind' => 'notice', 'text' => '📈 ' . $this->esc($d->levelAnomalyLine)];
         }
@@ -468,6 +474,30 @@ final class DigestRenderer
     private function k(int $n): string
     {
         return $n < 1000 ? (string) $n : rtrim(rtrim(number_format($n / 1000, 1, '.', ''), '0'), '.') . 'k';
+    }
+
+    private function gapLine(DigestData $d): string
+    {
+        assert($d->gapFrom !== null && $d->gapTo !== null);
+
+        return self::formatGapLine($d->gapFrom, $d->gapTo, $d->gapWindows);
+    }
+
+    public static function formatGapLine(DateTimeImmutable $from, DateTimeImmutable $to, ?int $gapWindows): string
+    {
+        $fmt = static fn (DateTimeImmutable $t): string => $t->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i') . ' UTC';
+        $fromS = $fmt($from);
+        $toS = $fmt($to);
+        if ($gapWindows === null) {
+            return sprintf('⚠️ %s to %s: not analysed. Events in that span were not read.', $fromS, $toS);
+        }
+
+        return sprintf(
+            '⚠️ %s to %s: not analysed (%d window(s) missing or failed). Events in that span were not read.',
+            $fromS,
+            $toS,
+            $gapWindows,
+        );
     }
 
     private function esc(string $s): string

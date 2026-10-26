@@ -69,22 +69,49 @@ final class RunGate
      *
      * @return list<Window>
      */
-    public function pending(DateTimeImmutable $now): array
+    public function pending(DateTimeImmutable $now, ?DateTimeImmutable $highWaterEnd = null): array
     {
+        if ($highWaterEnd === null) {
+            $candidates = [];
+            foreach ($this->dueBoundaries($now) as $boundary) {
+                $prev = $this->previousBoundary($boundary);
+                if ($prev === null) {
+                    continue;
+                }
+                $candidates[] = $this->windowBetween($prev, $boundary);
+            }
+            if ($candidates === []) {
+                return [];
+            }
+            usort($candidates, static fn (Window $a, Window $b): int => $b->end <=> $a->end);
+
+            return array_slice($candidates, 0, $this->catchUp);
+        }
+
+        $due = $this->dueBoundaries($now);
+        if ($due === []) {
+            return [];
+        }
         $candidates = [];
-        foreach ($this->dueBoundaries($now) as $boundary) {
+        $boundary = $due[0];
+        for ($i = 0; $i < $this->catchUp; ++$i) {
             $prev = $this->previousBoundary($boundary);
             if ($prev === null) {
-                continue;
+                break;
             }
-            $candidates[] = $this->windowBetween($prev, $boundary);
+            $window = $this->windowBetween($prev, $boundary);
+            if ($window->end <= $highWaterEnd) {
+                break;
+            }
+            $candidates[] = $window;
+            $boundary = $prev;
         }
         if ($candidates === []) {
             return [];
         }
         usort($candidates, static fn (Window $a, Window $b): int => $b->end <=> $a->end);
 
-        return array_slice($candidates, 0, $this->catchUp);
+        return $candidates;
     }
 
     public function decide(DateTimeImmutable $now): ?Window
