@@ -176,6 +176,15 @@ longer than the channel limit is posted as up to 10 numbered parts. If a later p
 a part may appear twice. On HTTP 429 the notifier waits the stated time within `min(60, lock_ttl / 10)` seconds, then
 fails with `HTTP 429`.
 
+### Dashboard-only mode and event sinks
+
+To read results in Grafana (or Kibana, Datadog, ...) instead of a chat channel, set `notify.digest.driver` to `none` and enable a sink; see [observability.md](observability.md). The run is otherwise unchanged. Notes for operators:
+
+- `log` needs a shipper on the pod or host (Alloy, Promtail, Vector, Filebeat) reading stderr; `prometheus` needs node_exporter's textfile collector on a volume the job can write, which on a CronJob means a shared volume or a push-capable sidecar; `http` adds egress to the one URL you configure.
+- A sink failure never changes the outcome or exit code. Look for `sink_failures` in the `--json` summary, `sink_failed:<sink>` in the next heartbeat event, `watcher_sink_failures_total` and `watcher status`.
+- Alert on absence, not only on failure: no event with a successful `run` outcome for 36 h (Loki), or `time() - watcher_last_success_timestamp_seconds > 129600` (Prometheus). The dashboard cannot tell you the job never started; the alert can.
+- `watcher check` verifies each sink locally; `--post-test` sends one `check_test` event. `--dry-run` prints the events and writes nothing.
+
 ### Plain cron
 
 ```cron
@@ -240,6 +249,13 @@ A flood of one already-reported fingerprint can still fill `event_cap` with old 
 - **Quiet days.** No message means nothing qualified; to see that the job ran, look at the Job logs (the `outcome=` line).
   A weekly summary line is optional (`heartbeat.weekly_summary`); there is no daily heartbeat message.
 
+## Pod events need an hourly trigger
+
+With `events` (Kubernetes, [kubernetes.md](kubernetes.md)) every trigger reads the cluster, even outside the `run_at` hour,
+because the cluster keeps events about an hour. A daily-only trigger loses most events and the digest says so ("possible gap").
+`run --dry-run` reads the cluster and writes no ledger. If the cluster cannot be read the log part is reported as usual and the
+digest (or, on a quiet day, one notice) says "Pod events were not read: <reason>".
+
 ## Heartbeat, staleness and alerting
 
 Every finished run (reported, quiet, baselined, failed) stores a liveness record; a due-but-skipped trigger
@@ -253,8 +269,8 @@ last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
 compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
 ```
 
-`state` is `ok`, `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
-failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 stale or
+`state` is `ok`, `degraded` (the last run worked but the Kubernetes pod events could not be read: `events:` shows `unavailable` or `stale`, and `reason=k8s_ingest_failed:<code>`), `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
+failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 degraded, stale or
 failed, 3 unknown, 2 bad config. A wrong host clock shows in the `compared:` line, which prints both instants.
 
 Alert from the monitor you already have, probing every 15 minutes:
@@ -286,7 +302,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   runs a subset; correlation then uses only what ran. `--json` prints one line on stdout.
 - **Check and status**: `fleet:check` runs the single-service check for every service plus one shared state check, prints
   the resolved order and warns when a declared dependency is provided by no fleet service. `fleet:status` prints the
-  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` stale or failed, `3` unknown, `0` ok. Alert on the
+  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` degraded (pod events unread), stale or failed, `3` unknown, `0` ok. Alert on the
   fleet heartbeat as in [Heartbeat](#heartbeat-staleness-and-alerting).
 - **Dry run**: `fleet:run --dry-run` prints every service's digest, the combined digest (with `digest: combined`) and the
   correlated finding; nothing is posted, no state is written, the fleet counters are untouched.
@@ -309,6 +325,18 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
   billed**; spend is not recorded.
 - `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
+
+## Log hygiene reports (spec 006)
+
+```bash
+vendor/bin/watcher hygiene --config=config/watcher.php                 # four reports on stdout
+vendor/bin/watcher hygiene --config=config/watcher.php --report=cost --days=14 --json
+vendor/bin/watcher hygiene --config=config/watcher.php --notify       # weekly, from the host's cron
+vendor/bin/watcher hygiene --config=config/watcher.php --decline=<id> # quiet a proposal for hygiene.decline_days
+vendor/bin/watcher hygiene --config=config/watcher.php --dry-run       # read-only look: nothing written, no lock, nothing sent
+```
+
+Run it **daily** (it stores the aggregates proposals need: 14 complete days before the first proposal; a day that was sampled at the event cap or the time budget, or never ran, is missing history) and add `--notify` once a week. One pass at a time per service (a second one exits 1 `another hygiene pass is running`); a pass stops reading at `hygiene.max_seconds` and says it is sampled. A "gone" retraction needs `max(hygiene.repeat_days, 2)` complete quiet days (days that were not sampled) without the site, so a weekly job is not reported gone and new again. The pass lock lives `schedule.lock_ttl` seconds and is renewed while the pass runs when the state store can (`hygiene.max_seconds + schedule.lock_ttl + 60` seconds on a store that cannot); a failed lock release is noted (`lock release failed (<Class>)`) and never changes the result; a state failure names the failing class only (`state unavailable (<Class>)`). Even without `--notify` a pass updates its own state (day record, site registry); `--dry-run` (also `php artisan watcher:hygiene --dry-run`) is the read-only look: the writes are shadowed in memory, no lock is taken (a scheduled pass is not blocked), nothing is sent, and a `--now` more than a day ahead of the clock is refused otherwise. It reads the source once per run (one more read than `run` on those days) and calls no model. Exit 0 reports produced or switched off, 1 source/state/delivery failure (a fixed reason), 2 usage or invalid config. Proposals are text: paste a fragment into `mute` / `watch_rules` yourself. Output schema: `specs/006-log-hygiene/contracts/report-schema.md`.
 
 ## Upgrading
 

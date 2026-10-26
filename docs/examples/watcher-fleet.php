@@ -44,6 +44,12 @@ return [
         'enabled' => Env::bool('WATCHER_ENABLED', true),   // off by default in code; a single entry can set its own `enabled`
         'environment' => Env::string('WATCHER_ENVIRONMENT'), // optional: int | prod | ...; state keys become <service>@<environment>
         'schedule' => ['run_at' => '06:00', 'timezone' => 'UTC', 'window' => 'PT24H'],
+        // Shared by every service; a service's own `observe` replaces it as a whole. Each service gets its own events and its own
+        // Prometheus file (watcher_<service>_<environment>.prom), so never set observe.prometheus.name here. All sinks off.
+        'observe' => [
+            'log' => ['enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false)],
+            'prometheus' => ['enabled' => Env::bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false), 'dir' => Env::string('WATCHER_OBSERVE_PROMETHEUS_DIR')],
+        ],
         'analysis' => [
             'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),
             'models' => [

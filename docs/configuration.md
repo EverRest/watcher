@@ -27,9 +27,15 @@ settings, `notify.digest.webhook`.
 | Key | Default | Notes |
 |---|---|---|
 | `service` | required | Prefix for every state key. **Changing it starts from scratch** (a new baseline). |
-| `schedule.run_at` | required | `HH:MM`. The run is due from `run_at` for one hour, in `schedule.timezone`. |
-| `schedule.timezone` | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
-| `schedule.window` | `PT24H` | ISO-8601 lookback. The window ends at the local `run_at`. |
+| `environment` (`WATCHER_ENVIRONMENT`) | none | Optional label (`int`, `prod`, ...): state keys become `<service>@<environment>`, so two processes with the same service name do not share state. |
+| `schedule.run_at` (`WATCHER_RUN_AT`, comma-separated) | required unless `every` | `HH:MM` or a list of times at least one hour apart. Still due for one hour after each time, in `schedule.timezone`. Stored internally as a list; a single string is unchanged in config files. |
+| `schedule.every` (`WATCHER_EVERY`) | — | `PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H`, or `PT12H`. Mutually exclusive with `run_at`. Contiguous windows unless `schedule.window` is set. |
+| `schedule.timezone` (`WATCHER_TIMEZONE`) | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
+| `schedule.window` | `PT24H` for one `run_at`; gap to the previous boundary otherwise | ISO-8601 lookback ending at the window boundary. |
+| `schedule.catch_up` (`WATCHER_CATCH_UP`) | `1` | `1`..`24`; values above `1` require `schedule.every`. |
+| `schedule.ingestion_delay` (`WATCHER_INGESTION_DELAY`) | `PT0S` | Shorter than the period; shifts window ends for late-indexed lines. |
+| `analysis.max_runs_per_day` (`WATCHER_MAX_RUNS_PER_DAY`) | none (one run/day); else `2 × runs_per_day` | Enforced in a later phase; parsed now. |
+| `analysis.run_budget_usd` (`WATCHER_RUN_BUDGET_USD`) | none (one run/day); else `daily_budget_usd / runs_per_day × 2` | Enforced in a later phase; parsed now. |
 | `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (released at the end of every run). With a store that supports renewal (all three) the lock is **extended** between pipeline steps and before each model call whenever less than half of it is left, so a long run keeps it. One model call (two sequential attempts, SDK retries off) is still bounded to `lock_ttl / 4`: HTTP timeout `lock_ttl / 8` s, within 10..180. A run makes at most `2 + escalation_cap` model calls. |
 | `schedule.run_deadline` (`WATCHER_RUN_DEADLINE`) | `lock_ttl` minus `max(30, lock_ttl / 10)` s (810 by default; half of `lock_ttl` when that is 60 or less) | Total wall-clock budget of one run, checked while reading and between pipeline steps. At expiry reading stops (read marked truncated, reason `deadline`), no model call starts, the window is snapshotted and a short notice is sent, but it is NOT recorded as done: the next trigger in the due period reads it again with a full budget, once. A second cut records the window final (quiet, reason `truncated:deadline`) with a second notice naming the number of unanalysed groups. Must not exceed `lock_ttl`. In a fleet it is further limited by `service_time_budget`.
 
@@ -47,7 +53,7 @@ settings, `notify.digest.webhook`.
 | `source.stream_tags` | `[]` | Labels that select this service's logs, e.g. `['app' => 'orders-api', 'env' => 'prod']`. Loki selector `{app="..",env=".."}`, Datadog query `app:.. env:..`. |
 | `source.read_min_level` | `warning` | Levels below this are only counted in totals (and read in a second pass if their total jumps). |
 | `source.anomaly_cap` | `20000` | Event cap of that second pass. |
-| `source.level_mode` | `text` | How `read_min_level` is pushed to the backend. **Loki:** `text` = LogQL line filter on level words (misses lines whose level lives only in the stream label); `label` = stream matcher on the `level` label, no line filter (with watch rules present it falls back to the unrestricted selector, because LogQL cannot OR a stream matcher with a line filter); `all` = no level restriction. **Datadog:** `all` = no `status:` filter, anything else = status filter. |
+| `source.level_mode` | `text` | How `read_min_level` is pushed to the backend. **Loki:** `text` = LogQL line filter on level words plus stack-trace continuation shapes (misses unworded main lines whose level lives only in the stream label); `label` = stream matcher on the `level` label, no line filter (with watch rules present it falls back to the unrestricted selector, because LogQL cannot OR a stream matcher with a line filter); `all` = no level restriction. **Datadog:** `all` = no `status:` filter, anything else = status filter. |
 | `source.datadog.newest_first` | `false` | `true` sorts `-timestamp`, so an `event_cap` truncation keeps the newest events instead of the oldest. |
 | `source.group_cap` | `5000` | Hard bound on distinct problem groups held in memory per run. Past it, events with a new message are grouped as one "other" group per level and the digest says "cluster cap hit". Events matching a watch rule keep their own group up to 2 x this value. |
 | `source.max_response_mb` | `16` | Largest backend reply accepted, 1 to 64 MB. A page over it is retried at half the page size instead of failing the source. |
@@ -110,7 +116,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 | Key | Default | Notes |
 |---|---|---|
-| `notify.digest.driver` | `slack` | `slack`, `telegram` or `discord`. |
+| `notify.digest.driver` | `slack` | `slack`, `telegram`, `discord` or `none`. `none` is dashboard-only mode: every message is accepted and dropped, no other key is allowed under that entry, and at least one `observe` sink must be enabled (`notify.digest.driver none needs at least one enabled observe sink`). `notify.digest.enabled: false` is not the same: it skips the analysis. |
 | `notify.digest.webhook` | required for slack, discord | Slack incoming webhook, or `https://discord.com/api/webhooks/<id>/<token>` (`discordapp.com` also accepted). |
 | `notify.digest.allow_insecure` | `false` | Slack only (same for `notify.notice`): the webhook must be `https` with a host and no credentials; `true` allows plain `http` for a loopback, private-network or cluster-local host only (same rule as `source.loki.allow_insecure`). Redirects are never followed. |
 | `notify.digest.bot_token` | required for telegram | Bot API token (`123456:ABC...`). Read it from the environment. |
@@ -121,6 +127,55 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 A key of another driver (`webhook` on a Telegram entry) is an error that names the key path, never the value. In a fleet
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
 key), and `digest: combined` needs a fleet `notify.digest` of any driver.
+
+### `kubernetes` and `events` (optional, spec 008)
+
+Pod events from the Kubernetes API as a second source. Setup, RBAC and limits: [kubernetes.md](kubernetes.md). `events` is
+`['driver' => 'kubernetes']`, beside `source`; settings live in `kubernetes`: `enabled` (flag, default true),
+`api` (`in_cluster`, or `server` + exactly one of `token` / `token_file` [+ `ca_file`], https, or http under `allow_insecure` for a trusted network; `token_file` is an absolute path read at call time so a rotated token works, a regular file of at most 16 KB that is not world-writable; `ca_file` is an absolute path to a readable, non-empty PEM bundle with at least one certificate; an unreadable token or CA is never used and never replaced by a weaker one: the read fails with the reason `credential unreadable`. That does **not** fail the run: the earlier hourly reads are replayed from the ledger with the note "latest read failed (credential unreadable)", and only a ledger that was never filled gives "Pod events were not read". Messages name the key, never the path; the token, or the current content of `token_file`, is masked everywhere like every other secret), `api.allow_insecure` (default false; the same rule as `source.loki.allow_insecure`: `server` must be `https`, plain `http` only for a loopback, private-network or cluster-local host and only with `allow_insecure: true`; a loopback server such as `kubectl proxy` also needs it; a metadata address is always refused), `namespaces` (required), `label_selector`, `involved_kinds`,
+`critical_reasons`, `min_repeat_for_probe_failures` (3), `event_cap` (5000), `tolerance` (120 s), `event_ttl` (3600 s),
+`ledger_ttl`, `allow` (`registries`, `images` kept in image text), `exporter` (true: warn in `check`).
+
+### `observe` (event sinks, spec 013)
+
+Guide, queries and the dashboard: [observability.md](observability.md). **Every sink is off** until its own `enabled` is `true`
+(a real boolean; `'false'` is rejected naming the key). A sub-key of a disabled sink is still validated. Errors name the key
+path, never a value. Redaction and the event sanitizer have no switch.
+
+| Key | Default | Notes |
+|---|---|---|
+| `observe.top_groups` | `20` | 0..100 `group` events per run; `0` emits none. |
+| `observe.log.enabled` | `false` | One JSON object per line. |
+| `observe.log.stream` | `stderr` | `stderr` or `stdout`; under `--json` stdout is replaced by stderr so the summary stays one line. |
+| `observe.log.include_text` | `false` | Opt in to put the (redacted) finding text on the stream; stderr is often forwarded by a shipper to a third party. |
+| `observe.file.enabled` | `false` | JSON lines file, mode 0600. |
+| `observe.file.path` | required when enabled | Absolute, no `..`, not a symlink; the directory must be yours and not group/world-writable unless sticky. |
+| `observe.file.rotate` | `size` | `size` or `daily`. |
+| `observe.file.max_bytes` | `10485760` | 1 MiB to 1 GiB (rotation by `size`). |
+| `observe.file.max_files` | `10` | 1..100 rotated files kept. |
+| `observe.file.retention_days` | `30` | 1..365; older files are deleted at each flush. |
+| `observe.file.include_text` | `false` | |
+| `observe.http.enabled` | `false` | NDJSON `POST`. |
+| `observe.http.url` | required when enabled | `https` with a host and no credentials; plain `http` only with `allow_insecure` **and** `allow_private_network` and a loopback, private-network or cluster-local host. A ClusterIP in CGNAT (100.64.0.0/10) or unique-local IPv6 space cannot be configured even with the flag: use the service's `*.svc` name. A secret: masked everywhere. Must not point at the log source. |
+| `observe.http.auth_header` | `Authorization` | Header name. |
+| `observe.http.auth_scheme` | `Bearer` | Word before the token; `''` (in code) sends the token alone, for `X-API-Key` style headers. |
+| `observe.http.auth_token` | none | A secret, at least 8 characters; no header is sent when absent. |
+| `observe.http.batch_size` | `100` | 1..1000 events per request. |
+| `observe.http.timeout` | `5` | 1..30 seconds per request; the whole flush is also bounded by what is left of the run deadline. |
+| `observe.http.allowed_hosts` | `[]` | When set, the URL host must be one of them. |
+| `observe.http.allow_insecure` | `false` | Permits `http://` (trusted-network hosts only, and only together with `allow_private_network`) and emits `config_warning http_insecure_allowed`. |
+| `observe.http.allow_private_network` | `false` | Permits loopback, RFC 1918 and cluster-local hosts; link-local, CGNAT, metadata, unique-local IPv6 and reserved ranges stay refused (shared classifier). |
+| `observe.http.include_text` | `false` | `true` emits `config_warning include_text_external`. |
+| `observe.prometheus.enabled` | `false` | Textfile in the node_exporter format. |
+| `observe.prometheus.dir` | required when enabled | Absolute directory that exists and is writable. |
+| `observe.prometheus.name` | `watcher_<service>[_<environment>]` | `[a-z0-9_]{1,64}`; must be unset in a fleet. |
+| `observe.prometheus.file_mode` | `0644` | Octal string `0600`..`0664`. |
+| `observe.otlp` | reserved | Rejected: `observe.otlp is not available yet`. |
+
+With any sink enabled, `service` must match `[A-Za-z0-9][A-Za-z0-9._@-]{0,63}` and `environment` `[A-Za-z0-9][A-Za-z0-9._-]{0,31}` (the event schema's own patterns); a name outside them is refused at load naming the key, because the sanitizer would otherwise null it and every metric label would read `unset`. Without a sink the old, wider rules apply.
+
+In a fleet, `observe` may be set at the fleet level or in `defaults`; a service's own `observe` replaces it as a whole.
+Each service flushes its own events (with its own `service` and `environment`) and writes its own Prometheus file.
 
 ### Command-line flags (not config keys)
 
@@ -189,6 +244,10 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 | `links.grafana.{base_url,datasource_uid}` / `links.datadog.app_url` | none | Builds a log-query link per finding from redacted data only. |
 | `repo.{provider,web_url,path_map}` | none | `provider` is `gitlab` or `github`; `path_map` maps container path prefixes to repository paths for stack-frame links (needs `deploy.commit`). Vendor paths get no link. |
 
+## Log hygiene (spec 006)
+
+`hygiene` section; every key optional. `enabled` (default **false**, `WATCHER_HYGIENE_ENABLED` in the shipped configs) switches on the privacy, shape and proposal reports and the cost ledger; the cost report itself needs no switch. Keys: `read_min_level` (`info`), `event_cap` (200000, more is sampled and said so), `max_line_length` (2000), `noisy_share` (0.20), `variable_distinct` (20), `repeat_days` (7), `growth_factor` (2.0), `min_history_days` (14), `mute_min_daily` (100), `watch_lead` (1800 s), `decline_days` (90), `spike_factor` (2.0), `max_seconds` (900, time budget of one pass), `site_allow_dirs` (`[]`, directory names such as `data` that are accepted below a `repo.path_map` root although the privacy report's deny list names them). `variable_distinct` must be at least 5. Invalid values fail at start naming `hygiene.<key>`. Contract: `specs/006-log-hygiene/contracts/config.md`. `allow_constant_labels` (false) lets a message that never varies keep its label and a watch proposal (it may be one person's name; the privacy floor of [privacy.md](privacy.md#log-hygiene-reports-spec-006) otherwise withholds it), `literal_min_sites` (5, at least 2): a literal word of a shown template must be common log vocabulary or seen at that many different sites in the pass, else it is shown as `<w>`.
+
 ## Digest notices (counts only, never raw content)
 
 Besides findings, the digest carries short notices: `truncated: N events read` (`event_cap`), `truncated: N groups dropped (budget)`
@@ -232,6 +291,11 @@ environment variable NAME must be true or false`, naming the variable and never 
 | budget alerts | `budget_alerts.enabled` | `WATCHER_BUDGET_ALERTS_ENABLED` | true | no 25/50/75/90 % notice and no "budget exhausted" notice (the caps themselves still apply) |
 | notices | `notify.notice.enabled` | `WATCHER_NOTICE_ENABLED` | true | no failure, baseline, budget or weekly notice is posted; failures still go to the host log and the exit code |
 | digest | `notify.digest.enabled` | `WATCHER_DIGEST_ENABLED` | true | no digest is posted, so no model is paid for: the window is read and snapshotted and the run ends `quiet` (reason `digest_disabled`) |
+| known_issues | `known_issues.enabled` | `WATCHER_KNOWN_ISSUES_ENABLED` | true | inert with no `entries`; false skips known lines, state writes and suppression |
+| drafts | `drafts.enabled` | `WATCHER_DRAFTS_ENABLED` | false | paste-ready ticket text per finding after the digest (`drafts.destination` or notice) |
+| routes | `notify.routes_enabled` | `WATCHER_ROUTES_ENABLED` | true | inert without `notify.routes`; severity routing to extra destinations (spec 005) |
+
+`known_issues.entries[]`: `fingerprint` (12–64 hex, prefix match), `ticket` (opaque key), optional `status` (`open`/`resolved`), optional `until` (UTC date). `notify.routes[]`: `name`, `severity` list (omitted on the last catch-all route only), optional `to` destination (must differ from `notify.digest`). See `specs/005-incident-workflow/contracts/config.md`.
 | fleet | fleet `enabled` | `WATCHER_FLEET_ENABLED` | true | every service is reported `disabled`; no store, budget, source or notifier is reached |
 | fleet service | entry (or `defaults`) `enabled` | `WATCHER_ENABLED` | **false** (as a service) | that service is skipped with outcome `disabled` (not an error, exit 0) |
 | fleet correlation | `correlation.enabled` | `WATCHER_FLEET_CORRELATION_ENABLED` | true | no cross-service annotation or correlated message |
@@ -286,6 +350,8 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_SERVICE_CONTEXT` | `service_context` |
 | `WATCHER_RELEASE*`, `WATCHER_COMMIT*` | `deploy.release`, `deploy.commit` |
 | `WATCHER_GRAFANA_URL`, `WATCHER_LOKI_DS_UID` | `links.grafana.*` |
+| `WATCHER_OBSERVE_TOP_GROUPS`, `WATCHER_OBSERVE_{LOG,FILE,HTTP,PROMETHEUS}_*` | `observe.*`, one variable per key above (`..._ENABLED`, `..._PATH`, `..._URL`, `..._AUTH_TOKEN`, `..._ALLOWED_HOSTS` as a comma list, ...), all sinks off by default |
+| `WATCHER_DIGEST_DRIVER` | `notify.digest.driver` (`none` is dashboard-only mode; leave `WATCHER_SLACK_WEBHOOK` unset then, because a webhook under `none` is rejected) |
 | `WATCHER_REPO_URL` | `repo.web_url` |
 
 `config/watcher.php` ships `'prices' => []` and has no price variables: it fails validation (`analysis.prices (no price for models.triage)`) until you fill the array in.

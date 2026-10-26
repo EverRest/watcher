@@ -2,12 +2,87 @@
 
 ## Unreleased
 
+`VERSION` is 0.2.0 (minor bump on this branch). The bullets below are not yet promoted to a release heading; they are grouped by feature.
+
+### Fixed (protected groups keep their level)
+- A finding for an error-or-higher group is never shown below that group's level, so a `warn` finding with low confidence no longer goes into the "minor" line. A cached `interesting` verdict whose finding sits below the group's level is not reused. Side effect: a low-confidence finding that is now `error` for an error-level group is escalated to the strong model (capped by `analysis.escalation_cap`), so such a run can make extra strong-model calls.
+
+### Added (spec 008, Kubernetes events)
+- `KubernetesEventsSource`: pod-level problems (crash loops, OOM kills, image pull failures, failing probes, restarts, HPA metric errors, evictions) as a third `LogSource`, read-only (`GET` on `events` and `pods` only, enforced by an architecture test), usable beside the main source (`events` => `['driver' => 'kubernetes']`) or alone (`source.driver: kubernetes`). Settings in the new `kubernetes` section (`namespaces` required, no "all namespaces"); flag `kubernetes.enabled` / `WATCHER_KUBERNETES_ENABLED` (default on). Setup, RBAC and limits: `docs/kubernetes.md`.
+- An hourly ledger (state key `evt:<service>`, expiring) merges the events still in the cluster at every trigger, so the daily digest counts each occurrence once; a missed trigger is stated in the digest ("possible gap"). Trigger watcher at least hourly when using it.
+- Pod names, node names, image registries/paths/tags, container ids and quoted resource names are masked before grouping (N pods of one workload are one group). Model payload gains `src`, `pods`, `wk` for event groups only; every other payload is unchanged. `watcher check` gains an `events` result (and a `warn` status, e.g. when an event exporter is also configured); `--json` gains an `events` block when configured.
+- one ledger entry per cluster event object (no alternating counts); an entry still listed keeps its baseline; no false gaps from cron jitter; a failed due-hour read replays the hourly ledger with a notice; unquoted Secret/ConfigMap/key/volume/image names masked; node names after "assigned … to" masked; gone-pod suffixes collapse; probe level decided per message over the window; `ledger_ttl` bounded below; dependencies rejected with `source.driver: kubernetes`; pod events get no log links; the events notice names the service and never crashes a run.
+- URLs and `user:password@host` are masked first, whole, before any Kubernetes rule (a password used to survive next to a masked image); unquoted images (`nginx:1.2.3`, `registry:5000/app`), container names, braces (taints) and unquoted Secret/ConfigMap/claim/volume names are masked; the client never follows redirects, fails closed in-cluster without `ca.crt`, refuses oversized bodies, pages pods 200 at a time with a byte cap, and gives each ingest a request and time budget; the ledger merge runs under a short lock; an object that predates the ledger (or `restartCount`) is credited once as a baseline instead of its lifetime count; metadata/loopback API server addresses are rejected; positional constructor calls for the new fields are now named.
+- `kubernetes.api.token_file` (read at call time, so rotated tokens work; absolute regular file, at most 16 KB, not world-writable; exactly one of `token` / `token_file` / in-cluster) and a strict `kubernetes.api.ca_file` check (absolute, readable, non-empty, holds a PEM certificate) at load and on every call; an unreadable token or CA fails closed with the reason `credential unreadable`, never falling back to the system store and never naming a path or content.
+- the Kubernetes response cap is enforced while streaming (`on_headers` refuses a `Content-Length` over 16 MiB, a counting sink cuts a chunked or gzip-decoded body at the cap, JSON depth 64), so a huge list can no longer exhaust `memory_limit`; the `token_file` checks repeat at every read, with the same rule as at load: the standard Secret / projected-volume symlink layout (`token -> ..data/token`) is accepted, a link that leaves the token's directory is refused, the opened handle must be a regular file owned by this user or root, not group/world-writable, at most 16 KB, in a directory nobody else can write (unless sticky); non-blocking open so a FIFO cannot hang a trigger.
+- a failed ledger read is no longer silent without a logger: the heartbeat reason becomes `k8s_ingest_failed:<code>` and `watcher status` prints `reason=`.
+- `LogEvent`, `ProblemGroup` and `RedactedGroup` gained defaulted fields (`occurrences`, `podId`, `origin`, `workloadKind`, `pods`). With no `events` configured, behaviour and output are unchanged.
+### Added (spec 014 schedule periods, phase 1)
+- `schedule.every` (`WATCHER_EVERY`: `PT1H`..`PT12H`) or a list of `schedule.run_at` times; `schedule.catch_up`, `schedule.ingestion_delay`; derived `runs_per_day` and multi-run defaults for `analysis.max_runs_per_day` / `analysis.run_budget_usd` and `heartbeat.stale_after` (single daily run unchanged).
+- `RunGate::pending()` and `Factory::gate()`; `Watcher` picks the oldest undone pending window, clamps reads to the `hw:<service>` high-water mark after reported/quiet/baselined runs.
+
+### Added (spec 005 incident workflow v1, phase 1–3)
+- **Known issues**: `known_issues` maps fingerprint prefixes to ticket keys; compact digest line, skip model analysis below `growth_factor × ref`, `known_grown` candidate reason, labels for resolved/expired entries.
+- **Severity routing**: `notify.routes` sends findings to extra destinations (first match + required catch-all); default digest shows a routed notice line.
+- **Ticket drafts**: optional `drafts` posts paste-ready text per finding (`draft` message sections); no tracker writes.
+- Config/env: `WATCHER_KNOWN_ISSUES_ENABLED`, `WATCHER_DRAFTS_*`, `WATCHER_ROUTES_ENABLED`. Weekly report (`report.weekly`) deferred (see `specs/005-incident-workflow/tasks.md`).
+
+### Added (spec 014 schedule periods, phase 1)
+- `schedule.every` (`WATCHER_EVERY`: `PT1H`..`PT12H`) or a list of `schedule.run_at` times; `schedule.catch_up`, `schedule.ingestion_delay`; derived `runs_per_day` and multi-run defaults for `analysis.max_runs_per_day` / `analysis.run_budget_usd` and `heartbeat.stale_after` (single daily run unchanged).
+- `RunGate::pending()` and `Factory::gate()`; `Watcher` picks the oldest undone pending window, clamps reads to the `hw:<service>` high-water mark after reported/quiet/baselined runs.
+
+### Added (spec 014 schedule periods, DST grid)
+- `every` boundaries follow local wall clock on DST transition days (nonexistent hours dropped, ambiguous hours use the first occurrence); `RunGateDstTest` covers Kyiv and New York spring/fall matrices (quickstart #24–#28).
+
+- Fixed (review batch 2): `BufferedStateStore::flush()` no longer drops pending keys when an inner `put` fails mid-flush; Slack webhook delivery retries HTTP 429 like Telegram/Discord and names omitted Block Kit sections instead of truncating silently.
+
+### Fixed (spec 006 second review, lane B, 0.1.34)
+- "gone" retractions are one line per site; only the retractions in the notice are marked as sent (a joined line used to be cut at 600 characters with all of it marked sent).
+- A call-site id from a context `file` or frame needs a `repo.path_map` root (no root, no file site ids: the fingerprint stands in), no `..`, one stem and one known code extension (`.pdf.php` rejected), and no deny-listed directory below the root (`public`, `files`, `data`, ... ; `hygiene.site_allow_dirs` opts one back in).
+- A site is "gone" after `max(repeat_days, 2)` complete quiet days, so weekly jobs no longer flip between gone and new.
+- The pass lock lives `max_seconds + schedule.lock_ttl + 60` s; a failed release is noted and never replaces a successful result; `state unavailable (<Class>)` keeps the failing class (never the message) in the reason and `notes`.
+- Watch-rule fragments carry no invisible format characters; the time-budget test pins the check cadence.
+
+### Fixed (spec 006 review, 0.1.33)
+- Notices: every log-derived string is escaped like the digest's (no ping or link from log text in Slack, Telegram or Discord), sent as sections, capped at 25 sites and 10 templates; only sites shown are marked as sent; shape, proposals and cost are sent at most once per `repeat_days`; `notify.notice.enabled=false` is honoured.
+- A site is a source file below no data directory; uploads, imports and documents fall back to the fingerprint. Integer-typed card/phone values are scanned; undecodable texts are counted (`unscannable`); unique file names cannot crowd real sites out of the table.
+- Proposals ignore sampled days, keep every severe family in the day record, refuse watch rules with fewer than 8 literal characters; "gone" needs two complete passes on different days; `variable_distinct` has a floor of 5.
+- A billed `run --dry-run` writes the cost ledger into a shadow; each fleet service books under its own key. One hygiene pass at a time (lock), a time budget (`hygiene.max_seconds`), memoised scanning; `hygiene` in `config/watcher.php`; `state unavailable` and `failure`/`notes` in `--json`.
+
+### Added (spec 006, log hygiene: command and configuration, 0.1.32)
+- `watcher hygiene --config=<file> [--report=privacy,shape,proposals,cost] [--days=1-30] [--now=] [--notify] [--decline=<id>] [--json]` and `php artisan watcher:hygiene`. Reads one window through the existing source and measures it in code; **no model call, raw values never leave the process**: reports hold call-site identifiers, categories, levels, counts, shares, times and templates that were already allowed to leave. Details and limits: `docs/privacy.md` (hygiene) and `docs/operations.md`.
+- New `hygiene` config section (all defaults in `config/watcher.example.php`); `hygiene.enabled` defaults to **false** and is not in `WatchConfig::FLAGS`. With it off nothing is added to the run path.
+
+### Added (spec 006, log hygiene: cost report and rule proposals, 0.1.31)
+- **Rule proposals:** mute fragments (stable, high-volume, never at or above `selection.min_level`) and watch fragments (a family that repeatedly starts shortly before a severe one), with evidence and a replay through the real `MuteList`; declined proposals are quiet for `hygiene.decline_days`. Needs `hygiene.min_history_days` (14) days of daily passes.
+- **Cost report:** tokens and cost per service and day from the run records (equals the sum of recorded runs), share of the daily caps, spike days with likely causes; calls per step and top spenders from a ledger written only when `hygiene.enabled`. Always available.
+- State: `hyg:*` and `ledger:*` keys, all with the state retention.
+
+### Added (spec 006, log hygiene: measurement and privacy/shape reports, 0.1.30)
+- **Privacy-hygiene report:** which log call sites (file:line from context `file`/`line` or the first frame, else the fingerprint) write e-mails, tokens, IP addresses, phone-like and card-like numbers, host names or other masked patterns, per level, with counts, since when and a trend (new / growing / stable / gone); templates that hide many different texts behind one sentence (possible names).
+- **Log-shape report:** sites producing a large share of all lines, lines over a limit, traces pasted into messages, mixed formats, access-log lines at warning or above, each with a fixed-text proposal.
+- `TemplateMiner::variability()` / `Reducer::variability()`: distinct masked messages per varying template (one integer per cluster); no change to clustering or templates.
+
 - Changed (internal, no behaviour change): `Watcher::run()` is split into `RunLedger` (run bookkeeping, summary, liveness record), `Reduce\EventCollector` (the streaming read), `analyze()`, `buildDigest()` and `WindowKeys`; pinned by the golden scenarios in `tests/EndToEnd/RefactorGoldenTest.php`. `state_unreadable` is now filled in `RunLedger::finish()`, and `DryRunStateStore` forwards the real store's unreadable count.
 - Added: a capped read keeps a newest share (A4-03). One fifth of `source.event_cap` (`ReadFilter::tailCap()`, 0 below a cap of 5) is reserved: the oldest-first read stops at 80%, then Loki (`direction=backward`) and Datadog (`sort=-timestamp`) read the newest events after the last one kept and yield them oldest to newest. Also after a spent `pages`/`time` budget (two more pages at most). If the backward read reaches back to where the forward read stopped, nothing was lost and the read is not reported as truncated.
 - Changed: the daily budget is reserved atomically on Redis (M2). `BudgetReservation::allows()` now goes through `Spend::reserve()`, which on a store implementing the new optional `State\ReservableCounters` (Redis; the lazy store wrapper forwards it) runs one Lua script that checks the USD and token caps and adds the step's worst case with `INCRBYFLOAT` and `PEXPIRE` in the same script. `Spend::add()` settles it to the real cost (only the difference is added), `Spend::release()` gives it back when a call failed with no billed usage or the router ends; parallel runs of one service cannot both pass the check. File, PDO, dry-run and in-memory stores keep the plain check-then-book path. The fleet cap is still check-only. A reservation remembers the day it was made on: settled or released after midnight (configured timezone), the old day's counters get it back and the new day gets only the actual cost.
 - Added: the `--json` summary carries the health counters with stable names, always present: `state_unreadable` (**behaviour change** for scripts: before it was present only when above 0, now it is always there with an explicit 0, so a `has("state_unreadable")` or grep test no longer means "entries were unreadable"; test the value), `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (`unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). `schema` stays 1 (additive); `JsonSummaryTest` pins the key list. Documented in `specs/002-operability-tools/data-model.md` and `docs/operations.md`.
 - Added: a digest that sent events withheld as `<UNSCANNABLE>` says so in the read-quality line: `ℹ️ read quality: N events withheld (could not be scanned)`. Count only, once per digest. A sent digest carries this line instead of the separate `incomplete read: N events could not be scanned` notice; that notice is still sent for baseline and quiet runs, which have no digest.
 - Fixed (review of lane J): the Datadog newest-share read shrinks its page and degrades to a truncated read when a reply is still over the response cap (it used to fail the run after the head was read); a Datadog event in the same millisecond as the seam is reported as a cut; the newest-share read no longer recounts oversized lines and frame lines the first page already counted; `Spend` takes a reservation before touching the store so a settle that fails between its two increments is never returned a second time.
+
+Lane G, planned for 0.2.1 (the integrator assigns the number). **MINOR, upgrade note: none required**: every sink is off by default and with none enabled a run is byte-identical to before (the JSON summary gains `run_id` and `sink_failures` only when a sink was flushed).
+
+### Observability sink (spec 013)
+- Event stream `watcher.event.v1` (`docs/schema/watcher.event.v1.schema.json`, checked against a code allowlist by a drift test): `run`, `finding`, `group`, `budget`, `heartbeat`, `delivery_failure`, `config_warning`. Counts, outcome codes, hashed ids and timestamps only; finding text only with a per-sink `include_text`, after the digest's own scrub. A planted secret and e-mail never reach any sink, summary, host log or failure message (privacy test over all four sinks).
+- Sinks `observe.log` (JSON lines to stderr or stdout), `observe.file` (0600, size or daily rotation, retention, no symlink, hard link, FIFO or foreign-owned file, private directory), `observe.http` (NDJSON POST; https, http only for loopback, private or cluster-local hosts with `allow_insecure`; shared `SecureUrl` rule; no redirects; response limit; token and URL never in a message; bounded by the run deadline) and `observe.prometheus` (textfile 0.0.4, closed label set, at most 48 series per service, atomic replace). All fail open: a sink failure is counted and shown (summary, next heartbeat event, `watcher_sink_failures_total`, `watcher status`) and never changes the outcome or exit code.
+- `notify.digest.driver: none` for dashboard-only mode (needs at least one sink).
+- Fleet: `observe` at fleet level or in `defaults`, a service's own replaces it as a whole, one Prometheus file per service.
+- `watcher check` gains an `observe` check; `--post-test` sends one `check_test` event; `--dry-run` prints the events; `--json` keeps stdout to one line.
+- `docs/observability.md` and a generic Grafana dashboard `docs/dashboards/grafana-watcher.json` (Loki and Prometheus datasources and the stream selector are template variables, no uid, schemaVersion 39), with the Loki `| json` queries for the zero-dependency path.
+- Security: the sink credentials are taken out of the config array before validation and are `#[SensitiveParameter]` end to end (`Watcher::fromConfig`, `ObserveSettings`, `HttpTarget`, `HttpSink`, `SecureUrl::problem`); `WatchConfig::secrets()` covers the sink URL and token and lists the longest secret first.
+- Dev dependencies `opis/json-schema` and `symfony/yaml` (schema and rule-file contract tests only).
+- Known limit until the shared `ResponseLimit` streaming cap is merged: the `http` sink refuses a response whose declared `Content-Length` is over the limit and is otherwise bounded by its timeout (at most what the run deadline leaves); a chunked or compressed body without a length is only time-bounded.
+- Owner decisions after the review: `include_text` is off by default for every sink including `log`; with a sink enabled `service` and `environment` must match the event schema patterns (refused at load, not silently nulled).
 
 ## 0.1.3 — 2026-10-24 — Redis state and own Anthropic client
 
@@ -78,6 +153,20 @@ Product release label **v0.1.2** (`VERSION`). Security release: supply chain, fa
 
 ### Docs
 - Installation: note about the `php-http/discovery` Composer plugin prompt (a dependency of the Anthropic SDK).
+
+### Changed (spec 008 rebased on the Lane A split and the 0.1.2 hardening; temporary block, the integrator assigns the release number)
+- The Kubernetes masker runs after `Normalizer::canonical` and masks credentialed tokens whole on their canonical form (fullwidth, zero-width, `%40`, quoted, bracketed, `docker://`/`containerd://` userinfo, passwords holding `%3E`, `&quot;`, `&#32;`); its skip rules end at a real word end.
+- `WatchConfig::secrets()` includes `kubernetes.api.token` and the current content of `token_file`; `KubeSettings` no longer dumps or serialises its token.
+- The trigger-time cluster read runs under the `RunGuard` (run deadline, memory stop); an unread cluster is named in the summary reason and the heartbeat.
+- `kubernetes.api.server` follows the `SecureUrl` rule: https, or http for a trusted network with `kubernetes.api.allow_insecure: true`.
+- The streaming response cap (decoded bytes) now lives in `ResponseLimit::options()` and protects Loki, Datadog and Kubernetes alike.
+- Coverage and a failed latest read reach the digest as `ReadDiagnostics` when Kubernetes is the main source.
+
+### Changed (spec 008, second review)
+- The pod-event ledger is bounded to half of the state codec's budgets (flat per-entry points, overflow counted and shown); a 200 answer that is not a list is an unreadable cluster; the masker matches pod names in one pass per read and the mapping runs under the RunGuard; credentials are held in objects no dump or export prints; the in-cluster service-account token is masked; exotic quotes and invisible characters next to a keyword no longer defeat the masker.
+### Changed (spec 006 rebased on develop; review fixes; temporary block, the integrator assigns the release number)
+- `watcher hygiene` scans through `Normalizer::normalizeOrUnscannable`, sends notices with develop's `SlackText` (one section per line, no private cap or split), runs under `RunGuard` (max_seconds and the memory stop) and renews its lock when the store can; the source's `ReadDiagnostics` become a note.
+- Control, format and invisible characters are removed from every string the scan reads before any mask runs; templates are shown, stored and proposed as watch rules only when they generalise `hygiene.variable_distinct` messages; an empty read is not a complete day; failed cost-ledger writes are counted and shown as `unbooked`; site-id deny list extended; `--decline` takes the pass lock; anonymous exception classes no longer leak a file name.
 
 ### Added (spec 012, feature flags and environments)
 - **Breaking (opt-in):** the master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**. A config without it makes `run` return the new outcome `disabled` (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr; nothing external or stored is touched, not even a heartbeat). Add `'enabled' => true` (or `WATCHER_ENABLED=1`) to every existing config, fleet entry or fleet `defaults`.

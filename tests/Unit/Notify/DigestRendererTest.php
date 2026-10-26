@@ -86,6 +86,13 @@ final class DigestRendererTest extends TestCase
         self::assertStringContainsString('ℹ️ read quality: 1,200 events withheld (could not be scanned)', $t);
     }
 
+    public function testPodEventCoverageIsPartOfTheReadQualityLine(): void
+    {
+        $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0, 'k8s_read_failed' => 1, 'k8s_gaps' => 2, 'k8s_unattributed' => 1200, 'k8s_record_full' => 1]]), 0.5), 'notice');
+
+        self::assertStringContainsString('read quality: the latest cluster read failed (earlier reads reported), 2 gaps in the pod-event record, 1,200 pod events matched no selected workload, the pod-event record was full (1 entries dropped, oldest first)', $t);
+    }
+
     public function testDroppedOversizedLinesAreNamedInTheReadQualityLine(): void
     {
         $t = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0, 'oversized_lines' => 4]]), 0.5), 'notice');
@@ -370,6 +377,14 @@ final class DigestRendererTest extends TestCase
 
         self::assertSame('✅ watcher · svc · stg — baseline recorded: 214 groups, 96,310 events. Analysis starts next run.', $m->sections[0]['text']);
         self::assertSame($m->sections[0]['text'], $m->text);
+    }
+
+    public function testFingerprintVersionResetNotice(): void
+    {
+        $m = (new DigestRenderer())->renderFingerprintVersionReset('svc', 'stg', 12, 400, 0, 1);
+
+        self::assertStringContainsString('baseline reset: fingerprint rules changed (fpv 0 → 1)', $m->sections[0]['text']);
+        self::assertStringNotContainsString('baseline recorded:', $m->sections[0]['text']);
     }
 
     /**

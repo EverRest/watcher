@@ -86,8 +86,16 @@ return [
     ],
 
     'notify' => [
-        'digest' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_WEBHOOK')],
+        'digest' => ['driver' => Env::string('WATCHER_DIGEST_DRIVER', 'slack'), 'webhook' => getenv('WATCHER_SLACK_WEBHOOK')],
     ],
 
     'service_context' => getenv('WATCHER_SERVICE_CONTEXT') ?: 'orders-api: Lumen API and queue consumers for event sequences; errors in payments, imports and queue consumers are the most critical.',
+
+    // Event sinks, all off. Enable one to see runs and findings in a dashboard: docs/observability.md.
+    'observe' => [
+        'log' => ['enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false)],
+        'file' => ['enabled' => Env::bool('WATCHER_OBSERVE_FILE_ENABLED', false), 'path' => Env::string('WATCHER_OBSERVE_FILE_PATH')],
+        'http' => ['enabled' => Env::bool('WATCHER_OBSERVE_HTTP_ENABLED', false), 'url' => Env::string('WATCHER_OBSERVE_HTTP_URL'), 'auth_token' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_TOKEN')],
+        'prometheus' => ['enabled' => Env::bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false), 'dir' => Env::string('WATCHER_OBSERVE_PROMETHEUS_DIR')],
+    ],
 ];

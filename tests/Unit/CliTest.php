@@ -106,6 +106,23 @@ final class CliTest extends TestCase
         self::assertSame([], $calls);
     }
 
+    public function testUnexpectedFactoryErrorPrintsClassAndMessageAndExitsOne(): void
+    {
+        $factory = static function (): callable {
+            throw new \RuntimeException('pipeline blew up');
+        };
+        $err = fopen('php://memory', 'w+');
+        $out = fopen('php://memory', 'w+');
+        self::assertIsResource($err);
+        self::assertIsResource($out);
+        $code = (new Application($factory, $err, $out))->run(['watcher', 'run', '--config=' . $this->cfg]);
+        rewind($err);
+        $stderr = (string) stream_get_contents($err);
+        self::assertSame(1, $code);
+        self::assertSame("RuntimeException: pipeline blew up\n", $stderr);
+        self::assertStringNotContainsString('#0 ', $stderr);
+    }
+
     public function testUsageOnUnknownCommandMissingConfigOrUnreadableFile(): void
     {
         foreach ([['bogus'], [], ['run'], ['run', '--config=/nonexistent/x.php']] as $args) {
