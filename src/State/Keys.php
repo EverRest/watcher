@@ -34,6 +34,7 @@ final class Keys
     public const KNOWN = 'known';
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
+    public const API = 'api';
 
     private const SPEND_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -252,6 +253,12 @@ final class Keys
     public static function highWater(string $service): string
     {
         return self::join(self::HIGH_WATER, $service);
+    }
+
+    /** Reduced OpenAPI document of one service and source; `$sourceId` is a hash, never the URL or path. */
+    public static function apiContext(string $service, string $sourceId): string
+    {
+        return self::join(self::API, $service, $sourceId);
     }
 
     /** @param string $kind one of the kind constants */

@@ -486,4 +486,31 @@ final class DigestRendererTest extends TestCase
         self::assertStringContainsString('5× (expected for this weekday)', $render('weekday'));
         self::assertStringContainsString('5× (seen in earlier windows)', $render('rolling'));
     }
+
+    public function testEndpointLineStandsUnderItsFindingAndIsEscapedLikeModelText(): void
+    {
+        $f = $this->finding(1);
+        $ep = new \Watcher\ApiContext\EndpointContext([$f->fingerprints[0] => 'GET /orders/{id} — Get an order <!channel> *x* [orders] (deprecated)']);
+        $m = (new DigestRenderer())->render($this->data([$f, $this->finding(2)], [], ['endpoints' => $ep]), 0.5);
+        $t = $this->text($m, 'finding');
+
+        self::assertStringContainsString("\n  📖 GET /orders/{id} — Get an order", $t);
+        self::assertStringNotContainsString('<!channel>', $t);
+        self::assertSame(1, substr_count($t, '📖'), 'only the finding with a line gets one');
+    }
+
+    public function testEndpointFootnotesAndNoOutputWithoutContext(): void
+    {
+        $f = $this->finding(1);
+        $none = $this->text((new DigestRenderer())->render($this->data([$f]), 0.5));
+        $null = $this->text((new DigestRenderer())->render($this->data([$f], [], ['endpoints' => new \Watcher\ApiContext\EndpointContext()]), 0.5));
+        $loud = $this->text((new DigestRenderer())->render($this->data([$f], [], ['endpoints' => new \Watcher\ApiContext\EndpointContext([], ['x' => 'y'], 3, 12, null, true)]), 0.5), 'notice');
+        $down = $this->text((new DigestRenderer())->render($this->data([$f], [], ['endpoints' => \Watcher\ApiContext\EndpointContext::unavailable('too_large')]), 0.5), 'notice');
+
+        self::assertSame($none, $null, 'an empty context prints nothing');
+        self::assertStringContainsString('ℹ️ 3 endpoint line(s) skipped (api_context.max_endpoints)', $loud);
+        self::assertStringContainsString('ℹ️ 12 operation(s) not kept (cache limit)', $loud);
+        self::assertStringContainsString('ℹ️ endpoint documentation not sent to the model (token budget)', $loud);
+        self::assertStringContainsString('⚠️ API context unavailable (too_large)', $down);
+    }
 }

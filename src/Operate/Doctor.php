@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Operate;
 
 use Psr\Clock\ClockInterface;
+use Watcher\ApiContext\ApiContextReader;
 use Throwable;
 use Watcher\Config\WatchConfig;
 use Watcher\Notify\Destination;
@@ -43,6 +44,7 @@ final class Doctor
         private readonly ClockInterface $clock,
         private readonly bool $kubernetes = false,
         private readonly ?SinkDispatcher $observe = null,
+        private readonly ?ApiContextReader $apiContext = null,
     ) {
     }
 
@@ -75,6 +77,9 @@ final class Doctor
         $observing = $this->config->observe->anyEnabled();
         if ($observing) {
             $results[] = $this->guard('observe', fn (): CheckResult => $this->observe());
+        }
+        if ($this->apiContext !== null) {
+            $results[] = $this->guard('api_context', fn (): CheckResult => $this->apiContext());
         }
         if ($postTest) {
             $results[] = $this->guard('post_test', fn (): CheckResult => $this->postTest());
@@ -223,6 +228,17 @@ final class Doctor
         }
 
         return $bad === [] ? CheckResult::pass('notifier', $this->config->destination('digest')->driver() === 'none' ? 'none (dashboard-only)' : '') : CheckResult::fail('notifier', implode(', ', $bad));
+    }
+
+    /** Spec 010: reads and reduces the OpenAPI source once, skipping the cache; no model call, no post. The reason is a count or a fixed token. */
+    private function apiContext(): CheckResult
+    {
+        $read = $this->apiContext?->readFresh();
+        if ($read === null || $read->spec === null) {
+            return CheckResult::fail('api_context', $read->failure ?? 'unreadable');
+        }
+
+        return CheckResult::pass('api_context', sprintf('%d operations kept, %d not kept', count($read->spec->ops), $read->spec->dropped));
     }
 
     /** Local and syntactic only, no request: the sink, then the key that is wrong (never a path, URL or token). */

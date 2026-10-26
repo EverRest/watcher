@@ -106,7 +106,7 @@ final class DigestRenderer
             }
             $out[] = ['kind' => 'severity', 'text' => sprintf('%s *%s* (%d)', self::ICONS[$sev->value], $sev->value, count($items))];
             foreach ($items as $s) {
-                $links = $this->annotationLine($s['f'], $d) . $this->linksLine($s['f'], $d);
+                $links = $this->annotationLine($s['f'], $d) . $this->endpointLine($s['f'], $d) . $this->linksLine($s['f'], $d);
                 $out[] = ['kind' => 'finding', 'text' => $this->cap($this->finding($s['f'], $s['n'], $d), self::MAX_SECTION_CHARS - mb_strlen($links)) . $links];
             }
         }
@@ -202,6 +202,22 @@ final class DigestRenderer
         }
         foreach ($d->failedDependencies as $name) {
             $out[] = ['kind' => 'notice', 'text' => '⚠️ dependency unavailable: ' . $this->esc($name)];
+        }
+
+        $e = $d->endpoints;
+        if ($e !== null) {
+            if ($e->skipped > 0) {
+                $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s endpoint line(s) skipped (api_context.max_endpoints)', number_format($e->skipped))];
+            }
+            if ($e->droppedOps > 0) {
+                $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s operation(s) not kept (cache limit)', number_format($e->droppedOps))];
+            }
+            if ($e->modelDropped) {
+                $out[] = ['kind' => 'notice', 'text' => 'ℹ️ endpoint documentation not sent to the model (token budget)'];
+            }
+            if ($e->unavailable !== null) {
+                $out[] = ['kind' => 'notice', 'text' => '⚠️ API context unavailable (' . $this->esc($e->unavailable) . ')'];
+            }
         }
 
         $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
@@ -375,6 +391,18 @@ final class DigestRenderer
         foreach ($f->fingerprints as $fp) {
             if (isset($d->annotations[$fp])) {
                 return "\n  🔗 " . $this->esc($d->annotations[$fp]);
+            }
+        }
+
+        return '';
+    }
+
+    /** One documentation line for the finding's endpoint (spec 010): masked and capped upstream, escaped here like any model-adjacent text. */
+    private function endpointLine(Finding $f, DigestData $d): string
+    {
+        foreach ($f->fingerprints as $fp) {
+            if (isset($d->endpoints->lines[$fp])) {
+                return "\n  📖 " . $this->esc($d->endpoints->lines[$fp]);
             }
         }
 

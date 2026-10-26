@@ -132,4 +132,17 @@ final class CompactPayloadTest extends TestCase
 
         self::assertSame("<log-data-abc>\n{\"t\":[]}\n</log-data-abc>\n\n" . CompactPayload::REMINDER, $msg);
     }
+
+    public function testEpIsAddedOnlyToGroupsThatHaveOneAndTheDefaultIsByteIdentical(): void
+    {
+        $groups = [self::group('a', 'GET /orders/<N>'), self::group('b', 'Other')];
+        $plain = CompactPayload::encode($groups);
+        $withNone = CompactPayload::encode($groups, [], []);
+        $d = self::decode(CompactPayload::encode($groups, [], ['b' => 'GET /orders/{id} — Get an order']));
+
+        self::assertSame($plain, $withNone);
+        self::assertArrayNotHasKey('ep', $d['g'][0]);
+        self::assertSame('GET /orders/{id} — Get an order', $d['g'][1]['ep']);
+        self::assertSame(['fp', 't'], array_slice(array_keys($d['g'][1]), 0, 2), 'ep does not displace t');
+    }
 }

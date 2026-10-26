@@ -7,6 +7,7 @@ namespace Watcher\Notify;
 use DateTimeImmutable;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\Usage;
+use Watcher\ApiContext\EndpointContext;
 use Watcher\Baseline\Comparison;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Reduce\MiningStats;
@@ -89,6 +90,8 @@ final class DigestData
         public readonly int $draftsSkipped = 0,
         public readonly int $knownCount = 0,
         public readonly int $knownGrownCount = 0,
+        /** @var EndpointContext|null spec 010: one documentation line per fingerprint, what the cap skipped, why none (masked, capped) */
+        public readonly ?EndpointContext $endpoints = null,
     ) {
     }
 }
