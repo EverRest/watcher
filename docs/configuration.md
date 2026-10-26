@@ -398,7 +398,7 @@ A host that registers `Watcher\Laravel\WatcherServiceProvider` needs **no config
 | `WATCHER_MODEL_TRIAGE`, `_ANALYZE`, `_ESCALATE` | yes | One model id per tier. There is no default model. |
 | `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}` | yes, per model | USD per million tokens. Optional `_CACHE_READ` and `_CACHE_WRITE` (default `0`). **No default price**: the budget is only as good as these. A model used by two tiers needs its price on the first tier only; if the second tier sets one, it must be the same. Prompt caching: set `_CACHE_READ` and `_CACHE_WRITE` when the model reads from a cache, otherwise the spend is under-counted (they default to `0`). |
 | `WATCHER_STATE` and `WATCHER_REDIS_*` or `WATCHER_STATE_PATH` | yes | `redis` (default), `pdo` or `file`. |
-| `WATCHER_REPO_URL` | yes | Web URL of the repository, for code links. |
+| `WATCHER_REPO_URL` | no | Web URL of the repository, for code links in the digest. The package never calls it, so a repository behind a VPN is fine. Unset: no code links. |
 
 **Where the digest goes.** The driver is chosen from what is set, unless `WATCHER_DIGEST_DRIVER` names it (`slack`, `telegram`,
 `discord`, `none`):

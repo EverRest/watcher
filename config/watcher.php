@@ -164,11 +164,12 @@ return [
         'code' => ['enabled' => $env->bool('WATCHER_LINKS_CODE_ENABLED', true)],
     ],
 
-    'repo' => [
+    // Only for code links in the digest; the package never calls this URL, so a repository behind a VPN is fine. Unset: no section, no code links.
+    'repo' => env('WATCHER_REPO_URL') ? [
         'provider' => 'gitlab',                    // gitlab | github
         'web_url' => env('WATCHER_REPO_URL'),
         'path_map' => [],                          // ['/var/www/html/' => 'app/']
-    ],
+    ] : null,
 
     // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default; the cost report works regardless.
     'hygiene' => [

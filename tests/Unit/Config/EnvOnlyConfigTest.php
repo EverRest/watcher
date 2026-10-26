@@ -163,4 +163,19 @@ final class EnvOnlyConfigTest extends TestCase
 
         self::assertTrue(WatchConfig::masterSwitchOff($config));
     }
+    public function testTheRepositoryUrlIsOptional(): void
+    {
+        // A repository that is only reachable over a VPN: the package never calls it, the URL only builds links in the digest.
+        $c = WatchConfig::fromArray(self::load(array_diff_key(self::BASE, ['WATCHER_REPO_URL' => true]) + ['WATCHER_SLACK_WEBHOOK' => 'https://hooks.example/x']));
+
+        self::assertNull($c->repo);
+    }
+
+    public function testTheRepositoryUrlIsUsedWhenSet(): void
+    {
+        $c = WatchConfig::fromArray(self::load(self::BASE + ['WATCHER_SLACK_WEBHOOK' => 'https://hooks.example/x']));
+
+        self::assertSame('https://git.example.com/g/p', $c->repo['web_url'] ?? null);
+        self::assertSame('gitlab', $c->repo['provider'] ?? null);
+    }
 }
