@@ -69,22 +69,49 @@ final class RunGate
      *
      * @return list<Window>
      */
-    public function pending(DateTimeImmutable $now): array
+    public function pending(DateTimeImmutable $now, ?DateTimeImmutable $highWaterEnd = null): array
     {
+        if ($highWaterEnd === null) {
+            $candidates = [];
+            foreach ($this->dueBoundaries($now) as $boundary) {
+                $prev = $this->previousBoundary($boundary);
+                if ($prev === null) {
+                    continue;
+                }
+                $candidates[] = $this->windowBetween($prev, $boundary);
+            }
+            if ($candidates === []) {
+                return [];
+            }
+            usort($candidates, static fn (Window $a, Window $b): int => $b->end <=> $a->end);
+
+            return array_slice($candidates, 0, $this->catchUp);
+        }
+
+        $due = $this->dueBoundaries($now);
+        if ($due === []) {
+            return [];
+        }
         $candidates = [];
-        foreach ($this->dueBoundaries($now) as $boundary) {
+        $boundary = $due[0];
+        for ($i = 0; $i < $this->catchUp; ++$i) {
             $prev = $this->previousBoundary($boundary);
             if ($prev === null) {
-                continue;
+                break;
             }
-            $candidates[] = $this->windowBetween($prev, $boundary);
+            $window = $this->windowBetween($prev, $boundary);
+            if ($window->end <= $highWaterEnd) {
+                break;
+            }
+            $candidates[] = $window;
+            $boundary = $prev;
         }
         if ($candidates === []) {
             return [];
         }
         usort($candidates, static fn (Window $a, Window $b): int => $b->end <=> $a->end);
 
-        return array_slice($candidates, 0, $this->catchUp);
+        return $candidates;
     }
 
     public function decide(DateTimeImmutable $now): ?Window
@@ -145,9 +172,9 @@ final class RunGate
             return false;
         }
         if ($this->every !== null) {
-            $next = $boundary->add(new DateInterval('PT' . $this->periodSeconds . 'S'));
+            $next = $this->nextBoundaryAfter($boundary);
 
-            return $now < $next;
+            return $next !== null && $now < $next;
         }
         $hourEnd = $boundary->add(new DateInterval('PT1H'));
 
@@ -187,17 +214,16 @@ final class RunGate
     {
         $date = $this->localDate($localRef);
         if ($this->every !== null) {
-            $midnight = $date->setTime(0, 0);
-            $endOfDay = $date->modify('+1 day');
+            $stepHours = intdiv($this->periodSeconds, 3600);
+            if ($stepHours < 1 || $this->periodSeconds % 3600 !== 0) {
+                throw new InvalidArgumentException('every period must be a whole number of hours.');
+            }
             $out = [];
-            $cursor = $midnight;
-            while ($cursor < $endOfDay && $this->localDate($cursor) === $date) {
-                $out[] = $cursor;
-                $next = $cursor->add(new DateInterval('PT' . $this->periodSeconds . 'S'));
-                if ($next <= $cursor) {
-                    break;
+            for ($hour = 0; $hour < 24; $hour += $stepHours) {
+                $boundary = $this->everyBoundaryOnDate($date, $hour, 0);
+                if ($boundary !== null) {
+                    $out[] = $boundary;
                 }
-                $cursor = $next;
             }
 
             return $out;
@@ -286,6 +312,37 @@ final class RunGate
         return $local->setTime(0, 0);
     }
 
+    /** Boundary at local wall time on `$localDate`, or null when that wall time does not exist (`every` grid only). */
+    private function everyBoundaryOnDate(DateTimeImmutable $localDate, int $hour, int $minute): ?DateTimeImmutable
+    {
+        $expected = sprintf('%02d:%02d', $hour, $minute);
+        $instant = $this->runAtOn($localDate, $hour, $minute);
+        if ($instant->setTimezone($this->timezone)->format('H:i') !== $expected) {
+            return null;
+        }
+
+        return $instant;
+    }
+
+    private function nextBoundaryAfter(DateTimeImmutable $boundary): ?DateTimeImmutable
+    {
+        $local = $boundary->setTimezone($this->timezone);
+        $candidates = [];
+        foreach ([$local, $local->modify('+1 day')] as $day) {
+            foreach ($this->boundariesOnLocalDate($day) as $b) {
+                if ($b > $boundary) {
+                    $candidates[$b->format('U.u')] = $b;
+                }
+            }
+        }
+        if ($candidates === []) {
+            return null;
+        }
+        ksort($candidates);
+
+        return $candidates[array_key_first($candidates)];
+    }
+
     /**
      * Wall-clock time on `$ref`'s local date. A nonexistent time resolves to the first instant after the gap; an
      * ambiguous time to its first occurrence.
@@ -305,11 +362,22 @@ final class RunGate
         if ($valid !== []) {
             return $date->setTimestamp(min($valid));
         }
-        $guess = $wall - $date->setTimestamp($wall - 86400)->getOffset();
-        $transitions = $this->timezone->getTransitions($guess - 86400, $guess);
-        $last = end($transitions);
+        // The wall time falls in a gap: the instant is the transition itself. It is found by bisecting the offset change
+        // (not DateTimeZone::getTransitions(): with system tzdata it lists only transitions stored in the file, not those
+        // that come from the rule at its end, so for the current years it returned a wrong instant).
+        $lo = $wall - 86400;
+        $hi = $wall + 86400;
+        $before = $date->setTimestamp($lo)->getOffset();
+        while ($hi - $lo > 1) {
+            $mid = intdiv($lo + $hi, 2);
+            if ($date->setTimestamp($mid)->getOffset() === $before) {
+                $lo = $mid;
+            } else {
+                $hi = $mid;
+            }
+        }
 
-        return $date->setTimestamp($last === false ? $guess : $last['ts']);
+        return $date->setTimestamp($hi);
     }
 
     private static function intervalToSpec(DateInterval $interval): string
