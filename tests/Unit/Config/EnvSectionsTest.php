@@ -284,4 +284,31 @@ final class EnvSectionsTest extends TestCase
         self::assertStringContainsString('WATCHER_STREAM_TAGS', $e->problems()[0]['message']);
         self::assertStringNotContainsString('oops-secret', $e->problems()[0]['message']);
     }
+    // ---- what makes a problem stale when the host sets the key itself
+
+    public function testEachProblemNamesTheKeysThatWouldSettleIt(): void
+    {
+        $e = new EnvSections();
+        $e->destination('DIGEST');
+        self::assertEqualsCanonicalizing([['notify', 'digest', 'webhook'], ['notify', 'digest', 'bot_token']], $e->problems()[0]['unless']);
+
+        self::set(['WATCHER_DIGEST_DRIVER' => 'telegram', 'WATCHER_DIGEST_BOT_TOKEN' => 'tok']);
+        $e = new EnvSections();
+        $e->destination('DIGEST');
+        self::assertSame([['notify', 'digest', 'chat_id']], $e->problems()[0]['unless']);
+
+        self::set(['WATCHER_PRICE_TRIAGE_IN' => 'x']);
+        $e = new EnvSections();
+        $e->prices(['triage' => 'haiku', 'analyze' => null, 'escalate' => null]);
+        self::assertSame([['analysis', 'prices', 'haiku']], $e->problems()[0]['unless']);
+    }
+
+    public function testAPriceConflictCanNeverBeSettledByTheHost(): void
+    {
+        self::set(['WATCHER_PRICE_TRIAGE_IN' => '0.1', 'WATCHER_PRICE_TRIAGE_OUT' => '0.5', 'WATCHER_PRICE_ANALYZE_IN' => '2', 'WATCHER_PRICE_ANALYZE_OUT' => '10']);
+        $e = new EnvSections();
+        $e->prices(['triage' => 'haiku', 'analyze' => 'haiku', 'escalate' => null]);
+
+        self::assertSame([], $e->problems()[0]['unless']);
+    }
 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Watcher\Config\Env;
+use Watcher\Config\EnvSections;
 
 /*
  * Publishable configuration. Required keys have no default: a missing one makes
@@ -15,6 +16,12 @@ use Watcher\Config\Env;
  * Only `enabled` defaults to off: a deployment must opt in, per environment (WATCHER_ENABLED=1).
  * All other flags default to on (today's behaviour). There is no flag for redaction: privacy is not optional.
  */
+// Environment-only hosts keep no config file of their own: destinations, prices and stream tags come from variables (docs/configuration.md,
+// "Environment only"). This file never throws: it runs on every request of the host, so a missing or broken variable is recorded in
+// `env_problems` and raised when `watcher:run` or `watcher:check` starts, as a MissingEnvironmentVariable (an InvalidConfig, exit code 2).
+$env = new EnvSections();
+$models = ['triage' => env('WATCHER_MODEL_TRIAGE'), 'analyze' => env('WATCHER_MODEL_ANALYZE'), 'escalate' => env('WATCHER_MODEL_ESCALATE')];
+
 return [
     'enabled' => Env::bool('WATCHER_ENABLED', false), // master switch: false = the run does nothing and reports `disabled`
     'environment' => Env::string('WATCHER_ENVIRONMENT'), // optional (int, prod, ...): state keys become <service>@<environment>
@@ -41,7 +48,7 @@ return [
             'app_key' => env('WATCHER_DD_APP_KEY'), // logs_read_data scope only
             'newest_first' => false,
         ],
-        'stream_tags' => [],                       // e.g. ['app' => 'my-service', 'env' => 'prod']
+        'stream_tags' => $env->streamTags(),       // WATCHER_STREAM_TAGS="app=my-service,env=prod"
         'read_min_level' => 'warning',
         'anomaly_cap' => 20000,
         'event_cap' => 200000,
@@ -77,11 +84,7 @@ return [
         'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis
         'advice' => ['enabled' => Env::bool('WATCHER_ADVICE_ENABLED', true)], // false: no how_to_check / related_checks (fewer output tokens)
         'api_key' => env('WATCHER_ANTHROPIC_KEY'),
-        'models' => [
-            'triage' => env('WATCHER_MODEL_TRIAGE'),
-            'analyze' => env('WATCHER_MODEL_ANALYZE'),
-            'escalate' => env('WATCHER_MODEL_ESCALATE'),
-        ],
+        'models' => $models,
         'max_input_tokens' => ['triage' => 20000, 'analyze' => 30000, 'escalate' => 15000],
         'max_output_tokens' => ['triage' => 1500, 'analyze' => 4000, 'escalate' => 2000],
         'confidence_threshold' => 0.6,
@@ -90,7 +93,8 @@ return [
         'daily_token_limit' => null,
         'budget_alert_percents' => [25, 50, 75, 90],
         // Required for every model above: 'model-id' => [input, output, cache_read, cache_write], USD per million tokens.
-        'prices' => [],
+        // From WATCHER_PRICE_{TRIAGE|ANALYZE|ESCALATE}_{IN|OUT} (and optional _CACHE_READ / _CACHE_WRITE). There is no default price.
+        'prices' => $env->prices($models),
     ],
 
     'redaction' => [
@@ -116,9 +120,12 @@ return [
     ],
 
     'notify' => [
-        'digest' => ['driver' => env('WATCHER_DIGEST_DRIVER', 'slack'), 'webhook' => env('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
-        // Failure and budget notices. Only `enabled`: use the digest destination. Add driver + webhook for a channel of its own.
-        'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
+        // Telegram: WATCHER_DIGEST_BOT_TOKEN + WATCHER_DIGEST_CHAT_ID (+ WATCHER_DIGEST_THREAD_ID, a topic). Slack / Discord: WATCHER_DIGEST_WEBHOOK
+        // (the old WATCHER_SLACK_WEBHOOK still works). WATCHER_DIGEST_DRIVER picks one explicitly (slack | telegram | discord | none).
+        'digest' => $env->destination('DIGEST') + ['enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
+        // Failure and budget notices. No WATCHER_NOTICE_* variable: use the digest destination. WATCHER_NOTICE_THREAD_ID alone sends them to another
+        // topic of the same Telegram chat; WATCHER_NOTICE_DRIVER / _WEBHOOK / _BOT_TOKEN / _CHAT_ID give a channel of its own.
+        'notice' => ($env->destination('NOTICE') ?? []) + ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
         'routes_enabled' => Env::bool('WATCHER_ROUTES_ENABLED', true),
         'routes' => [],
     ],
@@ -205,4 +212,7 @@ return [
             'file_mode' => Env::string('WATCHER_OBSERVE_PROMETHEUS_FILE_MODE'),        // default 0644
         ],
     ],
+
+    // Not a setting: what EnvSections found missing or broken above (it must be the last key, so it has seen every section).
+    'env_problems' => $env->problems(),
 ];

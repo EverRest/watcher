@@ -29,16 +29,22 @@ final class EnvProblemsTest extends TestCase
         ];
     }
 
-    /** @return array{kind: string, variable: string, key: string, message: string} */
-    private static function missing(string $variable = 'WATCHER_DIGEST_BOT_TOKEN'): array
+    /**
+     * @param list<list<string>> $unless
+     * @return array{kind: string, variable: string, key: string, message: string, unless: list<list<string>>}
+     */
+    private static function missing(string $variable = 'WATCHER_DIGEST_BOT_TOKEN', array $unless = []): array
     {
-        return ['kind' => 'missing', 'variable' => $variable, 'key' => 'notify.digest.bot_token', 'message' => "$variable is not set (notify.digest.bot_token)"];
+        return ['kind' => 'missing', 'variable' => $variable, 'key' => 'notify.digest.bot_token', 'message' => "$variable is not set (notify.digest.bot_token)", 'unless' => $unless];
     }
 
-    /** @return array{kind: string, variable: string, key: string, message: string} */
-    private static function invalid(string $variable = 'WATCHER_DIGEST_THREAD_ID'): array
+    /**
+     * @param list<list<string>> $unless
+     * @return array{kind: string, variable: string, key: string, message: string, unless: list<list<string>>}
+     */
+    private static function invalid(string $variable = 'WATCHER_DIGEST_THREAD_ID', array $unless = []): array
     {
-        return ['kind' => 'invalid', 'variable' => $variable, 'key' => 'notify.digest.thread_id', 'message' => "$variable must be a positive integer"];
+        return ['kind' => 'invalid', 'variable' => $variable, 'key' => 'notify.digest.thread_id', 'message' => "$variable must be a positive integer", 'unless' => $unless];
     }
 
     public function testAMissingVariableIsATypedException(): void
@@ -108,5 +114,47 @@ final class EnvProblemsTest extends TestCase
         $c = WatchConfig::fromArray(self::valid() + ['env_problems' => []]);
 
         self::assertStringNotContainsString('env_problems', (string) json_encode($c));
+    }
+    // A host that keeps (part of) its own config still merges the shipped one: a problem about a key the host already set is stale.
+
+    public function testAProblemIsStaleWhenTheHostAlreadySetTheKey(): void
+    {
+        $c = WatchConfig::fromArray(self::valid() + ['env_problems' => [self::missing('WATCHER_DIGEST_WEBHOOK', [['notify', 'digest', 'webhook']])]]);
+
+        self::assertSame('svc', $c->service);
+    }
+
+    public function testAnyOfTheKeysSettlesIt(): void
+    {
+        $c = WatchConfig::fromArray(self::valid() + ['env_problems' => [self::missing('WATCHER_X', [['notify', 'digest', 'bot_token'], ['notify', 'digest', 'webhook']])]]);
+
+        self::assertSame('svc', $c->service);
+    }
+
+    public function testAKeyThatIsAbsentOrEmptyDoesNotSettleIt(): void
+    {
+        foreach ([['analysis', 'api_key', 'nope'], ['notify', 'digest', 'thread_id'], ['notify', 'digest', 'nothing']] as $path) {
+            try {
+                WatchConfig::fromArray(self::valid() + ['env_problems' => [self::missing('WATCHER_X', [$path])]]);
+                self::fail('expected an exception for ' . implode('.', $path));
+            } catch (MissingEnvironmentVariable $e) {
+                self::assertStringContainsString('WATCHER_X', $e->getMessage());
+            }
+        }
+        $emptyWebhook = self::valid();
+        $emptyWebhook['notify']['digest']['webhook'] = '';
+        $this->expectException(MissingEnvironmentVariable::class);
+        WatchConfig::fromArray($emptyWebhook + ['env_problems' => [self::missing('WATCHER_X', [['notify', 'digest', 'webhook']])]]);
+    }
+
+    public function testOnlyTheLiveProblemsAreReported(): void
+    {
+        try {
+            WatchConfig::fromArray(self::valid() + ['env_problems' => [self::missing('WATCHER_STALE', [['notify', 'digest', 'webhook']]), self::missing('WATCHER_LIVE', [['notify', 'digest', 'thread_id']])]]);
+            self::fail('expected an exception');
+        } catch (MissingEnvironmentVariable $e) {
+            self::assertStringContainsString('WATCHER_LIVE', $e->getMessage());
+            self::assertStringNotContainsString('WATCHER_STALE', $e->getMessage());
+        }
     }
 }

@@ -17,13 +17,18 @@ final class EnvSections
 {
     private const TIERS = ['triage', 'analyze', 'escalate'];
 
-    /** @var list<array{kind: string, variable: string, key: string, message: string}> */
+    /** @var list<array{kind: string, variable: string, key: string, message: string, unless: list<list<string>>}> */
     private array $problems = [];
 
     /** @var array<string, array<string, mixed>|null> */
     private array $resolved = [];
 
-    /** @return list<array{kind: string, variable: string, key: string, message: string}> */
+    /**
+     * `unless` lists config paths (as lists of segments: a model id may contain a dot). A host that keeps part of its own config and has
+     * set one of them makes the problem stale, and it is dropped. An empty list means the host can never settle it.
+     *
+     * @return list<array{kind: string, variable: string, key: string, message: string, unless: list<list<string>>}>
+     */
     public function problems(): array
     {
         return $this->problems;
@@ -58,15 +63,15 @@ final class EnvSections
                 continue;
             }
             $t = strtoupper($tier);
-            $in = $this->price("WATCHER_PRICE_{$t}_IN", true, "analysis.prices.$model");
-            $outPrice = $this->price("WATCHER_PRICE_{$t}_OUT", true, "analysis.prices.$model");
+            $in = $this->price("WATCHER_PRICE_{$t}_IN", true, $model);
+            $outPrice = $this->price("WATCHER_PRICE_{$t}_OUT", true, $model);
             if ($in === null || $outPrice === null) {
                 continue;
             }
             $entry = [
                 $in, $outPrice,
-                $this->price("WATCHER_PRICE_{$t}_CACHE_READ", false, "analysis.prices.$model") ?? 0.0,
-                $this->price("WATCHER_PRICE_{$t}_CACHE_WRITE", false, "analysis.prices.$model") ?? 0.0,
+                $this->price("WATCHER_PRICE_{$t}_CACHE_READ", false, $model) ?? 0.0,
+                $this->price("WATCHER_PRICE_{$t}_CACHE_WRITE", false, $model) ?? 0.0,
             ];
             if (isset($out[$model]) && $out[$model] !== $entry) {
                 $this->invalid(
@@ -97,7 +102,7 @@ final class EnvSections
                 continue;
             }
             if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/D', $item, $m) !== 1) {
-                $this->invalid('WATCHER_STREAM_TAGS', 'source.stream_tags', 'WATCHER_STREAM_TAGS must be a comma separated list of label=value pairs');
+                $this->invalid('WATCHER_STREAM_TAGS', 'source.stream_tags', 'WATCHER_STREAM_TAGS must be a comma separated list of label=value pairs', [['source', 'stream_tags']]);
 
                 return [];
             }
@@ -118,7 +123,7 @@ final class EnvSections
             } elseif ($webhook !== null) {
                 $driver = 'slack';
             } else {
-                $this->missing('WATCHER_DIGEST_BOT_TOKEN', 'notify.digest', 'WATCHER_DIGEST_BOT_TOKEN (Telegram) or WATCHER_DIGEST_WEBHOOK (Slack, Discord) is not set');
+                $this->missing('WATCHER_DIGEST_BOT_TOKEN', 'notify.digest', 'WATCHER_DIGEST_BOT_TOKEN (Telegram) or WATCHER_DIGEST_WEBHOOK (Slack, Discord) is not set', [['notify', 'digest', 'webhook'], ['notify', 'digest', 'bot_token']]);
 
                 return ['driver' => 'slack'];
             }
@@ -160,10 +165,10 @@ final class EnvSections
             $token = Env::string("WATCHER_{$name}_BOT_TOKEN") ?? (is_string($inherit['bot_token'] ?? null) ? $inherit['bot_token'] : null);
             $chat = Env::string("WATCHER_{$name}_CHAT_ID") ?? (is_string($inherit['chat_id'] ?? null) ? $inherit['chat_id'] : null);
             if ($token === null && $checkMissing) {
-                $this->missing("WATCHER_{$name}_BOT_TOKEN", "$key.bot_token", "WATCHER_{$name}_BOT_TOKEN is not set ($key.bot_token)");
+                $this->missing("WATCHER_{$name}_BOT_TOKEN", "$key.bot_token", "WATCHER_{$name}_BOT_TOKEN is not set ($key.bot_token)", [['notify', strtolower($name), 'bot_token']]);
             }
             if ($chat === null && $checkMissing) {
-                $this->missing("WATCHER_{$name}_CHAT_ID", "$key.chat_id", "WATCHER_{$name}_CHAT_ID is not set ($key.chat_id)");
+                $this->missing("WATCHER_{$name}_CHAT_ID", "$key.chat_id", "WATCHER_{$name}_CHAT_ID is not set ($key.chat_id)", [['notify', strtolower($name), 'chat_id']]);
             }
             $out = ['driver' => 'telegram'];
             if ($token !== null) {
@@ -175,7 +180,7 @@ final class EnvSections
             $thread = Env::string("WATCHER_{$name}_THREAD_ID");
             if ($thread !== null) {
                 if (preg_match('/^[1-9][0-9]{0,9}$/D', $thread) !== 1) {
-                    $this->invalid("WATCHER_{$name}_THREAD_ID", "$key.thread_id", "WATCHER_{$name}_THREAD_ID must be a positive integer (the id of a Telegram topic)");
+                    $this->invalid("WATCHER_{$name}_THREAD_ID", "$key.thread_id", "WATCHER_{$name}_THREAD_ID must be a positive integer (the id of a Telegram topic)", [['notify', strtolower($name), 'thread_id']]);
                 } else {
                     $out['thread_id'] = (int) $thread;
                 }
@@ -193,24 +198,25 @@ final class EnvSections
         }
         $webhook ??= is_string($inherit['webhook'] ?? null) ? $inherit['webhook'] : null;
         if ($webhook === null && $checkMissing) {
-            $this->missing("WATCHER_{$name}_WEBHOOK", "$key.webhook", "WATCHER_{$name}_WEBHOOK is not set ($key.webhook)");
+            $this->missing("WATCHER_{$name}_WEBHOOK", "$key.webhook", "WATCHER_{$name}_WEBHOOK is not set ($key.webhook)", [['notify', strtolower($name), 'webhook']]);
         }
 
         return $webhook === null ? ['driver' => $driver] : ['driver' => $driver, 'webhook' => $webhook];
     }
 
-    private function price(string $variable, bool $required, string $key): ?float
+    private function price(string $variable, bool $required, string $model): ?float
     {
+        $key = "analysis.prices.$model";
         $raw = Env::string($variable);
         if ($raw === null) {
             if ($required) {
-                $this->missing($variable, $key, "$variable is not set ($key)");
+                $this->missing($variable, $key, "$variable is not set ($key)", [['analysis', 'prices', $model]]);
             }
 
             return null;
         }
         if (!is_numeric(trim($raw)) || (float) $raw < 0) {
-            $this->invalid($variable, $key, "$variable must be a number of at least 0 (USD per million tokens)");
+            $this->invalid($variable, $key, "$variable must be a number of at least 0 (USD per million tokens)", [['analysis', 'prices', $model]]);
 
             return null;
         }
@@ -218,13 +224,15 @@ final class EnvSections
         return (float) $raw;
     }
 
-    private function missing(string $variable, string $key, string $message): void
+    /** @param list<list<string>> $unless */
+    private function missing(string $variable, string $key, string $message, array $unless = []): void
     {
-        $this->problems[] = ['kind' => 'missing', 'variable' => $variable, 'key' => $key, 'message' => $message];
+        $this->problems[] = ['kind' => 'missing', 'variable' => $variable, 'key' => $key, 'message' => $message, 'unless' => $unless];
     }
 
-    private function invalid(string $variable, string $key, string $message): void
+    /** @param list<list<string>> $unless */
+    private function invalid(string $variable, string $key, string $message, array $unless = []): void
     {
-        $this->problems[] = ['kind' => 'invalid', 'variable' => $variable, 'key' => $key, 'message' => $message];
+        $this->problems[] = ['kind' => 'invalid', 'variable' => $variable, 'key' => $key, 'message' => $message, 'unless' => $unless];
     }
 }

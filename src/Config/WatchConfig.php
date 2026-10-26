@@ -147,6 +147,9 @@ final class WatchConfig implements \JsonSerializable
             if (!is_array($problem) || !is_string($problem['kind'] ?? null) || !is_string($problem['message'] ?? null)) {
                 throw new InvalidConfig('env_problems must be the list recorded by EnvSections');
             }
+            if (self::settledByTheHost($config, $problem['unless'] ?? [])) {
+                continue; // a host that keeps part of its own config already set the key this problem is about
+            }
             $messages[] = $problem['message'];
             $missing = $missing || $problem['kind'] === 'missing';
         }
@@ -155,6 +158,31 @@ final class WatchConfig implements \JsonSerializable
         }
 
         throw $missing ? new MissingEnvironmentVariable(implode('; ', $messages)) : new InvalidConfig(implode('; ', $messages));
+    }
+
+    /**
+     * @param array<array-key, mixed> $config
+     * @param mixed                   $paths  list of paths, each a list of segments; any non-empty value settles the problem
+     */
+    private static function settledByTheHost(array $config, mixed $paths): bool
+    {
+        if (!is_array($paths)) {
+            return false;
+        }
+        foreach ($paths as $path) {
+            $at = $config;
+            foreach (is_array($path) ? $path : [] as $segment) {
+                if (!is_array($at) || !array_key_exists($segment, $at)) {
+                    continue 2;
+                }
+                $at = $at[$segment];
+            }
+            if (!in_array($at, [null, '', false, []], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

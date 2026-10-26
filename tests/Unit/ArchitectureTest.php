@@ -182,6 +182,8 @@ final class ArchitectureTest extends TestCase
     public function testEveryConcreteClassIsFinal(): void
     {
         $bad = self::grep(self::files('src'), '/^\s*(?:readonly\s+)?class\s+\w+/');
+        // The one exemption: MissingEnvironmentVariable extends InvalidConfig, so the handlers of InvalidConfig (exit code 2) keep working.
+        $bad = array_values(array_filter($bad, static fn (string $hit): bool => !str_contains($hit, 'src/Config/InvalidConfig.php')));
 
         self::assertSame([], $bad, 'concrete classes must be final (abstract/interface/enum are fine)');
     }
