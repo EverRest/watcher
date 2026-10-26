@@ -157,8 +157,9 @@ final class PathPolicyTest extends TestCase
     public function testASwapAfterTheCheckIsRefusedByTheReader(): void
     {
         $approved = $this->policy()->approve($this->root . '/watcher.php');
-        // symlink flip: the approved name now points elsewhere
-        unlink($this->root . '/watcher.php');
+        // symlink flip: the approved name now points elsewhere. The approved file is renamed, not deleted:
+        // a freed inode number can be reused by the next new file (seen on CI), which hides the inode swap below.
+        rename($this->root . '/watcher.php', $this->root . '/approved-original.php');
         symlink('/etc/hosts', $this->root . '/watcher.php');
         try {
             (new ConfigFileReader())->read($approved);
