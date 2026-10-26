@@ -76,17 +76,21 @@ final class DryRunGuard
     }
 
     /**
-     * @param array{usd: float, tokens: int}|null $consumed added to the counter (the admitted upper bound once the run was entered)
-     * @param bool $failed the run threw after it was entered: further full runs are refused
+     * Books the admitted upper bound: called as soon as the run is entered, so paid calls made before a failure are counted.
+     *
+     * @param array{usd: float, tokens: int} $bound
      */
-    public function end(?array $consumed, bool $failed = false): void
+    public function enter(array $bound): void
+    {
+        $this->spentUsd += $bound['usd'];
+        $this->spentTokens += $bound['tokens'];
+    }
+
+    /** @param bool $failed the run threw after it was entered: further full runs are refused */
+    public function end(bool $failed = false): void
     {
         $this->running = false;
         $this->failed = $this->failed || $failed;
-        if ($consumed !== null) {
-            $this->spentUsd += $consumed['usd'];
-            $this->spentTokens += $consumed['tokens'];
-        }
     }
 
     public function busy(): bool
