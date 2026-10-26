@@ -6,6 +6,7 @@ namespace Watcher\Tests\Unit\Fleet;
 
 use PHPUnit\Framework\TestCase;
 use Watcher\Config\InvalidConfig;
+use Watcher\Config\WatchConfig;
 use Watcher\Fleet\FleetConfig;
 
 final class FleetConfigTest extends TestCase
@@ -282,7 +283,7 @@ final class FleetConfigTest extends TestCase
         $a = $f->services[0]->config;
         self::assertSame('telegram', $a->destination('digest')->driver());
         self::assertSame('telegram', $a->destination('notice')->driver());
-        self::assertSame(['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '-100123'], $a->notify['digest']);
+        self::assertSame(['driver' => 'telegram', 'bot_token' => self::TOKEN, 'chat_id' => '-100123'], WatchConfig::plain($a->notify['digest']));
         $b = $f->services[1]->config;
         self::assertSame('slack', $b->destination('digest')->driver());
         self::assertSame('https://hooks.invalid/fleet', $b->destination('digest')->webhook());

@@ -12,6 +12,7 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
+use Watcher\Config\WatchConfig;
 use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
@@ -318,7 +319,7 @@ final class FleetRunner
             array_push($secrets, ...$entry->config->secrets());
         }
         foreach ($this->config->notify as $block) {
-            foreach (is_array($block) ? $block : [] as $v) {
+            foreach (is_array($block) ? WatchConfig::plain($block) : [] as $v) { // the holders read back: a SecretValue is no string
                 if (is_string($v)) {
                     $secrets[] = $v;
                 }

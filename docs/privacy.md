@@ -172,9 +172,7 @@ host log gets the key kind (`snap`, `run`, ...) only, never the key or any conte
 The one-line summary on stdout and `watcher [error] ...` lines on stderr carry messages only, with line breaks and
 terminal control characters (ESC and the other C0 characters) removed. Exception objects are not logged, because an HTTP
 request (including the API key) can hang on them; delivery failures are logged as the exception class and a masked message.
-Config objects (`WatchConfig`, `FleetConfig`) show `[redacted]` for their credential sections in `var_dump`, `print_r`,
-`dd()` and `json_encode`, and the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes
-those arguments from stack traces).
+Config objects (`WatchConfig`, `FleetConfig`) hold every credential in a `SecretValue` (the value is read with `->reveal()`, the `WatchConfig::reveal()` helper, or `WatchConfig::plain()` for comparisons). A dump of them (`var_dump`, `print_r`, `var_export`, `json_encode`) shows no value, and `serialize` refuses to serialize a credential; the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes those arguments from stack traces). `tests/Unit/Config/SecretDumpTest.php` plants a fake value at every secret key of the catalog and fails when one reaches a dump.
 
 ## Kubernetes events (spec 008)
 

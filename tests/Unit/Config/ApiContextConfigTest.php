@@ -47,7 +47,7 @@ final class ApiContextConfigTest extends TestCase
 
     public function testDefaults(): void
     {
-        $a = WatchConfig::fromArray(self::config(['source' => self::URL]))->apiContext;
+        $a = WatchConfig::plain(WatchConfig::fromArray(self::config(['source' => self::URL]))->apiContext);
 
         self::assertSame([
             'enabled' => true, 'source' => self::URL, 'auth_token' => null, 'ttl' => 86400, 'max_endpoints' => 5, 'summary_cap' => 80,
@@ -57,7 +57,7 @@ final class ApiContextConfigTest extends TestCase
 
     public function testDefaultTtlNeverExceedsTheRetention(): void
     {
-        $a = WatchConfig::fromArray(self::config(['source' => self::URL], ['state' => ['retention' => 3600], 'baseline' => ['max_age' => 'PT1H']]))->apiContext;
+        $a = WatchConfig::plain(WatchConfig::fromArray(self::config(['source' => self::URL], ['state' => ['retention' => 3600], 'baseline' => ['max_age' => 'PT1H']]))->apiContext);
 
         self::assertSame(3600, $a['ttl'] ?? null);
     }
@@ -151,7 +151,7 @@ final class ApiContextConfigTest extends TestCase
             ['source' => 'http://127.0.0.1:3000/o.json', 'allow_insecure' => true, 'allow_private_network' => true],
             ['source' => 'http://orders.default.svc:8080/o.json', 'allow_insecure' => true, 'allow_private_network' => true],
         ] as $api) {
-            self::assertSame($api['source'], WatchConfig::fromArray(self::config($api))->apiContext['source'] ?? null);
+            self::assertSame($api['source'], WatchConfig::reveal(WatchConfig::fromArray(self::config($api))->apiContext['source'] ?? null));
         }
     }
 
