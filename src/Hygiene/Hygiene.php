@@ -15,6 +15,7 @@ use Watcher\Hygiene\Cost\CostReader;
 use Watcher\Hygiene\Cost\CostReport;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Operate\DryRunStateStore;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Notify\Message;
 use Watcher\Notify\SlackText;
 use Watcher\Notify\Notifier;
@@ -90,6 +91,10 @@ final class Hygiene
     {
         $c = WatchConfig::fromArray($config);
         $clock ??= new \Watcher\Schedule\SystemClock();
+        if (!$c->enabled) {
+            // Master switch: validate only; no source, state or notifier is built.
+            return new self($c, RefusedAccess::source(), RefusedAccess::state(), RefusedAccess::notifier(), $clock);
+        }
         $http ??= \Watcher\Config\Factory::http();
 
         return new self($c, \Watcher\Config\Factory::source($c, $http, $clock), \Watcher\Config\Factory::state($c, $clock), \Watcher\Config\Factory::notifier($http, $c->schedule['lock_ttl']), $clock);

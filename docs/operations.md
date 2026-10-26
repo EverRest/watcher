@@ -58,7 +58,7 @@ log text).
 | `skipped_locked` | 0 | Another runner holds this window | none (check you do not run two schedulers) |
 | `failed` | 1 | Source, analysis, delivery or state failed | see the reason and the notice in Slack |
 | `invalid_config` | 2 | Config rejected before any call | fix the named key |
-| `disabled` | 0 | `enabled` is false (the default): nothing was touched | set `enabled=true` / `WATCHER_ENABLED=1` where it should run |
+| `disabled` | 0 | `enabled` is not `true` (the default): nothing was touched, and the rest of the config was not even validated | set `enabled=true` / `WATCHER_ENABLED=1` where it should run |
 
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
@@ -408,7 +408,7 @@ own `environment` (fleet validation rejects a duplicate `service@environment`).
 
 ## Rollback / disabling
 
-Set `WATCHER_ENABLED=0` (the run then touches nothing), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
+Set `WATCHER_ENABLED=0` (the run then touches nothing and works even if the config is broken or half-filled), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
 nothing in your service or its logs; state can stay or be deleted.
 
 **Rolling back to a release without Redis compression.** An older release cannot decode `z1:` values: it reads them as **missing**, with no crash.

@@ -71,6 +71,14 @@ final class PreCommitHookTest extends TestCase
         self::assertStringContainsString('some dir/id_rsa', $err);
     }
 
+    public function testARedisDumpIsForbiddenBecauseItHoldsState(): void
+    {
+        $this->stage('dump.rdb', "REDIS0011\n");
+        [$code, $err] = $this->hook();
+        self::assertSame(1, $code);
+        self::assertStringContainsString('dump.rdb', $err);
+    }
+
     private function stage(string $name, string $content): void
     {
         $path = $this->repo . '/' . $name;

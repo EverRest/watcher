@@ -56,7 +56,7 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
 ## Quick start
 
 1. Copy `config/watcher.example.php` into your service and fill in the environment variables it reads.
-   It returns a plain PHP array. Set `enabled` to true (or `WATCHER_ENABLED=1`): the master switch is off by default and a disabled run reports `disabled` and touches nothing.
+   It returns a plain PHP array. Set `enabled` to true (or `WATCHER_ENABLED=1`): the master switch is off by default and a disabled run reports `disabled` and touches nothing, even if the rest of the config is broken or half-filled (only `check` validates it then).
 2. Check the setup (read-only; posts nothing), preview a run, then run it:
 
    ```bash
