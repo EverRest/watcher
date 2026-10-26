@@ -56,6 +56,8 @@ final class EventCollector
         private readonly Normalizer $normalizer,
         private readonly WatchRules $rules,
         private readonly ?RunGuard $guard = null,
+        /** @var (\Closure(LogEvent, string): void)|null forwarded to the Reducer (spec 009 trace ids) */
+        private readonly ?\Closure $onEvent = null,
         private readonly ?EventsRun $events = null,
     ) {
         foreach ($config->mute as $i => $entry) {
@@ -91,6 +93,7 @@ final class EventCollector
             $c->grouping['message_cap'],
             groupBySimilarity: $c->on('grouping'),
             memoryBudgetBytes: $c->grouping['memory_budget_mb'] * 1048576,
+            onEvent: $this->onEvent,
         );
 
         return $this->reducer->reduce($this->stream($window, $selector, $anomalies));

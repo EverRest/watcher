@@ -119,7 +119,7 @@ final class BudgetTest extends TestCase
         $t = new \DateTimeImmutable('2026-10-25T06:00:00Z');
         $g = new \Watcher\Privacy\RedactedGroup('a', 'GET /x', \Watcher\Level::Error, null, [], 1, null, \Watcher\Privacy\GroupStatusLabel::New, [], $t, $t);
         $ep = ['a' => 'GET /x — ' . str_repeat('s', 40)];
-        $with = Budget::estimateTokens(\Watcher\Analyze\CompactPayload::encode([$g], [], $ep));
+        $with = Budget::estimateTokens(\Watcher\Analyze\CompactPayload::encode([$g], [], null, $ep));
         $without = Budget::estimateTokens(\Watcher\Analyze\CompactPayload::encode([$g]));
         self::assertGreaterThan($without, $with);
 
@@ -132,10 +132,10 @@ final class BudgetTest extends TestCase
     {
         $plain = Budget::systemPrompt('analyze', 'ctx');
 
-        self::assertSame($plain, Budget::systemPrompt('analyze', 'ctx', true, false));
-        $with = Budget::systemPrompt('analyze', 'ctx', true, true);
+        self::assertSame($plain, Budget::systemPrompt('analyze', 'ctx', true, false, false));
+        $with = Budget::systemPrompt('analyze', 'ctx', true, false, true);
         self::assertStringContainsString('not evidence of the cause', $with);
         self::assertTrue(str_starts_with($with, substr($plain, 0, (int) strpos($plain, '## Service context'))));
-        self::assertStringNotContainsString('not evidence of the cause', Budget::systemPrompt('triage', 'ctx', true, true), 'triage never carries ep');
+        self::assertStringNotContainsString('not evidence of the cause', Budget::systemPrompt('triage', 'ctx', true, false, true), 'triage never carries ep');
     }
 }

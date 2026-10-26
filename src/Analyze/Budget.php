@@ -24,7 +24,7 @@ final class Budget
      *
      * @param 'triage'|'analyze' $kind escalation uses the analyze prompt
      */
-    public static function systemPrompt(string $kind, string $serviceContext, bool $advice = true, bool $endpoints = false): string
+    public static function systemPrompt(string $kind, string $serviceContext, bool $advice = true, bool $metrics = false, bool $endpoints = false): string
     {
         $prompt = (string) file_get_contents(__DIR__ . '/prompts/' . $kind . '.md');
         if ($advice && $kind === 'analyze') {
@@ -32,6 +32,10 @@ final class Budget
         }
         if ($endpoints && $kind === 'analyze') {
             $prompt .= "\n" . self::ENDPOINT_NOTE . "\n";
+        }
+
+        if ($metrics) {
+            $prompt .= file_get_contents(__DIR__ . '/prompts/metrics.md');
         }
 
         return $prompt . "\n## Service context\n\n" . $serviceContext;
@@ -42,9 +46,9 @@ final class Budget
      *
      * @param 'triage'|'analyze' $kind
      */
-    public static function fixedTokens(string $kind, string $serviceContext, bool $advice = true, bool $endpoints = false): int
+    public static function fixedTokens(string $kind, string $serviceContext, bool $advice = true, bool $metrics = false, bool $endpoints = false): int
     {
-        return self::estimateTokens(self::systemPrompt($kind, $serviceContext, $advice, $endpoints)) + self::estimateTokens(CompactPayload::userMessage('', str_repeat('0', 32)));
+        return self::estimateTokens(self::systemPrompt($kind, $serviceContext, $advice, $metrics, $endpoints)) + self::estimateTokens(CompactPayload::userMessage('', str_repeat('0', 32)));
     }
 
     /**
@@ -68,6 +72,27 @@ final class Budget
         }
 
         return new TruncationResult($kept, count($candidates) - count($kept));
+    }
+
+    /**
+     * The metrics section counts toward the analysis input: when it does not fit, the last metrics go first (anomaly metrics are first
+     * in the list), then the whole section. Never the candidates.
+     *
+     * @param list<RedactedGroup> $groups
+     * @param list<DependencyContext> $deps
+     */
+    public static function fitMetrics(array $groups, ?PayloadExtras $m, int $maxInputTokens, string $serviceContext, bool $advice, array $deps = []): ?PayloadExtras
+    {
+        $n = $m === null ? 0 : count($m->names);
+        while ($m !== null && $n > 0) {
+            $kept = $m->limit($n);
+            if (self::fixedTokens('analyze', $serviceContext, $advice, true) + self::estimateTokens(CompactPayload::encode($groups, $deps, $kept)) <= $maxInputTokens) {
+                return $kept;
+            }
+            --$n;
+        }
+
+        return null;
     }
 
     /**
@@ -115,6 +140,6 @@ final class Budget
      */
     public static function fitEndpoints(array $groups, array $deps, array $endpoints, int $maxInputTokens, int $fixedTokens = 0): array
     {
-        return $endpoints !== [] && self::estimateTokens(CompactPayload::encode($groups, $deps, $endpoints)) + $fixedTokens > $maxInputTokens ? [] : $endpoints;
+        return $endpoints !== [] && self::estimateTokens(CompactPayload::encode($groups, $deps, null, $endpoints)) + $fixedTokens > $maxInputTokens ? [] : $endpoints;
     }
 }

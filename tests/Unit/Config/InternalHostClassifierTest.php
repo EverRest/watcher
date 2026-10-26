@@ -53,7 +53,7 @@ final class InternalHostClassifierTest extends TestCase
     /** @return iterable<string, array{string}> */
     public static function names(): iterable
     {
-        foreach (['example.com', 'prom.example.com', 'localhost.evil.com', 'evil-localhost.com', 'metadata.google.internal.evil.com', 'a.b.c.d.e', '0x7f.evil.com', 'xn--80ak6aa92e.com'] as $h) {
+        foreach (['example.com', 'prom.invalid', 'localhost.evil.com', 'evil-localhost.com', 'metadata.google.internal.evil.com', 'a.b.c.d.e', '0x7f.evil.com', 'xn--80ak6aa92e.com'] as $h) {
             yield $h => [$h];
         }
     }
@@ -205,13 +205,13 @@ final class InternalHostClassifierTest extends TestCase
         self::assertNotNull(SecureUrl::problem('http://169.254.169.254/', true, true), 'link-local stays refused even with allow_insecure');
         self::assertNotNull(SecureUrl::problem('http://10.0.0.5:9090', true, true), 'private is refused unless allowPrivate');
         self::assertNull(SecureUrl::problem('http://10.0.0.5:9090', true, true, true));
-        self::assertNull(SecureUrl::problem('https://prom.example.com/', false, true));
+        self::assertNull(SecureUrl::problem('https://prom.invalid/', false, true));
     }
 
     public function testTheOptInKeepsTheBaseRules(): void
     {
-        self::assertNotNull(SecureUrl::problem('http://prom.example.com', true, true));
-        self::assertNotNull(SecureUrl::problem('https://user:pw@prom.example.com', false, true));
+        self::assertNotNull(SecureUrl::problem('http://prom.invalid', true, true));
+        self::assertNotNull(SecureUrl::problem('https://user:pw@prom.invalid', false, true));
         self::assertNotNull(SecureUrl::problem('https:///x', false, true));
         self::assertNotNull(SecureUrl::problem('https://[fe80::1%25eth0]/', false, true));
     }

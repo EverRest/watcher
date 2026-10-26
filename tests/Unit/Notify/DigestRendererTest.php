@@ -69,6 +69,46 @@ final class DigestRendererTest extends TestCase
         ));
     }
 
+    public function testExtrasPrintTheMetricsLineUnderTheHeaderAndOneNotePerUnavailableSource(): void
+    {
+        $extras = new \Watcher\Notify\DigestExtras('Metrics: p95 latency 1.2 s (was 0.4 s, +200%)', ['metrics' => 'timeout', 'sentry' => 'window_too_old'], 3, 2);
+        $m = (new DigestRenderer())->render($this->data([$this->finding(1)], [], ['extras' => $extras]), 0.5);
+
+        self::assertSame('header', $m->sections[0]['kind']);
+        self::assertStringContainsString('Metrics: p95 latency 1.2 s', $m->sections[1]['text']);
+        $notices = $this->text($m, 'notice');
+        self::assertStringContainsString('Metrics unavailable (timeout)', $notices);
+        self::assertStringContainsString('Sentry unavailable (window_too_old)', $notices);
+        self::assertStringContainsString('3 Sentry issues dropped', $notices);
+        self::assertStringContainsString('2 metric anomalies not shown', $notices);
+    }
+
+    public function testAFailureTokenOutsideTheFixedVocabularyIsShownAsUnreachable(): void
+    {
+        $extras = new \Watcher\Notify\DigestExtras(null, ['sentry' => 'https://sentry.io/api/0/?token=CANARY']);
+        $text = $this->text((new DigestRenderer())->render($this->data([], [], ['extras' => $extras]), 0.5));
+
+        self::assertStringContainsString('Sentry unavailable (unreachable)', $text);
+        self::assertStringNotContainsString('CANARY', $text);
+    }
+
+    public function testNullOrEmptyExtrasLeaveTheDigestUnchanged(): void
+    {
+        $r = new DigestRenderer();
+        $plain = $r->render($this->data([$this->finding(1)]), 0.5);
+
+        self::assertEquals($plain, $r->render($this->data([$this->finding(1)], [], ['extras' => new \Watcher\Notify\DigestExtras()]), 0.5));
+    }
+
+    public function testASentryLinkPrintsNextToTheLogLink(): void
+    {
+        $f = $this->finding(1);
+        $links = [$f->fingerprints[0] => ['log' => 'https://grafana.example/x', 'code' => [], 'sentry' => 'https://sentry.io/organizations/acme/issues/42/']];
+        $text = $this->text((new DigestRenderer())->render($this->data([$f], [], ['links' => $links]), 0.5), 'finding');
+
+        self::assertStringContainsString('<https://sentry.io/organizations/acme/issues/42/|Sentry>', $text);
+    }
+
     public function testReadDiagnosticsAreCountsInOneNoticeAndOnlyWhenNonZero(): void
     {
         $quiet = $this->text((new DigestRenderer())->render($this->data([], [], ['readDiagnostics' => ['unknown_levels' => 0, 'orphan_trace_lines' => 0, 'message_tails_dropped' => 0]]), 0.5), 'notice');

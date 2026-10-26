@@ -1,0 +1,238 @@
+[
+ {
+  "id": "1003",
+  "title": "Fatal in worker",
+  "culprit": "App\\Worker::run",
+  "level": "fatal",
+  "status": "unresolved",
+  "substatus": "ongoing",
+  "firstSeen": "2026-10-22T10:00:00Z",
+  "lastSeen": "2026-10-22T20:00:00Z",
+  "stats": {
+   "24h": [
+    [
+     1792623600,
+     9
+    ],
+    [
+     1792627200,
+     0
+    ],
+    [
+     1792630800,
+     3
+    ],
+    [
+     1792634400,
+     2
+    ],
+    [
+     1792713600,
+     4
+    ]
+   ]
+  },
+  "shortId": "ORDERS-1",
+  "permalink": "https://sentry.test/organizations/acme/issues/1003/",
+  "count": "4711",
+  "userCount": 12,
+  "user": {
+   "email": "anna.kowalski@example.org",
+   "ip_address": "203.0.113.42"
+  },
+  "tags": [
+   {
+    "key": "customer",
+    "value": "customer-4711"
+   }
+  ],
+  "breadcrumbs": [
+   {
+    "message": "clicked pay"
+   }
+  ],
+  "metadata": {
+   "value": "secret"
+  },
+  "assignedTo": {
+   "name": "Anna Kowalski"
+  },
+  "annotations": [
+   "<a>x</a>"
+  ],
+  "project": {
+   "slug": "orders-api"
+  }
+ },
+ {
+  "id": "1004",
+  "title": "Resolved one",
+  "culprit": "x",
+  "level": "error",
+  "status": "resolved",
+  "substatus": "ongoing",
+  "firstSeen": "2026-10-22T10:00:00Z",
+  "lastSeen": "2026-10-22T20:00:00Z",
+  "stats": {
+   "24h": [
+    [
+     1792623600,
+     9
+    ],
+    [
+     1792627200,
+     0
+    ],
+    [
+     1792630800,
+     3
+    ],
+    [
+     1792634400,
+     2
+    ],
+    [
+     1792713600,
+     4
+    ]
+   ]
+  },
+  "shortId": "ORDERS-1",
+  "permalink": "https://sentry.test/organizations/acme/issues/1004/",
+  "count": "4711",
+  "userCount": 12,
+  "user": {
+   "email": "anna.kowalski@example.org",
+   "ip_address": "203.0.113.42"
+  },
+  "tags": [
+   {
+    "key": "customer",
+    "value": "customer-4711"
+   }
+  ],
+  "breadcrumbs": [
+   {
+    "message": "clicked pay"
+   }
+  ],
+  "metadata": {
+   "value": "secret"
+  },
+  "assignedTo": {
+   "name": "Anna Kowalski"
+  },
+  "annotations": [
+   "<a>x</a>"
+  ],
+  "project": {
+   "slug": "orders-api"
+  }
+ },
+ {
+  "id": "1005",
+  "title": "No stats",
+  "culprit": "x",
+  "level": "error",
+  "status": "unresolved",
+  "substatus": "ongoing",
+  "firstSeen": "2026-10-22T10:00:00Z",
+  "lastSeen": "2026-10-22T20:00:00Z",
+  "shortId": "ORDERS-1",
+  "permalink": "https://sentry.test/organizations/acme/issues/1005/",
+  "count": "4711",
+  "userCount": 12,
+  "user": {
+   "email": "anna.kowalski@example.org",
+   "ip_address": "203.0.113.42"
+  },
+  "tags": [
+   {
+    "key": "customer",
+    "value": "customer-4711"
+   }
+  ],
+  "breadcrumbs": [
+   {
+    "message": "clicked pay"
+   }
+  ],
+  "metadata": {
+   "value": "secret"
+  },
+  "assignedTo": {
+   "name": "Anna Kowalski"
+  },
+  "annotations": [
+   "<a>x</a>"
+  ],
+  "project": {
+   "slug": "orders-api"
+  }
+ },
+ {
+  "id": "abc",
+  "title": "Bad id",
+  "culprit": "x",
+  "level": "error",
+  "status": "unresolved",
+  "substatus": "ongoing",
+  "firstSeen": "2026-10-22T10:00:00Z",
+  "lastSeen": "2026-10-22T20:00:00Z",
+  "stats": {
+   "24h": [
+    [
+     1792623600,
+     9
+    ],
+    [
+     1792627200,
+     0
+    ],
+    [
+     1792630800,
+     3
+    ],
+    [
+     1792634400,
+     2
+    ],
+    [
+     1792713600,
+     4
+    ]
+   ]
+  },
+  "shortId": "ORDERS-1",
+  "permalink": "https://sentry.test/organizations/acme/issues/abc/",
+  "count": "4711",
+  "userCount": 12,
+  "user": {
+   "email": "anna.kowalski@example.org",
+   "ip_address": "203.0.113.42"
+  },
+  "tags": [
+   {
+    "key": "customer",
+    "value": "customer-4711"
+   }
+  ],
+  "breadcrumbs": [
+   {
+    "message": "clicked pay"
+   }
+  ],
+  "metadata": {
+   "value": "secret"
+  },
+  "assignedTo": {
+   "name": "Anna Kowalski"
+  },
+  "annotations": [
+   "<a>x</a>"
+  ],
+  "project": {
+   "slug": "orders-api"
+  }
+ }
+]

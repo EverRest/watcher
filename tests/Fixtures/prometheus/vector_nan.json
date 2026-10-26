@@ -1,0 +1,1 @@
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1792713600,"NaN"]},{"metric":{"a":"1"},"value":[1792713600,"+Inf"]},{"metric":{"a":"2"},"value":[1792713600,"-Inf"]},{"metric":{"a":"3"},"value":[1792713600,"7"]}]}}

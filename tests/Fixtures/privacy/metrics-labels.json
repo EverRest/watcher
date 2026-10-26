@@ -1,0 +1,20 @@
+{
+ "description": "Prometheus vector whose labels hold seeded personal values; none may reach any outbound payload (spec 009 T006).",
+ "status": "success",
+ "data": {
+  "resultType": "vector",
+  "result": [
+   {
+    "metric": {
+     "customer": "customer-4711",
+     "email": "anna.kowalski@example.org",
+     "code": "500"
+    },
+    "value": [
+     1792713600,
+     "3"
+    ]
+   }
+  ]
+ }
+}
