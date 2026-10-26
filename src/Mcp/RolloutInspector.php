@@ -91,7 +91,7 @@ final class RolloutInspector
             if (!$ext('pdo')) {
                 return ['name' => 'extensions', 'status' => 'fail', 'reason' => 'ext-pdo missing'];
             }
-            $dsn = is_string($c->state['pdo']['dsn'] ?? null) ? $c->state['pdo']['dsn'] : '';
+            $dsn = isset($c->state['pdo']['dsn']) ? WatchConfig::reveal($c->state['pdo']['dsn']) : '';
             $drv = explode(':', $dsn, 2)[0];
             if (preg_match('/^[a-z]+$/D', $drv) === 1 && !$ext('pdo_' . $drv)) {
                 return ['name' => 'extensions', 'status' => 'fail', 'reason' => 'pdo driver missing'];
