@@ -118,8 +118,8 @@ final class Factory
             return new DatadogSource(
                 $http,
                 (string) ($dd['site'] ?? 'datadoghq.com'),
-                (string) $dd['api_key'],
-                (string) $dd['app_key'],
+                WatchConfig::reveal($dd['api_key']),
+                WatchConfig::reveal($dd['app_key']),
                 clock: $clock,
                 levelMode: $c->source['level_mode'] === 'all' ? 'all' : 'status',
                 newestFirst: ($dd['newest_first'] ?? false) === true,
@@ -128,16 +128,16 @@ final class Factory
         }
         /** @var array<string, mixed> $loki */
         $loki = $c->source['loki'];
-        /** @var array<string, string>|null $auth */
+        /** @var array<string, mixed>|null $auth */
         $auth = $loki['auth'] ?? null;
         $tenant = $loki['tenant'] ?? null;
 
         return new LokiSource(
             $http,
             (string) $loki['url'],
-            ($auth['type'] ?? null) === 'bearer' ? $auth['token'] : null,
-            ($auth['type'] ?? null) === 'basic' ? $auth['user'] : null,
-            ($auth['type'] ?? null) === 'basic' ? $auth['password'] : null,
+            ($auth['type'] ?? null) === 'bearer' ? WatchConfig::reveal($auth['token']) : null,
+            ($auth['type'] ?? null) === 'basic' ? (string) $auth['user'] : null,
+            ($auth['type'] ?? null) === 'basic' ? WatchConfig::reveal($auth['password']) : null,
             is_string($tenant) ? $tenant : null,
             levelMode: (string) $c->source['level_mode'],
             allowInsecure: ($loki['allow_insecure'] ?? false) === true,
@@ -323,7 +323,7 @@ final class Factory
                     'port' => (int) ($r['port'] ?? 6379),
                     'database' => (int) ($r['database'] ?? 0),
                     'username' => isset($r['username'], $r['password']) ? (string) $r['username'] : null,
-                    'password' => isset($r['password']) ? (string) $r['password'] : null,
+                    'password' => isset($r['password']) ? WatchConfig::reveal($r['password']) : null,
                     'timeout' => 5.0,
                     'read_write_timeout' => self::redisReadTimeout($r),
                 ], static fn (mixed $v): bool => $v !== null)));
@@ -336,7 +336,8 @@ final class Factory
             $redis->connect((string) ($r['host'] ?? '127.0.0.1'), (int) ($r['port'] ?? 6379), 5.0, null, 0, self::redisReadTimeout($r));
             if (isset($r['password'])) {
                 // Redis 6 ACL: with a username the pair is sent; use a `tls://` host for TLS.
-                $redis->auth(isset($r['username']) ? [(string) $r['username'], (string) $r['password']] : (string) $r['password']);
+                $password = WatchConfig::reveal($r['password']);
+                $redis->auth(isset($r['username']) ? [(string) $r['username'], $password] : $password);
             }
             $redis->select((int) ($r['database'] ?? 0));
         } catch (RedisException) {
@@ -349,14 +350,14 @@ final class Factory
     /** @param array<string, mixed> $p */
     private static function pdo(array $p): PDO
     {
-        $dsn = (string) $p['dsn'];
+        $dsn = WatchConfig::reveal($p['dsn']);
         $options = [];
         // MySQL reports changed rows, not matched; put/renew treat rowCount 0 as a miss (P-M1).
         if (str_starts_with($dsn, 'mysql:')) {
             $options[PDO::MYSQL_ATTR_FOUND_ROWS] = true;
         }
         try {
-            return new PDO($dsn, $p['username'] ?? null, $p['password'] ?? null, $options);
+            return new PDO($dsn, isset($p['username']) ? WatchConfig::reveal($p['username']) : null, isset($p['password']) ? WatchConfig::reveal($p['password']) : null, $options);
         } catch (PDOException) {
             throw new InvalidConfig('state.pdo: cannot connect'); // not chained: the driver message can carry the DSN or password
         }
@@ -456,7 +457,7 @@ final class Factory
         }
 
         $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
-        $key = (string) $c->analysis['api_key'];
+        $key = WatchConfig::reveal($c->analysis['api_key']);
 
         $analyzer = new AnthropicAnalyzer(
             new AnthropicHttpClient($key, new Client($options), $options['timeout']),
@@ -551,7 +552,7 @@ final class Factory
     /** Models-list probe for `check`; null for a provider without one. Makes no call by itself. */
     public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
     {
-        return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null;
+        return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, WatchConfig::reveal($c->analysis['api_key'])) : null;
     }
 
     /** The OpenAPI context reader (spec 010); null when the section is absent or switched off, so nothing is built, read or cached. */
@@ -563,7 +564,7 @@ final class Factory
         }
 
         return new ApiContextReader(
-            source: new OpenApiSource($http, (string) $a['source'], $a['auth_token'], $a['max_bytes'], null, null, $a['allow_insecure'], $a['allowed_roots'], $a['allow_private_network']),
+            source: new OpenApiSource($http, WatchConfig::reveal($a['source']), $a['auth_token'] === null ? null : WatchConfig::reveal($a['auth_token']), $a['max_bytes'], null, null, $a['allow_insecure'], $a['allowed_roots'], $a['allow_private_network']),
             reducer: new OpenApiReducer($redactor, $a['summary_cap'], $a['base_path']),
             cache: new ApiSpecCache($state, $clock ?? new SystemClock(), $a['ttl']),
             service: $config->stateKey,

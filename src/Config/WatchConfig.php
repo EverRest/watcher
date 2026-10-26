@@ -12,6 +12,7 @@ use Watcher\Observe\ObserveSettings;
 use Watcher\Level;
 use Watcher\State\Redis\RedisClient;
 use Watcher\Source\Kubernetes\KubeSettings;
+use Watcher\Source\Kubernetes\SecretValue;
 
 /**
  * Validated, default-filled, immutable configuration (contracts/configuration.md).
@@ -278,7 +279,7 @@ final class WatchConfig implements \JsonSerializable
         return new self(
             $service,
             $schedule,
-            $source,
+            self::hide($source, 'loki.auth.token', 'loki.auth.password', 'datadog.api_key', 'datadog.app_key'),
             $flags['watch_rules'] ? $rules : [],
             $flags['mute'] ? $mute : [],
             $ctx,
@@ -289,11 +290,11 @@ final class WatchConfig implements \JsonSerializable
             $links,
             self::repo($config['repo'] ?? null),
             $selection,
-            $analysis,
+            self::hide($analysis, 'api_key'),
             $patterns,
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
-            $state,
-            $notify,
+            self::hide($state, 'redis.password', 'pdo.dsn', 'pdo.username', 'pdo.password'),
+            self::hide($notify, 'digest.webhook', 'digest.bot_token', 'notice.webhook', 'notice.bot_token'),
             $heartbeat,
             $baseline,
             self::grouping($groupingSec),
@@ -308,8 +309,49 @@ final class WatchConfig implements \JsonSerializable
             \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
             $incident,
             $kubernetes,
-            array_key_exists('api_context', $config) ? self::apiContext($config['api_context'], $state['retention']) : null,
+            array_key_exists('api_context', $config) ? self::hide(self::apiContext($config['api_context'], $state['retention']), 'source', 'auth_token') : null,
         );
+    }
+
+    /**
+     * The credential leaves of a section become {@see SecretValue} holders, so a dump of the config (var_export, print_r, serialize)
+     * shows none. Paths are dotted keys inside the section; a missing or non-string leaf is left alone.
+     *
+     * @param array<string, mixed> $section
+     * @return array<string, mixed>
+     */
+    public static function hide(array $section, string ...$paths): array
+    {
+        foreach ($paths as $path) {
+            $parts = explode('.', $path, 2);
+            $head = $parts[0];
+            if (!array_key_exists($head, $section)) {
+                continue;
+            }
+            if (isset($parts[1]) && is_array($section[$head])) {
+                $section[$head] = self::hide($section[$head], $parts[1]);
+            } elseif (!isset($parts[1]) && is_string($section[$head])) {
+                $section[$head] = new SecretValue($section[$head]);
+            }
+        }
+
+        return $section;
+    }
+
+    /** The value of a holder made by {@see hide()}, read at the point of use; a plain string passes through. */
+    public static function reveal(mixed $value): string
+    {
+        return $value instanceof SecretValue ? $value->reveal() : (string) $value;
+    }
+
+    /** A section with every holder read back, for comparing two sections: a SecretValue alone compares equal to any other. Never for output. */
+    public static function plain(mixed $value): mixed
+    {
+        if ($value instanceof SecretValue) {
+            return $value->reveal();
+        }
+
+        return is_array($value) ? array_map(self::plain(...), $value) : $value;
     }
 
     /**
@@ -948,9 +990,9 @@ final class WatchConfig implements \JsonSerializable
     {
         return match ($entry['driver']) {
             'none' => Destination::none(),
-            'telegram' => Destination::telegram($entry['bot_token'], $entry['chat_id'], $entry['thread_id'] ?? null),
-            'discord' => Destination::discord($entry['webhook']),
-            default => Destination::slack($entry['webhook'], ($entry['allow_insecure'] ?? false) === true),
+            'telegram' => Destination::telegram(self::reveal($entry['bot_token']), $entry['chat_id'], $entry['thread_id'] ?? null),
+            'discord' => Destination::discord(self::reveal($entry['webhook'])),
+            default => Destination::slack(self::reveal($entry['webhook']), ($entry['allow_insecure'] ?? false) === true),
         };
     }
 
@@ -967,7 +1009,7 @@ final class WatchConfig implements \JsonSerializable
         foreach (['digest', 'notice'] as $kind) {
             foreach (['webhook', 'bot_token', 'chat_id'] as $k) {
                 if (isset($this->notify[$kind][$k])) {
-                    $out[] = (string) $this->notify[$kind][$k];
+                    $out[] = self::reveal($this->notify[$kind][$k]);
                 }
             }
         }
@@ -999,7 +1041,8 @@ final class WatchConfig implements \JsonSerializable
             ...($this->sentry?->secrets() ?? []),
             ...$this->apiContextSecrets(),
         ];
-        $secrets = array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+        $values = array_map(static fn (mixed $v): mixed => $v instanceof SecretValue ? $v->reveal() : $v, $candidates);
+        $secrets = array_values(array_unique(array_filter($values, static fn (mixed $v): bool => is_string($v) && $v !== '')));
         // Longest first: masking `sk-ant` before `sk-ant-SECRET` would leave `-SECRET` behind. (usort is stable in PHP 8.)
         usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
 
@@ -1023,11 +1066,11 @@ final class WatchConfig implements \JsonSerializable
      */
     private function apiContextSecrets(): array
     {
-        $source = $this->apiContext['source'] ?? null;
+        $source = self::reveal($this->apiContext['source'] ?? '');
 
         return array_values(array_filter([
-            $this->apiContext['auth_token'] ?? null,
-            is_string($source) && preg_match('~^https?://~i', $source) === 1 ? $source : null,
+            isset($this->apiContext['auth_token']) ? self::reveal($this->apiContext['auth_token']) : null,
+            preg_match('~^https?://~i', $source) === 1 ? $source : null,
         ], 'is_string'));
     }
 

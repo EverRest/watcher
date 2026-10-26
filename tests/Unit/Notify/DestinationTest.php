@@ -154,15 +154,15 @@ final class DestinationTest extends TestCase
     {
         $c = WatchConfig::fromArray(self::config(['notice' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/notice']]));
 
-        self::assertSame('https://hooks.example/notice', (new Destination($c->notify['notice']['webhook']))->webhook());
-        self::assertSame('https://hooks.example/digest', (new Destination($c->notify['digest']['webhook']))->webhook());
+        self::assertSame('https://hooks.example/notice', (new Destination(WatchConfig::reveal($c->notify['notice']['webhook'])))->webhook());
+        self::assertSame('https://hooks.example/digest', (new Destination(WatchConfig::reveal($c->notify['digest']['webhook'])))->webhook());
     }
 
     public function testNoticeFallsBackToTheDigestWebhook(): void
     {
         $c = WatchConfig::fromArray(self::config([]));
 
-        self::assertSame('https://hooks.example/digest', (new Destination($c->notify['notice']['webhook']))->webhook());
+        self::assertSame('https://hooks.example/digest', (new Destination(WatchConfig::reveal($c->notify['notice']['webhook'])))->webhook());
     }
 
     /**
