@@ -412,6 +412,7 @@ final class OpenApiSourceTest extends TestCase
         self::assertSame('unreadable', $this->token(fn () => (new OpenApiSource($this->http([]), $this->dir . '/open/s.json'))->read()));
 
         chmod($this->dir . '/open', 01777); // like /tmp: other users cannot replace our file
+        clearstatcache(true); // PHP 8.2 on Linux keeps the 0777 stat and realpath after chmod
         self::assertSame(['openapi' => '3.0.0', 'paths' => []], (new OpenApiSource($this->http([]), $this->dir . '/open/s.json'))->read());
     }
 
