@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Documentation (security: F5, Redis over TLS)
+- Checked, no code change: both Redis clients verify the server certificate by default. phpredis (`tls://` host) and Predis (`scheme` `tls`) refuse a self-signed certificate against Redis 8 with the system trust store (`certificate verify failed`); the password is never sent to such a server. A private CA is trusted through PHP's `openssl.cafile`; both clients connect with it. No `state.redis.tls.*` key was added, because nothing was missing.
+- `docs/operations.md` ("Redis requirements"): use a `tls://` host outside a trusted network. On a plain TCP connection `AUTH` (the password and the ACL username) travels in clear text.
+
 ## 0.3.0 — 2026-10-26 — Config credentials hidden from dumps, SDK path removed, MCP no longer runs sibling PHP files, notifier reply cap
 
 Product release label **v0.3.0** (root VERSION). Contains everything below, including the notes of the untagged 0.2.1. Do not install `v0.2.0`.
