@@ -44,8 +44,9 @@ final class HygieneFromConfigTest extends TestCase
     private function http(array $queue): Client
     {
         $stack = HandlerStack::create(new MockHandler($queue));
-        $this->history = [];
-        $stack->push(Middleware::history($this->history));
+        $historyLog = [];
+        $this->history = &$historyLog; // Guzzle fills it by reference
+        $stack->push(Middleware::history($historyLog));
 
         return new Client(['handler' => $stack]);
     }
@@ -55,6 +56,7 @@ final class HygieneFromConfigTest extends TestCase
         return (string) file_get_contents($path);
     }
 
+    /** @param array<string, mixed> $patch */
     private function harness(array $patch): HygieneHarness
     {
         return new HygieneHarness(array_replace_recursive([
