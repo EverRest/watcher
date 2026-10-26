@@ -4,6 +4,9 @@
 
 `VERSION` is 0.2.0 (minor bump on this branch). The bullets below are not yet promoted to a release heading; they are grouped by feature.
 
+### Fixed (`watcher hygiene` with a Kubernetes source)
+- `watcher hygiene` with `source.driver: kubernetes` failed every pass with `LogicException` (the source needs its state store before it is read). The Kubernetes source is now bound to the pass's state store when the pass is built, and a `--dry-run` binds it to the shadow store and restores the real one afterwards, so the cluster ledger is written by no dry run.
+
 ### Fixed (protected groups keep their level)
 - A finding for an error-or-higher group is never shown below that group's level, so a `warn` finding with low confidence no longer goes into the "minor" line. A cached `interesting` verdict whose finding sits below the group's level is not reused. Side effect: a low-confidence finding that is now `error` for an error-level group is escalated to the strong model (capped by `analysis.escalation_cap`), so such a run can make extra strong-model calls.
 
