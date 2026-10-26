@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-23
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Log hygiene reports for everrest/watcher: because the package reads raw log lines locally it can measure, without sending anything out, which log call sites leak personal data, which log sites are noisy or badly shaped, and what the model spend is per service and day; it reports these to the owning team and proposes mute and watch rules from observed data. Source: docs/audit-2026-10-23.md, features 16, 17, 18, and the rollout survey findings (recipient e-mail logged at INFO, SSO user JSON at ERROR, audit JSON with e-mail and IP)."
 

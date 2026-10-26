@@ -256,6 +256,7 @@ final class EventMapperTest extends TestCase
         return [$podItems, $eventItems];
     }
 
+    /** @group perf */
     public function testFiveThousandPodsAndTenThousandEventsAreMappedInSeconds(): void
     {
         [$pods, $events] = self::bigCluster(5000, 10000);

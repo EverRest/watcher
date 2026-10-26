@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Implemented (T023, the live Loki check, is open)
 
 **Input**: Owner request: a Grafana-style dashboard to see everything watcher finds while the chat notifications (Slack, Telegram, Discord) can be switched off; and it must be flexible: vendor-neutral, usable with Grafana, Kibana/OpenSearch, Datadog, Metabase, Superset or a custom tool, not Grafana-only.
 

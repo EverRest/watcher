@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Owner request: every feature must be switchable on and off through the config array and through environment variables, so one package can be enabled or disabled per environment (int, prod, ...).
 

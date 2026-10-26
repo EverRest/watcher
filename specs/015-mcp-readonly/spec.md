@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Implemented in 0.2.1 (tools, setup, Q&A). Open: docs/mcp.md (T031, T066), config/outcome drift tests (T051, T052, T062, T064), onboarding test (T065)
 
 **Input**: Owner request: let an AI assistant (Claude Desktop, Claude Code, an IDE) ask watcher what it found, without
 opening Slack and without being able to change anything. Documents only in this change; no code.

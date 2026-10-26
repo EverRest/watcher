@@ -1,13 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-26 — remove the Anthropic SDK path
+
+Product release label **v0.3.0** (root VERSION). Breaking: `analysis.client = sdk` is refused at config load; see the upgrade note below.
 
 **BREAKING / UPGRADE**
 - Removed: the `analysis.client = sdk` path. `SdkMessagesClient` and the `anthropic-ai/sdk` dev dependency and suggestion are gone, together with the `php-http/discovery` floor and its `allow-plugins` entry (nothing else used them). `analysis.client` is kept for compatibility but accepts only `http` (the default); `sdk` fails config load with `analysis.client: the SDK client was removed; use analysis.client=http (the default)`. Upgrade: delete `analysis.client = sdk` (or set `http`); nothing to install. `Factory::analyzerRequestOptions()` was removed with it.
 
-## 0.2.0 — 2026-10-26 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
+## 0.2.1 — 2026-10-26 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
 
-Product release label **v0.2.0** (root VERSION).
+Product release label **v0.2.1** (root VERSION). This release contains everything listed below. Do not install `v0.2.0`: that tag was created on an earlier commit and lacks the kill switch, the API context, the hygiene fixes and the notes below.
 
 - Changed (**behaviour change**): the master switch now short-circuits before validation. `run` (`bin/watcher`, `watcher:run`, `Watcher::fromConfig`) reads only the raw `enabled` key first; when it is not the boolean `true` the run returns `disabled` (exit 0) without validating the rest of the config and without building the state store, source, analyzer or notifier, so a broken or half-filled config (e.g. no `source.loki.url`) no longer exits 2 with the switch off. The Disabled summary carries `service` and `environment` when they look like names. Fail-safe parsing: only `true` is on; missing, `null`, `false`, `0`/`1`, strings (`'0'`, `'false'`, `'yes'`, `''`) and anything else is off (before, a non-boolean was an `invalid config` error; `check` still reports it). `--dry-run`/`--estimate` with the switch off are `disabled` too (as before). The same "build nothing" rule applies to `Factory::doctor` / `watcher check`, `Hygiene::fromConfig` / `watcher hygiene`, `FleetRunner::fromConfig` when the fleet switch is off, and MCP inspect tools (no configured store open; `watcher_dry_run` not offered). `status` and `state:get` still validate the whole config; `status` does not read the store when disabled. **Upgrade note:** a config that relied on `Watcher::fromConfig()` throwing for an invalid config while `enabled` was unset/false no longer throws; set `enabled => true` to validate.
 
@@ -15,6 +17,9 @@ The bullets below are grouped by feature.
 
 ### Fixed (`watcher hygiene` with a Kubernetes source)
 - `watcher hygiene` with `source.driver: kubernetes` failed every pass with `LogicException` (the source needs its state store before it is read). The Kubernetes source is now bound to the pass's state store when the pass is built, and a `--dry-run` binds it to the shadow store and restores the real one afterwards, so the cluster ledger is written by no dry run.
+
+### Documentation
+- README, roadmap, spec status lines, `docs/operations.md` (several runs per day) and `docs/development.md` (portability notes) match the code of this release. Spec task lists (`tasks.md`) are not all reconciled: open items are named in each spec's status line.
 
 ### Fixed (protected groups keep their level)
 - A finding for an error-or-higher group is never shown below that group's level, so a `warn` finding with low confidence no longer goes into the "minor" line. A cached `interesting` verdict whose finding sits below the group's level is not reused. Side effect: a low-confidence finding that is now `error` for an error-level group is escalated to the strong model (capped by `analysis.escalation_cap`), so such a run can make extra strong-model calls.
@@ -92,6 +97,10 @@ Lane G. **MINOR, upgrade note: none required**: every sink is off by default and
 - Dev dependencies `opis/json-schema` and `symfony/yaml` (schema and rule-file contract tests only).
 - Known limit until the shared `ResponseLimit` streaming cap is merged: the `http` sink refuses a response whose declared `Content-Length` is over the limit and is otherwise bounded by its timeout (at most what the run deadline leaves); a chunked or compressed body without a length is only time-bounded.
 - Owner decisions after the review: `include_text` is off by default for every sink including `log`; with a sink enabled `service` and `environment` must match the event schema patterns (refused at load, not silently nulled).
+
+## 0.2.0 — 2026-10-26 — superseded by 0.2.1
+
+The tag `v0.2.0` points at an earlier commit of `main` (before the kill switch and the last lane merges). Use `0.2.1`.
 
 ## 0.1.3 — 2026-10-24 — Redis state and own Anthropic client
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Phases 1-2 implemented in 0.2.1. Open: same-slot baselines (US6), heartbeat and doctor additions (US8), daily roll-up (T024, deferred)
 
 **Input**: Owner request: configurable reading periods and several runs per day, including hourly.
 

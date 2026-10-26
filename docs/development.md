@@ -35,6 +35,17 @@ Both shields.io and the Actions badge render only for a public repository (or a 
 
 **Redis in CI.** `WATCHER_TEST_REDIS` points the contract tests (TTL, locks, Lua scripts) at a real Redis (`redis:7.4` service in `ci.yml`); locally they are skipped when it is unset (`docker run --rm -d -p 6391:6379 redis:7.4`, `WATCHER_TEST_REDIS=127.0.0.1:6391`). **Predis is only exercised through test doubles** (`FakePredis` over `FakeRedisServer`): `predis/predis` is a `suggest`, not in `require-dev`, so no job runs the adapter against real Predis. Adding it (both `^2.0` and `^3.0` legs, running the contract test against the real server) is the open follow-up.
 
+## Portability notes for tests and checks
+
+Found on CI in 0.2.1; each one passed on a developer Mac and failed on the Ubuntu runner.
+
+- **Local PHP is not CI PHP.** CI installs the newest patch release of each PHP version. A local PHP that is months old, or one with bundled time zone data, can hide failures. Keep local PHP current and test 8.2 and the newest version.
+- **Time zones.** Ubuntu PHP reads the system time zone files. `DateTimeZone::getTransitions()` then lists only transitions stored in the file, not those from the rule at its end, so it is wrong for the current years. Find a transition by comparing offsets, not by listing.
+- **Stat cache.** PHP caches `stat`, `lstat` and `realpath`. A check that decides on a file mode, owner or inode must call `clearstatcache(true)` first.
+- **Inode numbers are reused.** After `unlink()` the next new file can get the same inode. A test that swaps a file must keep the original alive (rename it) or it cannot see the swap.
+- **Token-shaped test values** are built from parts, or the GitHub secret scan blocks the push.
+- **Dependency legs.** CI runs the newest dependencies on PHP 8.5 (Guzzle 8, Pint 1.30, PHPUnit 11). Run PHPStan, Pint and the tests there before a release.
+
 ## Supported versions
 
 - PHP: 8.2 to 8.5 are tested. 8.1 was dropped in 0.1.2 (past security support since December 2025); 8.2 ends December 2026.

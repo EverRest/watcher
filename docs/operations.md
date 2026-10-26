@@ -19,6 +19,8 @@ The host triggers the package **at least once an hour**. On each trigger the pac
 
 The first run for a service only records a **baseline** (no model call). Analysis starts with the second window.
 
+**Several runs per day (spec 014).** Set `schedule.every` (`PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H` or `PT12H`) or a list of `schedule.run_at` times at least one hour apart (not both). Windows are contiguous. Around a clock change the boundary that does not exist is dropped and the repeated hour uses its first occurrence. A high-water mark per service stops the same window being reported twice. `schedule.catch_up` (1 to 24, needs `every`) lets one trigger work through windows missed during an outage, oldest first. `schedule.ingestion_delay` moves window ends back for logs that are indexed late. Optional caps: `analysis.max_runs_per_day` ends further runs of the day with the outcome `capped` and one notice; `analysis.run_budget_usd` limits one run's spend. The trigger must still fire at least as often as the period.
+
 **A skipped or failed day is not a new baseline.** After every successful snapshot write the run also writes
 `snap:<service>:last` (the window key, same TTL as `state.retention`). When the snapshot of the exact previous window is
 missing, the run compares with the pointer's snapshot if it is at most 7 days older than this window's end, and the digest
