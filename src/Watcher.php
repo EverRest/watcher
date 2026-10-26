@@ -887,8 +887,12 @@ final class Watcher
                 return $this->buildDigest($read, $analysis, $selection, $environment, $findings, $routedNotice, $draftsSkipped);
             },
             $this->out,
-            function (DeliveryFailed $e) use ($environment): void { $this->announceDigestFailure($e, $environment); },
-            function (string $kind): void { $this->observer?->kind($kind); },
+            function (DeliveryFailed $e) use ($environment): void {
+                $this->announceDigestFailure($e, $environment);
+            },
+            function (string $kind): void {
+                $this->observer?->kind($kind);
+            },
             $analysis->byFingerprint,
             self::DELIVERED_TTL,
             $this->clock->now(),
