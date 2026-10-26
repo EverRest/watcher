@@ -46,6 +46,6 @@ final class ConfigFileReader
             throw new ToolError('file_too_large');
         }
 
-        return new PinnedFile($h, $approved, $bytes);
+        return new PinnedFile($h, $approved, $bytes, $st['mtime'], $st['ctime']);
     }
 }
