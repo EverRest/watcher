@@ -21,6 +21,7 @@ use Watcher\Source\LokiSource;
 use Watcher\Source\ReadFilter;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
+use Watcher\Tests\Fakes\HostileValues;
 
 final class LokiSourceTest extends LogSourceContractTest
 {
@@ -718,6 +719,106 @@ final class LokiSourceTest extends LogSourceContractTest
         $this->assertSame(0, $ok->patternErrors);
     }
 
+    public function testMalformedLinesAreSkippedAndCounted(): void
+    {
+        $source = $this->source([$this->streams([
+            [$this->ns(self::BASE_NS), $this->line('ERROR', 'a')],
+            ['not-a-timestamp', $this->line('ERROR', 'b')],
+            [$this->ns(self::BASE_NS + 2), $this->line('ERROR', 'c')],
+            [$this->ns(self::BASE_NS + 3), $this->line('ERROR', 'd')],
+            [$this->ns(self::BASE_NS + 4), ['nested']],
+        ])]);
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 100)));
+
+        $this->assertCount(3, $events);
+        $this->assertSame(2, ($source->readDiagnostics()['malformed_entries'] ?? 0));
+    }
+
+    public function testAReplyMostlyMalformedFailsTheReadAsMalformed(): void
+    {
+        $source = $this->source([$this->streams([
+            [$this->ns(self::BASE_NS), $this->line('ERROR', 'a')],
+            ['not-a-timestamp', $this->line('ERROR', 'b')],
+            [$this->ns(self::BASE_NS + 2), ['nested']],
+        ])]);
+
+        $this->expectException(SourceUnavailable::class);
+        $this->expectExceptionMessage('malformed');
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 100)));
+    }
+
+    public function testAVersionPointWithoutATimestampIsSkippedNotDatedTo1970(): void
+    {
+        $source = $this->source([$this->json(['status' => 'success', 'data' => ['resultType' => 'matrix', 'result' => [
+            ['metric' => ['version' => '1.0.0'], 'values' => [[null, '3']]],
+            ['metric' => ['version' => '2.0.0'], 'values' => [[self::BASE_NS, '3']]],
+        ]]])]);
+
+        $versions = $source->versions($this->window(), $this->selector(), 'version');
+
+        $this->assertSame(['2.0.0'], array_keys($versions));
+        $this->assertSame(1, ($source->readDiagnostics()['malformed_entries'] ?? 0));
+    }
+
+    public function testAnUnusableTotalIsSkippedAndCounted(): void
+    {
+        $source = $this->source([$this->json(['status' => 'success', 'data' => ['resultType' => 'vector', 'result' => [
+            ['metric' => ['level' => 'error'], 'value' => [self::BASE_NS, '99999999999999999999999']],
+            ['metric' => ['level' => 'warn'], 'value' => [self::BASE_NS, '4']],
+        ]]])]);
+
+        $this->assertSame(['warning' => 4], $source->totals($this->window(), $this->selector()));
+        $this->assertSame(1, ($source->readDiagnostics()['malformed_entries'] ?? 0));
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function hostileValues(): array
+    {
+        return HostileValues::all();
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostileValues')]
+    public function testHostileValuesNeverRaiseAWarningOrATypeError(mixed $value): void
+    {
+        $lines = $this->source([$this->streams([[$this->ns(self::BASE_NS), $this->line('ERROR', 'a')], [$value, $value]])]);
+        $this->readQuietly(fn (): array => $this->collect($lines->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 100))));
+
+        $versions = $this->source([$this->json(['status' => 'success', 'data' => ['resultType' => 'matrix', 'result' => [
+            ['metric' => ['version' => '1.0.0'], 'values' => [[$value, $value]]],
+        ]]])]);
+        $this->readQuietly(fn (): array => $versions->versions($this->window(), $this->selector(), 'version'));
+
+        $totals = $this->source([$this->json(['status' => 'success', 'data' => ['resultType' => 'vector', 'result' => [
+            ['metric' => ['level' => 'error'], 'value' => [self::BASE_NS, $value]],
+        ]]])]);
+        $this->readQuietly(fn (): array => $totals->totals($this->window(), $this->selector()));
+
+        $this->expectNotToPerformAssertions(); // the reads themselves are the check: a warning or TypeError fails them
+    }
+
+    /**
+     * Runs one read. A PHP warning fails the test (as an ErrorException); the only refusal allowed is 'malformed'.
+     *
+     * @param callable(): mixed $read
+     */
+    private function readQuietly(callable $read): void
+    {
+        set_error_handler(static function (int $no, string $message): never {
+            throw new \ErrorException($message, 0, $no);
+        });
+        try {
+            $read();
+        } catch (SourceUnavailable $e) {
+            if ($e->getMessage() !== 'malformed') {
+                throw $e;
+            }
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     // helpers
 
     /**
@@ -758,7 +859,7 @@ final class LokiSourceTest extends LogSourceContractTest
         return $out;
     }
 
-    /** @param list<array{string, string}> $values */
+    /** @param list<array<mixed>> $values */
     private function streams(array $values): Response
     {
         return $this->json(['status' => 'success', 'data' => ['resultType' => 'streams', 'result' => [

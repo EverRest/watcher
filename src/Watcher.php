@@ -819,6 +819,13 @@ final class Watcher
             $comparedWith = null;
             $this->previousKey = self::windowKey($window->start);
         }
+        if ($prev !== null && !BaselineResolver::intact($prev)) {
+            // A corrupt record is missing, as on a first run; the summary counts it. Nothing below reads its values.
+            $this->ledger->stats()->stateUnreadable++;
+            $prev = null;
+            $comparedWith = null;
+            $this->previousKey = self::windowKey($window->start);
+        }
         $this->ledger->defer();
         $deploy = $c->on('deploy') ? DeployInfo::resolve($c->deploy, $prev['deploy'] ?? null, $this->source, $window, $selector) : new DeployInfo(null, null, null, false);
         $this->ledger->setDeployInfo($deploy);
@@ -884,6 +891,7 @@ final class Watcher
             new \DateTimeZone($c->schedule['timezone']),
             $factor,
         ))->resolve($window, array_map(static fn (ProblemGroup $g): string => $g->fingerprint, $allGroups), $prev, $comparedWith ?? $window->start);
+        $this->ledger->stats()->stateUnreadable += $comparison->unreadable; // corrupt baseline snapshots, treated as missing
         $groups = array_map(
             static fn (ProblemGroup $g): ProblemGroup => $g->withComparison($comparison->previousFor($g->fingerprint), $comparison->statusFor($g->fingerprint, $g->count)),
             $groups,

@@ -307,6 +307,27 @@ final class EventLedgerTest extends TestCase
         self::assertSame(2, self::total($l->window(self::day())));
     }
 
+    public function testAHugeStoredTimestampIsSkippedNotCast(): void
+    {
+        $inDay = self::t('2026-10-24T00:10:00Z')->getTimestamp();
+        $entry = ['typ' => 'Warning', 'rsn' => 'BackOff', 'wk' => 'Pod', 'wl' => 'api', 'txt' => 'restarting', 'pod' => 'p1',
+            'n' => '5:' . $inDay . ':' . $inDay . ':' . $inDay . ':0', 'd' => '99999999999999999999999:5;' . $inDay . ':2'];
+        $this->store->put(Keys::events('svc'), ['v' => EventLedger::VERSION, 'last_ok' => null, 'since' => null, 'gaps' => [], 'un' => [],
+            'e' => ['k1' => $entry], 'capped' => false, 'ovf' => 0, 'ovfc' => []], 3600);
+        $l = $this->ledger();
+        $l->load();
+
+        set_error_handler(static function (int $no, string $message): never {
+            throw new \ErrorException($message, 0, $no); // a warning from the cast fails the read
+        });
+        try {
+            $total = self::total($l->window(self::day()));
+        } finally {
+            restore_error_handler();
+        }
+        self::assertSame(2, $total);
+    }
+
     public function testWindowEntriesCarryTheFieldsTheSourceNeeds(): void
     {
         $l = $this->ledger();

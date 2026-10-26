@@ -373,7 +373,7 @@ final class LineParser
         if (!is_string($value) && !is_int($value) && !is_float($value)) {
             return Level::Info;
         }
-        if ($key === 'severity' && is_numeric($value) && ($syslog = Level::fromSyslog((int) $value)) !== null) {
+        if ($key === 'severity' && is_numeric($value) && abs((float) $value) < 1e15 && ($syslog = Level::fromSyslog((int) $value)) !== null) {
             return $syslog;
         }
 

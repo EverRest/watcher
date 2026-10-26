@@ -16,6 +16,7 @@ use Psr\Clock\ClockInterface;
 use Psr\Http\Message\RequestInterface;
 use Watcher\Level;
 use Watcher\Tests\Fakes\FrozenClock;
+use Watcher\Tests\Fakes\HostileValues;
 use Watcher\Source\DatadogSource;
 use Watcher\Source\LogEvent;
 use Watcher\Source\LogSource;
@@ -484,6 +485,111 @@ final class DatadogSourceTest extends LogSourceContractTest
     }
 
     // helpers
+
+    public function testMalformedItemsAreSkippedAndCounted(): void
+    {
+        $item = static fn (string $ts, string $message): array => ['attributes' => ['timestamp' => $ts, 'status' => 'error', 'message' => $message]];
+        $source = $this->source([$this->json(['data' => [
+            $item('2026-10-22T10:00:00.000Z', 'a'),
+            $item('not-a-timestamp', 'b'),
+            $item('2026-10-22T10:00:02.000Z', 'c'),
+            $item('2026-10-22T10:00:03.000Z', 'd'),
+            $item('2026-10-22T10:00:04.000Z', 'e'),
+        ]])]);
+
+        $events = $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+
+        $this->assertCount(4, $events);
+        $this->assertSame(1, ($source->readDiagnostics()['malformed_entries'] ?? 0));
+    }
+
+    public function testAReplyMostlyMalformedFailsTheReadAsMalformed(): void
+    {
+        $source = $this->source([$this->json(['data' => [
+            ['attributes' => ['timestamp' => '2026-10-22T10:00:00.000Z', 'status' => 'error', 'message' => 'a']],
+            ['attributes' => ['timestamp' => 'not-a-timestamp', 'status' => 'error', 'message' => 'b']],
+            'not an item',
+        ]])]);
+
+        $this->expectException(SourceUnavailable::class);
+        $this->expectExceptionMessage('malformed');
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+    }
+
+    public function testADataFieldThatIsNotAListFailsAsMalformed(): void
+    {
+        $source = $this->source([$this->json(['data' => 'oops'])]);
+
+        $this->expectException(SourceUnavailable::class);
+        $this->expectExceptionMessage('malformed');
+
+        $this->collect($source->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10)));
+    }
+
+    public function testAnUnusableTotalBucketIsSkippedAndCounted(): void
+    {
+        $source = $this->source([$this->json(['data' => ['buckets' => [
+            ['by' => ['status' => 'error'], 'computes' => ['c0' => 1.0e20]],
+            ['by' => ['status' => 'warn'], 'computes' => ['c0' => 7]],
+        ]]])]);
+
+        $this->assertSame(['warning' => 7], $source->totals($this->window(), $this->selector()));
+        $this->assertSame(1, ($source->readDiagnostics()['malformed_entries'] ?? 0));
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function hostileValues(): array
+    {
+        return HostileValues::all();
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostileValues')]
+    public function testHostileValuesNeverRaiseAWarningOrATypeError(mixed $value): void
+    {
+        $lines = $this->source([$this->json(['data' => [
+            ['attributes' => ['timestamp' => '2026-10-22T10:00:00.000Z', 'status' => 'error', 'message' => 'a']],
+            ['attributes' => $value],
+            ['attributes' => ['timestamp' => $value, 'status' => $value, 'message' => $value, 'tags' => $value, 'service' => $value]],
+            $value,
+        ]])]);
+        $this->readQuietly(fn (): array => $this->collect($lines->lines($this->window(), $this->selector(), new ReadFilter(Level::Error, [], 10))));
+
+        $versions = $this->source([$this->json(['data' => ['buckets' => [
+            ['by' => ['version' => $value], 'computes' => ['c0' => $value]],
+            ['by' => ['version' => '1.0.0'], 'computes' => ['c0' => [['time' => $value, 'value' => $value], $value]]],
+        ]]])]);
+        $this->readQuietly(fn (): array => $versions->versions($this->window(), $this->selector(), 'version'));
+
+        $totals = $this->source([$this->json(['data' => ['buckets' => [
+            ['by' => ['status' => $value], 'computes' => ['c0' => $value]],
+            ['by' => $value, 'computes' => $value],
+        ]]])]);
+        $this->readQuietly(fn (): array => $totals->totals($this->window(), $this->selector()));
+
+        $this->expectNotToPerformAssertions(); // the reads themselves are the check: a warning or TypeError fails them
+    }
+
+    /**
+     * Runs one read. A PHP warning fails the test (as an ErrorException); the only refusal allowed is 'malformed'.
+     *
+     * @param callable(): mixed $read
+     */
+    private function readQuietly(callable $read): void
+    {
+        set_error_handler(static function (int $no, string $message): never {
+            throw new \ErrorException($message, 0, $no);
+        });
+        try {
+            $read();
+        } catch (SourceUnavailable $e) {
+            if ($e->getMessage() !== 'malformed') {
+                throw $e;
+            }
+        } finally {
+            restore_error_handler();
+        }
+    }
 
     /** @param list<Response|ConnectException> $responses */
     private function source(array $responses, int $retryBudget = 120, int $pagingBudget = 300, ?ClockInterface $clock = null, string $levelMode = 'status', bool $newestFirst = false): DatadogSource
