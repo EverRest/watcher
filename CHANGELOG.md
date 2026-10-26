@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed (release process, F9)
+- `release.yml` refuses a tag that is not the tip of `origin/main`, is lightweight, has a `VERSION` that differs from the tag, or has no `## X.Y.Z` heading in `CHANGELOG.md`. Each guard fails the run with one line before any GitHub Release is created (`scripts/check-release.sh`, tested by `make release-guards-test`, part of `make ci`). The release steps and the rule for a wrong tag are in `docs/publishing.md`. The existing `v0.2.0` tag (on `36673a5`) is not moved.
+
 ### Tests
 - Prompt-injection corpus (F8): 42 hostile log lines run through the real Slack, Telegram and Discord notifiers (`tests/EndToEnd/PromptInjectionTest.php`); error-or-higher groups keep their level whatever the model says (`ErrorGroupLevelTest.php`); the daily budget and `source.group_cap` hold under thousands of distinct hostile groups (`HostileVolumeBudgetTest.php`). No production code changed. `docs/privacy.md` records the residual risk and one known exception (a capitalised host on an unlisted TLD, `EVIL.ABOGADO`).
 
