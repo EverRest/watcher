@@ -18,6 +18,7 @@ final class ConfigFileReader
     /** @throws ToolError path_not_allowed, file_unreadable, file_too_large */
     public function read(ApprovedPath $approved): PinnedFile
     {
+        clearstatcache(true); // same reason as PathPolicy::approve()
         $pre = @lstat($approved->real);
         if ($pre === false || $pre['dev'] !== $approved->dev || $pre['ino'] !== $approved->ino || !FilePolicy::isRegular($pre)) {
             throw PathPolicy::refused(); // swapped before the open: a FIFO would block in fopen

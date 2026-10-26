@@ -36,6 +36,7 @@ final class PathPolicy
         if ($path === '' || strlen($path) > 1024 || str_contains($path, "\0") || str_contains($path, '\\')) {
             throw self::refused();
         }
+        clearstatcache(true); // PHP caches lstat() and realpath(); a mode or owner check must read the file system, not the cache
         $own = @lstat($path);
         if ($own === false || FilePolicy::isLink($own)) {
             throw self::refused(); // a symlink is refused whatever it points to, a chain included
