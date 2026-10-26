@@ -170,6 +170,15 @@ final class EventFactoryTest extends TestCase
         self::assertStringNotContainsString('secret', (string) json_encode($failures));
     }
 
+    public function testADegradedHeartbeatIsAValidEventWithItsStateKept(): void
+    {
+        // `degraded` (spec 008): the last run worked but the pod events could not be read; `watcher status` exits 1 for it.
+        $events = $this->factory()->build($this->observation(), $this->summary(), $this->heartbeat('degraded'));
+
+        self::assertSame('degraded', $this->only($events, 'heartbeat')->toArray(false)['state']);
+        $this->assertAllValid($events);
+    }
+
     public function testHeartbeatCarriesPriorSinkWarnings(): void
     {
         $obs = new RunObservation();
@@ -255,11 +264,11 @@ final class EventFactoryTest extends TestCase
         return new RunSummaryData(RunOutcome::Reported, 'bff-a', null, new DateTimeImmutable('2026-10-23T06:00:00Z'), new DateTimeImmutable('2026-10-24T06:00:00Z'), $stats, 0.2, '1.4.2', false, 'production');
     }
 
-    private function heartbeat(): HeartbeatStatus
+    private function heartbeat(string $state = 'ok'): HeartbeatStatus
     {
         $now = new DateTimeImmutable(self::NOW);
 
-        return new HeartbeatStatus('ok', ['outcome' => 'reported'], 3600, 129600, $now, $now->modify('-1 hour'), null);
+        return new HeartbeatStatus($state, ['outcome' => 'reported'], 3600, 129600, $now, $now->modify('-1 hour'), null);
     }
 
     private function observation(): RunObservation

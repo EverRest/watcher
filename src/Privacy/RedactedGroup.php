@@ -9,6 +9,7 @@ use JsonSerializable;
 use Watcher\Level;
 use Watcher\Reduce\GroupStatus;
 use Watcher\Reduce\ProblemGroup;
+use Watcher\Source\LogEvent;
 
 /** The only shape the analyzer and renderer accept: an allowlist, no raw message, fields or labels. */
 final class RedactedGroup implements JsonSerializable
@@ -17,6 +18,12 @@ final class RedactedGroup implements JsonSerializable
 
     /** @var list<string> */
     public readonly array $frames;
+
+    public readonly ?string $origin;
+
+    public readonly ?int $pods;
+
+    public readonly ?string $workloadKind;
 
     /**
      * @param list<string> $frames
@@ -34,7 +41,14 @@ final class RedactedGroup implements JsonSerializable
         public readonly array $watchMatches,
         public readonly DateTimeImmutable $firstSeen,
         public readonly DateTimeImmutable $lastSeen,
+        ?string $origin = null,
+        ?int $pods = null,
+        ?string $workloadKind = null,
     ) {
+        // Closed vocabularies only: whatever reaches here is checked again, so no free text can ride along.
+        $this->origin = $origin === LogEvent::ORIGIN_KUBERNETES ? $origin : null;
+        $this->pods = $this->origin !== null && $pods !== null && $pods >= 0 ? $pods : null;
+        $this->workloadKind = $this->origin !== null && in_array($workloadKind, LogEvent::WORKLOAD_KINDS, true) ? $workloadKind : null;
         $this->frames = array_slice($frames, 0, self::MAX_FRAMES);
     }
 
@@ -58,13 +72,16 @@ final class RedactedGroup implements JsonSerializable
             $g->watchMatches,
             $g->firstSeen,
             $g->lastSeen,
+            origin: $g->origin,
+            pods: $g->pods,
+            workloadKind: $g->workloadKind,
         );
     }
 
     /** @return array<string, mixed> short stable keys; this is what is serialised for the model */
     public function toArray(): array
     {
-        return [
+        $out = [
             'fp' => $this->fingerprint,
             'tpl' => $this->template,
             'lvl' => strtolower($this->level->name),
@@ -77,6 +94,14 @@ final class RedactedGroup implements JsonSerializable
             'first' => $this->firstSeen->format(DATE_ATOM),
             'last' => $this->lastSeen->format(DATE_ATOM),
         ];
+        if ($this->origin !== null) {
+            // Spec 008: only a pod-event group carries these three; every other payload stays byte-identical.
+            $out['src'] = 'k8s';
+            $out['pods'] = $this->pods;
+            $out['wk'] = $this->workloadKind;
+        }
+
+        return $out;
     }
 
     /** @return array<string, mixed> */

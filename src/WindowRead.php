@@ -10,6 +10,7 @@ use Watcher\Context\DeployInfo;
 use Watcher\Reduce\EventCollector;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Schedule\Window;
+use Watcher\Incident\KnownResult;
 use Watcher\Select\MuteResult;
 
 /**
@@ -36,6 +37,8 @@ final class WindowRead
         public readonly MuteResult $muteResult,
         public readonly Comparison $comparison,
         public readonly int $patternFailures,
+        public readonly ?KnownResult $knownResult = null,
+        public readonly ?string $knownLine = null,
     ) {
     }
 }

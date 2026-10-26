@@ -13,6 +13,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Watcher\Notify\DeliveryFailed;
+use Watcher\Notify\DeliveryProgress;
 use Watcher\Notify\Destination;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Notify\Message;
@@ -136,6 +137,31 @@ final class DiscordNotifierTest extends TestCase
 
         $this->expectExceptionMessage('discord delivery failed: HTTP 404 at part 2 of 2');
         $n->send(self::msg(str_repeat('a', 1500), str_repeat('b', 1500)), Destination::discord(self::HOOK));
+    }
+
+    public function testRetryAfterPartialDeliverySkipsAcceptedParts(): void
+    {
+        $saved = 0;
+        $n = $this->notifier([self::fixture('204', 204), self::fixture('404', 404), self::fixture('204', 204)]);
+        $base = self::msg(str_repeat('a', 1500), str_repeat('b', 1500));
+        $message = new Message($base->text, $base->sections, new DeliveryProgress(0, function (int $p) use (&$saved): void {
+            $saved = $p;
+        }));
+
+        try {
+            $n->send($message, Destination::discord(self::HOOK));
+            self::fail('expected DeliveryFailed');
+        } catch (DeliveryFailed) {
+            self::assertSame(1, $saved);
+            self::assertCount(2, $this->history);
+        }
+
+        $this->history = [];
+        $resume = $this->notifier([self::fixture('204', 204)]);
+        $resume->send(new Message($base->text, $base->sections, new DeliveryProgress(1)), Destination::discord(self::HOOK));
+
+        self::assertCount(1, $this->history);
+        self::assertStringStartsWith('(2/2) ', $this->body(0)['content']);
     }
 
     /** @return iterable<string, array{string}> */

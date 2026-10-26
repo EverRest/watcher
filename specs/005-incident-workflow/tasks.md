@@ -125,6 +125,8 @@ not the last line of output.
 
 ## Phase 4: Weekly report (US4, P3; gated on spec 013 `FileSink` and schema)
 
+**Deferred on `feat/005-incident-v1` (2026-10-25)**: v1 minimum ships phases 1–3 only; weekly report, `watcher report --weekly`, fleet `fleet:report`, and `src/Report/*` left for a follow-up (scope larger than a small increment).
+
 - [ ] T020a [US4] **Gate**: confirm spec 013 has landed (`src/Observe/FileSink.php`, `docs/schema/watcher.event.v1.schema.json`); if not, stop this phase. Add `tests/Unit/Report/EventFieldsDriftTest.php` (red): the fields `EventLog` reads exist in 013's `EventSchema` for `run`, `group`, `finding`. (FR-029)
 - [ ] T021 [P] [US4] `tests/Unit/Report/EventLogTest.php` (red) with `tests/Fixtures/report/week-2026-W43.jsonl` and bad-line
   fixtures: allowlist parse; `dry_run: true` and skipped outcomes ignored; retried window: spend summed, groups taken from the latest `ts` only; text fields ignored even when present; wrong schema/type/pattern/other service skipped and

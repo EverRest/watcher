@@ -26,7 +26,12 @@ use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\UnknownModelPrice;
 use Watcher\Analyze\Usage;
+use Watcher\Events\EventsRun;
 use Watcher\Fleet\FleetSeam;
+use Watcher\Incident\Delivery;
+use Watcher\Incident\KnownIssues;
+use Watcher\Incident\KnownLineRenderer;
+use Watcher\Incident\KnownReferences;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
@@ -38,6 +43,7 @@ use Watcher\Context\DependencyResolver;
 use Watcher\Context\DeployInfo;
 use Watcher\Context\LogLinkBuilder;
 use Watcher\Notify\DeliveryFailed;
+use Watcher\Notify\DeliveryProgress;
 use Watcher\Notify\Destination;
 use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
@@ -59,10 +65,10 @@ use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
 use Watcher\Reduce\GroupStatus;
 use Watcher\Reduce\EventCollector;
+use Watcher\Reduce\Fingerprinter;
 use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Schedule\FatalGuard;
-use Watcher\Schedule\RunGate;
 use Watcher\Schedule\LockLost;
 use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\SystemClock;
@@ -75,6 +81,7 @@ use Watcher\Select\SelectionResult;
 use Watcher\Select\Selector;
 use Watcher\Source\LogSource;
 use Watcher\Source\ReadDiagnostics;
+use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
 use Watcher\State\BufferedStateStore;
@@ -121,6 +128,7 @@ final class Watcher
 
     private readonly RunLedger $ledger;
 
+    private readonly ?EventsRun $eventsRun;
     private ?ObservingNotifier $observer = null;
 
     // Availability bookkeeping (A4-01, A4-05), reset by run().
@@ -138,6 +146,9 @@ final class Watcher
 
     private ?WindowKeys $keys = null;
 
+    /** @var array{gapFrom: ?DateTimeImmutable, gapTo: ?DateTimeImmutable, gapWindows: ?int, catchUpBatch: ?int}|null */
+    private ?array $scheduleMeta = null;
+
     /**
      * @param callable(string): void|null $out dry-run output (default: stdout); ignored for a real run
      */
@@ -152,6 +163,7 @@ final class Watcher
         ?RunOptions $options = null,
         mixed $out = null,
         private readonly ?FleetSeam $fleet = null,
+        ?KubernetesEventsSource $events = null,
         ?SinkDispatcher $sinks = null,
         ?ObserveCounters $counters = null,
     ) {
@@ -171,6 +183,7 @@ final class Watcher
             }
         }
         $this->state = $state;
+        $this->eventsRun = EventsRun::create($config, $source, $events, $state, $hostLog);
         $this->analyzer = $analyzer;
         if ($sinks !== null && !$this->options->dryRun) {
             // Spec 013: a failed chat delivery becomes a delivery_failure event (code only), then travels on untouched.
@@ -208,13 +221,14 @@ final class Watcher
             config: $c,
             source: Factory::source($c, $http, $clock),
             state: $state,
-            analyzer: Factory::analyzer($c),
+            analyzer: Factory::analyzer($c, $options === null ? false : $options->dryRun),
             notifier: Factory::notifier($http, $c->schedule['lock_ttl']),
             clock: $clock,
             hostLog: $hostLog,
             options: $options,
             out: $out,
             sinks: $c->enabled ? Factory::observe($c, $clock, $hostLog, $counters, stdoutToStderr: $options?->json === true) : null,
+            events: Factory::events($c, $http, $clock),
             counters: $counters,
         );
     }
@@ -239,6 +253,7 @@ final class Watcher
         }
         $this->ledger->reset();
         $this->guard = new RunGuard($this->clock, min($this->config->schedule['run_deadline'], $this->fleetDeadline ?? PHP_INT_MAX));
+        $this->eventsRun?->bindGuard($this->guard);
         $this->blindCode = null;
         $this->lockKey = $this->lockOwner = null;
         $this->keys = null;
@@ -252,11 +267,60 @@ final class Watcher
         $now ??= $this->clock->now();
         // Before any external call and before the lock: a trigger outside the run_at hour costs nothing (FR-002).
         // A dry run previews the window the real run would analyse, whatever the hour.
-        $gate = new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']);
-        $window = $this->options->dryRun ? $gate->latest($now) : $gate->decide($now);
-        if ($window === null) {
+        if (!$this->options->dryRun) {
+            $this->eventsRun?->ingestOnTrigger(); // pod events live about an hour: every trigger feeds the ledger, due or not
+        }
+        $gate = Factory::gate($c);
+        if ($this->options->dryRun) {
+            $this->scheduleMeta = null;
+
+            return $this->runLockedAttempt($gate->latest($now), $now);
+        }
+
+        $pending = $gate->pending($now);
+        if ($pending === []) {
             return new RunResult(RunOutcome::SkippedNotDue);
         }
+        if (($c->schedule['every'] ?? null) !== null) {
+            $pending = $gate->pending($now, $this->highWaterEnd());
+        }
+        $todo = [];
+        foreach ($pending as $candidate) {
+            $probe = new WindowKeys($c->stateKey, $candidate, $c->state['retention'], $c->schedule['lock_ttl']);
+            try {
+                if ($this->state->get($probe->run()) !== null || $this->state->get($probe->delivered()) !== null) {
+                    continue;
+                }
+            } catch (Throwable) {
+            }
+            $todo[] = $candidate;
+        }
+        if ($todo === []) {
+            $this->ledger->started($pending[0]);
+
+            return new RunResult(RunOutcome::SkippedDone);
+        }
+        usort($todo, static fn (Window $a, Window $b): int => $a->end <=> $b->end);
+
+        $last = null;
+        $batch = count($todo);
+        foreach ($todo as $index => $window) {
+            $this->scheduleMeta = $this->buildScheduleMeta($window, $batch, $index === 0);
+            $last = $this->runLockedAttempt($window, $now);
+            if ($index + 1 < $batch && $this->continueCatchUp($last)) {
+                $this->betweenCatchUpWindows($last);
+                continue;
+            }
+            break;
+        }
+        $this->scheduleMeta = null;
+
+        return $last;
+    }
+
+    private function runLockedAttempt(Window $window, DateTimeImmutable $now): RunResult
+    {
+        $c = $this->config;
         $this->ledger->started($window);
         $this->purge();
         $owner = bin2hex(random_bytes(8));
@@ -268,7 +332,6 @@ final class Watcher
         try {
             if ($this->options->dryRun) {
                 if (!$this->options->estimate && $this->dailyCapReached()) {
-                    // A dry run bills real calls and records nothing: with the cap spent it would be an unlimited free pass (A4-06).
                     return $this->fail('daily budget already reached; a dry run would bill model calls beyond the cap', 'budget_exhausted');
                 }
                 $this->announceDryRun($keys);
@@ -279,6 +342,9 @@ final class Watcher
             $this->lockKey = $lockKey;
             $this->lockOwner = $owner;
             $this->lockRenewedAt = $this->clock->now()->getTimestamp();
+            if (!$this->options->dryRun && $this->runsCapExceeded()) {
+                return $this->cappedRun($lockKey, $owner);
+            }
             $fatal = new FatalGuard(fn () => $this->state->release($lockKey, $owner), $this->hostLog, $c->service);
             $fatal->arm();
 
@@ -286,26 +352,134 @@ final class Watcher
         } catch (SourceUnavailable $e) {
             return $this->failWithNotice('source', $e->getMessage(), 'source_unavailable');
         } catch (Config\InvalidConfig $e) {
-            // A state directory the store refuses: the message names the setting only, so it is safe to show.
             return $this->failWithNotice('config', $e->getMessage(), 'invalid_config');
         } catch (AnalyzerFailed $e) {
             return $this->failWithNotice('analysis', $e->getMessage(), $e->refused ? 'analysis_refused' : 'analysis_failed');
         } catch (LockLost $e) {
-            return $this->fail($e->getMessage(), 'lock_lost'); // host log and exit code only: the new owner reports the window
+            return $this->fail($e->getMessage(), 'lock_lost');
         } catch (DeliveryFailed $e) {
-            // The channel that just failed cannot carry the news: host log and exit code only.
             return $this->fail($e->getMessage(), 'delivery_failed');
         } catch (Throwable $e) {
-            // State and unexpected faults: class name only, never a message or chain that might carry a secret.
             return $this->failWithNotice('run', 'internal error (' . $e::class . ')', 'internal_error');
         } finally {
             $fatal?->disarm();
             try {
                 $this->state->release($lockKey, $owner);
             } catch (Throwable) {
-                // The lock expires by TTL; nothing more to do.
             }
         }
+    }
+
+    private function continueCatchUp(RunResult $result): bool
+    {
+        return in_array($result->outcome, [RunOutcome::Reported, RunOutcome::Quiet, RunOutcome::Baselined], true);
+    }
+
+    private function betweenCatchUpWindows(RunResult $result): void
+    {
+        $this->ledger->finish($result->outcome, $this->notices(), $this->environment());
+        $this->ledger->reset();
+        $this->guard = new RunGuard($this->clock, min($this->config->schedule['run_deadline'], $this->fleetDeadline ?? PHP_INT_MAX));
+    }
+
+    /** @return array{gapFrom: ?DateTimeImmutable, gapTo: ?DateTimeImmutable, gapWindows: ?int, catchUpBatch: ?int} */
+    private function buildScheduleMeta(Window $window, int $batch, bool $first): array
+    {
+        $gap = $this->gapSpan($window);
+
+        return [
+            'gapFrom' => $gap['from'] ?? null,
+            'gapTo' => $gap['to'] ?? null,
+            'gapWindows' => ($this->config->schedule['every'] ?? null) === null ? null : ($gap['n'] ?? null),
+            'catchUpBatch' => $batch > 1 && $first ? $batch : null,
+        ];
+    }
+
+    private function highWaterEnd(): ?DateTimeImmutable
+    {
+        if ($this->options->dryRun) {
+            return null;
+        }
+        try {
+            $stored = $this->state->get(Keys::highWater($this->config->stateKey));
+        } catch (Throwable) {
+            return null;
+        }
+        if (!is_array($stored) || !is_string($stored['end'] ?? null)) {
+            return null;
+        }
+        try {
+            return new DateTimeImmutable($stored['end']);
+        } catch (\Exception) {
+            return null;
+        }
+    }
+
+    /** @return array{from: DateTimeImmutable, to: DateTimeImmutable, n: int}|null */
+    private function gapSpan(Window $window): ?array
+    {
+        if ($this->options->dryRun) {
+            return null;
+        }
+        try {
+            $stored = $this->state->get(Keys::highWater($this->config->stateKey));
+        } catch (Throwable) {
+            return null;
+        }
+        if (!is_array($stored) || !is_string($stored['end'] ?? null)) {
+            return null;
+        }
+        try {
+            $hw = new DateTimeImmutable($stored['end']);
+        } catch (\Exception) {
+            return null;
+        }
+        if ($hw >= $window->start) {
+            return null;
+        }
+        $period = max(1, (int) ($this->config->schedule['period_seconds'] ?? 3600));
+
+        return [
+            'from' => $hw,
+            'to' => $window->start,
+            'n' => max(1, (int) round(($window->start->getTimestamp() - $hw->getTimestamp()) / $period)),
+        ];
+    }
+
+    private function runsCapExceeded(): bool
+    {
+        $max = $this->config->analysis['max_runs_per_day'];
+        if ($max === null) {
+            return false;
+        }
+        $tz = new \DateTimeZone($this->config->schedule['timezone']);
+        $day = $this->clock->now()->setTimezone($tz)->format('Y-m-d');
+        $ttl = Keys::ttl(Keys::RUNS, $this->config->state['retention'], $this->config->schedule['lock_ttl']);
+
+        return (int) $this->state->increment(Keys::runsToday($this->config->stateKey, $day), 1, $ttl) > $max;
+    }
+
+    private function cappedRun(string $lockKey, string $owner): RunResult
+    {
+        $c = $this->config;
+        $max = (int) $c->analysis['max_runs_per_day'];
+        $tz = new \DateTimeZone($c->schedule['timezone']);
+        $until = $this->clock->now()->setTimezone($tz)->modify('tomorrow')->setTime(0, 0)->format('Y-m-d H:i');
+        if ($c->on('notice')) {
+            try {
+                $day = (new Spend($this->state, $this->clock, $tz, $c->stateKey))->day();
+                $this->noticeOnce(
+                    'capped:' . rawurlencode($c->stateKey) . ':' . $day,
+                    $this->notices()->runCapReached($c->service, $this->environment(), $max, $until, $c->schedule['timezone']),
+                    $this->noticeDestination(),
+                );
+            } catch (Throwable $e) {
+                $this->hostLog?->warning('run cap notice not delivered: ' . $this->notices()->describe($e), ['service' => $c->service]);
+            }
+        }
+        $this->state->release($lockKey, $owner);
+
+        return new RunResult(RunOutcome::Capped);
     }
 
     private function dailyCapReached(): bool
@@ -378,6 +552,11 @@ final class Watcher
     private function conclude(RunResult $r): RunResult
     {
         $outcome = $r->outcome;
+        // Fail closed: a cluster that could not be read is named in the summary and the heartbeat even when a digest went out
+        // and even with notices off, unless the run already has a more specific code.
+        if ($this->ledger->code() === null && ($unread = $this->eventsRun?->runCode()) !== null) {
+            $this->ledger->setCode($unread);
+        }
         $this->ledger->finish($outcome, $this->notices(), $this->environment());
         if ($this->estimator !== null) {
             $this->printEstimate($this->estimator);
@@ -492,8 +671,55 @@ final class Watcher
         return is_string($env) ? $env : 'default';
     }
 
+
+    private function effectiveWindow(Window $window): Window
+    {
+        if ($this->options->dryRun) {
+            return $window;
+        }
+        $stored = $this->state->get(Keys::highWater($this->config->stateKey));
+        if (!is_array($stored) || !is_string($stored['end'] ?? null)) {
+            return $window;
+        }
+        try {
+            $hw = new DateTimeImmutable($stored['end']);
+        } catch (\Exception) {
+            return $window;
+        }
+        if ($hw <= $window->start || $hw >= $window->end) {
+            return $window;
+        }
+
+        return new Window($hw, $window->end);
+    }
+
+    private function advanceHighWater(Window $window, WindowKeys $keys): void
+    {
+        if ($this->options->dryRun) {
+            return;
+        }
+        $hwKey = Keys::highWater($this->config->stateKey);
+        $ttl = Keys::ttl(Keys::HIGH_WATER, $this->config->state['retention'], $this->config->schedule['lock_ttl']);
+        $stored = $this->state->get($hwKey);
+        if (is_array($stored) && is_string($stored['end'] ?? null)) {
+            try {
+                if (new DateTimeImmutable($stored['end']) >= $window->end) {
+                    return;
+                }
+            } catch (\Exception) {
+                // overwrite corrupt value
+            }
+        }
+        $this->state->put($hwKey, [
+            'v' => 1,
+            'end' => $window->end->format(DATE_ATOM),
+            'run' => $keys->end(),
+        ], $ttl);
+    }
+
     private function locked(Window $window, WindowKeys $keys): RunResult
     {
+        $window = $this->effectiveWindow($window);
         $c = $this->config;
         $service = $c->service;
         $key = $c->stateKey; // prefix of every state key: service, or service@environment
@@ -527,6 +753,13 @@ final class Watcher
         if ($comparedWith !== null) {
             $this->ledger->observation()->warn('comparison_gap', null, max(1, (int) round(($window->start->getTimestamp() - $comparedWith->getTimestamp()) / 86400)));
         }
+        $fpvResetFrom = null;
+        if ($prev !== null && !Fingerprinter::snapshotUsable($prev)) {
+            $fpvResetFrom = Fingerprinter::snapshotVersion($prev);
+            $prev = null;
+            $comparedWith = null;
+            $this->previousKey = self::windowKey($window->start);
+        }
         $this->ledger->defer();
         $deploy = $c->on('deploy') ? DeployInfo::resolve($c->deploy, $prev['deploy'] ?? null, $this->source, $window, $selector) : new DeployInfo(null, null, null, false);
         $this->ledger->setDeployInfo($deploy);
@@ -537,7 +770,7 @@ final class Watcher
 
         $rules = new WatchRules($c->watchRules);
         $mute = new MuteList($c->mute);
-        $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard);
+        $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard, $this->eventsRun);
         $groups = $collector->collect($window, $selector, $anomalies);
         $this->ledger->stats()->eventsRead = $collector->eventsRead();
         $this->ledger->stats()->unscannableEvents = $collector->unscannableEvents();
@@ -546,18 +779,34 @@ final class Watcher
         $this->ledger->stats()->readQuality = $this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : [];
         // Blindness (A4-03, A4-08): what this run could not see, as counts. Sent as a short notice even when the run is otherwise quiet.
         $readReason = $this->guard?->reason() ?? $collector->truncationReason() ?? ($collector->truncated() ? 'cap' : null);
-        $zeroStreak = $this->zeroStreak($key, $collector->eventsRead(), $totals);
+        $zeroStreak = $this->zeroStreak($key, $collector->mainEventsRead(), $totals);
         $blind = fn (bool $quiet, bool $digestSent = false): ?string => $this->blindLine($quiet, $digestSent, $readReason, $collector->eventsRead(), $collector->overflowedEvents(), $zeroStreak);
         $this->ledger->stats()->groups = count($groups);
+        $this->ledger->stats()->events = $this->eventsRun?->summary($window);
         // Muted groups leave first, so they reach neither a model nor the selector; the snapshot keeps them for growth.
         $allGroups = $groups;
         $muteResult = $mute->filter($groups, $collector->muteHits(), $started);
         $groups = $muteResult->kept;
         $factor = $c->selection['growth_factor'];
+        $knownResult = null;
+        $knownLine = null;
+        $knownGrown = [];
+        $knownBuffer = null;
+        if ($c->on('known_issues') && $c->incident->knownIssues !== []) {
+            $knownBuffer = new BufferedStateStore($this->state);
+            $knownResult = (new KnownIssues($c->incident->knownIssues, $factor))->partition(
+                $groups,
+                $started,
+                new KnownReferences($knownBuffer, $key, $retention),
+            );
+            $groups = $knownResult->kept;
+            $knownGrown = $knownResult->grown;
+            $knownLine = KnownLineRenderer::format($knownResult->lines);
+        }
         // Spec 004: what each group is compared with is decided by baseline.mode; `$prev` stays for deploy info and level anomalies.
         $comparison = (new BaselineResolver(
             $this->state,
-            new RunGate($c->schedule['run_at'], new \DateTimeZone($c->schedule['timezone']), $c->schedule['window']),
+            Factory::gate($c),
             $key,
             $c->on('baseline') ? $c->baseline : ['mode' => 'previous'] + $c->baseline,
             new \DateTimeZone($c->schedule['timezone']),
@@ -582,19 +831,22 @@ final class Watcher
         if ($comparison->isBaseline()) {
             $this->readDependencies($window, $normalizer, $redactor, null);
             $this->ledger->snapshot($window, $allGroups, $totals);
+            $this->announceEventsProblem($key, $window);
             if ($c->on('notice')) {
-                $this->notifier->send(
-                    $renderer->renderBaseline($service, $environment, count($groups), array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups))),
-                    $c->destination('notice'),
-                );
+                $eventCount = array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups));
+                $notice = $fpvResetFrom === null
+                    ? $renderer->renderBaseline($service, $environment, count($groups), $eventCount)
+                    : $renderer->renderFingerprintVersionReset($service, $environment, count($groups), $eventCount, $fpvResetFrom, Fingerprinter::FPV);
+                $this->notifier->send($notice, $c->destination('notice'));
             }
             $this->blindNotice($blind(false), $key, $endKey); // a baseline run only records: cap and overflow are not news yet
             $this->ledger->runRecord($runKey, RunOutcome::Baselined, null, $started, $this->blindCode);
+            $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Baselined);
         }
 
-        $selection = (new Selector())->select($groups, $c->selection['min_level'], $c->selection['top_n'], $anomalies);
+        $selection = (new Selector())->select($groups, $c->selection['min_level'], $c->selection['top_n'], $anomalies, $knownGrown);
         $candidates = [];
         foreach ($selection->candidates as $cand) {
             $reported = $this->state->get($keys->reported($cand->group->fingerprint));
@@ -613,17 +865,19 @@ final class Watcher
                 $this->readDependencies($window, $normalizer, $redactor, null);
             }
             $this->ledger->snapshot($window, $allGroups, $totals);
+            $this->announceEventsProblem($key, $window);
             if ($expired && $this->retryCutWindow($keys, $retention, count($candidates), $line)) {
                 return new RunResult(RunOutcome::Quiet); // no done record: the next trigger reads this window again (R-3)
             }
             $this->blindNotice($line, $key, $endKey);
             $this->ledger->runRecord($runKey, RunOutcome::Quiet, null, $started, $this->blindCode);
+            $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Quiet);
         }
 
-        $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures);
-        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started);
+        $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures, knownResult: $knownResult, knownLine: $knownLine);
+        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started, buffer: $knownBuffer);
 
         $routed = $analysis->routed;
         $usage = $analysis->usage;
@@ -634,33 +888,41 @@ final class Watcher
             $analysis->checkpoint->clear();
             $analysis->buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->ledger->snapshot($window, $allGroups, $totals);
+            $this->announceEventsProblem($key, $window);
             $this->blindNotice($blind(true), $key, $endKey);
             $this->ledger->runRecord($runKey, RunOutcome::Quiet, $usage, $started, $this->blindCode);
+            $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Quiet, null, $usage);
         }
 
-        $message = $this->buildDigest($read, $analysis, $selection, $environment);
-        try {
-            $this->observer?->kind('digest');
-            $this->notifier->send($message, $c->destination('digest'));
-            $this->observer?->kind('other');
-        } catch (DeliveryFailed $e) {
-            $this->observer?->kind('other');
-            $this->announceDigestFailure($e, $environment);
-
-            throw $e;
-        }
+        Delivery::run(
+            $c,
+            $read,
+            $routed->findings,
+            $keys,
+            $this->state,
+            $this->notifier,
+            $this->options,
+            function (array $findings, ?string $routedNotice, int $draftsSkipped) use ($read, $analysis, $selection, $environment): Message {
+                return $this->buildDigest($read, $analysis, $selection, $environment, $findings, $routedNotice, $draftsSkipped);
+            },
+            $this->out,
+            function (DeliveryFailed $e) use ($environment): void {
+                $this->announceDigestFailure($e, $environment);
+            },
+            function (string $kind): void {
+                $this->observer?->kind($kind);
+            },
+            $analysis->byFingerprint,
+            self::DELIVERED_TTL,
+            $this->clock->now(),
+            fn (Message $m): Message => $this->digestMessage($m, $keys),
+        );
 
         $now = $this->clock->now()->format(DATE_ATOM);
-        try {
-            // The digest is out: if a state write below fails, the next trigger must not send it again (A4-07).
-            $this->state->put($keys->delivered(), ['at' => $now], self::DELIVERED_TTL);
-        } catch (Throwable $e) {
-            $this->hostLog?->warning('delivered marker not written: ' . $e::class, ['service' => $service]);
-        }
         $this->blindNotice($blind(false, true), $key, $endKey);
-        foreach ($findings as $finding) {
+        foreach ($routed->findings as $finding) {
             foreach ($finding->fingerprints as $fp) {
                 $analysis->buffer->put($keys->reported($fp), ['lastReportedAt' => $now, 'atCount' => $analysis->byFingerprint[$fp]->count ?? 0], $retention);
             }
@@ -669,6 +931,7 @@ final class Watcher
         $analysis->buffer->flush();
         $this->ledger->snapshot($window, $allGroups, $totals);
         $this->ledger->runRecord($runKey, RunOutcome::Reported, $usage, $started);
+        $this->advanceHighWater($window, $keys);
 
         return new RunResult(RunOutcome::Reported, null, $usage);
     }
@@ -680,7 +943,7 @@ final class Watcher
      *
      * @throws AnalyzerFailed after the window snapshot is kept, so the next trigger retries
      */
-    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, string $environment, WindowKeys $keys, DateTimeImmutable $started): Analysis
+    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, string $environment, WindowKeys $keys, DateTimeImmutable $started, ?BufferedStateStore $buffer = null): Analysis
     {
         $c = $this->config;
         $service = $c->service;
@@ -717,12 +980,13 @@ final class Watcher
         $triageOnly = $cap !== null;
 
         $this->renewLock();
-        $buffer = new BufferedStateStore($this->state); // verdicts and reported markers: kept only once the digest is delivered
+        $buffer = $buffer ?? new BufferedStateStore($this->state); // verdicts, reported markers, known refs: kept only once the digest is delivered
         $before = $spend->today();
         $calculator = new CostCalculator($c->analysis['prices']);
         $checkpoint = new TriageCheckpoint($this->state, $key, $keys->end());
-        $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
-        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet);
+        $runBudget = $c->analysis['run_budget_usd'];
+        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet, is_numeric($runBudget) ? (float) $runBudget : null);
+        $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet, $reservation), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
         try {
             try {
                 $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
@@ -804,7 +1068,10 @@ final class Watcher
     }
 
     /** The digest message: findings, what was left out and why, cost, links. */
-    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment): Message
+    /**
+     * @param list<\Watcher\Analyze\Finding>|null $findingsOverride
+     */
+    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment, ?array $findingsOverride = null, ?string $routedNotice = null, int $draftsSkipped = 0): Message
     {
         $c = $this->config;
         $service = $c->service;
@@ -818,7 +1085,7 @@ final class Watcher
         $comparedWith = $read->comparedWith;
         $patternFailures = $read->patternFailures;
         $routed = $analysis->routed;
-        $findings = $routed->findings;
+        $findings = $findingsOverride ?? $routed->findings;
         $redacted = $analysis->redacted;
         $usage = $analysis->usage;
         $models = $analysis->models;
@@ -834,7 +1101,8 @@ final class Watcher
         $links = [];
         $afterRelease = [];
         foreach ($redacted as $g) {
-            $links[$g->fingerprint] = ['log' => $logLinks?->forGroup($g, $window), 'code' => $codeLinks?->forGroup($g) ?? []];
+            // A pod event is not in the log stream, so a log query for it would find nothing.
+            $links[$g->fingerprint] = ['log' => $g->origin === null ? $logLinks?->forGroup($g, $window) : null, 'code' => $codeLinks?->forGroup($g) ?? []];
             $mark = $deploy->firstSeenAfterLabel($g->status);
             if ($mark !== null) {
                 $afterRelease[$g->fingerprint] = $mark;
@@ -885,7 +1153,31 @@ final class Watcher
             triageCoerced: $routed->triageCoerced,
             unreported: $routed->unreported,
             newOverflow: $routed->newOverflow,
+            podEventLines: $this->eventsRun?->digestLines($window, new \DateTimeZone($c->schedule['timezone'])) ?? [],
+            knownLine: $read->knownLine,
+            findingLabels: $read->knownResult !== null ? $read->knownResult->labels : [],
+            routedNotice: $routedNotice,
+            draftsSkipped: $draftsSkipped,
+            knownCount: $read->knownResult !== null ? $read->knownResult->knownCount : 0,
+            knownGrownCount: $read->knownResult !== null ? $read->knownResult->knownGrownCount : 0,
+            gapFrom: $this->scheduleMeta['gapFrom'] ?? null,
+            gapTo: $this->scheduleMeta['gapTo'] ?? null,
+            gapWindows: $this->scheduleMeta['gapWindows'] ?? null,
+            catchUpBatch: $this->scheduleMeta['catchUpBatch'] ?? null,
         ), $c->analysis['confidence_threshold']);
+    }
+
+    private function digestMessage(Message $message, WindowKeys $keys): Message
+    {
+        if ($this->options->dryRun) {
+            return $message;
+        }
+        $partsKey = $keys->deliveredParts();
+        $skip = (int) ($this->state->get($partsKey)['n'] ?? 0);
+
+        return new Message($message->text, $message->sections, new DeliveryProgress($skip, function (int $n) use ($partsKey): void {
+            $this->state->put($partsKey, ['n' => $n], self::DELIVERED_TTL);
+        }));
     }
 
     /** Renews the run lock before every model call (A4-05). */
@@ -1001,8 +1293,18 @@ final class Watcher
     }
 
     /** Once per window; a delivery fault is logged, never fatal. */
+    private function gapNotice(string $key, string $endKey): void
+    {
+        $m = $this->scheduleMeta;
+        if ($m === null || $m['gapFrom'] === null || $m['gapTo'] === null || !$this->config->on('notice')) {
+            return;
+        }
+        $this->noticeOnce('gap:' . rawurlencode($key) . ':' . $endKey, self::plainNotice(DigestRenderer::formatGapLine($m['gapFrom'], $m['gapTo'], $m['gapWindows'])), $this->noticeDestination());
+    }
+
     private function blindNotice(?string $line, string $key, string $endKey): void
     {
+        $this->gapNotice($key, $endKey);
         if ($line === null || !$this->config->on('notice')) {
             return;
         }
@@ -1040,14 +1342,14 @@ final class Watcher
      * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 with one warning.
      */
     /** @param array<string, string> $models */
-    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = [], ?FleetSeam $fleet = null): Analyzer
+    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = [], ?FleetSeam $fleet = null, ?BudgetReservation $reservation = null): Analyzer
     {
-        return new class ($inner, $spend, $calculator, $log, $stats, $models, $fleet) implements Analyzer {
+        return new class ($inner, $spend, $calculator, $log, $stats, $models, $fleet, $reservation) implements Analyzer {
             /** @var array<string, true> */
             private array $warned = [];
 
             /** @param array<string, string> $models configured model per step, to tell an escalation from the main analysis */
-            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models, private readonly ?FleetSeam $fleet = null)
+            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models, private readonly ?FleetSeam $fleet = null, private readonly ?BudgetReservation $reservation = null)
             {
             }
 
@@ -1112,6 +1414,7 @@ final class Watcher
                     }
                 }
                 $this->stats?->addUsage($step, new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost));
+                $this->reservation?->addRunSpend($cost);
             }
         };
     }
@@ -1216,6 +1519,20 @@ final class Watcher
         return new Message($text, [['kind' => 'notice', 'text' => $text]]);
     }
 
+    /** A run with nothing to report must still say that pod events could not be read (spec 008, Principle VII). */
+    private function announceEventsProblem(string $key, Window $window): void
+    {
+        $text = $this->eventsRun?->problemNotice($this->environment());
+        if ($text !== null && $this->config->on('notice')) {
+            try {
+                $this->noticeOnce('events:' . rawurlencode($key) . ':' . self::windowKey($window->end), self::plainNotice($text), $this->noticeDestination());
+            } catch (Throwable $e) {
+                // Like every other notice: a channel that is down must not turn a quiet run into a failed one.
+                $this->hostLog?->warning('pod events notice not delivered: ' . $e::class, ['service' => $this->config->service]);
+            }
+        }
+    }
+
     /** Sends once per key (the key lives two days); a failed send gives the key back so the next run retries. */
     private function noticeOnce(string $key, Message $message, Destination $to): void
     {
@@ -1245,8 +1562,11 @@ final class Watcher
             return [];
         }
         $snap = $this->state->get(Keys::snapshot($this->config->stateKey, $key));
+        if (!is_array($snap) || !Fingerprinter::snapshotUsable($snap)) {
+            return [];
+        }
 
-        return $snap === null ? [] : [$snap, $end, $key];
+        return [$snap, $end, $key];
     }
 
     /**

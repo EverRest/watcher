@@ -86,7 +86,7 @@ after the redactor's second scan). Never: template, frames, fields, labels, raw 
 
 ## `heartbeat` (one per run when `heartbeat.enabled`)
 
-`state` (the `HeartbeatStatus` state: ok, stale, failed, unknown), `last_outcome`, `last_ok_at`, `age_seconds`,
+`state` (the `HeartbeatStatus` state: ok, degraded, stale, failed, unknown; degraded = the last run worked but the pod events could not be read), `last_outcome`, `last_ok_at`, `age_seconds`,
 `stale_after_seconds` (config), `warnings` (list of `sink_failed:<sink>`; **open** pattern). Sink failures of the run in
 progress are not in its own heartbeat (the batch is built before the flush); they are in the next run's (research R9).
 

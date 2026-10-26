@@ -28,6 +28,8 @@ Every feature has an on/off flag in the config and a `WATCHER_*` environment var
 
 Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
 
+Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, and what the model costs per day, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
+
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
 ## Requirements
@@ -228,7 +230,7 @@ Every digest ends with a cost line: tokens in/out/cached, model per step, approx
 | 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
-exits 0 when `ok`, 1 when `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
+exits 0 when `ok`, 1 when `degraded` (the last run worked but the pod events could not be read), `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to

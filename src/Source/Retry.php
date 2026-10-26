@@ -92,7 +92,7 @@ final class Retry
             }
             $asked = $hint === null ? null : $hint($response);
             $header = $response->getHeaderLine('Retry-After');
-            $seconds = max(1, (int) ceil($asked ?? (is_numeric($header) ? (float) $header : 1)));
+            $seconds = max(1, (int) ceil($asked ?? $this->retryAfterSeconds($header) ?? 1));
             if ($this->waited + $seconds > $this->budget) {
                 return $response;
             }
@@ -106,8 +106,8 @@ final class Retry
     {
         $seconds = (int) (3 ** ($attempt - 1));
         if ($rateLimited !== null) {
-            $hint = $rateLimited->getHeaderLine('Retry-After') ?: $rateLimited->getHeaderLine('X-RateLimit-Reset');
-            $seconds = is_numeric($hint) ? (int) $hint : 1;
+            $header = $rateLimited->getHeaderLine('Retry-After') ?: $rateLimited->getHeaderLine('X-RateLimit-Reset');
+            $seconds = $this->retryAfterSeconds($header) ?? 1;
         }
         $seconds = max(1, min(self::MAX_WAIT, $seconds));
         if ($this->waited + $seconds > $this->budget) {
@@ -117,5 +117,28 @@ final class Retry
         ($this->sleeper)($seconds);
 
         return true;
+    }
+
+    /** Seconds to wait from a Retry-After header (delta or HTTP-date); null when unrecognised. */
+    private function retryAfterSeconds(string $header): ?int
+    {
+        $header = trim($header);
+        if ($header === '') {
+            return null;
+        }
+        if (is_numeric($header)) {
+            return max(1, (int) ceil((float) $header));
+        }
+        try {
+            $at = new \DateTimeImmutable($header);
+        } catch (\Exception) {
+            return null;
+        }
+        $delta = $at->getTimestamp() - time();
+        if ($delta < 1) {
+            return 1;
+        }
+
+        return min(self::MAX_WAIT, $delta);
     }
 }

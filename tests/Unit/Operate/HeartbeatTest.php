@@ -161,6 +161,23 @@ final class HeartbeatTest extends TestCase
         self::assertSame('unknown', $this->hb($failing)->status(self::LIMIT)->state);
     }
 
+    public function testAnUnreadPodEventsClusterMakesAnOtherwiseOkStatusDegradedWithANonZeroExit(): void
+    {
+        $hb = $this->hb();
+        foreach (['unavailable', 'stale'] as $events) {
+            $hb->recordRun(RunOutcome::Quiet, new DateTimeImmutable('2026-10-20T06:00:00+00:00'), new DateTimeImmutable('2026-10-21T06:00:00+00:00'), $this->clock->now()->modify('-38 seconds'), 0.0, 'k8s_ingest_failed:unauthorised', $events);
+
+            $s = $hb->status(self::LIMIT);
+
+            self::assertSame('degraded', $s->state, $events);
+            self::assertFalse($s->ok());
+            self::assertSame(1, $s->exitCode());
+            self::assertStringContainsString("events:         $events", $s->text('svc'));
+        }
+        $hb->recordRun(RunOutcome::Quiet, new DateTimeImmutable('2026-10-20T06:00:00+00:00'), new DateTimeImmutable('2026-10-21T06:00:00+00:00'), $this->clock->now()->modify('-38 seconds'), 0.0, null, 'ok');
+        self::assertSame('ok', $hb->status(self::LIMIT)->state, 'a later successful read clears it');
+    }
+
     public function testStatusOkThenStale(): void
     {
         $hb = $this->hb();
