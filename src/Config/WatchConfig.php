@@ -124,6 +124,40 @@ final class WatchConfig implements \JsonSerializable
     }
 
     /**
+     * `env_problems` is not a setting: {@see EnvSections} records the environment variables that are missing or broken while a
+     * config file loads (which must never throw, the file runs on every request of the host), and this raises them first, when
+     * the run starts. Every problem is reported at once; a missing variable makes the exception a {@see MissingEnvironmentVariable}.
+     *
+     * @param array<array-key, mixed> $config
+     * @return array<array-key, mixed> the config without the `env_problems` key
+     */
+    private static function withoutEnvProblems(array $config): array
+    {
+        if (!array_key_exists('env_problems', $config)) {
+            return $config;
+        }
+        $problems = $config['env_problems'];
+        unset($config['env_problems']);
+        if (!is_array($problems)) {
+            throw new InvalidConfig('env_problems must be the list recorded by EnvSections');
+        }
+        $messages = [];
+        $missing = false;
+        foreach ($problems as $problem) {
+            if (!is_array($problem) || !is_string($problem['kind'] ?? null) || !is_string($problem['message'] ?? null)) {
+                throw new InvalidConfig('env_problems must be the list recorded by EnvSections');
+            }
+            $messages[] = $problem['message'];
+            $missing = $missing || $problem['kind'] === 'missing';
+        }
+        if ($messages === []) {
+            return $config;
+        }
+
+        throw $missing ? new MissingEnvironmentVariable(implode('; ', $messages)) : new InvalidConfig(implode('; ', $messages));
+    }
+
+    /**
      * The master switch, read from the raw array before anything is validated: only the boolean `true` turns the package on.
      * Missing, null, a string ('0', 'false', 'yes') or any other value is off (fail-safe); fromArray() still rejects a non-boolean.
      *
@@ -150,6 +184,7 @@ final class WatchConfig implements \JsonSerializable
     /** @param array<string, mixed> $config */
     public static function fromArray(#[\SensitiveParameter] array $config): self
     {
+        $config = self::withoutEnvProblems($config);
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::TOP_LEVEL, true)) {
                 throw new InvalidConfig('Unknown configuration key: ' . $key);
