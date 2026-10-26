@@ -10,7 +10,7 @@
 <!-- badges:end -->
 
 Scheduled, model-routed log analysis. Once per window (default 24 h) it reads one service's logs from
-Loki or Datadog, groups errors into fingerprinted clusters, decides in plain code which ones deserve
+Loki or Datadog (or its Kubernetes pod events), groups errors into fingerprinted clusters, decides in plain code which ones deserve
 attention, asks Anthropic models to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
 it never acts on a service, opens tickets, or stores raw log lines.
 
@@ -29,6 +29,14 @@ Every feature has an on/off flag in the config and a `WATCHER_*` environment var
 Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
 
 Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, and what the model costs per day, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
+
+Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`), and optional caps (`analysis.max_runs_per_day`, `analysis.run_budget_usd`).
+
+Kubernetes events (spec 008): `source.driver: kubernetes` reads pod-level problems (crash loops, OOM kills, image pull failures, probes, restarts) through an hourly ledger; see [docs/kubernetes.md](docs/kubernetes.md).
+
+Read-only MCP server (spec 015): `watcher mcp` over stdio lets an assistant read status, the latest report, one finding, the hygiene report and an optional confirmed dry run, and `--setup` helps to write and validate a first config. It never writes to a monitored system.
+
+Master switch: when `enabled` is not the boolean `true` the package does nothing at all (no source, state, model or notifier access), in every entry point, even with a broken or partial config.
 
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
@@ -121,17 +129,17 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [002](specs/002-operability-tools/spec.md) | Operability tools | Implemented |
 | [003](specs/003-fleet-and-correlation/spec.md) | Fleet and correlation | Implemented |
 | [004](specs/004-baselines-and-templates/spec.md) | Baselines and templates | Implemented (backend patterns deferred) |
-| [005](specs/005-incident-workflow/spec.md) | Incident workflow | Spec written |
-| [006](specs/006-log-hygiene/spec.md) | Log hygiene | Spec written |
+| [005](specs/005-incident-workflow/spec.md) | Incident workflow | Phases 1–3 implemented (known issues, severity routing, ticket drafts); weekly report deferred |
+| [006](specs/006-log-hygiene/spec.md) | Log hygiene | Implemented |
 | [007](specs/007-code-aware-analysis/spec.md) | Code-aware analysis | Spec written, blocked on a constitution amendment |
-| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Spec written |
-| [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Spec written |
-| [010](specs/010-api-context/spec.md) | API context | Spec written |
+| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Implemented |
+| [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Not released (branch `feat/metrics-e009-030`) |
+| [010](specs/010-api-context/spec.md) | API context | Implemented, off by default |
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
 | [012](specs/012-feature-flags/spec.md) | Feature flags and environments | Implemented (changelog) |
 | [013](specs/013-observability-sink/spec.md) | Observability sink | Implemented (changelog) |
-| [014](specs/014-schedule-periods/spec.md) | Schedule periods | Spec written |
-| [015](specs/015-mcp-readonly/spec.md) | Read-only MCP server, onboarding and Q&A | Spec written |
+| [014](specs/014-schedule-periods/spec.md) | Schedule periods | Phases 1–2 implemented (periods, catch-up, DST, caps); same-slot baselines and roll-up open |
+| [015](specs/015-mcp-readonly/spec.md) | Read-only MCP server, onboarding and Q&A | Implemented (read-only tools, setup and Q&A); docs and some tests open |
 <!-- docs:end -->
 
 ## Configuration
@@ -171,7 +179,7 @@ State holds fingerprints, counters, cached verdicts, spend and run records. Ever
 ## Scheduling
 
 The host triggers the command at least hourly. The package decides whether a trigger is the scheduled one: a run
-is due from `schedule.run_at` (in `schedule.timezone`) for one hour. Outside that hour the trigger exits 0 at no cost.
+is due from `schedule.run_at` (in `schedule.timezone`) for one hour; with `schedule.every` or a list of `run_at` times it is due at each boundary. Outside that hour the trigger exits 0 at no cost.
 Inside it, a lock (`schedule.lock_ttl`) and a per-window run record make the run idempotent: a second trigger in the
 same window does nothing, and a failed run leaves no record so the next trigger retries.
 
@@ -271,7 +279,9 @@ decided in code from names, placeholders and times; it makes no model call and w
   threshold again or on the next day.
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
-- Only Slack, Telegram, Discord, Anthropic, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
+- Only Slack, Telegram, Discord, Anthropic, Loki, Datadog, Kubernetes events and the three state drivers exist. There is no remediation and no ticketing.
+- Metrics and Sentry (spec 009) and the weekly report (spec 005) are not released yet.
+- Same-slot baselines for several runs a day and the daily roll-up digest (spec 014) are not released yet.
 
 ## Development
 

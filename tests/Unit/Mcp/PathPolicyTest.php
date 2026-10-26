@@ -154,6 +154,28 @@ final class PathPolicyTest extends TestCase
         $ok->close();
     }
 
+    public function testTheRecheckBeforeIncludeSeesAReplacementEvenAfterAStatWasCached(): void
+    {
+        $approved = $this->policy()->approve($this->root . '/watcher.php');
+        $ok = (new ConfigFileReader())->read($approved);
+        self::assertTrue($ok->stillTheSame()); // primes PHP's stat cache for this path
+        rename($this->root . '/watcher.php', $this->root . '/approved-original.php'); // the original stays alive: its inode cannot be reused
+        file_put_contents($this->root . '/watcher.php', '<?php return ["swapped" => true];');
+        chmod($this->root . '/watcher.php', 0644);
+        self::assertFalse($ok->stillTheSame(), 'a cached lstat must not hide the swap');
+        $ok->close();
+    }
+
+    public function testAnInPlaceRewriteOfTheSameInodeIsRefusedBeforeInclude(): void
+    {
+        // same inode, same name: only the content changed. dev/ino cannot see this; mtime/ctime can.
+        touch($this->root . '/watcher.php', 1_000_000_000); // a clearly old mtime, so the rewrite below moves it
+        $ok = (new ConfigFileReader())->read($this->policy()->approve($this->root . '/watcher.php'));
+        file_put_contents($this->root . '/watcher.php', '<?php return ["sam" => 1];'); // same inode, new content and mtime
+        self::assertFalse($ok->stillTheSame(), 'an in-place rewrite must be refused before the include');
+        $ok->close();
+    }
+
     public function testASwapAfterTheCheckIsRefusedByTheReader(): void
     {
         $approved = $this->policy()->approve($this->root . '/watcher.php');

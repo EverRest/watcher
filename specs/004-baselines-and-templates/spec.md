@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-23
 
-**Status**: Draft
+**Status**: Implemented (backend patterns deferred)
 
 **Input**: User description: "Smarter baselines and better message templates for everrest/watcher: compare against a rolling window and the same weekday instead of only yesterday; keep a last-good-snapshot pointer so a missed day or a daylight-saving change does not force a new baseline; group messages by similarity instead of exact length so unrelated problems stop collapsing into fully masked templates; optionally use the log backend's own pattern detection. Source: docs/audit-2026-10-23.md, features 6 and 7, and the reliability findings on daylight saving and transient failures."
 

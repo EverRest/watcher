@@ -98,6 +98,18 @@ final class DryRunToolTest extends TestCase
         self::assertSame(1, $spent, 'a retry loop must not reach the pipeline again');
     }
 
+    public function testTheBoundIsBookedBeforeTheRunStartsNotOnlyAtTheEnd(): void
+    {
+        $seen = null;
+        $guard = new DryRunGuard(static fn (): array => ['usd' => 0.0, 'tokens' => 0], 0.5, null);
+        $p = new FakePipeline(onRun: static function () use (&$seen, $guard): array {
+            $seen = $guard->spendToday()['remaining_usd']; // read by the pipeline while its model calls are in flight
+            return ['window_start' => '2026-10-24T06:00:00Z', 'window_end' => '2026-10-25T06:00:00Z', 'at' => '2026-10-25T09:00:00Z', 'outcome' => 'reported', 'counts' => [], 'tokens' => [], 'cost_usd' => 0.0, 'findings' => []];
+        });
+        (new DryRunTool($p, $guard, InspectFixtures::guard()))->call(['confirm_cost' => true]);
+        self::assertEqualsWithDelta(0.5 - 0.10, $seen, 1e-9, 'the admitted bound must already be spent when the run is entered');
+    }
+
     public function testItIsAbsentUnlessAllowedAndInvalidParamsWhenCalled(): void
     {
         $tool = $this->tool(new FakePipeline());
