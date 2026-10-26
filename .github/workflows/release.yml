@@ -28,6 +28,10 @@ jobs:
           persist-credentials: false
       # Release guards: each stops the run with one line before anything is released.
       # A tag pushed from an unreviewed branch, or one left behind by a newer main, must not become a release.
+      - name: Guard tag still points at the commit this run was started for
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: scripts/check-release.sh pinned "$GITHUB_REF_NAME"
       - name: Guard tag is annotated
         run: scripts/check-release.sh annotated "$GITHUB_REF_NAME"
       - name: Guard tag commit is the tip of origin/main

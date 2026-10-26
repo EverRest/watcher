@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed (release process, F9)
+- `release.yml` has a first guard, `pinned`: the tag must still point at the commit the run was started for (`github.sha`), the commit the archive is built from. Before, the other guards read the tag at run time, so a tag moved after the push could pass the checks while the old commit was released (found by the automated push review).
 - `release.yml` refuses a tag that is not the tip of `origin/main`, is lightweight, has a `VERSION` that differs from the tag, or has no `## X.Y.Z` heading in `CHANGELOG.md`. Each guard fails the run with one line before any GitHub Release is created (`scripts/check-release.sh`, tested by `make release-guards-test`, part of `make ci`). The release steps and the rule for a wrong tag are in `docs/publishing.md`. The existing `v0.2.0` tag (on `36673a5`) is not moved.
 
 ### Tests

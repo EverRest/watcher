@@ -47,6 +47,15 @@ release 0.2.2 0.2.2                              # c2
 git tag -a v0.2.2 -m "release 0.2.2"
 git push -q origin main
 
+c2=$(git rev-parse v0.2.2^{commit})
+c1=$(git rev-parse v0.2.1^{commit})
+pinned_expect() { # <label> <0|1> <sha> <tag>
+	local got=0 out
+	out=$(cd "$work/repo" && RELEASE_SHA="$3" "$script" pinned "$4" 2>&1) || got=$?
+	if [ "$got" -ne "$2" ]; then echo "FAIL $1: exit $got, want $2: $out"; failures=$((failures + 1)); else echo "ok   $1"; fi
+}
+pinned_expect "pinned: the tag still points at the run's commit" 0 "$c2" v0.2.2
+pinned_expect "pinned: a tag moved after the push is refused" 1 "$c1" v0.2.2
 expect "good tag on the tip" 0 tip v0.2.2
 expect "good tag: version matches" 0 version v0.2.2
 expect "good tag: changelog heading" 0 changelog v0.2.2
