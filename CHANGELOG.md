@@ -5,6 +5,11 @@
 **BREAKING / UPGRADE**
 - Removed: the `analysis.client = sdk` path. `SdkMessagesClient` and the `anthropic-ai/sdk` dev dependency and suggestion are gone, together with the `php-http/discovery` floor and its `allow-plugins` entry (nothing else used them). `analysis.client` is kept for compatibility but accepts only `http` (the default); `sdk` fails config load with `analysis.client: the SDK client was removed; use analysis.client=http (the default)`. Upgrade: delete `analysis.client = sdk` (or set `http`); nothing to install. `Factory::analyzerRequestOptions()` was removed with it.
 
+### Fixed (security: F1, MCP ran a client-chosen PHP file)
+- `watcher_validate_config` and `watcher_rollout_check` ran `require` on any `.php` file under the directory of the configured file, so a sibling file's side effects ran with the MCP process's rights. The path root is now the configured file itself: `PathPolicy::forFile()`. A sibling is `path_not_allowed` before any read (test: `ConfigFileValidatorTest::testASiblingPhpFileIsRefusedAndNotRun`).
+- `watcher mcp --setup` (no configured file) had the project directory as its root, so the same tools ran any PHP file of the project. It now approves no path: both tools return `path_not_allowed` until a configuration exists. Behaviour change: validation in setup mode is off; re-enabling it needs the no-execute validator (option B, not done).
+- The configured file itself still runs as PHP: at each server start (`watcher mcp`) and on `watcher_validate_config` for that file. The validator does not parse without running it; that is option B.
+
 ## 0.2.1 — 2026-10-26 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
 
 Product release label **v0.2.1** (root VERSION). This release contains everything listed below. Do not install `v0.2.0`: that tag was created on an earlier commit and lacks the kill switch, the API context, the hygiene fixes and the notes below.

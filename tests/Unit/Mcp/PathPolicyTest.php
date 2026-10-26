@@ -51,6 +51,30 @@ final class PathPolicyTest extends TestCase
         self::assertSame($this->root . '/watcher.php', $a->real);
     }
 
+    public function testAFileRootApprovesThatFileAndNoSibling(): void
+    {
+        file_put_contents($this->root . '/other.php', "<?php return [];\n");
+        chmod($this->root . '/other.php', 0644);
+        $policy = PathPolicy::forFile($this->root . '/watcher.php');
+        self::assertSame($this->root . '/watcher.php', $policy->approve($this->root . '/watcher.php')->real);
+        try {
+            $policy->approve($this->root . '/other.php');
+            self::fail('a sibling was approved');
+        } catch (ToolError $e) {
+            self::assertSame('path_not_allowed', $e->errorCode);
+        }
+    }
+
+    public function testAnEmptyPolicyApprovesNothing(): void
+    {
+        try {
+            (new PathPolicy([]))->approve($this->root . '/watcher.php');
+            self::fail('an empty policy approved a file');
+        } catch (ToolError $e) {
+            self::assertSame('path_not_allowed', $e->errorCode);
+        }
+    }
+
     /** @return array<string, array{string}> */
     public static function literal(): array
     {

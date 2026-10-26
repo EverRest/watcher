@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Implemented in 0.2.1 (tools, setup, Q&A). Open: docs/mcp.md (T031, T066), config/outcome drift tests (T051, T052, T062, T064), onboarding test (T065)
+**Status**: Implemented in 0.2.1 (tools, setup, Q&A). F1 fixed on `fix/mcp-validate-no-exec` (2026-10-26): the path root is the configured file itself (FR-067). Open: docs/mcp.md (T031, T066), config/outcome drift tests (T051, T052, T062, T064), onboarding test (T065). Config-only validation without running the file (option B) is not done; see the CHANGELOG entry.
 
 **Input**: Owner request: let an AI assistant (Claude Desktop, Claude Code, an IDE) ask watcher what it found, without
 opening Slack and without being able to change anything. Documents only in this change; no code.
@@ -604,8 +604,9 @@ secrets.
 - **FR-067**: A path input (only `watcher_validate_config` and `watcher_rollout_check`) is accepted only if: no NUL, at most
   1024 characters, `realpath` succeeds, the resolved path is a regular readable file with extension `.php`, not group- or
   world-writable and owned by the process user (the same classifier as `observe.file.path`, shared, not copied), and it lies
-  under an allowed root. Allowed roots, resolved with `realpath`: with `--config`, the directory of that file; with `--setup`,
-  the current directory. A refused path is `path_not_allowed` before any read; the path is not echoed.
+  under an allowed root. Allowed roots, resolved with `realpath`: with `--config`, that file itself (not its directory; a
+  sibling `.php` file is refused, F1 of the 2026-10-26 security review); with `--setup`, none, so no path is approved until a
+  configuration exists. A refused path is `path_not_allowed` before any read; the path is not echoed.
 - **FR-068**: The onboarding and docs tools MUST NOT call a model, post, write a file, write state, run a process, or open a
   network connection, with the single exception of `watcher_rollout_check` with `connect: true` on a configuration that
   passed FR-067 (one read-only `get` through the read-only store). The config file is loaded the way `watcher check` loads it

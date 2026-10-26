@@ -32,11 +32,6 @@ final class ConfigFileValidatorTest extends TestCase
         exec('rm -rf ' . escapeshellarg($this->dir));
     }
 
-    private function tool(): ValidateConfigTool
-    {
-        return new ValidateConfigTool(new PathPolicy([$this->dir]), new ConfigFileReader(), new ConfigFileValidator());
-    }
-
     private function write(string $name, string $code): string
     {
         $p = $this->dir . '/' . $name;
@@ -67,10 +62,33 @@ final class ConfigFileValidatorTest extends TestCase
         return $r['php_snippet'];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Validates through the policy of the server's configured file, which is the file itself: no sibling is approved (F1).
+     *
+     * @return array<string, mixed>
+     */
     private function validate(string $path): array
     {
-        return $this->tool()->call(['path' => $path]);
+        return $this->tool($path)->call(['path' => $path]);
+    }
+
+    private function tool(string $configFile): ValidateConfigTool
+    {
+        return new ValidateConfigTool(PathPolicy::forFile($configFile), new ConfigFileReader(), new ConfigFileValidator());
+    }
+
+    public function testASiblingPhpFileIsRefusedAndNotRun(): void
+    {
+        $config = $this->write('watcher.php', $this->snippet());
+        $marker = $this->dir . '/marker';
+        $sibling = $this->write('other.php', "<?php\nfile_put_contents('$marker', 'ran');\nreturn [];\n");
+        try {
+            $this->tool($config)->call(['path' => $sibling]);
+            self::fail('a sibling file was approved');
+        } catch (ToolError $e) {
+            self::assertSame('path_not_allowed', $e->errorCode);
+        }
+        self::assertFileDoesNotExist($marker);
     }
 
     public function testAValidFileReportsFlagsOff(): void

@@ -214,6 +214,18 @@ new value in the model payload is the group status `expected` (alongside `new`, 
 
 Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) and host-like (any `word.word`) are inflated by false positives; texts that cannot be decoded are counted as `unscannable`, not categorised; a name that is identical in every event is not a pattern and is not found (the variable-free-text signal only sees names that vary), which is why a masked template is shown, stored and proposed as a watch rule only when it generalises at least `hygiene.variable_distinct` different messages (or `hygiene.allow_constant_labels` is true), and why each literal word of it must be common log vocabulary or seen at `hygiene.literal_min_sites` different code locations (files) in the pass; all messages without a location count as one source, so a family that varies one word is still one source (otherwise `<w>`; only the exact placeholders `<N>`, `<ID>`, `<EMAIL>`, ... are skipped, any other text in angle brackets is text: a name that is constant inside a family that varies elsewhere is hidden too, at the price of hiding domain words used at one site only) (a sentence that never varies may be one person's name: its row shows no label and no watch proposal is made for it; mute proposals carry a fingerprint only); phone numbers without a plus sign and postal addresses are not detected; digits in a path are masked, so `Controller1.php` and `Controller2.php` are one site; a line that is longer than 4096 characters is cut before it is scanned.
 
+## MCP server (spec 015)
+
+`watcher mcp` is read-only: its tools read the state store and the heartbeat, and never send, post, or write state.
+
+- **Which file runs.** The server runs the configuration file it was started with, as PHP, at start-up (the same as `watcher run`).
+  `watcher_validate_config` and `watcher_rollout_check` accept a path only when it is that configured file (`realpath` equal).
+  Any other PHP file, including a sibling in the same directory, is refused with `path_not_allowed` before it is read. With
+  `--setup` there is no configured file yet, so these two tools refuse every path. Keep the configuration free of side effects:
+  it is your own file, and it runs on each start.
+- **What leaves the server.** Validation returns key paths, error codes and catalog hints. It never returns a value, a message or
+  a string of the file. A plain-text secret literal is reported by its key path only.
+
 ## Limits you must know
 
 - **Keyword-less secrets and bare names are not detected.** A credential is masked by its key name or its shape. A password
