@@ -245,6 +245,17 @@ Endpoint summaries are an allowlisted addition (masked, capped to 80 characters)
 
 Resolved at planning (2026-10-24): URLs are `https` only. The cache entry expires exactly at the TTL, so FR-004's fallback to a stale entry does not apply; when the source cannot be read and no entry exists, one visible notice is shown and the feature is skipped for that run.
 
+## Owner decisions (2026-10-25)
+
+Delegated by the owner for the integration of this lane onto `develop`.
+
+1. **`api_context.allowed_roots`** (default `[]`): the only file ever read is the configured `source` itself (a canonical path); with roots set it must also lie below one of them. Any other absolute path, and every refusal before the read (missing, outside the roots, symlink in any component, world-writable ancestor, not a regular file), is the single token `unreadable`.
+2. **Remote sources**: `https` only. Plain `http` only with `allow_insecure: true` **and** a loopback, RFC 1918 or cluster-local host **and** `allow_private_network: true` (the wording and the classifier of `observe.http`, `src/Observe/HttpTarget.php`, `docs/observability.md`); a private host over `https` needs `allow_private_network`. Link-local, CGNAT, metadata and reserved ranges are refused whatever is allowed. Redirects are never followed.
+3. **Wired**: config section `api_context` (not in `WatchConfig::FLAGS`), `Factory::apiContextReader`, `Budget::fitEndpoints` before any other context is cut again, `Doctor` check with `unsafe_source` as its own token, `WatchConfig::secrets()` covers `auth_token` and a URL source, secrets held in closures (no dump format shows them).
+4. **Cache**: key = source hash + reducer-settings fingerprint, every write has a TTL, the reduced entry is budgeted by the reducer against `StateCodec::MAX_BYTES`, `MAX_ELEMENTS` and `MAX_CONTAINERS` (punctuation inside strings counts); an entry that cannot be stored degrades to "N operations not kept (cache limit)" or an uncached read, never a failed run.
+5. **Privacy**: mask-then-cut; an end-to-end test seeds an e-mail and a token in summary, description, operationId, tag, example, parameter and extension and asserts none reaches the model payload, the digest, any sink, the summary or the cache.
+6. **Not done in this integration**: tasks T002 (shared privacy corpus extension), T005/T029 (`--json` counters, which would change the golden summary), T028 (token-budget fixture in `CostTest`), T032 (operator run on a real document).
+
 ## Amended 2026-10-24 (planning review)
 
 - **Overview**, **US1** (intro, AC1), **US2** (intro), **Edge Cases**, **FR-006**, **SC-007**: the 2-segment limit. The Normalizer rewrites 3+-segment absolute paths to `<PATH>/…/<last two>` before masking ids, so only routes of at most 2 segments can match; no guessing (research R11). Examples changed to 2-segment routes.

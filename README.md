@@ -189,6 +189,7 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 - Fail closed per field or event: a field that cannot be scanned is dropped, and a line the rules cannot scan becomes `<UNSCANNABLE>` (it never fails the window). A shape no rule recognises is not an error and passes; see the limits in `docs/privacy.md`.
   Add your own patterns with `redaction.extra_patterns`.
 - Model output is scrubbed again before it is cached or shown.
+- The model cannot lower an error-or-higher group: its findings are never shown below the group's level, and a cached verdict below that level is not reused (see `docs/privacy.md`).
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.
 
 What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,

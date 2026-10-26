@@ -33,6 +33,9 @@ use Watcher\Incident\KnownIssues;
 use Watcher\Incident\KnownLineRenderer;
 use Watcher\Incident\KnownReferences;
 use Watcher\Analyze\VerdictCache;
+use Watcher\ApiContext\ApiContextReader;
+use Watcher\ApiContext\EndpointContext;
+use Watcher\ApiContext\EndpointResolver;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
 use Watcher\Context\CodeLinkBuilder;
@@ -169,6 +172,8 @@ final class Watcher
         ?KubernetesEventsSource $events = null,
         ?SinkDispatcher $sinks = null,
         ?ObserveCounters $counters = null,
+        /** @var (\Closure(StateStore, Redactor): ?ApiContextReader)|null spec 010: built per run with the run's state (a dry run's wrapper) and redactor */
+        private readonly ?\Closure $apiContext = null,
     ) {
         $this->clock = $clock ?? new SystemClock();
         $this->options = $options ?? RunOptions::default();
@@ -237,6 +242,7 @@ final class Watcher
             sinks: $c->enabled ? Factory::observe($c, $clock, $hostLog, $counters, stdoutToStderr: $options?->json === true) : null,
             events: Factory::events($c, $http, $clock),
             counters: $counters,
+            apiContext: Factory::apiContext($c, $http, $clock),
         );
     }
 
@@ -992,6 +998,7 @@ final class Watcher
 
         [$dependencies, $failedDependencies, $undeclared] = $this->readDependencies($window, $normalizer, $redactor, array_map(static fn (RedactedGroup $g): ?string => $g->template, $redacted));
         $dependencies = Budget::fitDependencies($redacted, $dependencies, $c->analysis['max_input_tokens']['analyze'], Budget::fixedTokens('analyze', $serviceContext, $c->on('advice')));
+        $endpoints = $this->apiEndpoints($redacted, $dependencies, $serviceContext, $redactor);
 
         $tz = new \DateTimeZone($c->schedule['timezone']);
         $spend = new Spend($this->state, $this->clock, $tz, $key);
@@ -1010,7 +1017,7 @@ final class Watcher
         $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet, $reservation), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext), $checkpoint);
         try {
             try {
-                $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation);
+                $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation, $endpoints->model);
             } finally {
                 $spend->release(); // a step reserved but never called (or a non-analyzer error) must not hold budget
             }
@@ -1082,10 +1089,42 @@ final class Watcher
             $byFingerprint[$g->fingerprint] = $g;
         }
 
-        $analysis = new Analysis(routed: $routed, usage: $usage, costUsd: $costUsd, models: $models, after: $after, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint);
+        $analysis = new Analysis(routed: $routed, usage: $usage, costUsd: $costUsd, models: $models, after: $after, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint, endpoints: $endpoints);
         $this->ledger->observeAnalysis($analysis, $triageOnly);
 
         return $analysis;
+    }
+
+    /**
+     * Spec 010: one digest line and one short `ep` field per group whose template names a documented route. Reads the OpenAPI
+     * description only when some template names a route; any failure is a fixed token, never an exception (the run goes on).
+     * `Budget::fitEndpoints` runs after `fitDependencies`: the `ep` fields are the first context dropped.
+     *
+     * @param list<RedactedGroup>     $redacted
+     * @param list<DependencyContext> $dependencies
+     */
+    private function apiEndpoints(array $redacted, array $dependencies, string $serviceContext, Redactor $redactor): EndpointContext
+    {
+        $a = $this->config->apiContext;
+        try {
+            $reader = $this->apiContext === null ? null : ($this->apiContext)($this->state, $redactor);
+            $resolver = new EndpointResolver($redactor, $a['max_endpoints'] ?? 1, $a['ignore_prefixes'] ?? []);
+            if ($reader === null || !$resolver->anyRoute($redacted)) {
+                return new EndpointContext();
+            }
+            $read = $reader->spec();
+            if ($read->spec === null) {
+                $this->hostLog?->warning('API context unavailable: ' . ($read->failure ?? 'unreadable'), ['service' => $this->config->service]);
+
+                return EndpointContext::unavailable($read->failure ?? 'unreadable');
+            }
+            $ctx = $resolver->resolve($redacted, $read->spec, $read->cache);
+            $kept = Budget::fitEndpoints($redacted, $dependencies, $ctx->model, $this->config->analysis['max_input_tokens']['analyze'], Budget::fixedTokens('analyze', $serviceContext, $this->config->on('advice'), true));
+
+            return $kept === $ctx->model ? $ctx : $ctx->withoutModelField();
+        } catch (Throwable) {
+            return EndpointContext::unavailable('unreadable');
+        }
     }
 
     /** The digest message: findings, what was left out and why, cost, links. */
@@ -1174,6 +1213,7 @@ final class Watcher
             triageCoerced: $routed->triageCoerced,
             unreported: $routed->unreported,
             newOverflow: $routed->newOverflow,
+            endpoints: $analysis->endpoints,
             podEventLines: $this->eventsRun?->digestLines($window, new \DateTimeZone($c->schedule['timezone'])) ?? [],
             knownLine: $read->knownLine,
             findingLabels: $read->knownResult !== null ? $read->knownResult->labels : [],

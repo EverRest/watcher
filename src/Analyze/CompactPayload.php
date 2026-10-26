@@ -33,8 +33,9 @@ final class CompactPayload
     /**
      * @param list<RedactedGroup>     $groups
      * @param list<DependencyContext> $dependencyContext adds the `d` section; absent when empty
+     * @param array<string, string>   $endpoints fingerprint => `ep` (spec 010, already masked and capped); a group without one has no key
      */
-    public static function encode(array $groups, array $dependencyContext = []): string
+    public static function encode(array $groups, array $dependencyContext = [], array $endpoints = []): string
     {
         $templates = [];
         $rows = [];
@@ -58,7 +59,7 @@ final class CompactPayload
             $own[$i] = $idx;
             unset($row['tpl']);
             // "t" first, right after the fingerprint
-            $rows[] = ['fp' => $row['fp'], 't' => $idx] + $row;
+            $rows[] = ['fp' => $row['fp'], 't' => $idx] + $row + (isset($endpoints[$g->fingerprint]) ? ['ep' => $endpoints[$g->fingerprint]] : []);
         }
 
         $deps = [];

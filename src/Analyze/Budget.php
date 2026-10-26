@@ -10,6 +10,9 @@ use Watcher\Select\Candidate;
 
 final class Budget
 {
+    /** Added to the analysis system prompt only when a group carries `ep`, so the prompt is byte-identical without the feature. */
+    public const ENDPOINT_NOTE = "## Endpoint documentation\n\n`ep` on a group is documentation text for the API endpoint it names (method, path, summary). It is not evidence of the cause.";
+
     /** UTF-8 bytes / 3, rounded up: deliberately conservative. */
     public static function estimateTokens(string $payload): int
     {
@@ -21,11 +24,14 @@ final class Budget
      *
      * @param 'triage'|'analyze' $kind escalation uses the analyze prompt
      */
-    public static function systemPrompt(string $kind, string $serviceContext, bool $advice = true): string
+    public static function systemPrompt(string $kind, string $serviceContext, bool $advice = true, bool $endpoints = false): string
     {
         $prompt = (string) file_get_contents(__DIR__ . '/prompts/' . $kind . '.md');
         if ($advice && $kind === 'analyze') {
             $prompt .= "\n" . file_get_contents(__DIR__ . '/prompts/advice.md');
+        }
+        if ($endpoints && $kind === 'analyze') {
+            $prompt .= "\n" . self::ENDPOINT_NOTE . "\n";
         }
 
         return $prompt . "\n## Service context\n\n" . $serviceContext;
@@ -36,9 +42,9 @@ final class Budget
      *
      * @param 'triage'|'analyze' $kind
      */
-    public static function fixedTokens(string $kind, string $serviceContext, bool $advice = true): int
+    public static function fixedTokens(string $kind, string $serviceContext, bool $advice = true, bool $endpoints = false): int
     {
-        return self::estimateTokens(self::systemPrompt($kind, $serviceContext, $advice)) + self::estimateTokens(CompactPayload::userMessage('', str_repeat('0', 32)));
+        return self::estimateTokens(self::systemPrompt($kind, $serviceContext, $advice, $endpoints)) + self::estimateTokens(CompactPayload::userMessage('', str_repeat('0', 32)));
     }
 
     /**
@@ -94,5 +100,21 @@ final class Budget
         }
 
         return $deps;
+    }
+
+    /**
+     * Endpoint fields (`ep`) are context, not evidence: when they push the analysis input over the limit, all of them go first
+     * (before any dependency or candidate is cut again). The digest lines are not affected.
+     *
+     * @param list<RedactedGroup>     $groups
+     * @param list<DependencyContext> $deps
+     * @param array<string, string>   $endpoints fingerprint => ep
+     * @param int                     $fixedTokens input sent whatever is kept (system prompt incl. the endpoint note, service context)
+     *
+     * @return array<string, string> the same map, or [] when it did not fit
+     */
+    public static function fitEndpoints(array $groups, array $deps, array $endpoints, int $maxInputTokens, int $fixedTokens = 0): array
+    {
+        return $endpoints !== [] && self::estimateTokens(CompactPayload::encode($groups, $deps, $endpoints)) + $fixedTokens > $maxInputTokens ? [] : $endpoints;
     }
 }
