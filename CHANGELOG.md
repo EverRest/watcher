@@ -11,6 +11,9 @@
 - `watcher mcp --setup` (no configured file) had the project directory as its root, so the same tools ran any PHP file of the project. It now approves no path: both tools return `path_not_allowed` until a configuration exists. Behaviour change: validation in setup mode is off; re-enabling it needs the no-execute validator (option B, not done).
 - The configured file itself still runs as PHP: at each server start (`watcher mcp`) and on `watcher_validate_config` for that file. The validator does not parse without running it; that is option B.
 
+### Changed (release process, F9)
+- `release.yml` refuses a tag that is not the tip of `origin/main`, is lightweight, has a `VERSION` that differs from the tag, or has no `## X.Y.Z` heading in `CHANGELOG.md`. Each guard fails the run with one line before any GitHub Release is created (`scripts/check-release.sh`, tested by `make release-guards-test`, part of `make ci`). The release steps and the rule for a wrong tag are in `docs/publishing.md`. The existing `v0.2.0` tag (on `36673a5`) is not moved.
+
 ## 0.2.1 — 2026-10-26 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
 
 Product release label **v0.2.1** (root VERSION). This release contains everything listed below. Do not install `v0.2.0`: that tag was created on an earlier commit and lacks the kill switch, the API context, the hygiene fixes and the notes below.

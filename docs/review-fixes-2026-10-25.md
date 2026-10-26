@@ -73,6 +73,20 @@ MySQL-specific `rowCount` behaviour is covered by contract tests on SQLite plus 
 
 Deferred from batch 8 (not worth the diff now): retry backoff jitter; Loki per-row `json_encode` dedup key; Telegram UTF-16 length accounting.
 
+## Release process — security review F9 (2026-10-26)
+
+The review's register, `SECURITY-REVIEW-2026-10-26.md`, is not in this repository, so F9 is tracked here. Cause: tag `v0.2.0` points to `36673a5`, an older commit, while `main` had moved one minute earlier; `release.yml` checked only that the tag was an ancestor of `origin/main`.
+
+| ID | Item | Status |
+|----|------|--------|
+| F9-1 | `release.yml`: four guards before the release (`annotated`, `tip`, `version`, `changelog`) through `scripts/check-release.sh`; tested by `make release-guards-test` (branch `chore/release-guards`) | done, not merged |
+| F9-2 | `docs/publishing.md`: release steps in order; after a wrong tag, never move a published tag, release the next patch | done, not merged |
+| F9-3 | Owner, GitHub UI: tag ruleset for `v*` (restrict creation, block update and deletion) | open (owner) |
+| F9-4 | Owner, GitHub UI: require the CI checks (every `test` leg and `coverage`) on `main` | open (owner) |
+| F9-5 | Existing tag `v0.2.0` on `36673a5` | left as is; fixed forward by the next patch |
+
+Sibling sweep (`is-ancestor`, `gh release`, `git tag`, `refs/tags`, `tags:` across `.github`, `scripts`, `docs`, `Makefile`): `release.yml` is the only release gate. `scripts/badges.php` and `docs/development.md` read the latest tag for the version badge; they create nothing, so they are unchanged, and the badge shows the wrong tag until a newer one exists.
+
 ## Later batches — open
 
 | ID | Item | Batch | Status |
