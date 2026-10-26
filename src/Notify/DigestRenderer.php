@@ -71,6 +71,21 @@ final class DigestRenderer
         return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
     }
 
+    public function renderFingerprintVersionReset(string $service, string $environment, int $groups, int $events, int $fromFpVersion, int $toFpVersion): Message
+    {
+        $text = sprintf(
+            '✅ watcher · %s · %s — baseline reset: fingerprint rules changed (fpv %d → %d). Recorded %s groups, %s events; comparisons and cached verdicts start fresh next run.',
+            $this->esc($service),
+            $this->esc($environment),
+            $fromFpVersion,
+            $toFpVersion,
+            number_format($groups),
+            number_format($events)
+        );
+
+        return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     /**
      * @param list<array{f: Finding, n: int, i: int}> $shown
      *
@@ -96,6 +111,10 @@ final class DigestRenderer
             }
         }
 
+        if ($d->knownLine !== null && $d->knownLine !== '') {
+            $out[] = ['kind' => 'minor', 'text' => $d->knownLine];
+        }
+
         $parts = [];
         if ($minor > 0) {
             $parts[] = "➕ $minor minor (low confidence / noise)";
@@ -116,6 +135,12 @@ final class DigestRenderer
 
         if ($d->comparedWith !== null) {
             $out = [...$out, ...$this->comparedWith($d, $d->comparedWith)];
+        }
+        if ($d->gapFrom !== null && $d->gapTo !== null) {
+            $out[] = ['kind' => 'notice', 'text' => $this->gapLine($d)];
+        }
+        if ($d->catchUpBatch !== null) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ catch-up: %d windows run, oldest first, because the host did not trigger in time.', $d->catchUpBatch)];
         }
         if ($d->levelAnomalyLine !== null) {
             $out[] = ['kind' => 'notice', 'text' => '📈 ' . $this->esc($d->levelAnomalyLine)];
@@ -171,6 +196,12 @@ final class DigestRenderer
         if ($d->patternFailures > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
         }
+        if ($d->routedNotice !== null && $d->routedNotice !== '') {
+            $out[] = ['kind' => 'notice', 'text' => 'ℹ️ ' . $this->esc($d->routedNotice)];
+        }
+        if ($d->draftsSkipped > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s more drafts not sent', number_format($d->draftsSkipped))];
+        }
 
         if ($d->undeclaredHostCount > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('🔗 %d call target(s) not declared as dependencies', $d->undeclaredHostCount)];
@@ -194,13 +225,16 @@ final class DigestRenderer
                 $out[] = ['kind' => 'notice', 'text' => '⚠️ API context unavailable (' . $this->esc($e->unavailable) . ')'];
             }
         }
+        foreach ($d->podEventLines as $line) {
+            $out[] = ['kind' => 'notice', 'text' => $this->esc($line)];
+        }
 
         $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
 
         return $out;
     }
 
-    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, oversized_lines?: int, unscannable_events?: int} $diag */
+    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, oversized_lines?: int, unscannable_events?: int, k8s_read_failed?: int, k8s_gaps?: int, k8s_unattributed?: int, k8s_record_full?: int} $diag */
     private function readQualityLine(array $diag): ?string
     {
         $parts = [];
@@ -214,6 +248,10 @@ final class DigestRenderer
             'unscannable_events' => '%s events withheld (could not be scanned)',
             'pages_shrunk' => '%s pages re-read at a smaller size (response cap)',
             'regex_failures' => '%s lines the parser could not read (kept, level guessed)',
+            'k8s_read_failed' => 'the latest cluster read failed (earlier reads reported)',
+            'k8s_gaps' => '%s gaps in the pod-event record',
+            'k8s_unattributed' => '%s pod events matched no selected workload',
+            'k8s_record_full' => 'the pod-event record was full (%s entries dropped, oldest first)',
         ] as $key => $format) {
             if (($diag[$key] ?? 0) > 0) {
                 $parts[] = sprintf($format, number_format($diag[$key]));
@@ -289,14 +327,32 @@ final class DigestRenderer
             }
         }
 
+        if ($group !== null && $group->origin !== null) {
+            $pods = $group->pods ?? 0; // an HPA or a Deployment is not a pod: no count to show
+            $trend .= sprintf(
+                ' · pod event: %s%s · %s',
+                $this->esc($group->errorType ?? 'unknown'),
+                $pods > 0 ? sprintf(' · %d pod%s', $pods, $pods === 1 ? '' : 's') : '',
+                $this->esc($group->workloadKind ?? 'Pod'),
+            );
+        }
+
         $after = $group !== null ? ($d->afterReleaseFingerprints[$group->fingerprint] ?? null) : null;
         if ($after !== null) {
             $trend .= ' · first seen after ' . $this->esc($after);
         }
 
+        $title = $f->title;
+        foreach ($f->fingerprints as $fp) {
+            if (isset($d->findingLabels[$fp])) {
+                $title = $d->findingLabels[$fp] . ' — ' . $title;
+                break;
+            }
+        }
+
         return sprintf(
             "• %s — %s×%s  `%s`\n  Evidence: %s\n  Hypothesis: %s  Next: %s",
-            $this->esc($f->title),
+            $this->esc($title),
             number_format($count),
             $trend,
             substr($f->fingerprints[0], 0, 12),
@@ -463,6 +519,30 @@ final class DigestRenderer
     private function k(int $n): string
     {
         return $n < 1000 ? (string) $n : rtrim(rtrim(number_format($n / 1000, 1, '.', ''), '0'), '.') . 'k';
+    }
+
+    private function gapLine(DigestData $d): string
+    {
+        assert($d->gapFrom !== null && $d->gapTo !== null);
+
+        return self::formatGapLine($d->gapFrom, $d->gapTo, $d->gapWindows);
+    }
+
+    public static function formatGapLine(DateTimeImmutable $from, DateTimeImmutable $to, ?int $gapWindows): string
+    {
+        $fmt = static fn (DateTimeImmutable $t): string => $t->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i') . ' UTC';
+        $fromS = $fmt($from);
+        $toS = $fmt($to);
+        if ($gapWindows === null) {
+            return sprintf('⚠️ %s to %s: not analysed. Events in that span were not read.', $fromS, $toS);
+        }
+
+        return sprintf(
+            '⚠️ %s to %s: not analysed (%d window(s) missing or failed). Events in that span were not read.',
+            $fromS,
+            $toS,
+            $gapWindows,
+        );
     }
 
     private function esc(string $s): string

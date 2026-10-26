@@ -194,6 +194,7 @@ final class OpenApiSource
                 throw new SourceUnavailable('too_large');
             }
             $body = $response->getBody();
+            $body->rewind(); // the sink (ResponseLimit::options) leaves the position at the end of what it wrote
             $raw = '';
             while (!$body->eof() && strlen($raw) <= $this->maxBytes) { // the cap is on the decoded stream
                 if ($this->now() - $started > self::DEADLINE_SECONDS) { // a trickling server cannot hold the run
@@ -202,7 +203,7 @@ final class OpenApiSource
                 $raw .= $body->read(self::CHUNK);
             }
         } catch (SourceUnavailable $e) {
-            throw $e;
+            throw $tripped['large'] ? new SourceUnavailable('too_large') : $e; // the sink's own message is not one of this source's tokens
         } catch (Throwable $e) {
             throw new SourceUnavailable($tripped['large'] ? 'too_large' : self::failure($e));
         }

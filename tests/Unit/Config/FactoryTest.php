@@ -11,8 +11,10 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
+use PDO;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
+use Watcher\State\Purgeable;
 use Watcher\Level;
 use Watcher\Schedule\Window;
 use Watcher\Source\ReadFilter;
@@ -148,6 +150,29 @@ final class FactoryTest extends TestCase
         self::assertSame('stale', Factory::heartbeatStatus($config, $clock)->state);
     }
 
+    public function testPdoStoreIsPurgeableThroughTheLazyWrapper(): void
+    {
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
+        $config['state'] = ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:']];
+        $store = Factory::state(WatchConfig::fromArray($config), new FrozenClock(new \DateTimeImmutable()));
+
+        self::assertInstanceOf(Purgeable::class, $store);
+    }
+
+    public function testMysqlPdoSetsFoundRowsAtConnect(): void
+    {
+        $method = new \ReflectionMethod(Factory::class, 'pdo');
+        $method->setAccessible(true);
+        $file = (new \ReflectionClass(Factory::class))->getFileName();
+        self::assertIsString($file);
+        $src = file_get_contents($file);
+        self::assertIsString($src);
+        self::assertStringContainsString('MYSQL_ATTR_FOUND_ROWS', $src);
+        self::assertStringContainsString("str_starts_with(\$dsn, 'mysql:')", $src);
+        $pdo = $method->invoke(null, ['dsn' => 'sqlite::memory:']);
+        self::assertSame('sqlite', $pdo->getAttribute(PDO::ATTR_DRIVER_NAME));
+    }
+
     public function testTheFileStoreGetsScheduleLockTtlAsItsLockLifetime(): void
     {
         $dir = sys_get_temp_dir() . '/watcher-lt-' . bin2hex(random_bytes(4));
@@ -177,5 +202,61 @@ final class FactoryTest extends TestCase
         $this->expectException(\Watcher\Notify\DeliveryFailed::class);
         $this->expectExceptionMessage('telegram delivery failed: HTTP 429');
         $notifier->send(new \Watcher\Notify\Message('x'), \Watcher\Notify\Destination::telegram('123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789', '-100123'));
+    }
+
+    public function testTheStateStoreOfARedisConfigShowsNoPasswordInAnyDumpOrExport(): void
+    {
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
+        $config['state'] = ['driver' => 'redis', 'redis' => ['host' => '127.0.0.1', 'password' => 'REDISPWzqkvcanary']];
+        $c = WatchConfig::fromArray($config);
+        $clock = new \Watcher\Schedule\SystemClock();
+        $objects = [Factory::state($c, $clock), Factory::state($c, $clock, null)];
+
+        foreach ($objects as $store) {
+            ob_start();
+            var_dump($store);
+            var_dump((array) $store);
+            print_r($store);
+            print_r((array) $store);
+            $dump = (string) ob_get_clean() . var_export($store, true) . var_export((array) $store, true) . json_encode($store);
+
+            self::assertStringNotContainsString('REDISPWzqkvcanary', $dump);
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private static function hygieneConfig(bool $hygiene): array
+    {
+        return [
+            'service' => 'svc',
+            'schedule' => ['run_at' => '06:00'],
+            'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example']],
+            'analysis' => [
+                'api_key' => 'k',
+                'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
+                'prices' => ['m1' => [1, 5, 0.1, 1.25], 'm2' => [3, 15, 0.3, 3.75], 'm3' => [5, 25, 0.5, 6.25]],
+            ],
+            'state' => ['driver' => 'file', 'file' => ['path' => sys_get_temp_dir() . '/watcher-factory-test-' . bin2hex(random_bytes(6))]],
+            'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/x']],
+            'hygiene' => ['enabled' => $hygiene],
+        ];
+    }
+
+    public function testTheAnalyzerWritesTheCostLedgerOnlyWhenHygieneIsEnabled(): void
+    {
+        self::assertInstanceOf(\Watcher\Hygiene\Cost\LedgerAnalyzer::class, Factory::analyzer(WatchConfig::fromArray(self::hygieneConfig(true))));
+        self::assertInstanceOf(\Watcher\Analyze\AnthropicAnalyzer::class, Factory::analyzer(WatchConfig::fromArray(self::hygieneConfig(false))));
+    }
+
+    public function testAHygieneDryRunBooksNothingInTheRealLedger(): void
+    {
+        $c = WatchConfig::fromArray(self::hygieneConfig(true));
+        $clock = new FrozenClock(new \DateTimeImmutable('2026-10-08T06:00:00+00:00'));
+
+        Factory::ledgerState($c, true, $clock)->put('ledger:probe', ['x' => 1], 60);
+        self::assertNull(Factory::state($c, $clock)->get('ledger:probe'), 'a dry run writes into a shadow');
+
+        Factory::ledgerState($c, false, $clock)->put('ledger:probe2', ['x' => 1], 60);
+        self::assertSame(['x' => 1], Factory::state($c, $clock)->get('ledger:probe2'));
     }
 }

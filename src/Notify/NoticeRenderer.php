@@ -34,6 +34,21 @@ final class NoticeRenderer
         return $this->notice('⚠️', $service, $environment, 'budget exhausted' . ($cap === null ? '' : " ($cap cap)") . ': triage only today');
     }
 
+    public function runCapReached(string $service, string $environment, int $maxRuns, string $untilLocal, string $timezone): Message
+    {
+        return $this->notice(
+            '⚠️',
+            $service,
+            $environment,
+            sprintf(
+                'run limit reached (%d runs today). Further runs today do nothing until %s %s.',
+                $maxRuns,
+                $untilLocal,
+                $timezone,
+            ),
+        );
+    }
+
     /**
      * Weekly "it is alive" line: counts and cost only, never content.
      *

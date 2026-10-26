@@ -6,6 +6,7 @@ namespace Watcher\Baseline;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Watcher\Reduce\Fingerprinter;
 use Watcher\Schedule\RunGate;
 use Watcher\Schedule\Window;
 use Watcher\State\Keys;
@@ -53,7 +54,7 @@ final class BaselineResolver
                     continue;
                 }
                 $doc = $this->state->get(Keys::snapshot($this->service, self::key($end)));
-                if ($doc === null) {
+                if (!Fingerprinter::snapshotUsable($doc)) {
                     continue;
                 }
                 if (in_array($local, $this->baseline['exclude'], true)) {
@@ -70,7 +71,7 @@ final class BaselineResolver
         }
 
         $usedMode = $used === [] ? 'previous' : $mode;
-        if ($used === [] && $prev !== null) {
+        if ($used === [] && Fingerprinter::snapshotUsable($prev)) {
             $used = [[$prevEnd ?? $window->start, $prev]];
         }
         $used = array_reverse($used); // ascending ends

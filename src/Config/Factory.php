@@ -20,6 +20,9 @@ use Watcher\ApiContext\ApiContextReader;
 use Watcher\ApiContext\ApiSpecCache;
 use Watcher\ApiContext\OpenApiReducer;
 use Watcher\ApiContext\OpenApiSource;
+use Watcher\Analyze\CostCalculator;
+use Watcher\Hygiene\Cost\CostLedger;
+use Watcher\Hygiene\Cost\LedgerAnalyzer;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Observe\EventSanitizer;
 use Watcher\Observe\FileSink;
@@ -41,12 +44,16 @@ use Watcher\Operate\ModelCatalog;
 use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
 use Watcher\Notify\TelegramNotifier;
+use Watcher\Source\Kubernetes\KubeApi;
+use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
+use Watcher\State\Purgeable;
 use Watcher\Operate\StateInspector;
+use Watcher\Schedule\RunGate;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
 use Watcher\State\Redis\RedisClient;
@@ -74,7 +81,7 @@ final class Factory
     /**
      * A long analysis reply can take well over 30 s, but a model call (two sequential attempts, no SDK retry) must stay within
      * a quarter of lock_ttl, so a second run cannot start while this one is still analysing: timeout = lock_ttl / 4 / 2, within 10..180 s.
-     * The lock itself is not renewed (StateStore has no renew); the router makes at most 2 + escalation_cap model calls.
+     * When the store supports {@see RenewableLock}, Watcher renews the run lock between pipeline steps and before each model call; the router makes at most 2 + escalation_cap model calls.
      *
      * @return array{timeout: int, connect_timeout: int}
      */
@@ -89,17 +96,22 @@ final class Factory
         return ['maxRetries' => 0];
     }
 
-    public static function source(WatchConfig $c, Client $http, ?ClockInterface $clock = null): LogSource
+    /** @param array<string, KubeApi> $apis shared by the entries of a fleet (pod events only) */
+    public static function source(WatchConfig $c, Client $http, ?ClockInterface $clock = null, array &$apis = []): LogSource
     {
         try {
-            return self::buildSource($c, $http, $clock);
+            return self::buildSource($c, $http, $clock, $apis);
         } catch (\InvalidArgumentException) {
             throw new InvalidConfig('source: invalid settings'); // not chained: the message may carry a URL or key
         }
     }
 
-    private static function buildSource(WatchConfig $c, Client $http, ?ClockInterface $clock): LogSource
+    /** @param array<string, KubeApi> $apis */
+    private static function buildSource(WatchConfig $c, Client $http, ?ClockInterface $clock, array &$apis): LogSource
     {
+        if ($c->source['driver'] === 'kubernetes') {
+            return self::kubernetesSource($c, $http, $clock ?? new SystemClock(), $apis);
+        }
         if ($c->source['driver'] === 'datadog') {
             /** @var array<string, mixed> $dd */
             $dd = $c->source['datadog'];
@@ -139,6 +151,33 @@ final class Factory
         return (is_int($c->source['max_response_mb'] ?? null) ? $c->source['max_response_mb'] : 16) * 1024 * 1024;
     }
 
+    /**
+     * The extra pod-events source declared beside `source` (spec 008), or null: nothing declared, the flag is off, or
+     * Kubernetes already is the main source. $apis is shared by the entries of a fleet: the same cluster and credentials
+     * share one client (and its short list memo), different credentials never do.
+     *
+     * @param array<string, KubeApi> $apis
+     */
+    public static function events(WatchConfig $c, Client $http, ClockInterface $clock, array &$apis = []): ?KubernetesEventsSource
+    {
+        $k = $c->kubernetes;
+        if ($k === null || !$c->on('kubernetes') || !$k->events || $k->asSource) {
+            return null;
+        }
+
+        return self::kubernetesSource($c, $http, $clock, $apis);
+    }
+
+    /** @param array<string, KubeApi> $apis */
+    private static function kubernetesSource(WatchConfig $c, Client $http, ClockInterface $clock, array &$apis): KubernetesEventsSource
+    {
+        $k = $c->kubernetes ?? throw new InvalidConfig('kubernetes: invalid settings');
+        $api = $apis[$k->credentialKey()] ??= new KubeApi($http, $k, $clock);
+        $window = (new \DateTimeImmutable('@0'))->add(new \DateInterval($c->schedule['window']))->getTimestamp();
+
+        return new KubernetesEventsSource($api, $k, $clock, new Normalizer(extraPatterns: $c->redactionPatterns), $c->stateKey, $window, $c->state['retention']);
+    }
+
     public static function state(WatchConfig $c, ClockInterface $clock, ?LoggerInterface $log = null): StateStore
     {
         /** @var array<string, mixed> $st */
@@ -159,8 +198,11 @@ final class Factory
         };
     }
 
-    /** Seconds a Redis call may wait for a reply (default 5, A4-15); a hung server must not hold a run for the 60 s socket default per key. */
-    /** @param array<string, mixed> $r */
+    /**
+     * Seconds a Redis call may wait for a reply (default 5, A4-15); a hung server must not hold a run for the 60 s socket default per key.
+     *
+     * @param array<string, mixed> $r
+     */
     public static function redisReadTimeout(array $r): float
     {
         $t = $r['read_timeout'] ?? null;
@@ -252,8 +294,14 @@ final class Factory
     /** @param array<string, mixed> $p */
     private static function pdo(array $p): PDO
     {
+        $dsn = (string) $p['dsn'];
+        $options = [];
+        // MySQL reports changed rows, not matched; put/renew treat rowCount 0 as a miss (P-M1).
+        if (str_starts_with($dsn, 'mysql:')) {
+            $options[PDO::MYSQL_ATTR_FOUND_ROWS] = true;
+        }
         try {
-            return new PDO((string) $p['dsn'], $p['username'] ?? null, $p['password'] ?? null);
+            return new PDO($dsn, $p['username'] ?? null, $p['password'] ?? null, $options);
         } catch (PDOException) {
             throw new InvalidConfig('state.pdo: cannot connect'); // not chained: the driver message can carry the DSN or password
         }
@@ -265,11 +313,26 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter {
+        return new class ($make) implements StateStore, Purgeable, RenewableLock, ReservableCounters, UnreadableCounter {
+            /** @var array<int, Closure(): StateStore> the factory closes over the connection settings (the Redis password): kept out of the object so no dump of it shows them */
+            private static array $makers = [];
+
             private ?StateStore $store = null;
 
-            public function __construct(private readonly Closure $make)
+            public function __construct(Closure $make)
             {
+                self::$makers[spl_object_id($this)] = $make;
+            }
+
+            public function __destruct()
+            {
+                unset(self::$makers[spl_object_id($this)]);
+            }
+
+            /** @return array<string, string> */
+            public function __debugInfo(): array
+            {
+                return ['store' => $this->store === null ? '<not connected>' : '<connected>'];
             }
 
             public function get(string $key): ?array
@@ -316,14 +379,22 @@ final class Factory
                 return $this->store instanceof UnreadableCounter ? $this->store->unreadableEntries() : 0; // never connects just to count
             }
 
+            public function purge(int $maxFiles = 5000, float $maxSeconds = 2.0): int
+            {
+                $store = $this->store();
+
+                return $store instanceof Purgeable ? $store->purge($maxFiles, $maxSeconds) : 0;
+            }
+
             private function store(): StateStore
             {
-                return $this->store ??= ($this->make)();
+                return $this->store ??= (self::$makers[spl_object_id($this)])();
             }
         };
     }
 
-    public static function analyzer(WatchConfig $c): Analyzer
+    /** @param bool $dryRun a billed dry run must not write into the real cost ledger (spec 006, review M3) */
+    public static function analyzer(WatchConfig $c, bool $dryRun = false): Analyzer
     {
         if ($c->analysis['provider'] !== 'anthropic') {
             throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
@@ -332,12 +403,38 @@ final class Factory
         $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
         $key = (string) $c->analysis['api_key'];
 
-        return new AnthropicAnalyzer(
+        $analyzer = new AnthropicAnalyzer(
             $c->analysis['client'] === 'sdk'
                 ? new SdkMessagesClient($key, new Client($options), null, self::analyzerRequestOptions())
                 : new AnthropicHttpClient($key, new Client($options), $options['timeout']),
             $c->on('advice'),
         );
+
+        return $c->hygiene->enabled ? self::ledgered($c, $analyzer, $dryRun) : $analyzer;
+    }
+
+    /** The store the cost ledger writes to: the real one, or in a dry run a shadow that is read through and never written back. */
+    public static function ledgerState(WatchConfig $c, bool $dryRun, ClockInterface $clock): StateStore
+    {
+        $state = self::state($c, $clock);
+
+        return $dryRun ? new \Watcher\Operate\DryRunStateStore($state) : $state;
+    }
+
+    /** Spec 006: books every billed call per day, step and family so the cost report can explain the spend. */
+    private static function ledgered(WatchConfig $c, Analyzer $inner, bool $dryRun): Analyzer
+    {
+        $clock = new SystemClock();
+        $ledger = new CostLedger(
+            self::ledgerState($c, $dryRun, $clock),
+            $c->stateKey,
+            $c->state['retention'],
+            new \DateTimeZone($c->schedule['timezone']),
+            $clock,
+            new CostCalculator($c->analysis['prices']),
+        );
+
+        return new LedgerAnalyzer($inner, $ledger, (string) $c->analysis['models']['analyze'], (string) $c->analysis['models']['escalate']);
     }
 
     /** $lockTtl bounds the rate-limit wait of the chat notifiers: min(60, max(1, lockTtl / 10)) seconds per message. */
@@ -345,7 +442,7 @@ final class Factory
     {
         $budget = min(60, max(1, intdiv($lockTtl, 10)));
 
-        return new RoutingNotifier(new SlackWebhookNotifier($http), new TelegramNotifier($http, $budget), new DiscordNotifier($http, $budget));
+        return new RoutingNotifier(new SlackWebhookNotifier($http, $budget), new TelegramNotifier($http, $budget), new DiscordNotifier($http, $budget));
     }
 
     /** Where the log sink writes; a `--json` call keeps stdout for its one summary line. */
@@ -426,6 +523,11 @@ final class Factory
         return static fn (StateStore $state, Redactor $redactor): ?ApiContextReader => self::apiContextReader(config: $config, http: $http, state: $state, redactor: $redactor, clock: $clock);
     }
 
+    public static function gate(WatchConfig $c): RunGate
+    {
+        return RunGate::fromSchedule($c->schedule);
+    }
+
     /** Liveness record reader/writer; every secret of the config is masked in a stored failure reason. */
     public static function heartbeat(WatchConfig $c, StateStore $state, ClockInterface $clock, ?LoggerInterface $log = null): Heartbeat
     {
@@ -448,13 +550,13 @@ final class Factory
      */
     public static function doctor(array $config, ?Client $http = null, ?ClockInterface $clock = null): Doctor
     {
-        $c = WatchConfig::fromArray($config);
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
         $http ??= self::http();
         $state = self::state($c, $clock);
         $probe = $c->observe->anyEnabled() ? self::observe($c, $clock, null, new ObserveCounters($state, $c->stateKey, $c->state['retention']), probe: true) : null;
 
-        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe, apiContext: self::apiContextReader(config: $c, http: $http, state: $state, redactor: new Redactor(new Normalizer(extraPatterns: $c->redactionPatterns), $c->redactionPatterns), clock: $clock));
+        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, events: self::events($c, $http, $clock), kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe, apiContext: self::apiContextReader(config: $c, http: $http, state: $state, redactor: new Redactor(new Normalizer(extraPatterns: $c->redactionPatterns), $c->redactionPatterns), clock: $clock));
     }
 
     /**
@@ -465,7 +567,7 @@ final class Factory
      */
     public static function stateInspector(array $config, ?ClockInterface $clock = null): StateInspector
     {
-        $c = WatchConfig::fromArray($config);
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $normalizer = new Normalizer($c->on('dependencies') ? array_map('strval', array_keys($c->dependencies)) : [], $c->dependencyDomains, extraPatterns: $c->redactionPatterns);
         $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
 
@@ -480,7 +582,7 @@ final class Factory
      */
     public static function heartbeatStatus(array $config, ?ClockInterface $clock = null, ?LoggerInterface $log = null): HeartbeatStatus
     {
-        $c = WatchConfig::fromArray($config);
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
         if (!$c->enabled || !$c->on('heartbeat')) {
             return HeartbeatStatus::disabled($c->heartbeat['stale_after'], $clock->now());

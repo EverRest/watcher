@@ -199,6 +199,10 @@ return [
     //     'ttl' => 'PT24H',                                          // the reduced spec is cached this long, then read again
     //     'max_endpoints' => 5,                                      // 1..20 per run
     // ],
+    // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default; the cost report works regardless.
+    'hygiene' => [
+        'enabled' => false,
+    ],
 
     // Event sinks (docs/observability.md). Every sink is OFF until its own `enabled` is true. With driver `none` under notify.digest the
     // chat stays silent and a sink is the only channel (at least one must be on). `log` text defaults to on, the others to off.

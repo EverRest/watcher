@@ -85,6 +85,19 @@ final class DigestData
         public readonly int $newOverflow = 0,
         /** @var EndpointContext|null spec 010: one documentation line per fingerprint, what the cap skipped, why none (masked, capped) */
         public readonly ?EndpointContext $endpoints = null,
+        /** @var list<string> code-built lines about pod events (source unavailable, coverage); integers, times and fixed words only (spec 008) */
+        public readonly array $podEventLines = [],
+        public readonly ?string $knownLine = null,
+        /** @var array<string, string> */
+        public readonly array $findingLabels = [],
+        public readonly ?string $routedNotice = null,
+        public readonly int $draftsSkipped = 0,
+        public readonly int $knownCount = 0,
+        public readonly int $knownGrownCount = 0,
+        public readonly ?DateTimeImmutable $gapFrom = null,
+        public readonly ?DateTimeImmutable $gapTo = null,
+        public readonly ?int $gapWindows = null,
+        public readonly ?int $catchUpBatch = null,
     ) {
     }
 }

@@ -29,6 +29,9 @@ final class ProblemGroup
         public readonly ?int $previousCount = null,
         public readonly GroupStatus $status = GroupStatus::New,
         public readonly array $watchMatches = [],
+        public readonly ?string $origin = null,
+        public readonly ?int $pods = null,
+        public readonly ?string $workloadKind = null,
     ) {
     }
 
@@ -47,6 +50,9 @@ final class ProblemGroup
             $previousCount,
             $status,
             $this->watchMatches,
+            origin: $this->origin,
+            pods: $this->pods,
+            workloadKind: $this->workloadKind,
         );
     }
 
@@ -64,6 +70,9 @@ final class ProblemGroup
             $previousCount,
             GroupStatus::resolve($this->count, $previousCount, $growthFactor),
             $this->watchMatches,
+            origin: $this->origin,
+            pods: $this->pods,
+            workloadKind: $this->workloadKind,
         );
     }
 }

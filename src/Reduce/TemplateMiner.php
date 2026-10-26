@@ -57,6 +57,9 @@ final class TemplateMiner
     /** @var array<string, ?string> */
     private array $templates = [];
 
+    /** @var list<array{template: string, distinct: int}> */
+    private array $variable = [];
+
     public function __construct(
         private readonly int $minEvents,
         private readonly float $similarity = self::DEFAULT_SIMILARITY,
@@ -85,7 +88,7 @@ final class TemplateMiner
         }
         $text = implode(' ', $tokens);
         if (isset($this->index[$bucket][$text])) {
-            ++$this->buckets[$bucket][$this->index[$bucket][$text]]['count'];
+            $this->buckets[$bucket][$this->index[$bucket][$text]]['count'] += $event->occurrences;
 
             return;
         }
@@ -100,7 +103,7 @@ final class TemplateMiner
         $this->bytes += $cost;
         ++$this->distinct;
         $this->index[$bucket][$text] = count($this->buckets[$bucket] ?? []);
-        $this->buckets[$bucket][] = ['tokens' => $tokens, 'text' => $text, 'count' => 1, 'fp' => $fingerprint];
+        $this->buckets[$bucket][] = ['tokens' => $tokens, 'text' => $text, 'count' => $event->occurrences, 'fp' => $fingerprint];
         $this->clustered = false;
     }
 
@@ -109,6 +112,19 @@ final class TemplateMiner
         $this->cluster();
 
         return $this->templates[$fingerprint] ?? null;
+    }
+
+    /**
+     * Clusters with a varying position (`<*>`) and at least `$minEvents` events: the template and how many distinct masked
+     * messages it folds. Counts only (spec 006).
+     *
+     * @return list<array{template: string, distinct: int}>
+     */
+    public function variability(): array
+    {
+        $this->cluster();
+
+        return $this->variable;
     }
 
     public function stats(): MiningStats
@@ -125,6 +141,7 @@ final class TemplateMiner
         }
         $this->clustered = true;
         $this->templates = [];
+        $this->variable = [];
         $this->exhausted = false;
         $used = 0;
         $withheld = $this->droppedFps;
@@ -135,7 +152,7 @@ final class TemplateMiner
         foreach ($keys as $key) {
             $messages = $this->buckets[$key];
             usort($messages, static fn (array $a, array $b): int => [$b['count'], $a['text']] <=> [$a['count'], $b['text']]);
-            /** @var list<array{tokens: list<string>, lit: list<int>, need: int, varying: array<int, true>, count: int, fps: array<string, int>}> $clusters */
+            /** @var list<array{tokens: list<string>, lit: list<int>, need: int, varying: array<int, true>, count: int, fps: array<string, int>, msgs: int}> $clusters */
             $clusters = [];
             foreach ($messages as $m) {
                 $best = $this->enabled || $clusters === [] ? null : 0;
@@ -160,11 +177,12 @@ final class TemplateMiner
                 if ($best === null) {
                     $lit = array_keys(array_filter($m['tokens'], static fn (string $t): bool => preg_match(self::PLACEHOLDER, $t) !== 1));
                     $clusters[] = ['tokens' => $m['tokens'], 'lit' => $lit, 'need' => (int) ceil($threshold * count($lit) - 1e-9),
-                        'varying' => [], 'count' => $m['count'], 'fps' => [$m['fp'] => $m['count']]];
+                        'varying' => [], 'count' => $m['count'], 'fps' => [$m['fp'] => $m['count']], 'msgs' => 1];
                     continue;
                 }
                 $c = &$clusters[$best];
                 $c['count'] += $m['count'];
+                ++$c['msgs'];
                 $c['fps'][$m['fp']] = ($c['fps'][$m['fp']] ?? 0) + $m['count'];
                 foreach ($m['tokens'] as $i => $t) {
                     if ($t !== $c['tokens'][$i]) {
@@ -203,8 +221,19 @@ final class TemplateMiner
         return ($lit - $miss) / $lit;
     }
 
+    /** @param array{tokens: list<string>, varying: array<int, true>} $c */
+    private static function render(array $c): string
+    {
+        $parts = [];
+        foreach ($c['tokens'] as $i => $t) {
+            $parts[] = isset($c['varying'][$i]) ? '<*>' : $t;
+        }
+
+        return implode(' ', $parts);
+    }
+
     /**
-     * @param list<array{tokens: list<string>, varying: array<int, true>, count: int, fps: array<string, int>}> $clusters
+     * @param list<array{tokens: list<string>, varying: array<int, true>, count: int, fps: array<string, int>, msgs: int}> $clusters
      * @param array<string, true> $withheld
      */
     private function collect(array $clusters, array $withheld): void
@@ -218,17 +247,14 @@ final class TemplateMiner
                 }
             }
         }
+        foreach ($clusters as $c) {
+            if ($c['varying'] !== [] && $c['count'] >= $this->minEvents) {
+                $this->variable[] = ['template' => self::render($c), 'distinct' => $c['msgs']];
+            }
+        }
         foreach ($best as $fp => $b) {
             $c = $clusters[$b['ci']];
-            $out = null;
-            if ($c['count'] >= $this->minEvents) {
-                $parts = [];
-                foreach ($c['tokens'] as $i => $t) {
-                    $parts[] = isset($c['varying'][$i]) ? '<*>' : $t;
-                }
-                $out = implode(' ', $parts);
-            }
-            $this->templates[(string) $fp] = $out;
+            $this->templates[(string) $fp] = $c['count'] >= $this->minEvents ? self::render($c) : null;
         }
     }
 }

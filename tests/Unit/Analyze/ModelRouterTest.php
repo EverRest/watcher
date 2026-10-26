@@ -245,7 +245,7 @@ final class ModelRouterTest extends TestCase
         ]);
         $this->fake->analysisScript = [$this->fake->analysis, self::analysis([self::finding('a', Severity::Critical, 0.95)], 'em')];
 
-        $r = $this->router()->route([self::group('a'), self::group('b'), self::group('c')], false);
+        $r = $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning), self::group('c')], false); // b is not protected: a warn stays mild
 
         self::assertSame(2, $this->fake->analyzeCalls);
         $esc = $this->fake->requests[2];

@@ -8,8 +8,8 @@ use Psr\Http\Message\ResponseInterface;
 
 /**
  * Bounds what one backend reply may cost (A4-10): a declared Content-Length above MAX_BYTES aborts at the headers, a
- * decoded body above it is refused before json_decode, and JSON deeper than JSON_DEPTH is not parsed.
- * ponytail: a gzip bomb is only caught once the body is decoded (Guzzle has no streaming size cap); a sink wrapper if that bites.
+ * decoded body above it is refused before json_decode, and JSON deeper than JSON_DEPTH is not parsed. The body is also counted
+ * while it streams in (decoded bytes, see CappedSink), so a chunked reply without Content-Length or a gzip bomb never sits in memory whole.
  */
 final class ResponseLimit
 {
@@ -19,7 +19,7 @@ final class ResponseLimit
     /**
      * @param \ArrayObject<string, bool> $tripped set to ['large' => true] when the headers aborted the request, so the caller can
      *        name the cause (the HTTP layer only reports a failed request)
-     * @return array{on_headers: \Closure(mixed): void, decode_content: bool}
+     * @return array{on_headers: \Closure(mixed): void, decode_content: bool, sink: CappedSink}
      */
     public static function options(\ArrayObject $tripped, int $max = self::MAX_BYTES): array
     {
@@ -30,7 +30,8 @@ final class ResponseLimit
                     throw new SourceUnavailable('response too large', true);
                 }
             },
-            'decode_content' => true,
+            'decode_content' => true, // so the sink counts decoded bytes
+            'sink' => new CappedSink($max, $tripped), // one per call: callers build the options inside their retry closure
         ];
     }
 
