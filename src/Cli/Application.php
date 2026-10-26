@@ -18,6 +18,9 @@ use Watcher\Operate\HeartbeatStatus;
 use Watcher\Operate\JsonSummary;
 use Watcher\Operate\RunOptions;
 use Watcher\Operate\RunSummaryData;
+use Watcher\Report\EventLogException;
+use Watcher\Report\ReportRunResult;
+use Watcher\Report\Week;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
 
@@ -34,6 +37,7 @@ final class Application
           watcher fleet:run --config=<fleet file or directory> [--now=<ISO-8601>] [--only=<service>[,<service>...]] [--dry-run [--estimate]] [--json]
           watcher fleet:check --config=<fleet file or directory> [--post-test] [--json]
           watcher fleet:status --config=<fleet file or directory> [--json]
+          watcher report --weekly --config=<file> [--week=YYYY-Www] [--dry-run] [--json]
 
         TXT;
 
@@ -49,6 +53,7 @@ final class Application
         'fleet:run' => ['--dry-run', '--estimate', '--json'],
         'fleet:check' => ['--post-test', '--json'],
         'fleet:status' => ['--json'],
+        'report' => ['--weekly', '--dry-run', '--json'],
     ];
 
     /**
@@ -64,6 +69,7 @@ final class Application
      * @param (Closure(string, bool): CheckReport)|null $fleetCheckFactory fleet file or directory, --post-test; throws InvalidConfig for an invalid fleet
      * @param (Closure(string): FleetStatus)|null $fleetStatusFactory fleet file or directory; throws InvalidConfig for an invalid fleet
      * @param (Closure(array<string, mixed>, HygieneOptions): HygieneResult)|null $hygieneFactory spec 006; throws InvalidConfig before any external call
+     * @param (Closure(array<string, mixed>, ?Week, bool): ReportRunResult)|null $reportFactory spec 005 weekly report
      */
     public function __construct(
         private readonly Closure $factory,
@@ -76,6 +82,7 @@ final class Application
         private readonly ?Closure $fleetStatusFactory = null,
         private readonly ?Closure $stateGetFactory = null,
         private readonly ?Closure $hygieneFactory = null,
+        private readonly ?Closure $reportFactory = null,
     ) {
     }
 
@@ -101,6 +108,7 @@ final class Application
         $only = null;
         $key = null;
         $hygieneArgs = ['report' => null, 'days' => null, 'decline' => null];
+        $weekRaw = null;
         $flags = [];
         foreach (array_slice($args, 1) as $a) {
             if (str_starts_with($a, '--config=')) {
@@ -111,6 +119,8 @@ final class Application
                 $nowRaw = substr($a, 6);
             } elseif ($command === 'hygiene' && preg_match('/^--(report|days|decline)=(.*)$/s', $a, $m) === 1) {
                 $hygieneArgs[$m[1]] = $m[2];
+            } elseif ($command === 'report' && str_starts_with($a, '--week=')) {
+                $weekRaw = substr($a, 7);
             } elseif ($command === 'fleet:run' && str_starts_with($a, '--only=')) {
                 $only = self::parseOnly(substr($a, 7));
                 if ($only === []) {
@@ -133,6 +143,10 @@ final class Application
 
         if ($command === 'hygiene') {
             return $this->hygiene($config, $hygieneArgs, $nowRaw, isset($flags['--notify']), $json, isset($flags['--dry-run']));
+        }
+
+        if ($command === 'report') {
+            return $this->weeklyReport($config, isset($flags['--weekly']), $weekRaw, isset($flags['--dry-run']), $json);
         }
 
         if ($command === 'fleet:check' || $command === 'fleet:status') {
@@ -213,6 +227,55 @@ final class Application
         $this->line(null, $text);
 
         return 0;
+    }
+
+    private function weeklyReport(string $config, bool $weekly, ?string $weekRaw, bool $dryRun, bool $json): int
+    {
+        if (!$weekly) {
+            fwrite($this->err, "report needs --weekly\n");
+
+            return 2;
+        }
+        if ($this->reportFactory === null) {
+            return $this->usage();
+        }
+        $week = null;
+        if ($weekRaw !== null && $weekRaw !== '') {
+            try {
+                $week = Week::fromIso($weekRaw);
+            } catch (\InvalidArgumentException) {
+                fwrite($this->err, "invalid --week: expected YYYY-Www\n");
+
+                return 2;
+            }
+        }
+        try {
+            $values = $this->load($config);
+            $result = ($this->reportFactory)($values, $week, $dryRun);
+        } catch (InvalidConfig $e) {
+            fwrite($this->err, 'invalid config: ' . $e->getMessage() . "\n");
+
+            return 2;
+        } catch (EventLogException $e) {
+            fwrite($this->err, $e->getMessage() . "\n");
+
+            return 1;
+        } catch (\Throwable $e) {
+            return $this->unexpected($e);
+        }
+        if ($result->outcome === ReportRunResult::OUTCOME_DISABLED) {
+            fwrite($this->err, self::DISABLED_HINT . "\n");
+        }
+        if ($result->text !== null) {
+            $this->line($json, $result->text, true);
+        } elseif ($result->outcome === ReportRunResult::OUTCOME_ALREADY) {
+            $this->line($json, 'report already sent', true);
+        }
+        if ($json && $result->data !== null) {
+            $this->line(null, json_encode($result->data->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION));
+        }
+
+        return $result->exitCode();
     }
 
     /** @param array{report: ?string, days: ?string, decline: ?string} $args */

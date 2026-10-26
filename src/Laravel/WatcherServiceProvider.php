@@ -14,6 +14,8 @@ use Watcher\Hygiene\HygieneResult;
 use Watcher\Operate\CheckReport;
 use Watcher\Operate\HeartbeatStatus;
 use Watcher\Operate\RunOptions;
+use Watcher\Report\ReportRunResult;
+use Watcher\Report\Week;
 use Watcher\Watcher;
 
 final class WatcherServiceProvider extends ServiceProvider
@@ -80,11 +82,17 @@ final class WatcherServiceProvider extends ServiceProvider
             HygieneCommand::class,
             static fn ($app): HygieneCommand => new HygieneCommand(static fn (HygieneOptions $options): HygieneResult => Hygiene::fromConfig((array) $app->make('config')->get('watcher'))->run($options)),
         );
+        $this->app->bind(
+            ReportCommand::class,
+            static fn ($app): ReportCommand => new ReportCommand(static function (?Week $week, bool $dryRun) use ($app): ReportRunResult {
+                return Factory::weeklyReport((array) $app->make('config')->get('watcher'), $week, $dryRun);
+            }),
+        );
     }
 
     public function boot(): void
     {
-        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, StateGetCommand::class, FleetCommand::class, HygieneCommand::class]);
+        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, StateGetCommand::class, FleetCommand::class, HygieneCommand::class, ReportCommand::class]);
         if (method_exists($this->app, 'basePath')) {
             $this->publishes([self::CONFIG => $this->app->basePath('config/watcher.php')], 'watcher-config');
         }

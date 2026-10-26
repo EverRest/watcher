@@ -40,4 +40,21 @@ final class IncidentConfigTest extends TestCase
         $this->expectExceptionMessage('known_issues.entries[0].ticket invalid');
         WatchConfig::fromArray(self::base() + ['known_issues' => ['entries' => [['fingerprint' => 'abc123def456', 'ticket' => 'bad ticket']]]]);
     }
+
+    public function testReportWeeklyNeedsFileSink(): void
+    {
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('report.weekly needs observe.file enabled with retention_days >= 8');
+        WatchConfig::fromArray(self::base() + ['report' => ['weekly' => ['enabled' => true]]]);
+    }
+
+    public function testReportWeeklyTopRange(): void
+    {
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('report.weekly.top must be an integer from 3 to 10');
+        WatchConfig::fromArray(self::base() + [
+            'observe' => ['file' => ['enabled' => true, 'path' => '/var/log/watcher/events.jsonl', 'retention_days' => 8]],
+            'report' => ['weekly' => ['enabled' => true, 'top' => 2]],
+        ]);
+    }
 }

@@ -31,7 +31,7 @@ final class WatchConfig implements \JsonSerializable
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
         'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest',
-        'known_issues', 'drafts', 'routes',
+        'known_issues', 'drafts', 'routes', 'report',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
 
@@ -254,6 +254,7 @@ final class WatchConfig implements \JsonSerializable
         $flags['known_issues'] = $incident->knownIssuesEnabled;
         $flags['drafts'] = $incident->draftsEnabled;
         $flags['routes'] = $incident->routesEnabled;
+        $flags['report'] = $incident->reportWeeklyEnabled;
 
         return new self(
             $service,

@@ -47,6 +47,9 @@ use Watcher\State\FileStateStore;
 use Watcher\State\PdoStateStore;
 use Watcher\State\Purgeable;
 use Watcher\Operate\StateInspector;
+use Watcher\Report\ReportRunResult;
+use Watcher\Report\Week;
+use Watcher\Report\WeeklyReportRunner;
 use Watcher\Schedule\RunGate;
 use Watcher\State\Redis\PhpRedisClient;
 use Watcher\State\Redis\PredisClient;
@@ -497,6 +500,18 @@ final class Factory
         $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
 
         return new StateInspector(self::state($c, $clock ?? new SystemClock()), new Redactor($normalizer, $c->redactionPatterns, $pathMap), $c->stateKey, $c->secrets());
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @throws InvalidConfig
+     */
+    public static function weeklyReport(array $config, ?Week $week = null, bool $dryRun = false, ?ClockInterface $clock = null): ReportRunResult
+    {
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
+        $clock ??= new SystemClock();
+
+        return WeeklyReportRunner::fromConfig($c, $clock)->run($week, $dryRun);
     }
 
     /**
