@@ -12,6 +12,9 @@
     },
     "require": {
         "php": "^8.2",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-pcre": "*",
         "guzzlehttp/guzzle": "^7.15.2 || ^8.3",
         "psr/clock": "^1.0",
         "psr/http-client": "^1.0",
@@ -23,8 +26,10 @@
         "illuminate/console": "^10.0 || ^11.0",
         "illuminate/support": "^10.0 || ^11.0",
         "laravel/pint": "^1.13",
+        "opis/json-schema": "^2.6",
         "phpstan/phpstan": "^2.3",
         "phpunit/phpunit": "^10.5 || ^11.0",
+        "symfony/yaml": "^6.4 || ^7.0",
         "vlucas/phpdotenv": "^5.7"
     },
     "suggest": {

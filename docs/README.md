@@ -7,6 +7,8 @@ Back to the [project README](../README.md).
 | [smoke-test.md](smoke-test.md) | whoever runs the first live test | before connecting watcher to real systems |
 | [operations.md](operations.md) | the engineer who installs and runs it | deploying, scheduling, alerting, dry runs, heartbeat, fleet, muting noise, troubleshooting |
 | [configuration.md](configuration.md) | anyone editing the config | looking up a key, a default, an environment variable or a feature flag |
+| [kubernetes.md](kubernetes.md) | whoever adds pod events to a service | RBAC, hourly trigger, native source vs event exporter, limits |
+| [observability.md](observability.md) | whoever builds the dashboard | sinks, the event schema, Loki and Prometheus queries, the shipped Grafana dashboard |
 | [privacy.md](privacy.md) | security / data-protection reviewers | approving what leaves the service |
 | [development.md](development.md) | contributors | running tests in parallel, coverage, badges, hooks, supported versions, CI |
 | [publishing.md](publishing.md) | maintainers | cutting a release and publishing to Packagist |

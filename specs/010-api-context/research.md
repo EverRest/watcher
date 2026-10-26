@@ -13,7 +13,7 @@ Only decisions where more than one design was reasonable. Facts are from the cod
   test matrix, for a feature whose value per token is "low" by the spec's own words.
 - **Consequence**: SC-006 was reinterpreted (plan, spec drift 1): bomb = a JSON of deeply nested arrays; the reader must
   refuse it in < 1 s and < 32 MB. Measured: a 2 MB flat JSON decodes to 144 MB in PHP, far above 32 MB, so the default
-  `max_bytes` is **1 MB (1,048,576)** (range 65,536..8,388,608 unchanged; an operator who raises it accepts the memory).
+  `max_bytes` is **1 MB (1,048,576)** (range 65,536..2,097,152; the ceiling is 2 MiB because 2 MB already decodes to 144 MB and 8 MB would be a ~580 MB uncatchable fatal; `OpenApiSource` clamps to it as well).
 
 ## R2. Reader (`OpenApiSource`) design
 
@@ -131,7 +131,7 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 - Section `api_context`; **absent = off**; `enabled: false` allowed (validated anyway, via `WatchConfig::reserved()`); not in
   `WatchConfig::FLAGS` (those default to true; spec 012). Unknown key rejected. Section present and enabled with no `source`
   -> `api_context.source is required`. Keys: `source`, `auth_token`, `ttl`, `max_endpoints` (1..20, default 5),
-  `summary_cap` (20..200, default 80), `max_bytes` (65,536..8,388,608, default 1,048,576 = 1 MB; measured: 2 MB flat JSON decodes to 144 MB), `base_path`,
+  `summary_cap` (20..200, default 80), `max_bytes` (65,536..2,097,152 (2 MiB hard ceiling, also enforced in `OpenApiSource::MAX_BYTES_CEILING`), default 1,048,576 = 1 MB; measured: 2 MB flat JSON decodes to 144 MB), `base_path`,
   `ignore_prefixes` (<= 10 entries, each `^/[A-Za-z0-9._~\-/]*$`).
 
 ## R9. Doctor, `--json`, notices
@@ -170,3 +170,13 @@ Only decisions where more than one design was reasonable. Facts are from the cod
 
 - **D1 (URL scheme)**: `https` only, as in the spec. In-cluster services export `openapi.json` in CI and use a file source. An explicit `allow_insecure_http` flag may be added later if needed.
 - **D2 (cache fallback)**: FR-003 stays literal (entry lives exactly the TTL). FR-004's stale-on-error fallback does not apply; on failure one notice is shown and the feature is skipped for that run. No `2 x ttl` storage.
+
+## R12. Review leftovers (lane E review, G1-G4)
+
+- **Mask, then cut** (G1): free text is masked over its first 1000 characters, then cut to `summary_cap`; a path the redactor
+  rewrites is dropped. A cut can halve a secret that no pattern then recognises.
+- **Cache key = source id + reducer fingerprint** (G3): `<12 hex of the source>-<8 hex of ReducedSpec::VERSION, summary_cap,
+  base_path, entry cap and the redactor's output for a canary line>`, so changed settings or redaction rules are a miss.
+  `ApiSpecCache` refuses a TTL <= 0 (an expiry-less or instantly expired entry).
+- **Source URL** (G4): `Config\SecureUrl` plus no loopback/private/link-local/metadata address in any numeric spelling; redirects
+  off, TLS verify on, `ResponseLimit` options. Residual: a host name is not resolved (DNS pointing inward passes).

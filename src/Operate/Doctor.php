@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Watcher\Operate;
 
 use Psr\Clock\ClockInterface;
+use Watcher\ApiContext\ApiContextReader;
 use Throwable;
 use Watcher\Config\WatchConfig;
 use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\Notifier;
+use Watcher\Observe\EventFactory;
+use Watcher\Observe\SinkDispatcher;
 use Watcher\Schedule\Window;
+use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
@@ -40,6 +44,9 @@ final class Doctor
         private readonly Notifier $notifier,
         private readonly ClockInterface $clock,
         private readonly bool $kubernetes = false,
+        private readonly ?KubernetesEventsSource $events = null,
+        private readonly ?SinkDispatcher $observe = null,
+        private readonly ?ApiContextReader $apiContext = null,
     ) {
     }
 
@@ -63,14 +70,27 @@ final class Doctor
         }
         $results = [CheckResult::pass('config')];
         $results[] = $this->guard('source', fn (): CheckResult => $this->source());
+        if ($this->config->kubernetes !== null && $this->config->kubernetes->events) {
+            $results[] = $this->guard('events', fn (): CheckResult => $this->events());
+        }
         [$auth, $models] = $this->provider();
         $results[] = $auth;
         $results[] = $models;
         $results[] = $this->guard('prices', fn (): CheckResult => $this->prices());
         $results[] = $this->guard('state', fn (): CheckResult => $this->state());
         $results[] = $this->guard('notifier', fn (): CheckResult => $this->notifier());
+        $observing = $this->config->observe->anyEnabled();
+        if ($observing) {
+            $results[] = $this->guard('observe', fn (): CheckResult => $this->observe());
+        }
+        if ($this->apiContext !== null) {
+            $results[] = $this->guard('api_context', fn (): CheckResult => $this->apiContext());
+        }
         if ($postTest) {
             $results[] = $this->guard('post_test', fn (): CheckResult => $this->postTest());
+            if ($observing) {
+                $results[] = $this->guard('post_test_observe', fn (): CheckResult => $this->postTestObserve());
+            }
         }
 
         return new CheckReport($results);
@@ -86,8 +106,37 @@ final class Doctor
         }
     }
 
+    /** Spec 008: reads only (GET, limit=1); the wording is a fixed vocabulary, never a URL, a token or a body. */
+    private function events(): CheckResult
+    {
+        $k = $this->config->kubernetes;
+        if ($k === null || !$this->config->on('kubernetes') || $this->events === null) {
+            return CheckResult::skip('events', 'disabled');
+        }
+        foreach ($this->events->probe() as $ns => $reason) {
+            if ($reason !== '') {
+                return CheckResult::fail('events', 'namespace ' . $ns . ': ' . $reason);
+            }
+        }
+        $tags = implode(' ', array_map('strval', $this->config->source['stream_tags'] ?? []));
+        if ($k->exporter || preg_match('/event[-_]?(exporter|router)|kube[-_]?events/i', $tags) === 1) {
+            return CheckResult::warn('events', 'native events and an event exporter are both configured; the same events would be counted twice');
+        }
+
+        return CheckResult::pass('events');
+    }
+
     private function source(): CheckResult
     {
+        if ($this->source instanceof KubernetesEventsSource) {
+            foreach ($this->source->probe() as $ns => $reason) {
+                if ($reason !== '') {
+                    return CheckResult::fail('source', 'namespace ' . $ns . ': ' . $reason);
+                }
+            }
+
+            return CheckResult::pass('source');
+        }
         $window = Window::endingAt($this->clock->now(), 'PT5M');
         try {
             $this->source->totals($window, new StreamSelector(array_map('strval', $this->config->source['stream_tags'])));
@@ -212,7 +261,72 @@ final class Doctor
             }
         }
 
-        return $bad === [] ? CheckResult::pass('notifier') : CheckResult::fail('notifier', implode(', ', $bad));
+        return $bad === [] ? CheckResult::pass('notifier', $this->config->destination('digest')->driver() === 'none' ? 'none (dashboard-only)' : '') : CheckResult::fail('notifier', implode(', ', $bad));
+    }
+
+    /** Spec 010: reads and reduces the OpenAPI source once, skipping the cache; no model call, no post. The reason is a count or a fixed token. */
+    private function apiContext(): CheckResult
+    {
+        $read = $this->apiContext?->readFresh();
+        if ($read === null || $read->spec === null) {
+            return CheckResult::fail('api_context', $read->failure ?? 'unreadable');
+        }
+
+        return CheckResult::pass('api_context', sprintf('%d operations kept, %d not kept', count($read->spec->ops), $read->spec->dropped));
+    }
+
+    /** Local and syntactic only, no request: the sink, then the key that is wrong (never a path, URL or token). */
+    private function observe(): CheckResult
+    {
+        $o = $this->config->observe;
+        $ok = [];
+        $bad = [];
+        if ($o->log['enabled']) {
+            $ok[] = 'log ok';
+        }
+        if ($o->file['enabled']) {
+            $dir = dirname($o->file['path']);
+            while (!file_exists($dir) && $dir !== dirname($dir)) {
+                $dir = dirname($dir); // a missing directory is created at the first flush: its nearest existing parent must be writable
+            }
+            self::sinkOk($ok, $bad, 'file', 'path', is_dir($dir) && is_writable($dir) && !is_link($o->file['path']));
+        }
+        if ($o->http['enabled']) {
+            $ok[] = 'http ok'; // the URL was validated at load; no request is made
+        }
+        if ($o->prometheus['enabled']) {
+            self::sinkOk($ok, $bad, 'prometheus', 'dir', is_dir($o->prometheus['dir']) && is_writable($o->prometheus['dir']));
+        }
+
+        return $bad === [] ? CheckResult::pass('observe', implode(', ', $ok)) : CheckResult::fail('observe', implode(', ', $bad));
+    }
+
+    /**
+     * @param list<string> $ok
+     * @param list<string> $bad
+     */
+    private static function sinkOk(array &$ok, array &$bad, string $sink, string $key, bool $good): void
+    {
+        $good ? $ok[] = $sink . ' ok' : $bad[] = $sink . ' ' . $key . ' invalid';
+    }
+
+    /** One check_test event to every enabled sink except prometheus (a one-event file would replace the last real metrics). */
+    private function postTestObserve(): CheckResult
+    {
+        if ($this->observe === null) {
+            return CheckResult::skip('post_test_observe', 'no sink');
+        }
+        $event = (new EventFactory($this->clock, JsonSummary::packageVersion('everrest/watcher')))->checkTest($this->config->service, $this->config->environment);
+        $failed = $this->observe->dispatch([$event], 30);
+        $o = $this->config->observe;
+        $parts = [];
+        foreach (['log', 'file', 'http'] as $sink) {
+            if ($o->{$sink}['enabled']) {
+                $parts[] = $sink . (isset($failed[$sink]) ? ' failed' : ' ok');
+            }
+        }
+
+        return $failed === [] ? CheckResult::pass('post_test_observe', implode(', ', $parts)) : CheckResult::fail('post_test_observe', implode(', ', $parts));
     }
 
     private function postTest(): CheckResult

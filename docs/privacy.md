@@ -31,6 +31,7 @@ Per request, and only this:
 | Service context | `service_context` from your config (up to 1000 characters), after the redaction scan. You write it; keep personal data out. |
 | Groups | For each problem group exactly these fields (`Watcher\Privacy\RedactedGroup::toArray`): `fp` fingerprint, `tpl` masked message template **or null** (at most 300 characters, `CompactPayload::MAX_TEMPLATE_CHARS`; longer templates end in `…`), `lvl` level, `err` exception class, `frames` up to 5 `path:line` strings, `n` count, `prev` previous count, `st` new/grown/unchanged, `watch` names of matching watch rules, `first`/`last` timestamps. |
 | Dependency section | Optional: for declared dependencies, error totals and up to 5 masked top error groups (same shape). |
+| Endpoint field `ep` | Only with `api_context` configured: for a group whose masked template names a documented route (at most 2 segments), one line `METHOD /template — summary` of at most 75 bytes, in analysis and escalation only, never triage. See below. |
 
 The type that carries this to the model has **no other fields**, so nothing else can be added by accident
 (`tests/Unit/Privacy/RedactedGroupTest.php`).
@@ -78,6 +79,21 @@ credentials, anything from `fields`.
 5. **Model output scrub:** everything the model writes (title, evidence, cause, action, `how_to_check`, every `related_checks` entry) is scanned the same way before it
    is shown, stored or cached; plain numbers are kept.
 
+### OpenAPI summaries (spec 010)
+
+`api_context` adds one allowlisted field class: the **operation summary** (the operationId only when there is no summary), the **first tag** and the
+**deprecated flag** of the operations a finding's route matches. Per operation exactly six fields are read out of the document: method, path
+template, operationId, summary, first tag, deprecated. Examples, schemas, parameters, request and response bodies, descriptions, server variables and
+extensions are never copied. Free text is **masked first** (e-mails, tokens, ids) and then cut to `api_context.summary_cap` (80), so a secret
+straddling the cut cannot survive as a fragment; it is masked again where it is used (digest line, `ep` field), and a text that cannot be
+scanned is dropped. Plain numbers are masked too (`<N>`: an SSN, PESEL, tax id, date of birth or order number never survives), and since the
+masker cannot recognise a name or a street, free text is kept only when every word is a word of the route template, the operationId (split at
+case changes), the tag or a short list of common words (`get`, `list`, `order`, `for`, ...); otherwise the summary is dropped and the
+identifier-shaped operationId stands in. A tag must be an identifier-shaped word that passes the same rule. The reduced document, not the raw one,
+is what the state store keeps (expiring after `api_context.ttl`). **The service owner is still responsible for operationIds**: an identifier such
+as `getJohnSmith` is kept as written (its digits masked). `tests/EndToEnd/ApiContextTest.php` seeds an e-mail and a token in a summary, a description, an
+operationId, a tag, an example, a parameter and an extension and asserts none reaches the model payload, the digest, the log and file sinks, the summary or the cache.
+
 ## What is sent to your notification channel
 
 Whichever channel you configure (Slack, Telegram or Discord) receives the same content, and nothing else leaves per
@@ -105,6 +121,14 @@ consuming services and event counts), and, with `digest: combined`, every servic
 when that service has its own `notify.digest`. A service whose digest is meant for a restricted audience is therefore
 visible to the fleet channel's audience. The services of one fleet share one trust domain (identical `analysis.api_key`
 and `state` are enforced); do not combine services with different audiences.
+
+## What is sent to your event sinks (spec 013)
+
+Off unless you enable a sink. An event is built from the typed results the digest already uses (findings, groups, counts, spend), never from a raw log line, and a sanitizer drops every field outside the schema allowlist and every string that fails its pattern. Without text an event holds only enumerations, numbers, timestamps, 12-hex fingerprints, hex run ids and your configured names (service, environment, watch-rule names). Never present: log lines, message templates, field values, stack frames, filesystem paths, URLs, tokens.
+
+`include_text` is a per-sink flag. With it, a `finding` event carries the same title, evidence, hypothesis, next step and check the chat message shows (after the same output scrub) and a `group` event carries `error_type` after a second redaction scan. Defaults: off for every sink, `log` included (owner decision: text is an explicit opt-in). An `http` sink with text on emits `config_warning include_text_external`, so the dashboard shows that text leaves the host. The Prometheus file has no text at all and no label is ever a fingerprint, title or release.
+
+Retention of what a sink delivers is yours (Loki, Elasticsearch, Prometheus); watcher bounds only its own files (`file` sink: `max_files`, `retention_days`) and its counters (expire with `state.retention`). The `http` URL and token are credentials: masked in every message, never in an exception, log line or `check` output. The privacy corpus runs through all four sinks with a planted secret and e-mail (`tests/EndToEnd/ObservePrivacyTest.php`).
 
 ## What is sent to the log backend
 
@@ -141,11 +165,43 @@ Config objects (`WatchConfig`, `FleetConfig`) show `[redacted]` for their creden
 `dd()` and `json_encode`, and the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes
 those arguments from stack traces).
 
+## Kubernetes events (spec 008)
+
+Optional. The cluster is read with `GET` on `events` and `pods` only. Each event is parsed into a closed set of fields
+(annotations, labels other than for the selector, `managedFields`, environment variables, arguments and commands are never read).
+`EventMasker` (pod names -> `api-<POD>`, node names, image registry/path/tag, container ids, quoted secret/configmap/volume names,
+namespaces in front of pods, the free text after an admission webhook's verdict) and then the Normalizer run before grouping; an
+event that cannot be scanned is dropped.
+
+Sent to the model for an event group: the usual allowlisted group plus `src` (`k8s`), `pods` (a number) and `wk` (a workload kind
+from a closed list). Stored (state key `evt:<service>`, expiry = window + tolerance + 1 h at most): the fully masked text (at most
+300 characters), level inputs, counts, unix times, the masked workload name and an 8-character one-way hash of each pod (only to
+count distinct pods). Never stored or sent: raw events, pod/node/image names, registry hosts, annotations, the token or CA.
+`tests/Fixtures/kubernetes/seeded-values.php` lists the values seeded in the fixtures; `tests/EndToEnd/KubernetesEventsTest.php`
+fails if any reaches a model request, a message, a state write, the JSON summary or the host log.
+
+Limit: a name that is identical in every occurrence of an event and not covered by a rule above (for example a person named by
+an operator in free text) is not detectable; see "Limits you must know".
+
 ## Similarity grouping and baselines (spec 004)
 
 Clustering by similarity runs on the already masked tokens, per distinct message, inside the process; nothing new is
 stored or sent. The digest's grouping and comparison lines are built from integers, dates and fixed words only. The one
 new value in the model payload is the group status `expected` (alongside `new`, `grown`, `unchanged`).
+
+## Log hygiene reports (spec 006)
+
+`watcher hygiene` reads a window through the same source and masking and reports where personal data is **written** to logs. It sends nothing to a model. Per report, what it contains and what it never does:
+
+- It contains: a call-site identifier (`file:line` after the Redactor's frame rewriting, else `tpl:<fingerprint>`), a category (`email`, `token`, `address` = IP address, `phone`, `card`, `host`, `other`), a level, integers, times, a trend, and masked templates that the digest could already show (they pass the Redactor's second scan again).
+- It never contains: a matched value, an example line, a context key or value, a stack frame beyond the site identifier. The scanner keeps integers per site and category; the matched text is read, classified and dropped.
+- Categories are read off the Normalizer's own placeholders (`<EMAIL>`, `<TOKEN>`, `<IP>`, `<PAN>`, bare `<HOST>`/`<URL>`, `<USER>` and extra patterns = `other`); phone-like is the one extra check (a `+` followed by 9 or more digits, spaces, dashes or brackets), reduced to yes/no. Context **values** are scanned (up to 40 per event); field **names** are never interpreted.
+- Stored (state retention): per-day aggregates (sites with counts, families with fingerprint, masked template, level, count, times, attributed tokens), a call-site registry (identifier, times, two integers) and declined proposal ids. Nothing else; a stored record that does not validate is ignored.
+- A site is a **source file**: a context `file` + `line` (or the first stack frame) is accepted only when it resolves **below a `repo.path_map` root** (relative to the root, no `..`), its name is one stem plus one known code extension (`.pdf.php` and `john.smith.js` are rejected); a path that fails these rules falls back to `tpl:<fingerprint>`, every directory below the root is on a short built-in list of code-structure names (`app`, `src`, `lib`, `Http`, `Controllers`, `Models`, `Services`, `Jobs`, `Domain`, ... see `SiteId::CODE_DIRS`) or is named in `hygiene.site_allow_dirs` (an allow list: a directory such as `customers`, `Petrenko` or a hex token is never a site id, so a person's name cannot become one), and the file name is one identifier (letters and digits, at most one underscore: no hyphenated words, no dots) whose every word (split at capitals and underscores) is code vocabulary (`SiteId::CODE_DIRS`, the word floor's vocabulary, two letters or fewer) or named in `hygiene.site_allow_dirs` (`OrderController.php` is a site, `IvanPetrenko.php`, `ivan_petrenko.php` and a hex name are not). **Without `repo.path_map` no file site ids are produced at all**: every site is then keyed by the fingerprint (`tpl:<fingerprint>`); configure `repo.path_map` to get call-site names. Anything else (an upload, an import, a document named after a person) falls back to the fingerprint. The Redactor's frame rule applies on top (and reads `a.py` or `a.go` as a host name, so Python, Go and Java frames always fall back to the fingerprint).
+- `--notify` posts to the `notice` destination only (nothing when `notify.notice.enabled=false`), and only non-empty reports. Every log-derived string in it (site, template, rule fragment) goes through the digest's Slack escaper, so `<!channel>`, `<@U..>` or `<https://x|y>` written by a log writer cannot ping or link in Slack, Telegram or Discord; at most 25 sites and 10 templates per notice, and only the sites shown are marked as sent; a "gone" retraction is one line per site, at most 25 per notice, the rest follow in the next one. Before any mask runs, every message loses its control characters (ESC and ANSI sequences, NUL, U+0085), format characters (zero-width, bidi overrides) and invisible fillers (U+2800, U+3164, U+115F/U+1160, U+FFA0, U+034F, variation selectors), and a line break or tab becomes a space, so none of them can hide part of an address from a mask, reach a terminal or be pasted into a rule (`ReportText::clean`); every log-derived string printed is cleaned the same way; the notice escaper still adds zero-width spaces after `a.`, `@` and `://` to defang links, so copy a fragment from the terminal or `--json`, not from the chat message. An unchanged site is repeated at most every `hygiene.repeat_days`; shape, proposals and cost at most that often.
+- Tested by `tests/EndToEnd/HygienePrivacyTest` (seeded call sites in `tests/Fixtures/privacy/hygiene.log`; no seeded value in any text, JSON, notice or stored record, with a control run that proves the test sees a leak) and `tests/Unit/HygieneArchitectureTest` (no model client, no printing, no file writes, only the scanner and the site identifier see events).
+
+Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) and host-like (any `word.word`) are inflated by false positives; texts that cannot be decoded are counted as `unscannable`, not categorised; a name that is identical in every event is not a pattern and is not found (the variable-free-text signal only sees names that vary), which is why a masked template is shown, stored and proposed as a watch rule only when it generalises at least `hygiene.variable_distinct` different messages (or `hygiene.allow_constant_labels` is true), and why each literal word of it must be common log vocabulary or seen at `hygiene.literal_min_sites` different code locations (files) in the pass; all messages without a location count as one source, so a family that varies one word is still one source (otherwise `<w>`; only the exact placeholders `<N>`, `<ID>`, `<EMAIL>`, ... are skipped, any other text in angle brackets is text: a name that is constant inside a family that varies elsewhere is hidden too, at the price of hiding domain words used at one site only) (a sentence that never varies may be one person's name: its row shows no label and no watch proposal is made for it; mute proposals carry a fingerprint only); phone numbers without a plus sign and postal addresses are not detected; digits in a path are masked, so `Controller1.php` and `Controller2.php` are one site; a line that is longer than 4096 characters is cut before it is scanned.
 
 ## Limits you must know
 
@@ -181,7 +237,7 @@ new value in the model payload is the group status `expected` (alongside `new`, 
 - **Advice fields.** `how_to_check` and `related_checks` are model text like the rest: scrubbed, escaped in every channel (no link, mention or domain survives). `related_checks` is not free text at all: an entry is kept only when it is **exactly** a fingerprint of the request (12 hex characters) or a declared dependency name, and the digest prints just that reference; anything else, including advice around a reference, is dropped. The model sees only masked templates, so the prompt forbids reproduction steps; `how_to_check` says what to look at, not how to trigger the problem.
 - **Model text is untrusted (security review 5).** Log text is attacker-influenced and the model can be steered by it, so the code does not rely on the prompt alone:
   - *The model cannot make an error group disappear.* A group at `error` or above, or matched by a watch rule, is never dropped by a triage verdict (`noise`, `known`, a missing or empty verdict are all overruled and the group is analysed; the digest says `triage marked N error-or-higher or watch-rule group(s) as noise, known or left them out`). A group triage was sent but gave no verdict for is treated as `interesting` (fail closed) and counted in the same digest line; a duplicate verdict, an unknown fingerprint or malformed JSON is invalid output (one retry, then a loud failure notice). If the analysis reports nothing, or only a `noise`/`info` finding, for such a group it is **not remembered** (no 30-day verdict): it is analysed again next window and the digest says `N error-or-higher or watch-rule group(s) were analysed but the model reported nothing for them`. Lower-level groups keep the cheap reuse (30 days with a finding or none, 3 days for a triage `noise`/`known`), and the digest now counts both, `N lower-level group(s) dropped by triage` and `N group(s) reused from earlier verdicts`. A run that silenced nothing visible can still not end as a quiet day when the model overruled the code.
-  - *Severity and kind are bounded by the logs.* A finding is shown at most one step above the highest level its groups have in the logs (an `info`/`warn`/`error`/`critical` ladder), never below `warn` for an error-or-higher or watch-rule group, and never as `noise` for one. A `noise`/`info` finding is attached only to the first group it cites and to groups with the same exception type; other cited groups are treated as not covered. The model's confidence only decides whether an already `error`-level group is sent to the stronger model (capped by `escalation_cap`).
+  - *Severity and kind are bounded by the logs.* A finding is shown at most one step above the highest level its groups have in the logs (an `info`/`warn`/`error`/`critical` ladder), for an error-or-higher group never below that group's level (a model cannot put it below), for a watch-rule group at least `warn`, and never as `noise` for either. A cached verdict whose finding is below the level of an error-or-higher group is not reused. A `noise`/`info` finding is attached only to the first group it cites and to groups with the same exception type; other cited groups are treated as not covered. The model's confidence only decides whether an already `error`-level group is sent to the stronger model (capped by `escalation_cap`).
   - *Advice text is filtered in code.* `suggested_action`, `how_to_check` and `suspected_cause` have command-shaped text replaced by `[withheld]` (the rest of the finding stays): `curl`/`wget` piped to a shell, `| sh`, `&&`, `||`, `$(...)`, backticks, `; rm|sudo|curl|...`, `rm -`, `paste ... token|password|secret|key|credential`, `rotate all ...`, `sudo`, `chmod`, `chown`, `mkfs`, `DROP TABLE|DATABASE|SCHEMA`, `TRUNCATE TABLE`, `DELETE FROM`, `kubectl delete|exec|apply|patch|scale|...`, `systemctl stop|restart|disable`, `service X stop|restart`, `iptables -F|-X`, `ufw disable`, `curl|wget` uploading a file (`-d @`, `-F ...@`, `--post-file`), `nc -e`, `dd if=`, `shutdown|reboot|halt` with arguments, `killall`, `pkill`, `kill -9`, `> /dev/...`, `git push --force`, `docker rm|rmi|stop|kill`, `base64 -d`, `python|perl|ruby -c|-e`. The rules run on the canonical text too (zero-width and bidi characters stripped, NFKC folded, percent and entity decoded), so disguised forms are withheld. The match runs to the end of its sentence. This is a small denylist, not proof of safety. The no-URL rule (links, `www.` hosts, e-mail addresses) is enforced in code for every text field, not only by the prompt and the Redactor.
   - *Display.* Emphasis characters in model text are neutralised by the shared escaper (`SlackText::escape`). Bidi controls (U+202A-202E, U+2066-2069) and zero-width characters are not yet removed there; see the open item in the security review.
   - *Ordering and cost.* `top_m` slots are filled by watch rule, level, growth, then novelty, with volume and a salted hash as tie-breakers; new groups take at most half of the slots while older ones wait (the digest counts the overflow). A fingerprint minted by an attacker therefore cannot outrank a grown real group of the same level.

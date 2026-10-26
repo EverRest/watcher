@@ -16,8 +16,10 @@ use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\Notifier;
+use Watcher\Observe\ObserveCounters;
 use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\Heartbeat;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Operate\RunOptions;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
@@ -55,34 +57,50 @@ final class FleetRunner
      *
      * @param array<string, mixed>|string $config a fleet array, or the path of a fleet file or directory
      * @param callable(string): mixed|null $out dry-run output sink (default: stdout)
+     * @param bool $stdoutToStderr a `--json` call: a log sink aimed at stdout writes to stderr so the summary stays one line
      */
-    public static function fromConfig(array|string $config, ?LoggerInterface $log = null, ?ClockInterface $clock = null, mixed $out = null): self
+    public static function fromConfig(array|string $config, ?LoggerInterface $log = null, ?ClockInterface $clock = null, mixed $out = null, bool $stdoutToStderr = false): self
     {
         $fleet = is_array($config) ? FleetConfig::fromArray($config) : FleetConfig::fromPath($config);
         $clock ??= new SystemClock();
+        if (!$fleet->enabled) {
+            // Fleet switch: validate only; no store, source, analyzer or notifier is built.
+            return new self($fleet, static fn (): callable => RefusedAccess::refuse(...), RefusedAccess::state(), $clock, $log);
+        }
         $http = Factory::http();
         $first = $fleet->services[0]->config;
         $state = Factory::state($first, $clock, $log);
-        $analyzer = Factory::analyzer($first);
         $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
         $sources = [];
+        $events = [];
+        $sinks = [];
+        $counters = [];
+        $apis = []; // pod events: entries on one cluster with the same credentials share one client and its list memo
         foreach ($fleet->services as $e) {
-            $sources[$e->name()] = Factory::source($e->config, $http, $clock);
+            $sources[$e->name()] = Factory::source($e->config, $http, $clock, $apis);
+            $events[$e->name()] = Factory::events($e->config, $http, $clock, $apis);
+            // Spec 013: each service flushes its own events (its own service/environment, its own Prometheus file).
+            $counters[$e->name()] = new ObserveCounters($state, $e->config->stateKey, $e->config->state['retention']);
+            $sinks[$e->name()] = $e->config->enabled ? Factory::observe($e->config, $clock, $log, $counters[$e->name()], stdoutToStderr: $stdoutToStderr) : null;
         }
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
-        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $state, $analyzer, $notifier, $clock, $log, $out, $share): callable {
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share, $http): callable {
             $watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
                 $state,
-                $analyzer,
+                Factory::analyzer($e->config, $options->dryRun), // one per service: the cost ledger books under the service's own key
                 $seam?->notifierFor($e->name(), $notifier) ?? $notifier,
                 $clock,
                 $log,
                 $options,
                 $out,
                 $seam,
+                events: $events[$e->name()],
+                sinks: $sinks[$e->name()],
+                counters: $counters[$e->name()],
+                apiContext: Factory::apiContext($e->config, $http, $clock),
             );
             if ($share !== null) {
                 $watcher->limitRunTo($share);

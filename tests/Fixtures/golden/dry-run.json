@@ -42,6 +42,7 @@
                         "tokensCached": 0,
                         "costUsd": 0.0108,
                         "durationMs": 0,
+                        "events": null,
                         "pages": null
                     }
                 },
@@ -77,6 +78,7 @@
             "groups": {
                 "3ba2fceef742": 5
             },
+            "fpv": 1,
             "totals": {
                 "error": 5
             },
@@ -94,6 +96,11 @@
             "usage": null,
             "startedAt": "2026-10-08T06:00:00+00:00",
             "finishedAt": "2026-10-08T06:00:00+00:00"
+        },
+        "hw:svc": {
+            "v": 1,
+            "end": "2026-10-08T06:00:00+00:00",
+            "run": "2026-10-08T06:00:00Z"
         },
         "hb:svc": {
             "v": 1,
@@ -115,6 +122,7 @@
         "snap:svc:2026-10-08T06%3A00%3A00Z": 2505600,
         "snap:svc:last": 2505600,
         "run:svc:2026-10-08T06%3A00%3A00Z": 2505600,
+        "hw:svc": 7689600,
         "hb:svc": 7689600,
         "hbweek:svc:2026-W41:baselined": 1123200
     }

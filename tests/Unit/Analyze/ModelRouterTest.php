@@ -245,7 +245,7 @@ final class ModelRouterTest extends TestCase
         ]);
         $this->fake->analysisScript = [$this->fake->analysis, self::analysis([self::finding('a', Severity::Critical, 0.95)], 'em')];
 
-        $r = $this->router()->route([self::group('a'), self::group('b'), self::group('c')], false);
+        $r = $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning), self::group('c')], false); // b is not protected: a warn stays mild
 
         self::assertSame(2, $this->fake->analyzeCalls);
         $esc = $this->fake->requests[2];
@@ -575,5 +575,82 @@ final class ModelRouterTest extends TestCase
         $this->router(checkpoint: new TriageCheckpoint($this->store, 'svc', 'w'))->route([self::group('a')], false);
 
         self::assertNull($this->store->get(\Watcher\State\Keys::triage('svc', 'w')));
+    }
+
+    public function testEndpointFieldsGoToAnalysisAndEscalationOnlyNeverTriageAndOnlyForTheSentGroups(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'noise']);
+        $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
+        $ep = ['a' => 'GET /a — Do a', 'b' => 'GET /b — Do b'];
+
+        $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning)], false, [], null, $ep);
+
+        [$tri, $an, $esc] = $this->fake->requests;
+        self::assertInstanceOf(TriageRequest::class, $tri);
+        self::assertArrayNotHasKey('endpoints', get_object_vars($tri), 'triage requests have no endpoint field at all');
+        self::assertInstanceOf(AnalysisRequest::class, $an);
+        self::assertSame(['a' => 'GET /a — Do a'], $an->endpoints, 'b was triaged out: its ep is not sent');
+        self::assertInstanceOf(AnalysisRequest::class, $esc);
+        self::assertSame(['a' => 'GET /a — Do a'], $esc->endpoints);
+    }
+
+    public function testEscalationDropsEpFirstWhenItWouldNotFit(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
+        $g = self::group('a');
+        $bare = Budget::fixedTokens('analyze', 'ctx', false) + Budget::estimateTokens(CompactPayload::encode([$g]));
+
+        $this->router(escalateMaxInput: $bare)->route([$g], false, [], null, ['a' => 'GET /a — ' . str_repeat('s', 50)]);
+
+        $esc = $this->fake->requests[2];
+        self::assertInstanceOf(AnalysisRequest::class, $esc);
+        self::assertSame([], $esc->endpoints, 'the escalation is not skipped, the context goes');
+        self::assertCount(3, $this->fake->requests);
+    }
+
+    public function testATightBudgetThatFitsWithoutEpStillAnalysesWithoutIt(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysis = self::analysis([self::finding('a')]);
+        $ep = ['a' => 'GET /a — ' . str_repeat('s', 6000)];
+
+        // $1.00 day: the analysis alone (about $0.61 worst case) fits, with 6 KB of ep (about $1.4) it would not
+        $r = $this->router()->route([self::group('a')], false, [], $this->reservation(0.0, 1.0), $ep);
+
+        self::assertSame(1, $this->fake->analyzeCalls);
+        self::assertSame(0, $r->notAnalysed);
+        $an = $this->fake->requests[1];
+        self::assertInstanceOf(AnalysisRequest::class, $an);
+        self::assertSame([], $an->endpoints, 'ep went, the analysis stayed');
+        self::assertSame([$an->groups[0]->fingerprint], $r->findings[0]->fingerprints, 'ep never changes which group a finding belongs to');
+        self::assertSame(Severity::Error, $r->findings[0]->severity);
+    }
+
+    public function testATightBudgetStillEscalatesWithoutEp(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
+        $ep = ['a' => 'GET /a — ' . str_repeat('s', 6000)];
+
+        // escalation at $0.10 a token: without ep it fits $600 at worst (it does not fit $400), 6 KB of ep (about 3000 tokens over two attempts) adds about $300
+        $r = $this->router()->route([self::group('a')], false, [], $this->reservation(0.0, 600.0), $ep);
+
+        self::assertSame(0, $r->escalationsSkippedBudget);
+        $esc = $this->fake->requests[2] ?? null;
+        self::assertInstanceOf(AnalysisRequest::class, $esc);
+        self::assertSame([], $esc->endpoints, 'ep went, the escalation stayed');
+    }
+
+    public function testEpIsKeptWhenTheBudgetFitsWithIt(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting']);
+        $this->fake->analysis = self::analysis([self::finding('a')]);
+
+        $this->router()->route([self::group('a')], false, [], $this->reservation(0.0, 10.0), ['a' => 'GET /a — x']);
+
+        $an = $this->fake->requests[1];
+        self::assertInstanceOf(AnalysisRequest::class, $an);
+        self::assertSame(['a' => 'GET /a — x'], $an->endpoints);
     }
 }

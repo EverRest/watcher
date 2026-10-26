@@ -54,6 +54,8 @@ final class JsonSummary
             'overflowed_events' => $s->overflowedEvents ?? 0,
             'pattern_failures' => $s->patternFailures ?? 0,
             'read_quality' => array_combine(self::READ_QUALITY, array_map(static fn (string $k): int => $s->readQuality[$k] ?? 0, self::READ_QUALITY)),
+            ...($s?->events === null ? [] : ['events' => $s->events]),
+            ...($d->runId() === null ? [] : ['run_id' => $d->runId(), 'sink_failures' => (object) $d->sinkFailures()]),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
     }
 
@@ -67,12 +69,21 @@ final class JsonSummary
         return preg_match(self::REASON, $reason) === 1 && preg_match('/[\w-]{24,}/', $reason) !== 1 ? $reason : 'unspecified';
     }
 
+    /**
+     * Package version for digests and observe events. Must fit the event schema
+     * (`^[A-Za-z0-9._+-]{1,32}$`): Composer branch installs can be longer
+     * (e.g. `dev-fix-review-batch2-state-slack`).
+     */
     public static function packageVersion(string $package): string
     {
         try {
-            return InstalledVersions::getPrettyVersion($package) ?? 'unknown';
+            $raw = InstalledVersions::getPrettyVersion($package) ?? 'unknown';
         } catch (Throwable) {
-            return 'unknown';
+            $raw = 'unknown';
         }
+        $safe = preg_replace('/[^A-Za-z0-9._+-]/', '-', $raw) ?? 'unknown';
+        $safe = trim($safe, '.-+_') ?: 'unknown';
+
+        return substr($safe, 0, 32);
     }
 }

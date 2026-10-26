@@ -1,0 +1,17 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Orders", "version": "1"},
+  "servers": [{"url": "https://api.example.com/api/v1"}, {"url": "https://other.example.com/zzz"}],
+  "paths": {
+    "/orders/{id}": {
+      "get": {"summary": "Get an order", "tags": ["orders"], "operationId": "getOrder"},
+      "DELETE": {"summary": "upper-case verb is not a verb"},
+      "delete": {"summary": "Delete an order", "tags": ["orders"], "deprecated": "yes"}
+    },
+    "/orders/{id}/refund": {
+      "post": {"operationId": "refundOrder"}
+    },
+    "/empty": {"get": {}},
+    "not-a-path": {"get": {"summary": "dropped, key does not start with a slash"}}
+  }
+}

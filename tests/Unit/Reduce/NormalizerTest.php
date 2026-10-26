@@ -175,6 +175,29 @@ final class NormalizerTest extends TestCase
         }
     }
 
+    /** @return array<string, array{string, string, list<string>}> */
+    public static function shortCredentials(): array
+    {
+        return [
+            'base64 user:password with padding' => ['auth dXNlcjpwYXNzd29yZA== failed', 'auth <TOKEN> failed', ['dXNlcjpwYXNz', 'd29yZA']],
+            'session cookie value' => ['cookie session=8f3kd9sLq2 rejected', 'cookie session=<TOKEN> rejected', ['8f3kd9sLq2']],
+            'sid query value' => ['req sid=abcdef123 closed', 'req sid=<TOKEN> closed', ['abcdef123']],
+            'session_id in a colon form' => ['x session_id: 77aa88bb99 y', 'x session_id: <TOKEN> y', ['77aa88bb99']],
+            'sidebar is not the sid key' => ['panel sidebar=left open', 'panel sidebar=left open', []],
+        ];
+    }
+
+    /** @param list<string> $mustNotRemain */
+    #[DataProvider('shortCredentials')]
+    public function testShortCredentialsWithoutAKeyNameAndSessionKeysAreMasked(string $in, string $out, array $mustNotRemain): void
+    {
+        $got = (new Normalizer())->normalize($in);
+        self::assertSame($out, $got);
+        foreach ($mustNotRemain as $fragment) {
+            self::assertStringNotContainsString($fragment, $got);
+        }
+    }
+
     public function testPortsAndEmailsInQueryDoNotTriggerTheCredentialRule(): void
     {
         $n = new Normalizer(['core-api']);

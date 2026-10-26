@@ -70,6 +70,7 @@ return [
     'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                  // expired-file purge (file state store only)
     'baseline' => ['enabled' => Env::bool('WATCHER_BASELINE_ENABLED', true)],            // false: previous-window comparison only
     'grouping' => ['enabled' => Env::bool('WATCHER_GROUPING_ENABLED', true)],            // false: exact token-count clusters
+    'kubernetes' => ['enabled' => Env::bool('WATCHER_KUBERNETES_ENABLED', true)],        // pod events: add `events` + this section's settings to use (docs/kubernetes.md)
 
     'analysis' => [
         'provider' => 'anthropic',
@@ -115,10 +116,15 @@ return [
     ],
 
     'notify' => [
-        'digest' => ['driver' => 'slack', 'webhook' => env('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
+        'digest' => ['driver' => env('WATCHER_DIGEST_DRIVER', 'slack'), 'webhook' => env('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
         // Failure and budget notices. Only `enabled`: use the digest destination. Add driver + webhook for a channel of its own.
         'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
+        'routes_enabled' => Env::bool('WATCHER_ROUTES_ENABLED', true),
+        'routes' => [],
     ],
+
+    'known_issues' => ['enabled' => Env::bool('WATCHER_KNOWN_ISSUES_ENABLED', true), 'entries' => []],
+    'drafts' => ['enabled' => Env::bool('WATCHER_DRAFTS_ENABLED', false)],
 
     'service_context' => [
         'enabled' => Env::bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),
@@ -154,5 +160,49 @@ return [
         'provider' => 'gitlab',                    // gitlab | github
         'web_url' => env('WATCHER_REPO_URL'),
         'path_map' => [],                          // ['/var/www/html/' => 'app/']
+    ],
+
+    // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default; the cost report works regardless.
+    'hygiene' => [
+        'enabled' => Env::bool('WATCHER_HYGIENE_ENABLED', false),
+    ],
+
+    // Event sinks (docs/observability.md). Every sink is OFF until its own `enabled` is true. With driver `none` under notify.digest the
+    // chat stays silent and a sink is the only channel (at least one must be on). `log` text defaults to on, the others to off.
+    'observe' => [
+        'top_groups' => Env::int('WATCHER_OBSERVE_TOP_GROUPS', 20),   // 0..100 group events per run
+        'log' => [
+            'enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false),
+            'stream' => Env::string('WATCHER_OBSERVE_LOG_STREAM', 'stderr'),           // stderr | stdout (stderr under --json)
+            'include_text' => Env::bool('WATCHER_OBSERVE_LOG_INCLUDE_TEXT', false),
+        ],
+        'file' => [
+            'enabled' => Env::bool('WATCHER_OBSERVE_FILE_ENABLED', false),
+            'path' => Env::string('WATCHER_OBSERVE_FILE_PATH'),                        // absolute; required when enabled
+            'rotate' => Env::string('WATCHER_OBSERVE_FILE_ROTATE', 'size'),            // size | daily
+            'max_bytes' => Env::int('WATCHER_OBSERVE_FILE_MAX_BYTES', 10485760),
+            'max_files' => Env::int('WATCHER_OBSERVE_FILE_MAX_FILES', 10),
+            'retention_days' => Env::int('WATCHER_OBSERVE_FILE_RETENTION_DAYS', 30),
+            'include_text' => Env::bool('WATCHER_OBSERVE_FILE_INCLUDE_TEXT', false),
+        ],
+        'http' => [
+            'enabled' => Env::bool('WATCHER_OBSERVE_HTTP_ENABLED', false),
+            'url' => Env::string('WATCHER_OBSERVE_HTTP_URL'),                          // https; a secret, masked everywhere
+            'auth_header' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_HEADER', 'Authorization'),
+            'auth_scheme' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_SCHEME', 'Bearer'), // '' (set in code) sends the token alone
+            'auth_token' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_TOKEN'),
+            'batch_size' => Env::int('WATCHER_OBSERVE_HTTP_BATCH_SIZE', 100),
+            'timeout' => Env::int('WATCHER_OBSERVE_HTTP_TIMEOUT', 5),
+            'allowed_hosts' => Env::list('WATCHER_OBSERVE_HTTP_ALLOWED_HOSTS'),
+            'allow_insecure' => Env::bool('WATCHER_OBSERVE_HTTP_ALLOW_INSECURE', false),
+            'allow_private_network' => Env::bool('WATCHER_OBSERVE_HTTP_ALLOW_PRIVATE_NETWORK', false),
+            'include_text' => Env::bool('WATCHER_OBSERVE_HTTP_INCLUDE_TEXT', false),
+        ],
+        'prometheus' => [
+            'enabled' => Env::bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false),
+            'dir' => Env::string('WATCHER_OBSERVE_PROMETHEUS_DIR'),                    // node_exporter textfile directory
+            'name' => Env::string('WATCHER_OBSERVE_PROMETHEUS_NAME'),                  // default watcher_<service>[_<environment>]; unset in a fleet
+            'file_mode' => Env::string('WATCHER_OBSERVE_PROMETHEUS_FILE_MODE'),        // default 0644
+        ],
     ],
 ];

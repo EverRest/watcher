@@ -18,7 +18,7 @@ final class SecureUrl
      * @param bool $refuseInternal opt-in: also refuse a host that {@see internalHost()} classifies as internal. `$allowInsecure`
      *        doubles as "loopback is expected" (a local test setup); `$allowPrivate` admits RFC 1918 (an internal Prometheus).
      */
-    public static function problem(string $url, bool $allowInsecure = false, bool $refuseInternal = false, bool $allowPrivate = false): ?string
+    public static function problem(#[\SensitiveParameter] string $url, bool $allowInsecure = false, bool $refuseInternal = false, bool $allowPrivate = false): ?string
     {
         $p = parse_url($url);
         if ($p === false || ($p['host'] ?? '') === '') {

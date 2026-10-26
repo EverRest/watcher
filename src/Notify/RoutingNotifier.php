@@ -19,6 +19,7 @@ final class RoutingNotifier implements Notifier
         $inner = match ($to->driver()) {
             'telegram' => $this->telegram,
             'discord' => $this->discord,
+            'none' => new NoneNotifier(),
             default => $this->slack,
         };
         $inner->send($message, $to);

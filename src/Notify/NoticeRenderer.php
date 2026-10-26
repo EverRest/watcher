@@ -10,14 +10,14 @@ final class NoticeRenderer
     private const MAX_REASON = 200;
     private const MIN_SECRET = 8;
 
-    /** @var list<string> */
-    private readonly array $secrets;
+    /** @var \Closure(): list<string> */
+    private readonly \Closure $secrets;
 
     /** @param list<string> $secrets exact values ({@see \Watcher\Config\WatchConfig::secrets()}) to mask on top of the generic scrubbing */
     public function __construct(#[\SensitiveParameter] array $secrets = [])
     {
         usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a)); // longest first, so a prefix secret cannot leave its suffix
-        $this->secrets = $secrets;
+        $this->secrets = static fn (): array => $secrets; // a closure: var_export shows no value
     }
 
     /** @param string $kind source|analysis, anything else reads as a generic run failure */
@@ -32,6 +32,21 @@ final class NoticeRenderer
     public function budgetExhausted(string $service, string $environment, ?string $cap = null): Message
     {
         return $this->notice('⚠️', $service, $environment, 'budget exhausted' . ($cap === null ? '' : " ($cap cap)") . ': triage only today');
+    }
+
+    public function runCapReached(string $service, string $environment, int $maxRuns, string $untilLocal, string $timezone): Message
+    {
+        return $this->notice(
+            '⚠️',
+            $service,
+            $environment,
+            sprintf(
+                'run limit reached (%d runs today). Further runs today do nothing until %s %s.',
+                $maxRuns,
+                $untilLocal,
+                $timezone,
+            ),
+        );
     }
 
     /**
@@ -64,7 +79,7 @@ final class NoticeRenderer
 
     private function reason(string $reason): string
     {
-        foreach ($this->secrets as $secret) {
+        foreach (($this->secrets)() as $secret) {
             if (strlen($secret) >= self::MIN_SECRET) {
                 $reason = str_replace($secret, '[redacted]', $reason);
             }
@@ -77,5 +92,16 @@ final class NoticeRenderer
         $reason = SlackText::escape($reason);
 
         return mb_strlen($reason) <= self::MAX_REASON ? $reason : mb_substr($reason, 0, self::MAX_REASON - 1) . '…';
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }

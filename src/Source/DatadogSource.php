@@ -35,8 +35,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     private const VERSION_STEP = 3600;
 
     private readonly string $baseUrl;
-    /** @var array<string, string> */
-    private readonly array $headers;
+    /** @var \Closure(): array<string, string> request headers incl. the credential: a closure, so var_export shows no value */
+    private readonly \Closure $headers;
     private readonly Retry $retry;
     private readonly ClockInterface $clock;
     private bool $truncated = false;
@@ -66,7 +66,8 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             throw new InvalidArgumentException('Invalid Datadog site.');
         }
         $this->baseUrl = 'https://api.' . $site;
-        $this->headers = ['DD-API-KEY' => $apiKey, 'DD-APPLICATION-KEY' => $appKey, 'Accept' => 'application/json'];
+        $headers = ['DD-API-KEY' => $apiKey, 'DD-APPLICATION-KEY' => $appKey, 'Accept' => 'application/json'];
+        $this->headers = static fn (): array => $headers;
         $this->retry = new Retry($sleeper, $retryBudget);
         $this->clock = $clock ?? new SystemClock();
         $this->parser = new LineParser();
@@ -121,7 +122,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                     continue; // never reaches the parser (A4-01)
                 }
                 $event = $this->event($raw);
-                if (!$this->wanted($event, $filter)) {
+                if ($event === null || !$this->wanted($event, $filter)) {
                     continue;
                 }
                 if ($kept >= $cap) {
@@ -213,7 +214,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                     continue;
                 }
                 $event = $this->event($raw);
-                if ($this->wanted($event, $filter)) {
+                if ($event !== null && $this->wanted($event, $filter)) {
                     $events[] = $event;
                 }
             }
@@ -277,10 +278,17 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     }
 
     /** @param array<mixed> $raw one item of `data` from events/search */
-    private function event(array $raw): LogEvent
+    private function event(array $raw): ?LogEvent
     {
         $attrs = is_array($raw['attributes'] ?? null) ? $raw['attributes'] : [];
-        $time = $this->time(is_string($attrs['timestamp'] ?? null) ? $attrs['timestamp'] : '') ?? $this->clock->now()->setTimezone(new DateTimeZone('UTC'));
+        $rawTs = is_string($attrs['timestamp'] ?? null) ? $attrs['timestamp'] : '';
+        $time = $this->time($rawTs);
+        if ($time === null) {
+            if ($rawTs !== '') {
+                return null;
+            }
+            $time = $this->clock->now()->setTimezone(new DateTimeZone('UTC'));
+        }
         $labels = [];
         foreach (is_array($attrs['tags'] ?? null) ? $attrs['tags'] : [] as $tag) {
             if (is_string($tag) && str_contains($tag, ':')) {
@@ -404,7 +412,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         try {
             $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('POST', $this->baseUrl . $path, [
             'json' => $body,
-            'headers' => $this->headers,
+            'headers' => ($this->headers)(),
             'http_errors' => false,
             'allow_redirects' => false, // DD-API-KEY would follow a redirect; a 3xx is an error here
             'verify' => true,
@@ -418,5 +426,16 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             throw new SourceUnavailable(trim("datadog {$status} " . $response->getReasonPhrase()));
         }
         return ResponseLimit::decode($response, 'datadog', $this->maxResponseBytes);
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }

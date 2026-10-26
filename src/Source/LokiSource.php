@@ -35,10 +35,15 @@ final class LokiSource implements LogSource, ReadDiagnostics
     ];
     /** Extra spellings seen in a `level` stream label (not as words in the text). */
     private const LABEL_WORDS = ['info' => ['information'], 'emergency' => ['panic']];
+    /**
+     * LogQL `|~` alternation (RE2): stack-trace continuation lines with no level word (H5). Kept in sync with
+     * {@see LineParser::continues()} shapes, not the full CONTINUATION regex.
+     */
+    private const TRACE_CONTINUATION_FILTER = '(?:^\\s|^#\\d{1,4}\\b|^at\\s|^Caused by:|^Stack trace:|^PHP (?:Stack trace:|\\d+\\.)|^Traceback|^goroutine \\d+ \\[|^created by |^exit status \\d|^stack backtrace:)';
 
     private readonly string $baseUrl;
-    /** @var array<string, string> */
-    private readonly array $headers;
+    /** @var \Closure(): array<string, string> request headers incl. the credential: a closure, so var_export shows no value */
+    private readonly \Closure $headers;
     private readonly Retry $retry;
     private bool $truncated = false;
     private int $pageLimit = self::PAGE_LIMIT;
@@ -49,8 +54,9 @@ final class LokiSource implements LogSource, ReadDiagnostics
     private readonly ClockInterface $clock;
 
     /**
-     * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words (misses
-     *                          lines whose level only lives in the stream `level` label, and trace lines); `label` =
+     * @param string $levelMode how read_min_level is pushed to Loki: `text` = LogQL line filter on level words plus
+     *                          stack-trace continuation shapes (misses lines whose level only lives in the stream
+     *                          `level` label); `label` =
      *                          stream matcher on the `level` label, no line filter (streams without that label are
      *                          not read; with watch patterns it falls back to `all`, a stream matcher cannot be OR-ed
      *                          with a line filter); `all` = no server-side level restriction, the client decides
@@ -89,7 +95,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         if ($tenant !== null && $tenant !== '') {
             $headers['X-Scope-OrgID'] = $tenant;
         }
-        $this->headers = $headers;
+        $this->headers = static fn (): array => $headers;
         $this->parser = new LineParser();
     }
 
@@ -430,7 +436,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         }
         $parts = [];
         if ($filter->minLevel !== Level::Debug) {
-            $parts[] = '(?:\b(?:' . implode('|', $this->words($filter->minLevel, false)) . ')\b)';
+            $parts[] = '(?:\b(?:' . implode('|', $this->words($filter->minLevel, false)) . ')\b|' . self::TRACE_CONTINUATION_FILTER . ')';
         }
         foreach ($filter->watchPatterns as $re) {
             $parts[] = '(?:' . $re . ')';
@@ -507,7 +513,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         try {
             $response = $this->retry->send(fn (): ResponseInterface => $this->http->request('GET', $this->baseUrl . $path, [
             'query' => $query,
-            'headers' => $this->headers,
+            'headers' => ($this->headers)(),
             'http_errors' => false,
             'allow_redirects' => false, // X-Scope-OrgID would follow a redirect; a 3xx is an error here
             'verify' => true,
@@ -521,5 +527,16 @@ final class LokiSource implements LogSource, ReadDiagnostics
             throw new SourceUnavailable(trim("loki {$status} " . $response->getReasonPhrase()));
         }
         return ResponseLimit::decode($response, 'loki', $this->maxResponseBytes);
+    }
+
+    /** @return array<string, never> var_dump and print_r show nothing of what this object holds */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
+    public function __serialize(): array
+    {
+        throw new \LogicException(self::class . ' is not serialisable.');
     }
 }

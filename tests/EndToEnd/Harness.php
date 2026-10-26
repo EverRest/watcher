@@ -75,9 +75,9 @@ final class Harness
         return $config;
     }
 
-    public function watcher(\Watcher\Source\LogSource $source, ?\Watcher\Operate\RunOptions $options = null, mixed $out = null): Watcher
+    public function watcher(\Watcher\Source\LogSource $source, ?\Watcher\Operate\RunOptions $options = null, mixed $out = null, ?\Watcher\Source\KubernetesEventsSource $events = null): Watcher
     {
-        return new Watcher(WatchConfig::fromArray($this->config()), $source, $this->state, $this->analyzer, $this->notifier, $this->clock, $this->hostLog, $options, $out);
+        return new Watcher(WatchConfig::fromArray($this->config()), $source, $this->state, $this->analyzer, $this->notifier, $this->clock, $this->hostLog, $options, $out, null, $events);
     }
 
     /** Advance one full window (the default PT24H). */
