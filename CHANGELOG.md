@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-10-26 — Hygiene, check and status read the master switch first; release guards; prompt-injection tests
+
+Product release label **v0.3.1** (root VERSION).
 
 ### Changed (release process, F9)
 - `release.yml` has a first guard, `pinned`: the tag must still point at the commit the run was started for (`github.sha`), the commit the archive is built from. Before, the other guards read the tag at run time, so a tag moved after the push could pass the checks while the old commit was released (found by the automated push review).
