@@ -209,10 +209,10 @@ final class InternalHostClassifierTest extends TestCase
     }
 
     /**
-     * Decision F4 (option a, document only): a host NAME is never resolved, so a name whose DNS answer is an internal address passes.
-     * The URLs this check guards come from the operator's config file, so the gap is accepted and documented (docs/operations.md,
-     * docs/privacy.md). This test pins that behaviour. When a URL can come from untrusted input, resolve once, connect to the checked
-     * address (CURLOPT_RESOLVE) and flip these assertions to refusals.
+     * Accepted limit (documented in docs/operations.md and SECURITY.md): a host NAME is never resolved, so a name whose DNS answer is
+     * an internal address passes. The URLs this check guards come from the operator's config file. This test pins that behaviour.
+     * When a URL can come from untrusted input, resolve once, connect to the checked address (CURLOPT_RESOLVE) and flip these
+     * assertions to refusals.
      */
     public function testANameThatResolvesToAnInternalAddressIsNotRefusedBecauseNamesAreNotResolved(): void
     {
