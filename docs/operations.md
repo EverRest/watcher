@@ -58,7 +58,7 @@ log text).
 | `skipped_locked` | 0 | Another runner holds this window | none (check you do not run two schedulers) |
 | `failed` | 1 | Source, analysis, delivery or state failed | see the reason and the notice in Slack |
 | `invalid_config` | 2 | Config rejected before any call | fix the named key |
-| `disabled` | 0 | `enabled` is false (the default): nothing was touched | set `enabled=true` / `WATCHER_ENABLED=1` where it should run |
+| `disabled` | 0 | `enabled` is not `true` (the default): nothing was touched, and the rest of the config was not even validated | set `enabled=true` / `WATCHER_ENABLED=1` where it should run |
 
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
@@ -371,7 +371,7 @@ vendor/bin/watcher hygiene --config=config/watcher.php --decline=<id> # quiet a 
 vendor/bin/watcher hygiene --config=config/watcher.php --dry-run       # read-only look: nothing written, no lock, nothing sent
 ```
 
-Run it **daily** (it stores the aggregates proposals need: 14 complete days before the first proposal; a day that was sampled at the event cap or the time budget, or never ran, is missing history) and add `--notify` once a week. One pass at a time per service (a second one exits 1 `another hygiene pass is running`); a pass stops reading at `hygiene.max_seconds` and says it is sampled. A "gone" retraction needs `max(hygiene.repeat_days, 2)` complete quiet days (days that were not sampled) without the site, so a weekly job is not reported gone and new again. The pass lock lives `schedule.lock_ttl` seconds and is renewed while the pass runs when the state store can (`hygiene.max_seconds + schedule.lock_ttl + 60` seconds on a store that cannot); a failed lock release is noted (`lock release failed (<Class>)`) and never changes the result; a state failure names the failing class only (`state unavailable (<Class>)`). Even without `--notify` a pass updates its own state (day record, site registry); `--dry-run` (also `php artisan watcher:hygiene --dry-run`) is the read-only look: the writes are shadowed in memory, no lock is taken (a scheduled pass is not blocked), nothing is sent, and a `--now` more than a day ahead of the clock is refused otherwise. It reads the source once per run (one more read than `run` on those days) and calls no model. Exit 0 reports produced or switched off, 1 source/state/delivery failure (a fixed reason), 2 usage or invalid config. Proposals are text: paste a fragment into `mute` / `watch_rules` yourself. Output schema: `specs/006-log-hygiene/contracts/report-schema.md`.
+Run it **daily** (it stores the aggregates proposals need: 14 complete days before the first proposal; a day that was sampled at the event cap or the time budget, or never ran, is missing history) and add `--notify` once a week. One pass at a time per service (a second one exits 1 `another hygiene pass is running`); a pass stops reading at `hygiene.max_seconds` and says it is sampled. A "gone" retraction needs `max(hygiene.repeat_days, 2)` complete quiet days (days that were not sampled) without the site, so a weekly job is not reported gone and new again. The pass lock lives `schedule.lock_ttl` seconds and is renewed while the pass runs when the state store can (`hygiene.max_seconds + schedule.lock_ttl + 60` seconds on a store that cannot); a failed lock release is noted (`lock release failed (<Class>)`) and never changes the result; a state failure names the failing class only (`state unavailable (<Class>)`). Even without `--notify` a pass updates its own state (day record, site registry); `--dry-run` (also `php artisan watcher:hygiene --dry-run`) is the read-only look: the writes are shadowed in memory, no lock is taken (a scheduled pass is not blocked), nothing is sent, and a `--now` more than a day ahead of the clock is refused otherwise. It reads the source once per run (one more read than `run` on those days) and calls no model. Every source driver works (`loki`, `datadog`, `kubernetes`); with `kubernetes` the pass binds the cluster ledger to its state store, and a dry run keeps that ledger in memory. Exit 0 reports produced or switched off, 1 source/state/delivery failure (a fixed reason), 2 usage or invalid config. Proposals are text: paste a fragment into `mute` / `watch_rules` yourself. Output schema: `specs/006-log-hygiene/contracts/report-schema.md`.
 
 ## Upgrading
 
@@ -431,7 +431,7 @@ own `environment` (fleet validation rejects a duplicate `service@environment`).
 
 ## Rollback / disabling
 
-Set `WATCHER_ENABLED=0` (the run then touches nothing), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
+Set `WATCHER_ENABLED=0` (the run then touches nothing and works even if the config is broken or half-filled), or remove the schedule (CronJob suspend: `kubectl patch cronjob ... -p '{"spec":{"suspend":true}}'`). The package changes
 nothing in your service or its logs; state can stay or be deleted.
 
 **Rolling back to a release without Redis compression.** An older release cannot decode `z1:` values: it reads them as **missing**, with no crash.

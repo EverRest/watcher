@@ -46,6 +46,7 @@ use Watcher\Operate\Doctor;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\HeartbeatStatus;
 use Watcher\Operate\ModelCatalog;
+use Watcher\Operate\RefusedAccess;
 use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
 use Watcher\Notify\TelegramNotifier;
@@ -613,6 +614,10 @@ final class Factory
     {
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
+        if (!$c->enabled) {
+            // Master switch: validate only; no source, state, catalog or notifier is built.
+            return new Doctor($c, RefusedAccess::source(), RefusedAccess::state(), null, RefusedAccess::notifier(), $clock);
+        }
         $http ??= self::http();
         $state = self::state($c, $clock);
         $probe = $c->observe->anyEnabled() ? self::observe($c, $clock, null, new ObserveCounters($state, $c->stateKey, $c->state['retention']), probe: true) : null;

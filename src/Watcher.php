@@ -149,6 +149,9 @@ final class Watcher
 
     private ?int $fleetDeadline = null;
 
+    /** Set only by switchedOff(): the master switch was off, so no collaborator exists. */
+    private ?RunResult $disabled = null;
+
     private ?string $lockKey = null;
 
     private ?string $lockOwner = null;
@@ -228,6 +231,10 @@ final class Watcher
      */
     public static function fromConfig(#[\SensitiveParameter] array $config, ?LoggerInterface $hostLog = null, ?ClockInterface $clock = null, ?RunOptions $options = null, mixed $out = null): self
     {
+        if (WatchConfig::masterSwitchOff($config)) {
+            // Before validation: the kill switch works on a broken or half-filled config, and builds nothing.
+            return self::switchedOff($config, $hostLog);
+        }
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
         $http = Factory::http();
@@ -266,6 +273,17 @@ final class Watcher
         return $this->guard?->reason();
     }
 
+    /** @param array<string, mixed> $config only `service` and `environment` are read, and only when they look like names */
+    private static function switchedOff(#[\SensitiveParameter] array $config, ?LoggerInterface $hostLog): self
+    {
+        $name = static fn (mixed $v): ?string => is_string($v) && preg_match('/^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/D', $v) === 1 ? $v : null;
+        $self = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(self::class, 'hostLog'))->setValue($self, $hostLog); // the one readonly a caller can observe
+        $self->disabled = new RunResult(RunOutcome::Disabled, null, null, new RunSummaryData(RunOutcome::Disabled, $name($config['service'] ?? null), null, environment: $name($config['environment'] ?? null)));
+
+        return $self;
+    }
+
     /** State-key component for a window end (UTC, second precision). */
     public static function windowKey(DateTimeImmutable $end): string
     {
@@ -280,6 +298,9 @@ final class Watcher
 
     public function run(?DateTimeImmutable $now = null): RunResult
     {
+        if ($this->disabled !== null) {
+            return $this->disabled;
+        }
         if (!$this->config->enabled) {
             // The master switch: no source, state, model or notifier access, not even a heartbeat.
             return new RunResult(RunOutcome::Disabled, null, null, new RunSummaryData(RunOutcome::Disabled, $this->config->service, null, environment: $this->config->environment));
