@@ -349,7 +349,8 @@ final class ModelRouter
         };
         $rank = min((int) array_search($f->severity, $order, true), min(3, $observed + 1));
         if ($protected) {
-            $rank = max($rank, 1);
+            // The logs already show the level: a model may raise a finding above it, never put it below (warn at least).
+            $rank = max($rank, min(3, max(1, $observed)));
         }
         $kind = $protected && $f->kind === FindingKind::Noise ? FindingKind::Anomaly : $f->kind;
 

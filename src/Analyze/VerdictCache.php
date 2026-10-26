@@ -90,7 +90,9 @@ final class VerdictCache
         }
         // The analysis path is the same trust problem as triage: for an error-or-higher / watch-rule group, "analysed, nothing to report"
         // (or only noise/info) must never settle, also not when an older version of the package stored it.
-        if (self::mustNotBeSilenced($g) && (!isset($v['finding']) || ($v['finding']['kind'] ?? null) === FindingKind::Noise->value || ($v['finding']['severity'] ?? null) === Severity::Info->value)) {
+        $severity = $v['finding']['severity'] ?? null;
+        if (self::mustNotBeSilenced($g) && (!isset($v['finding']) || ($v['finding']['kind'] ?? null) === FindingKind::Noise->value || $severity === Severity::Info->value
+            || ($g->level->value >= Level::Error->value && !in_array($severity, [Severity::Error->value, Severity::Critical->value], true)))) {
             return false;
         }
 
