@@ -224,6 +224,29 @@ Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) an
 - **What leaves the server.** Validation returns key paths, error codes and catalog hints. It never returns a value, a message or
   a string of the file. A plain-text secret literal is reported by its key path only.
 
+## Residual risk: log text steers the model (security review F8)
+
+Log text is written by whoever can write logs, and it reaches the model. The protections above (no ping, link or
+markup in any channel; error-or-higher groups keep their level; `daily_budget_usd` and `group_cap` bound the work) are
+pinned by `tests/EndToEnd/PromptInjectionTest.php`, `tests/EndToEnd/ErrorGroupLevelTest.php` and
+`tests/EndToEnd/HostileVolumeBudgetTest.php` over the hostile corpus in `tests/Fixtures/prompt-injection/`. What remains:
+
+- **Spend.** Someone who can write logs can raise model spend up to `analysis.daily_budget_usd` for the day, and
+  `analysis.run_budget_usd` per run. The cap is the bound, not a floor: spend goes to the cap and then triage and analysis stop
+  (the digest says so). Thousands of distinct groups do not change this; `source.group_cap` and the token bound
+  truncate what a single request carries.
+- **Wording.** The same person can influence what a summary, a title, the evidence or a suggested check says, within the
+  limits above. The text is a hypothesis for the on-call engineer to verify, not a fact the service has established.
+- **Not possible.** Such a person cannot ping a channel (`<!channel>`, `<!here>`, `<@U…>`), add a link or a clickable domain,
+  add markup that renders, or hide an error-or-higher group. Triage cannot silence it and a finding cannot push it below its
+  level in the logs.
+- **Known exception (open).** A host written in capitals on a top-level domain that `SlackText` does not list is not
+  defanged: `EVIL.ABOGADO/RESET` passes unchanged (`SlackText::escape`), while `EVIL.COM/RESET` and `evil.abogado/reset` are
+  defanged. A channel may link such a host. The corpus does not pin this case yet, because the fix is a decision (extend the
+  list, or defang every capitalised label) and not a test-only change.
+
+The mitigations are in code, not in the prompt (see the bullets under *Model text is untrusted* above).
+
 ## Limits you must know
 
 - **Outbound URLs are checked by their text, not by their DNS answer.** A configured host name that resolves to a loopback,
@@ -264,7 +287,7 @@ Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) an
   - *The model cannot make an error group disappear.* A group at `error` or above, or matched by a watch rule, is never dropped by a triage verdict (`noise`, `known`, a missing or empty verdict are all overruled and the group is analysed; the digest says `triage marked N error-or-higher or watch-rule group(s) as noise, known or left them out`). A group triage was sent but gave no verdict for is treated as `interesting` (fail closed) and counted in the same digest line; a duplicate verdict, an unknown fingerprint or malformed JSON is invalid output (one retry, then a loud failure notice). If the analysis reports nothing, or only a `noise`/`info` finding, for such a group it is **not remembered** (no 30-day verdict): it is analysed again next window and the digest says `N error-or-higher or watch-rule group(s) were analysed but the model reported nothing for them`. Lower-level groups keep the cheap reuse (30 days with a finding or none, 3 days for a triage `noise`/`known`), and the digest now counts both, `N lower-level group(s) dropped by triage` and `N group(s) reused from earlier verdicts`. A run that silenced nothing visible can still not end as a quiet day when the model overruled the code.
   - *Severity and kind are bounded by the logs.* A finding is shown at most one step above the highest level its groups have in the logs (an `info`/`warn`/`error`/`critical` ladder), for an error-or-higher group never below that group's level (a model cannot put it below), for a watch-rule group at least `warn`, and never as `noise` for either. A cached verdict whose finding is below the level of an error-or-higher group is not reused. A `noise`/`info` finding is attached only to the first group it cites and to groups with the same exception type; other cited groups are treated as not covered. The model's confidence only decides whether an already `error`-level group is sent to the stronger model (capped by `escalation_cap`).
   - *Advice text is filtered in code.* `suggested_action`, `how_to_check` and `suspected_cause` have command-shaped text replaced by `[withheld]` (the rest of the finding stays): `curl`/`wget` piped to a shell, `| sh`, `&&`, `||`, `$(...)`, backticks, `; rm|sudo|curl|...`, `rm -`, `paste ... token|password|secret|key|credential`, `rotate all ...`, `sudo`, `chmod`, `chown`, `mkfs`, `DROP TABLE|DATABASE|SCHEMA`, `TRUNCATE TABLE`, `DELETE FROM`, `kubectl delete|exec|apply|patch|scale|...`, `systemctl stop|restart|disable`, `service X stop|restart`, `iptables -F|-X`, `ufw disable`, `curl|wget` uploading a file (`-d @`, `-F ...@`, `--post-file`), `nc -e`, `dd if=`, `shutdown|reboot|halt` with arguments, `killall`, `pkill`, `kill -9`, `> /dev/...`, `git push --force`, `docker rm|rmi|stop|kill`, `base64 -d`, `python|perl|ruby -c|-e`. The rules run on the canonical text too (zero-width and bidi characters stripped, NFKC folded, percent and entity decoded), so disguised forms are withheld. The match runs to the end of its sentence. This is a small denylist, not proof of safety. The no-URL rule (links, `www.` hosts, e-mail addresses) is enforced in code for every text field, not only by the prompt and the Redactor.
-  - *Display.* Emphasis characters in model text are neutralised by the shared escaper (`SlackText::escape`). Bidi controls (U+202A-202E, U+2066-2069) and zero-width characters are not yet removed there; see the open item in the security review.
+  - *Display.* Emphasis characters in model text are neutralised by the shared escaper (`SlackText::escape`). Format characters (bidi controls U+202A-202E and U+2066-2069, zero-width characters, the BOM, soft hyphen) are removed there before anything else, and a zero-width space breaks the hosts `SlackText` recognises (see the known exception below). `tests/Fixtures/prompt-injection/corpus.php` pins this for each channel.
   - *Ordering and cost.* `top_m` slots are filled by watch rule, level, growth, then novelty, with volume and a salted hash as tie-breakers; new groups take at most half of the slots while older ones wait (the digest counts the overflow). A fingerprint minted by an attacker therefore cannot outrank a grown real group of the same level.
   - *Refusals.* A `refusal` stop reason is not retried; it fails the run loudly (`triage: the model refused the request`), is billed, and records the window as `failed` with the code `analysis_refused`, so hourly triggers do not pay for it again. Any other analysis failure is retried by the next trigger once; the second failure of the same window is recorded as failed too (`no further attempts for this window`). The next window starts clean.
   - *Limits.* This reduces what a steered model can do; it does not stop it writing misleading **text** inside the bounds above, which is why model text is labelled as hypothesis and verified by the on-call engineer. A user who can make the service log a string equal to a declared dependency host (three or more times) can still make a consumer group look like it references that dependency in fleet correlation; a placeholder typed inside another placeholder is not counted.
@@ -288,6 +311,10 @@ Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) an
 - `tests/EndToEnd/PrivacyTest.php` runs the whole pipeline over it and fails if any seeded value appears in **any** request
   to the model (triage, analysis, dependency section, service context), any Slack message (raw, decoded once and twice)
   or any stored value. A control run proves the test sees leaks when the protection is switched off.
+- `tests/EndToEnd/PromptInjectionTest.php` runs 42 hostile log lines (instructions, fake verdicts and system tags,
+  Slack, Markdown and HTML markup, pings, links, look-alike and zero-width characters, ANSI, invalid UTF-8, long and other-language
+  text) through the real Slack, Telegram and Discord notifiers with a model that repeats them. No payload may contain a ping,
+  a link or a raw log line, and the renderer's own markup must not grow above a run with a harmless answer.
 - Unit tests cover the normaliser table, the template miner, the redactor's fail-closed behaviour and the Slack text
   escaping. Several defects were found and fixed this way during development; they are listed in `CHANGELOG.md`.
 
