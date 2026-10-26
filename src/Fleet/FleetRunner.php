@@ -77,8 +77,13 @@ final class FleetRunner
         }
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
-        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share): callable {
-            $watcher = new Watcher(
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share, $http): callable {
+            // Spec 009: a service's own metrics and Sentry (its own tokens, one 60 s budget per call) stop with the run deadline of its Watcher.
+            $late = new class () {
+                public ?Watcher $watcher = null;
+            };
+            $stop = static fn (): ?string => $late->watcher?->stopReason();
+            $watcher = $late->watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
                 $state,
@@ -91,6 +96,8 @@ final class FleetRunner
                 $seam,
                 $sinks[$e->name()],
                 $counters[$e->name()],
+                metrics: $e->config->enabled ? Factory::metricSource($e->config, $http, $stop) : null,
+                issues: $e->config->enabled ? Factory::issueSource($e->config, $http, $clock, $stop) : null,
             );
             if ($share !== null) {
                 $watcher->limitRunTo($share);

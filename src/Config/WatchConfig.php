@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Watcher\Config;
 
+use Watcher\Issues\SentrySettings;
+use Watcher\Metrics\MetricsSettings;
 use Watcher\Notify\Destination;
 use Watcher\Observe\EventSchema;
 use Watcher\Observe\ObserveSettings;
@@ -24,7 +26,7 @@ final class WatchConfig implements \JsonSerializable
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
         'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'observe', 'hygiene',
-        'known_issues', 'drafts', 'report',
+        'known_issues', 'drafts', 'report', 'metrics', 'sentry',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
@@ -84,6 +86,8 @@ final class WatchConfig implements \JsonSerializable
         public readonly ObserveSettings $observe,
         public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
         public readonly \Watcher\Incident\IncidentSettings $incident,
+        public readonly ?MetricsSettings $metrics = null,
+        public readonly ?SentrySettings $sentry = null,
     ) {
     }
 
@@ -96,7 +100,7 @@ final class WatchConfig implements \JsonSerializable
     public function __debugInfo(): array
     {
         $out = get_object_vars($this);
-        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags', 'observe'] as $k) {
+        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags', 'observe', 'metrics', 'sentry'] as $k) {
             $out[$k] = '[redacted]';
         }
 
@@ -284,6 +288,9 @@ final class WatchConfig implements \JsonSerializable
             $observe,
             \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
             $incident,
+            // Spec 009: absent = off. Validated even with `enabled: false`; not a FLAG (the section's own `enabled` is the switch).
+            is_array($config['metrics'] ?? null) ? MetricsSettings::fromArray($config['metrics'], $service) : self::absent($config, 'metrics'),
+            is_array($config['sentry'] ?? null) ? SentrySettings::fromArray($config['sentry']) : self::absent($config, 'sentry'),
         );
     }
 
@@ -969,12 +976,24 @@ final class WatchConfig implements \JsonSerializable
             $this->state['pdo']['password'] ?? null,
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
             ...$this->observe->secrets(),
+            ...($this->metrics?->secrets() ?? []),
+            ...($this->sentry?->secrets() ?? []),
         ];
         $secrets = array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
         // Longest first: masking `sk-ant` before `sk-ant-SECRET` would leave `-SECRET` behind. (usort is stable in PHP 8.)
         usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
 
         return $secrets;
+    }
+
+    /** @param array<array-key, mixed> $config */
+    private static function absent(array $config, string $key): null
+    {
+        if (($config[$key] ?? null) !== null) {
+            throw new InvalidConfig($key . ' must be a map');
+        }
+
+        return null;
     }
 
     /** @return array<string, array<string, mixed>> */
@@ -1082,11 +1101,35 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function links(array $links): array
     {
-        self::only($links, ['grafana', 'datadog', 'logs', 'code'], 'links');
+        self::only($links, ['grafana', 'datadog', 'logs', 'code', 'tempo', 'datadog_apm'], 'links');
         foreach (['grafana' => ['base_url', 'datasource_uid'], 'datadog' => ['app_url']] as $name => $keys) {
             if (is_array($links[$name] ?? null)) {
                 self::only($links[$name], $keys, 'links.' . $name);
             }
+        }
+
+        // Spec 009 US4: trace links. Built, never fetched; the trace id exists only inside the link URL.
+        foreach (['tempo' => ['base_url', 'datasource_uid', 'trace_field', 'service_name'], 'datadog_apm' => ['trace_field', 'service']] as $name => $keys) {
+            if (!array_key_exists($name, $links)) {
+                continue;
+            }
+            if (!is_array($links[$name])) {
+                throw new InvalidConfig('links.' . $name . ' must be a map');
+            }
+            self::only($links[$name], $keys, 'links.' . $name);
+            foreach ($keys as $k) {
+                $v = $links[$name][$k] ?? null;
+                $bad = $v !== null && (!is_string($v) || $v === '' || ($k === 'trace_field' && preg_match('/^[A-Za-z0-9_.-]{1,40}$/D', $v) !== 1));
+                if ($bad || ($name === 'tempo' && in_array($k, ['base_url', 'datasource_uid'], true) && $v === null)) {
+                    throw new InvalidConfig('links.' . $name . '.' . $k . ($v === null ? ' is required' : ' is invalid'));
+                }
+            }
+        }
+        if (isset($links['tempo']['base_url']) && SecureUrl::problem((string) $links['tempo']['base_url']) !== null) {
+            throw new InvalidConfig('links.tempo.base_url must be an https URL without credentials');
+        }
+        if (array_key_exists('datadog_apm', $links) && !is_string($links['datadog']['app_url'] ?? null)) {
+            throw new InvalidConfig('links.datadog_apm requires links.datadog.app_url');
         }
 
         return $links;

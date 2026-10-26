@@ -29,6 +29,8 @@ final class AnthropicAnalyzer implements Analyzer
             $req->model,
             self::triageOutputCap($req->maxOutputTokens, count($req->groups)),
             fn (array $data): array => $this->validator->triage($data, $allowed),
+            [],
+            $req->extras,
         );
 
         return new TriageResult($out['verdicts'], $usage);
@@ -68,6 +70,7 @@ final class AnthropicAnalyzer implements Analyzer
             $req->maxOutputTokens,
             fn (array $data): array => $this->validator->analysis($data, $allowed, array_map(static fn (DependencyContext $d): string => $d->name, $req->dependencyContext)),
             $req->dependencyContext,
+            $req->extras,
         );
 
         return new AnalysisResult($findings, $usage);
@@ -86,13 +89,13 @@ final class AnthropicAnalyzer implements Analyzer
      *
      * @return array{0: T, 1: Usage}
      */
-    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = []): array
+    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = [], ?PayloadExtras $extras = null): array
     {
         $usage = null;
 
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
             try {
-                $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext);
+                $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext, $extras);
             } catch (AnalyzerFailed $e) {
                 throw $usage === null ? $e : new AnalyzerFailed($e->getMessage(), $usage); // attempt 1 was billed even though attempt 2 failed
             }
@@ -120,13 +123,13 @@ final class AnthropicAnalyzer implements Analyzer
      * @param list<RedactedGroup>     $groups
      * @param list<DependencyContext> $dependencyContext
      */
-    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = []): ModelReply
+    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = [], ?PayloadExtras $extras = null): ModelReply
     {
         return $this->client->create(
             $model,
             $maxTokens,
-            Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice),
-            CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext), bin2hex(random_bytes(16))),
+            Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice, $extras !== null),
+            CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext, $extras), bin2hex(random_bytes(16))),
             ProviderSchema::for($kind, $this->advice),
             $kind !== 'triage',
         );

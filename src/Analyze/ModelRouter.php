@@ -8,6 +8,7 @@ use Watcher\Context\DependencyContext;
 use Watcher\Level;
 use Watcher\Privacy\GroupStatusLabel;
 use Watcher\Privacy\RedactedGroup;
+use Watcher\Select\Tier;
 
 /** Cost routing: reuse verdicts, one cheap triage, one analysis of the top-M, capped escalation (FR-016..FR-020). */
 final class ModelRouter
@@ -56,10 +57,10 @@ final class ModelRouter
         $notTriaged = 0;
         $sent = [];
         if ($pending !== []) {
-            if (!$triageOnly && $reservation !== null && !self::fits($reservation, $this->s->triageModel, $this->inputTokens('triage', $pending), AnthropicAnalyzer::triageOutputCap($this->s->triageMaxTokens, count($pending)))) {
+            if (!$triageOnly && $reservation !== null && !self::fits($reservation, $this->s->triageModel, $this->inputTokens('triage', $pending, [], $this->s->metrics?->forTriage($pending)), AnthropicAnalyzer::triageOutputCap($this->s->triageMaxTokens, count($pending)))) {
                 $notTriaged = count($pending);
             } else {
-                $tri = $this->analyzer->triage(new TriageRequest($pending, $this->s->serviceContext, $this->s->triageModel, $this->s->triageMaxTokens));
+                $tri = $this->analyzer->triage(new TriageRequest($pending, $this->s->serviceContext, $this->s->triageModel, $this->s->triageMaxTokens, $this->s->metrics?->forTriage($pending)));
                 $usage['triage'] = $tri->usage;
                 $verdicts += $tri->verdicts;
                 $sent = array_flip(array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $pending));
@@ -107,12 +108,12 @@ final class ModelRouter
             $topContext = self::remap($dependencyContext, $groups, $top);
             $analyzeCap = AnthropicAnalyzer::analysisOutputCap($this->s->analyzeMaxTokens, count($top), $this->s->advice);
 
-            if ($reservation !== null && !self::fits($reservation, $this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext), $analyzeCap)) {
+            if ($reservation !== null && !self::fits($reservation, $this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext, $this->s->metrics), $analyzeCap)) {
                 $notAnalysed = count($interesting);
                 $newOverflow = 0;
             } else {
                 try {
-                    $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext));
+                    $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext, $this->s->metrics));
                 } catch (AnalyzerFailed $e) {
                     // Triage was paid for: keep its verdicts for the retry of this window.
                     if ($this->s->triageEnabled) {
@@ -140,13 +141,13 @@ final class ModelRouter
                         }
                         [$sub, $subContext] = $fit;
                         $escalateCap = AnthropicAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
-                        if ($reservation !== null && !self::fits($reservation, $this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext), $escalateCap)) {
+                        if ($reservation !== null && !self::fits($reservation, $this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext, $this->s->metrics), $escalateCap)) {
                             ++$skippedBudget;
                             $out[] = [$f, $weak];
                             continue;
                         }
                         ++$escalations;
-                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext));
+                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext, $this->s->metrics));
                         $usage['escalate'] = isset($usage['escalate']) ? $usage['escalate']->plus($again->usage) : $again->usage;
                         if ($again->findings !== []) {
                             foreach ($this->vet($again->findings, $byFp, $detached) as [$e, $w]) {
@@ -202,9 +203,9 @@ final class ModelRouter
      * @param list<RedactedGroup>     $groups
      * @param list<DependencyContext> $context
      */
-    private function inputTokens(string $kind, array $groups, array $context = []): int
+    private function inputTokens(string $kind, array $groups, array $context = [], ?PayloadExtras $extras = null): int
     {
-        return Budget::fixedTokens($kind, $this->s->serviceContext, $this->s->advice) + Budget::estimateTokens(CompactPayload::encode($groups, $context));
+        return Budget::fixedTokens($kind, $this->s->serviceContext, $this->s->advice, $extras !== null) + Budget::estimateTokens(CompactPayload::encode($groups, $context, $extras));
     }
 
     /** A step can take two calls (a retry on invalid output, with up to twice the output cap): reserve for both. */
@@ -225,16 +226,16 @@ final class ModelRouter
     private function fitEscalation(array $groups, array $context): ?array
     {
         $max = $this->s->escalateMaxInputTokens;
-        if ($this->inputTokens('analyze', $groups, $context) <= $max) {
+        if ($this->inputTokens('analyze', $groups, $context, $this->s->metrics) <= $max) {
             return [$groups, $context];
         }
         $context = Budget::fitDependencies($groups, $context, $max, Budget::fixedTokens('analyze', $this->s->serviceContext, $this->s->advice));
-        if ($this->inputTokens('analyze', $groups, $context) <= $max) {
+        if ($this->inputTokens('analyze', $groups, $context, $this->s->metrics) <= $max) {
             return [$groups, $context];
         }
         $groups = array_map(static fn (RedactedGroup $g): RedactedGroup => new RedactedGroup($g->fingerprint, $g->template, $g->level, $g->errorType, [], $g->count, $g->previousCount, $g->status, $g->watchMatches, $g->firstSeen, $g->lastSeen), $groups);
 
-        return $this->inputTokens('analyze', $groups, $context) <= $max ? [$groups, $context] : null;
+        return $this->inputTokens('analyze', $groups, $context, $this->s->metrics) <= $max ? [$groups, $context] : null;
     }
 
     /**
@@ -359,9 +360,15 @@ final class ModelRouter
     /** watch rule, then level, then growth; novelty last (a minted fingerprint is always new); then volume, then a salted hash. */
     private function byPriority(RedactedGroup $a, RedactedGroup $b): int
     {
-        return self::rank($b) <=> self::rank($a)
+        return self::shielded($b) <=> self::shielded($a) // a log group at Error or above is never displaced by a Sentry or metric group (spec 009)
+            ?: self::rank($b) <=> self::rank($a)
             ?: $b->count <=> $a->count
             ?: strcmp(hash('sha256', $this->s->tieSalt . $a->fingerprint), hash('sha256', $this->s->tieSalt . $b->fingerprint));
+    }
+
+    private static function shielded(RedactedGroup $g): int
+    {
+        return $g->watchMatches !== [] || (!Tier::isExtra($g->fingerprint) && $g->level->atLeast(Level::Error)) ? 1 : 0;
     }
 
     private static function rank(RedactedGroup $g): int

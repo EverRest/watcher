@@ -233,11 +233,46 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 | `deploy.release`, `deploy.commit` | null | Usually from CI. A new group after a release change is marked "first seen after <release>". |
 | `deploy.version_label` | null | Log label that carries the running version, if your source has one (gives the deploy moment). |
 | `links.grafana.{base_url,datasource_uid}` / `links.datadog.app_url` | none | Builds a log-query link per finding from redacted data only. |
+| `links.tempo.{base_url,datasource_uid,trace_field,service_name}` / `links.datadog_apm.{trace_field,service}` | none | A trace link per log finding (spec 009). `trace_field` (default `trace_id`) names the log field read for a trace id; a valid id (16-32 hex) of the group's earliest event goes **only inside the link URL** of the digest, never to the model, state, `--json` or a notice; a group without one gets a service-search link. `datadog_apm` needs `links.datadog.app_url`; Tempo wins when both are set. Built, never fetched. |
 | `repo.{provider,web_url,path_map}` | none | `provider` is `gitlab` or `github`; `path_map` maps container path prefixes to repository paths for stack-frame links (needs `deploy.commit`). Vendor paths get no link. |
 
 ## Log hygiene (spec 006)
 
 `hygiene` section; every key optional. `enabled` (default **false**, `WATCHER_HYGIENE_ENABLED` in the shipped configs) switches on the privacy, shape and proposal reports and the cost ledger; the cost report itself needs no switch. Keys: `read_min_level` (`info`), `event_cap` (200000, more is sampled and said so), `max_line_length` (2000), `noisy_share` (0.20), `variable_distinct` (20), `repeat_days` (7), `growth_factor` (2.0), `min_history_days` (14), `mute_min_daily` (100), `watch_lead` (1800 s), `decline_days` (90), `spike_factor` (2.0), `max_seconds` (900, time budget of one pass), `site_allow_dirs` (`[]`, directory names such as `data` that are accepted below a `repo.path_map` root although the privacy report's deny list names them). `variable_distinct` must be at least 5. Invalid values fail at start naming `hygiene.<key>`. Contract: `specs/006-log-hygiene/contracts/config.md`. `allow_constant_labels` (false) lets a message that never varies keep its label and a watch proposal (it may be one person's name; the privacy floor of [privacy.md](privacy.md#log-hygiene-reports-spec-006) otherwise withholds it), `literal_min_sites` (5, at least 2): a literal word of a shown template must be common log vocabulary or seen at that many different sites in the pass, else it is shown as `<w>`.
+
+### `metrics` and `sentry` (optional, spec 009)
+
+Both are **absent by default** (nothing is read, the digest is unchanged). A present section is validated even with `enabled: false`; errors
+name the key path, never a value. They are not feature flags: the section's own `enabled` is the switch. Both are read-only, so give them a
+read-only credential. Contract: `specs/009-metrics-and-sentry/contracts/config.md`.
+
+| Key | Default | Notes |
+|---|---|---|
+| `metrics.enabled` | `true` | `false` keeps the section validated and reads nothing. |
+| `metrics.source.type` | `prometheus` | `prometheus` or `grafana` (the datasource proxy; needs `datasource_uid`, letters, digits, `_ . -`). |
+| `metrics.source.base_url` | required | `https` with a host and no credentials. See "Internal hosts" below. |
+| `metrics.source.auth` | none | `['type' => 'bearer', 'token' => ...]`. A secret: masked everywhere. |
+| `metrics.source.allow_insecure` | `false` | Plain `http` for a loopback, private-network or cluster-local host. |
+| `metrics.source.allow_private_network` | `false` | Permits RFC 1918 and cluster-local (`*.svc`, `*.cluster.local`, `*.internal`) hosts. |
+| `metrics.label_allowlist` | `[]` | Label **names** whose values may be shown (at most 5, masked twice, dropped if masking changes them). |
+| `metrics.max_anomalies` | `3` | 0..10 metric anomalies turned into candidates per run. |
+| `metrics.max_points` | `500` | 10..11000 samples a `range` query may return. |
+| `metrics.vars` | `[]` | Extra `{placeholders}`; values match `[A-Za-z0-9_.:/-]{1,64}`. |
+| `metrics.queries` | required | 1..6 metrics, `name => ['query', 'aggregate' (sum\|max\|avg\|last), 'unit', 'mode' (instant\|range), 'threshold' => ['relative', 'floor']]`. Built-in placeholders: `{service}`, `{window}`, `{start}`, `{end}`, `{baseline_start}`, `{baseline_end}`. No `threshold` = context line only, never an anomaly. |
+| `sentry.enabled` | `true` | |
+| `sentry.base_url` | `https://sentry.io` | A self-hosted Sentry: its URL. Same rules as `metrics.source.base_url`. |
+| `sentry.organization`, `sentry.project` | required | Slugs (`A-Za-z0-9._-`, not only dots). |
+| `sentry.auth_token` | required | A secret; read scope for issues only. |
+| `sentry.max_issues` | `50` | 1..100 issues per run. |
+| `sentry.allow_insecure`, `sentry.allow_private_network` | `false` | As for `metrics.source`. |
+
+**Internal hosts.** Both URLs go through the same shared classifier as `observe.http` (`SecureUrl::internalHost`). An internal Prometheus or
+Sentry in RFC 1918 space (`10/8`, `172.16/12`, `192.168/16`) or a cluster-local name (`*.svc`, `*.cluster.local`) is refused unless
+`allow_private_network: true` is set on that section; plain `http` additionally needs `allow_insecure: true`; loopback needs `allow_insecure: true`. Link-local
+(cloud credentials), CGNAT, metadata and the reserved ranges stay refused whatever is allowed, in every numeric spelling; a ClusterIP in CGNAT or
+unique-local IPv6 space cannot be configured, use the service's `*.svc` name. Host names are not resolved to check them (a documented limit). Redirects
+are never followed; every call has a 60 s wall-clock budget and stops when the run deadline is reached.
+
 
 ## Digest notices (counts only, never raw content)
 

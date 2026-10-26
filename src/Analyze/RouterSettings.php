@@ -26,6 +26,8 @@ final class RouterSettings
         public readonly bool $advice = true,
         /** Per-run random salt for the top_m tie-break, so a fingerprint cannot be ground to sort first. */
         public readonly string $tieSalt = '',
+        /** spec 009: measured metrics for the payload's `m` section, already fitted to the budget; null = none */
+        public readonly ?PayloadExtras $metrics = null,
     ) {
     }
 }

@@ -197,6 +197,14 @@ return [
         'enabled' => false,
     ],
 
+    // Optional, read-only metrics and Sentry issues (spec 009, docs/configuration.md). Absent = off. Read-only tokens; an internal host needs
+    // allow_private_network (RFC 1918, *.svc) and plain http also allow_insecure. Env: WATCHER_METRICS_URL, WATCHER_METRICS_TOKEN, WATCHER_SENTRY_TOKEN.
+    // 'metrics' => [
+    //     'source' => ['type' => 'prometheus', 'base_url' => Env::string('WATCHER_METRICS_URL'), 'auth' => ['type' => 'bearer', 'token' => Env::string('WATCHER_METRICS_TOKEN')], 'allow_private_network' => false],
+    //     'queries' => ['error_rate' => ['query' => 'sum(rate(http_requests_total{service="{service}",code=~"5.."}[{window}])) / sum(rate(http_requests_total{service="{service}"}[{window}]))', 'aggregate' => 'sum', 'threshold' => ['relative' => 0.5, 'floor' => 0.01]]],
+    // ],
+    // 'sentry' => ['organization' => 'acme', 'project' => 'orders-api', 'auth_token' => Env::string('WATCHER_SENTRY_TOKEN'), 'max_issues' => 50],
+
     // Event sinks (docs/observability.md). Every sink is OFF until its own `enabled` is true. With driver `none` under notify.digest the
     // chat stays silent and a sink is the only channel (at least one must be on). `log` text defaults to on, the others to off.
     'observe' => [

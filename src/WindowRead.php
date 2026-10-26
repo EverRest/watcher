@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Watcher;
 
 use DateTimeImmutable;
+use Watcher\Analyze\PayloadExtras;
 use Watcher\Baseline\Comparison;
 use Watcher\Context\DeployInfo;
+use Watcher\Context\TraceIdCollector;
+use Watcher\Incident\KnownResult;
+use Watcher\Notify\DigestExtras;
 use Watcher\Reduce\EventCollector;
 use Watcher\Reduce\ProblemGroup;
 use Watcher\Schedule\Window;
-use Watcher\Incident\KnownResult;
 use Watcher\Select\MuteResult;
 
 /**
@@ -39,6 +42,9 @@ final class WindowRead
         public readonly int $patternFailures,
         public readonly ?KnownResult $knownResult = null,
         public readonly ?string $knownLine = null,
+        public readonly ?DigestExtras $extras = null,
+        public readonly ?PayloadExtras $payloadExtras = null,
+        public readonly ?TraceIdCollector $traces = null,
     ) {
     }
 }

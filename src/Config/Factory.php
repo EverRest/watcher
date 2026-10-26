@@ -6,6 +6,7 @@ namespace Watcher\Config;
 
 use Closure;
 use GuzzleHttp\Client;
+use GuzzleHttp\ClientInterface;
 use PDO;
 use PDOException;
 use Psr\Clock\ClockInterface;
@@ -19,6 +20,10 @@ use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Analyze\CostCalculator;
 use Watcher\Hygiene\Cost\CostLedger;
 use Watcher\Hygiene\Cost\LedgerAnalyzer;
+use Watcher\Issues\IssueSource;
+use Watcher\Issues\SentryIssueSource;
+use Watcher\Metrics\MetricSource;
+use Watcher\Metrics\PrometheusSource;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Observe\EventSanitizer;
 use Watcher\Observe\FileSink;
@@ -132,6 +137,62 @@ final class Factory
             levelMode: (string) $c->source['level_mode'],
             allowInsecure: ($loki['allow_insecure'] ?? false) === true,
             maxResponseBytes: self::maxResponseBytes($c),
+        );
+    }
+
+    /** Wall-clock seconds one metrics or Sentry call (retries and pages included) may take; both sources share this one figure. */
+    public const SOURCE_BUDGET_SECONDS = 60;
+
+    /**
+     * The metrics source of spec 009, or null when the section is absent or `enabled: false`.
+     *
+     * @param (Closure(): ?string)|null $stop returns a reason once the run must wind down (`RunGuard::reason()`)
+     */
+    public static function metricSource(WatchConfig $c, ClientInterface $http, ?Closure $stop = null): ?MetricSource
+    {
+        $m = $c->metrics;
+        if ($m === null || !$m->enabled) {
+            return null;
+        }
+
+        return new PrometheusSource(
+            $http,
+            $m->baseUrl,
+            $m->token(),
+            $m->type === 'grafana' ? $m->datasourceUid : null,
+            $m->labelAllowlist,
+            $m->maxPoints,
+            allowInsecure: $m->allowInsecure,
+            budgetSeconds: self::SOURCE_BUDGET_SECONDS,
+            stop: $stop,
+            allowPrivateNetwork: $m->allowPrivateNetwork,
+        );
+    }
+
+    /**
+     * The Sentry issue source of spec 009, or null when the section is absent or `enabled: false`.
+     *
+     * @param (Closure(): ?string)|null $stop returns a reason once the run must wind down (`RunGuard::reason()`)
+     */
+    public static function issueSource(WatchConfig $c, ClientInterface $http, ClockInterface $clock, ?Closure $stop = null): ?IssueSource
+    {
+        $s = $c->sentry;
+        if ($s === null || !$s->enabled) {
+            return null;
+        }
+
+        return new SentryIssueSource(
+            $http,
+            $s->baseUrl,
+            $s->organization,
+            $s->project,
+            $s->token(),
+            $s->maxIssues,
+            clock: $clock,
+            allowInsecure: $s->allowInsecure,
+            budgetSeconds: self::SOURCE_BUDGET_SECONDS,
+            stop: $stop,
+            allowPrivateNetwork: $s->allowPrivateNetwork,
         );
     }
 
@@ -481,7 +542,7 @@ final class Factory
         $state = self::state($c, $clock);
         $probe = $c->observe->anyEnabled() ? self::observe($c, $clock, null, new ObserveCounters($state, $c->stateKey, $c->state['retention']), probe: true) : null;
 
-        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe);
+        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe, metrics: self::metricSource($c, $http), issues: self::issueSource($c, $http, $clock));
     }
 
     /**

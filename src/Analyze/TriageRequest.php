@@ -14,6 +14,7 @@ final class TriageRequest
         public readonly string $serviceContext,
         public readonly string $model,
         public readonly int $maxOutputTokens,
+        public readonly ?PayloadExtras $extras = null,
     ) {
     }
 }

@@ -28,7 +28,7 @@ final class EstimatingAnalyzer implements Analyzer
             'step' => 'triage',
             'model' => $req->model,
             'groups' => count($req->groups),
-            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups) . $req->serviceContext),
+            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups, [], $req->extras) . $req->serviceContext),
             'maxTokensOut' => $req->maxOutputTokens,
         ];
         $verdicts = [];
@@ -45,7 +45,7 @@ final class EstimatingAnalyzer implements Analyzer
             'step' => 'analyze',
             'model' => $req->model,
             'groups' => count($req->groups),
-            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups, $req->dependencyContext) . $req->serviceContext),
+            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups, $req->dependencyContext, $req->extras) . $req->serviceContext),
             'maxTokensOut' => $req->maxOutputTokens,
         ];
 
