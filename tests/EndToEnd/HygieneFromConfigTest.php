@@ -104,6 +104,14 @@ final class HygieneFromConfigTest extends TestCase
         self::assertSame(0, $r->exitCode());
         // The file store creates an empty file on open; a written ledger would make it non-empty.
         self::assertTrue(!is_file($this->stateFile) || filesize($this->stateFile) === 0, 'a dry run shadows every write, the cluster ledger included');
+
+        // Positive control: the same state, read by a real pass, does write it, so the empty file above means something.
+        $events = new Response(200, ['Content-Type' => 'application/json'], self::file(self::KUBE . 'events-core.json'));
+        $pods = new Response(200, ['Content-Type' => 'application/json'], self::file(self::KUBE . 'pods.json'));
+        $pods2 = new Response(200, ['Content-Type' => 'application/json'], self::file(self::KUBE . 'pods-page2.json'));
+        Hygiene::fromConfig($h->config(), $h->clock, $this->http([$events, $pods, $pods2]))->run(new HygieneOptions());
+
+        self::assertGreaterThan(0, filesize($this->stateFile), 'a real pass writes the ledger to the same store');
     }
 
     public function testLokiDriverRunsFromConfig(): void
