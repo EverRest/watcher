@@ -386,6 +386,7 @@ final class KubeCredentialFilesTest extends TestCase
         chmod($this->dir, 0777);
         self::assertStringContainsString('kubernetes.api.token_file', self::message(['server' => 'https://k8s.example', 'token_file' => $t]));
         chmod($this->dir, 01777);
+        clearstatcache(); // PHP 8.2 on Linux keeps the stat of the 0777 mode; the sticky bit is only seen after a clear
         self::assertSame('', self::message(['server' => 'https://k8s.example', 'token_file' => $t]), 'the sticky bit makes a shared directory acceptable');
         chmod($this->dir, 0700);
         self::assertNull(KubeSettings::resolveTokenFile('/'));
