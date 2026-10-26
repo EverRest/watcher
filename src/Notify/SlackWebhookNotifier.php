@@ -7,6 +7,7 @@ namespace Watcher\Notify;
 use Closure;
 use GuzzleHttp\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
+use Watcher\Source\ResponseLimit;
 use Watcher\Source\Retry;
 use Watcher\Source\SourceUnavailable;
 
@@ -55,7 +56,7 @@ final class SlackWebhookNotifier implements Notifier
         $retry = new Retry($this->sleeper, $this->retryBudget);
         try {
             $response = $retry->sendRateLimited(
-                fn (): ResponseInterface => $this->http->request('POST', $to->webhook(), ['json' => $body, 'http_errors' => false, 'allow_redirects' => false, 'verify' => true]),
+                fn (): ResponseInterface => $this->http->request('POST', $to->webhook(), ['json' => $body, 'http_errors' => false, 'allow_redirects' => false, 'verify' => true] + ResponseLimit::options(new \ArrayObject(), Notifier::MAX_RESPONSE_BYTES)),
                 'slack',
                 static function (ResponseInterface $r): ?int {
                     $header = $r->getHeaderLine('Retry-After');

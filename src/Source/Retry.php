@@ -34,14 +34,19 @@ final class Retry
      * Returns the final response (the caller turns a non-2xx one into its own message) or throws for a network failure.
      *
      * @param Closure(): ResponseInterface $send
+     * @param \ArrayObject<string, bool>|null $tripped the response cap's flag ({@see ResponseLimit::options()}): a reply it cut is the
+     *        size of the reply, so asking again only downloads it again
      */
-    public function send(Closure $send, string $name, bool $retryOn500): ResponseInterface
+    public function send(Closure $send, string $name, bool $retryOn500, ?\ArrayObject $tripped = null): ResponseInterface
     {
         $this->waited = 0; // the budget is per call, so one slow page cannot starve later ones
         for ($attempt = 1;; ++$attempt) {
             try {
                 $response = $send();
             } catch (GuzzleException $e) {
+                if ($tripped !== null && isset($tripped['large'])) {
+                    throw new SourceUnavailable($name . ' response too large', true);
+                }
                 if ($attempt >= self::ATTEMPTS || $this->carriesResponse($e) || !$this->wait($attempt, null)) {
                     throw new SourceUnavailable($name . ' request failed (' . $e::class . ')'); // not chained: Guzzle's message carries the URL (a bot token, a query)
                 }

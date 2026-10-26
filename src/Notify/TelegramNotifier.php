@@ -7,6 +7,7 @@ namespace Watcher\Notify;
 use Closure;
 use GuzzleHttp\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
+use Watcher\Source\ResponseLimit;
 use Watcher\Source\Retry;
 use Watcher\Source\SourceUnavailable;
 
@@ -49,7 +50,7 @@ final class TelegramNotifier implements Notifier
         }
         try {
             $response = $retry->sendRateLimited(
-                fn (): ResponseInterface => $this->http->request('POST', 'https://api.telegram.org/bot' . $to->botToken() . '/sendMessage', ['json' => $body, 'http_errors' => false, 'allow_redirects' => false]),
+                fn (): ResponseInterface => $this->http->request('POST', 'https://api.telegram.org/bot' . $to->botToken() . '/sendMessage', ['json' => $body, 'http_errors' => false, 'allow_redirects' => false] + ResponseLimit::options(new \ArrayObject(), Notifier::MAX_RESPONSE_BYTES)),
                 'telegram',
                 static function (ResponseInterface $r): ?int {
                     $after = json_decode((string) $r->getBody(), true)['parameters']['retry_after'] ?? null;

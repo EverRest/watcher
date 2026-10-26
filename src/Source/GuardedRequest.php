@@ -67,7 +67,7 @@ final class GuardedRequest
                     }
                     throw $e;
                 }
-            }, $this->name, true);
+            }, $this->name, true, $tripped);
         } catch (SourceUnavailable $e) {
             throw match (true) {
                 $e->getMessage() === 'timeout' => $e,

@@ -207,7 +207,7 @@ final class OpenApiSource
         } catch (Throwable $e) {
             throw new SourceUnavailable($tripped['large'] ? 'too_large' : self::failure($e));
         }
-        if (strlen($raw) > $this->maxBytes) {
+        if (strlen($raw) > $this->maxBytes || $tripped['large']) { // a cut body is short: the flag, not the length, says it was too big
             throw new SourceUnavailable('too_large');
         }
 
