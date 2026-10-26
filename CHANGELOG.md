@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-No release number is assigned here: `VERSION` stays 0.1.3 and the integrator numbers the release. The bullets below are grouped by feature; none of them is a separate product version.
+`VERSION` is 0.2.0 (minor bump on this branch). The bullets below are not yet promoted to a release heading; they are grouped by feature.
+
+### Fixed (protected groups keep their level)
+- A finding for an error-or-higher group is never shown below that group's level, so a `warn` finding with low confidence no longer goes into the "minor" line. A cached `interesting` verdict whose finding sits below the group's level is not reused. Side effect: a low-confidence finding that is now `error` for an error-level group is escalated to the strong model (capped by `analysis.escalation_cap`), so such a run can make extra strong-model calls.
 
 ### Added (spec 008, Kubernetes events)
 - `KubernetesEventsSource`: pod-level problems (crash loops, OOM kills, image pull failures, failing probes, restarts, HPA metric errors, evictions) as a third `LogSource`, read-only (`GET` on `events` and `pods` only, enforced by an architecture test), usable beside the main source (`events` => `['driver' => 'kubernetes']`) or alone (`source.driver: kubernetes`). Settings in the new `kubernetes` section (`namespaces` required, no "all namespaces"); flag `kubernetes.enabled` / `WATCHER_KUBERNETES_ENABLED` (default on). Setup, RBAC and limits: `docs/kubernetes.md`.
