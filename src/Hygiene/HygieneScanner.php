@@ -88,7 +88,7 @@ final class HygieneScanner
         $fields = array_map(static fn (mixed $v): mixed => is_string($v) ? $clean($v) : $v, $e->fields);
         $labels = array_map($clean, $e->labels);
 
-        return $changed ? new LogEvent($e->time, $e->level, $message, $type, $frames, $fields, $labels, $e->occurrences, $e->podId, $e->origin, $e->workloadKind) : $e;
+        return $changed ? new LogEvent($e->time, $e->level, $message, $type, $frames, $fields, $labels) : $e;
     }
 
     /**

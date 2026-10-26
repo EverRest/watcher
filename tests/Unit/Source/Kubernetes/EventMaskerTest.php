@@ -259,6 +259,10 @@ final class EventMaskerTest extends TestCase
             'delete after the keyword' => ["configmap\x7Fzqkvcanary missing", ['zqkvcanary']],
             'unassigned after the keyword' => ["secret\u{0378}zqkvcanary not found", ['zqkvcanary']],
             'control inside the name' => ["secret zqkv\x00canary not found", ['zqkvcanary', 'canary']],
+            'percent-encoded space after the keyword' => ['Error: secret%20zqkvcanary not found', ['zqkvcanary']],
+            'percent-encoded keyword and space' => ['Error: %73ecret%20zqkvcanary not found', ['zqkvcanary']],
+            'json-like quoted key with an unquoted value' => ['Error: {"secret":zqkvcanary} not found', ['zqkvcanary']],
+            'json-like key with a space' => ['Error: "configmap": zqkvcanary not found', ['zqkvcanary']],
             'unquoted pvc' => ['persistentvolumeclaim data-acme-ledger-0 not found', ['acme-ledger']],
         ];
     }
@@ -317,6 +321,31 @@ final class EventMaskerTest extends TestCase
             self::assertSame('Pulled <URL>', $this->masker()->mask("Pulled $scheme://admin:hun/ter:2@reg.io/app", [], []), $scheme);
         }
         self::assertSame('Started <ID>', $this->masker()->mask('Started containerd://abcdef0123456789', [], []), 'a bare runtime id is an id, not a URL');
+    }
+
+    /** Every keyword the rewrites know, followed by every separator the rewrites treat specially, inside a credentialed token. */
+    public function testNoRewriteMayRunBeforeTheCredentialPasses(): void
+    {
+        $keywords = ['secret', 'secrets', 'configmap', 'configmaps', 'container', 'containers', 'endpoint', 'endpoints', 'service', 'services', 'serviceaccount',
+            'serviceaccounts', 'persistentvolumeclaim', 'persistentvolumeclaims', 'pvc', 'pvcs', 'volume', 'volumes', 'claim', 'pod', 'image', 'Secret', 'POD', "\u{FF53}ecret", '%73ecret'];
+        $separators = ['%20', '%2520', '+', '%09', '%0a', "\u{00AD}", "\u{200B}", '&#32;', "\u{FF05}20"];
+        $templates = [
+            'https://u:%s%sQPW@host.example/x', 'docker://u:%s%sQPW@host.example', 'https://%s%su:QPW@h.example/', 'dial u:%s%sQPW@db.internal:5432',
+            '"https://u:%s%sQPW@host.example"', 'url=https://u:%s%sQPW@host.example', 'https://u%s:%s%sQPW@h' ,
+        ];
+        foreach ($keywords as $kw) {
+            foreach ($separators as $sep) {
+                foreach ($templates as $tpl) {
+                    $args = substr_count($tpl, '%s') === 3 ? ['', $kw, $sep] : [$kw, $sep];
+                    $input = 'Pull failed: ' . vsprintf($tpl, $args);
+                    $out = $this->masker()->mask($input, [], []);
+
+                    self::assertStringNotContainsString('QPW', $out, $input);
+                    self::assertStringNotContainsString('host.example', $out, $input);
+                    self::assertStringNotContainsString('db.internal', $out, $input);
+                }
+            }
+        }
     }
 
     public function testHostileLongStringsAreMaskedFast(): void

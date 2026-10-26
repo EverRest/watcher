@@ -37,7 +37,7 @@ final class CostReader
     {
         $c = $this->config;
         $tz = new DateTimeZone($c->schedule['timezone']);
-        $gate = new RunGate($c->schedule['run_at'], $tz, $c->schedule['window']);
+        $gate = RunGate::fromSchedule($c->schedule, $tz);
         $latest = $gate->latest($now)->end;
 
         $rows = [];

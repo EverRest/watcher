@@ -60,13 +60,20 @@ final class EventMasker
         $t = trim((string) preg_replace('/\s+/u', ' ', mb_substr($text, 0, self::MAX_INPUT)));
         $folded = class_exists(\Normalizer::class) ? \Normalizer::normalize($t, \Normalizer::FORM_KC) : false;
         $t = is_string($folded) ? $folded : $t; // fullwidth keywords are keywords; invisible characters are kept for the step below
-        // A keyword followed by an invisible character and then a name is still a keyword followed by a name: the character would be
-        // deleted below and glue the two ("secret<U+00AD>name" -> "secretname"), so it becomes the space it stands for.
-        $t = (string) preg_replace('/\b(secrets?|configmaps?|containers?|endpoints?|services?|serviceaccounts?|persistentvolumeclaims?|pvcs?|volumes?|claim|pod|image)[\p{Cf}\p{Cc}\p{Cn}]++(?=[^\p{Cf}\p{Cc}\p{Cn}\s=:])/iu', '$1 ', $t);
         // Twice, on purpose. On the RAW text a credentialed token goes whole, up to the last '@' before real whitespace, so a password
         // holding %3E, %22, &quot; or &#32; is not cut where its decoded form would have a delimiter. Then on the canonical text, so a
         // fullwidth or encoded URL is masked as itself.
         $t = $this->rawUserinfo($t);
+        // No rewrite below may run before this credential pass: `https://u:secret%20pw@h` would be split at the %20 and lose its shape.
+        // A keyword followed by an invisible character and then a name is still a keyword followed by a name: the character would be
+        // deleted below and glue the two ("secret<U+00AD>name" -> "secretname"), so it becomes the space it stands for.
+        $t = (string) preg_replace('/\b(secrets?|configmaps?|containers?|endpoints?|services?|serviceaccounts?|persistentvolumeclaims?|pvcs?|volumes?|claim|pod|image)[\p{Cf}\p{Cc}\p{Cn}]++(?=[^\p{Cf}\p{Cc}\p{Cn}\s=:])/iu', '$1 ', $t);
+        // Letters and digits written as %XX are the same letters (a decoded letter cannot unmask a URL: the URL rules run on the canonical
+        // form anyway), so a keyword spelled `%73ecret` is a keyword; and `%20` right after a keyword is the space it stands for.
+        $t = (string) preg_replace_callback('/%(3[0-9]|4[1-9a-f]|5[0-9a]|6[1-9a-f]|7[0-9a])/i', static fn (array $m): string => chr((int) hexdec($m[1])), $t);
+        $t = (string) preg_replace('/\b(secrets?|configmaps?|containers?|endpoints?|services?|serviceaccounts?|persistentvolumeclaims?|pvcs?|volumes?|claim|pod|image)%20(?=\S)/i', '$1 ', $t);
+        // A JSON-looking pair: the quoted key is a keyword, the value after the colon is the name (`"secret":name`).
+        $t = (string) preg_replace('/["\'](secrets?|configmaps?|containers?|endpoints?|services?|serviceaccounts?|persistentvolumeclaims?|pvcs?|volumes?|claim|pod)["\']\s*:\s*(?=\S)/i', '$1=', $t);
         $t = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[\p{Cc}\p{Cn}]++/u', '', mb_substr(Normalizer::canonical($t), 0, self::MAX_INPUT))));
         $t = $this->urls($this->rawUserinfo($t));
         $t = $this->quotedSpans($t);

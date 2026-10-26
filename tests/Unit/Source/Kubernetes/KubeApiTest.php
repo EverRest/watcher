@@ -155,7 +155,7 @@ final class KubeApiTest extends TestCase
     public function testTransportAndBodyErrors(): void
     {
         try {
-            $this->api(array_fill(0, 3, new ConnectException('boom https://k8s.example ' . self::TOKEN, new Request('GET', 'https://k8s.example'))))->listEvents('shop');
+            $this->api(array_fill(0, 3, self::timeout('boom https://k8s.example ' . self::TOKEN)))->listEvents('shop');
             self::fail('expected SourceUnavailable');
         } catch (SourceUnavailable $e) {
             self::assertSame('kubernetes timeout', $e->getMessage());
@@ -296,7 +296,7 @@ final class KubeApiTest extends TestCase
         $probe->decode = null;
         $handler = function (RequestInterface $r, array $o) use ($chunks, $size, $headers, $gzip, $probe) {
             $probe->decode = $o['decode_content'] ?? null;
-            $response = new Response(200, $headers);
+            $response = self::asInterface(new Response(200, $headers)); // typed as the interface: Guzzle 8's PromiseInterface template is not covariant
             if (isset($o['on_headers'])) {
                 $o['on_headers']($response);
             }
@@ -315,8 +315,13 @@ final class KubeApiTest extends TestCase
         };
         $settings = KubeSettings::fromArray(['namespaces' => ['shop'], 'api' => ['server' => 'https://k8s.example:6443', 'token' => self::TOKEN, 'ca_file' => $this->ca]], true, true, false);
 
-        return [new KubeApi(new Client(['handler' => HandlerStack::create($handler)]), $settings, $this->clock, static function (int $s): void {
+        return [new KubeApi(new Client(['handler' => $handler]), $settings, $this->clock, static function (int $s): void {
         }, null, [], $cap), $probe];
+    }
+
+    private static function asInterface(\Psr\Http\Message\ResponseInterface $r): \Psr\Http\Message\ResponseInterface
+    {
+        return $r;
     }
 
     public function testADeclaredContentLengthOverTheCapIsRefusedBeforeAnyBodyIsRead(): void
@@ -459,18 +464,37 @@ final class KubeApiTest extends TestCase
         self::assertSame($pod['metadata']['ownerReferences'][0]['name'], $kept['metadata']['ownerReferences'][0]['name']);
     }
 
-    public function testARefusedOrUnresolvableConnectionIsNotCalledATimeout(): void
+    /** A connect timeout: its own class on Guzzle 8, a plain ConnectException (no errno) on Guzzle 7. */
+    private static function timeout(string $message): ConnectException
     {
-        if ((new \ReflectionMethod(ConnectException::class, '__construct'))->getNumberOfParameters() < 4) {
-            self::markTestSkipped('Guzzle 8 no longer carries the handler context (errno) on the exception');
+        $timeoutClass = 'GuzzleHttp\\Exception\\ConnectTimeoutException';
+        $class = is_subclass_of($timeoutClass, ConnectException::class) ? $timeoutClass : ConnectException::class;
+        $e = (new \ReflectionClass($class))->newInstanceArgs([$message, new Request('GET', 'https://k8s.example')]);
+        self::assertInstanceOf(ConnectException::class, $e);
+
+        return $e;
+    }
+
+    /** @return list<array{ConnectException, string}> the exceptions each Guzzle major raises for a refused connection, a DNS failure and a timeout */
+    private static function connectionFailures(): array
+    {
+        $req = new Request('GET', 'https://k8s.example');
+        if (class_exists(\GuzzleHttp\Exception\NetworkTimeoutException::class)) { // Guzzle 8: the class says what happened
+            return [[new ConnectException('refused', $req), 'kubernetes unreachable'], [self::timeout('timed out'), 'kubernetes timeout']];
         }
-        foreach ([6 => 'kubernetes unreachable', 7 => 'kubernetes unreachable', 28 => 'kubernetes timeout'] as $errno => $expected) {
-            $e = (new \ReflectionClass(ConnectException::class))->newInstanceArgs(['boom', new Request('GET', 'https://k8s.example'), null, ['errno' => $errno]]);
+        $make = static fn (int $errno): ConnectException => (new \ReflectionClass(ConnectException::class))->newInstanceArgs(['boom', $req, null, ['errno' => $errno]]);
+
+        return [[$make(7), 'kubernetes unreachable'], [$make(6), 'kubernetes unreachable'], [$make(28), 'kubernetes timeout']];
+    }
+
+    public function testARefusedOrUnresolvableConnectionIsNotCalledATimeoutOnEitherGuzzleMajor(): void
+    {
+        foreach (self::connectionFailures() as [$e, $expected]) {
             try {
                 $this->api(array_fill(0, 3, $e))->listEvents('shop');
                 self::fail('expected SourceUnavailable');
             } catch (SourceUnavailable $x) {
-                self::assertSame($expected, $x->getMessage(), (string) $errno);
+                self::assertSame($expected, $x->getMessage(), $e->getMessage());
             }
         }
     }
@@ -516,7 +540,7 @@ final class KubeApiTest extends TestCase
     {
         // The detection must not rely on getPrevious() (main's Retry stopped chaining Guzzle exceptions).
         try {
-            $this->api(array_fill(0, 3, new ConnectException('boom', new Request('GET', 'https://k8s.example'))))->listEvents('shop');
+            $this->api(array_fill(0, 3, self::timeout('boom')))->listEvents('shop');
             self::fail('expected SourceUnavailable');
         } catch (SourceUnavailable $e) {
             self::assertSame('kubernetes timeout', $e->getMessage());

@@ -76,4 +76,12 @@ final class KeysTest extends TestCase
         self::assertSame(172800, Keys::ttl(Keys::ALERT, 2592000, 900));
         self::assertSame(900, Keys::ttl(Keys::LOCK, 2592000, 900));
     }
+
+    public function testApiContextKey(): void
+    {
+        self::assertSame('api:orders:abc123def456', Keys::apiContext('orders', 'abc123def456'));
+        self::assertNotSame(Keys::apiContext('a:b', 'c'), Keys::apiContext('a', 'b:c'));
+        self::assertSame(2592000, Keys::ttl(Keys::API, 2592000, 900));
+        self::assertGreaterThan(0, Keys::ttl(Keys::API, 1, 1));
+    }
 }

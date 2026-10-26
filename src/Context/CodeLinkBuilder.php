@@ -67,11 +67,26 @@ final class CodeLinkBuilder
         $best = null;
         foreach ($map as $prefix => $replacement) {
             $prefix = (string) $prefix;
-            if (is_string($replacement) && $prefix !== '' && str_starts_with($path, $prefix) && ($best === null || strlen($prefix) > strlen($best))) {
+            if (!is_string($replacement) || $prefix === '' || !str_starts_with($path, $prefix)) {
+                continue;
+            }
+            $after = strlen($prefix);
+            if ($after < strlen($path) && !str_ends_with($prefix, '/') && $path[$after] !== '/') {
+                continue;
+            }
+            if ($best === null || strlen($prefix) > strlen($best)) {
                 $best = $prefix;
             }
         }
 
-        return $best === null ? null : (string) $map[$best] . substr($path, strlen($best));
+        if ($best === null) {
+            return null;
+        }
+        $rest = substr($path, strlen($best));
+        if ($rest !== '' && $rest[0] === '/') {
+            $rest = substr($rest, 1);
+        }
+
+        return (string) $map[$best] . $rest;
     }
 }

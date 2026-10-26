@@ -21,7 +21,25 @@ final class Coverage
         public readonly int $unattributed,
         public readonly bool $capped,
         public readonly int $overflow = 0,
+        /** @var array<string, int> entries dropped for lack of room, by severity class (normal, warning, critical) */
+        public readonly array $overflowByClass = [],
     ) {
+    }
+
+    /** Which classes lost entries, in words: counts and fixed class names only. Null when nothing was dropped. */
+    public function overflowText(): ?string
+    {
+        if ($this->overflow <= 0) {
+            return null;
+        }
+        $parts = [];
+        foreach (['critical', 'warning', 'normal'] as $class) {
+            if (($this->overflowByClass[$class] ?? 0) > 0) {
+                $parts[] = number_format($this->overflowByClass[$class]) . ' ' . $class;
+            }
+        }
+
+        return 'ledger_overflow: ' . ($parts === [] ? number_format($this->overflow) . ' entries' : implode(', ', $parts)) . (($this->overflowByClass['critical'] ?? 0) > 0 ? '; critical events may be missing' : '; no critical event was dropped');
     }
 
     public function isComplete(): bool

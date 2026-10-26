@@ -71,6 +71,21 @@ final class DigestRenderer
         return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
     }
 
+    public function renderFingerprintVersionReset(string $service, string $environment, int $groups, int $events, int $fromFpVersion, int $toFpVersion): Message
+    {
+        $text = sprintf(
+            '✅ watcher · %s · %s — baseline reset: fingerprint rules changed (fpv %d → %d). Recorded %s groups, %s events; comparisons and cached verdicts start fresh next run.',
+            $this->esc($service),
+            $this->esc($environment),
+            $fromFpVersion,
+            $toFpVersion,
+            number_format($groups),
+            number_format($events)
+        );
+
+        return new Message($this->cap($this->plain($text), self::MAX_TEXT_CHARS), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     /**
      * @param list<array{f: Finding, n: int, i: int}> $shown
      *
@@ -91,9 +106,13 @@ final class DigestRenderer
             }
             $out[] = ['kind' => 'severity', 'text' => sprintf('%s *%s* (%d)', self::ICONS[$sev->value], $sev->value, count($items))];
             foreach ($items as $s) {
-                $links = $this->annotationLine($s['f'], $d) . $this->linksLine($s['f'], $d);
+                $links = $this->annotationLine($s['f'], $d) . $this->endpointLine($s['f'], $d) . $this->linksLine($s['f'], $d);
                 $out[] = ['kind' => 'finding', 'text' => $this->cap($this->finding($s['f'], $s['n'], $d), self::MAX_SECTION_CHARS - mb_strlen($links)) . $links];
             }
+        }
+
+        if ($d->knownLine !== null && $d->knownLine !== '') {
+            $out[] = ['kind' => 'minor', 'text' => $d->knownLine];
         }
 
         $parts = [];
@@ -116,6 +135,12 @@ final class DigestRenderer
 
         if ($d->comparedWith !== null) {
             $out = [...$out, ...$this->comparedWith($d, $d->comparedWith)];
+        }
+        if ($d->gapFrom !== null && $d->gapTo !== null) {
+            $out[] = ['kind' => 'notice', 'text' => $this->gapLine($d)];
+        }
+        if ($d->catchUpBatch !== null) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ catch-up: %d windows run, oldest first, because the host did not trigger in time.', $d->catchUpBatch)];
         }
         if ($d->levelAnomalyLine !== null) {
             $out[] = ['kind' => 'notice', 'text' => '📈 ' . $this->esc($d->levelAnomalyLine)];
@@ -171,6 +196,12 @@ final class DigestRenderer
         if ($d->patternFailures > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
         }
+        if ($d->routedNotice !== null && $d->routedNotice !== '') {
+            $out[] = ['kind' => 'notice', 'text' => 'ℹ️ ' . $this->esc($d->routedNotice)];
+        }
+        if ($d->draftsSkipped > 0) {
+            $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s more drafts not sent', number_format($d->draftsSkipped))];
+        }
 
         if ($d->undeclaredHostCount > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('🔗 %d call target(s) not declared as dependencies', $d->undeclaredHostCount)];
@@ -179,6 +210,21 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => '⚠️ dependency unavailable: ' . $this->esc($name)];
         }
 
+        $e = $d->endpoints;
+        if ($e !== null) {
+            if ($e->skipped > 0) {
+                $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s endpoint line(s) skipped (api_context.max_endpoints)', number_format($e->skipped))];
+            }
+            if ($e->droppedOps > 0) {
+                $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s operation(s) not kept (cache limit)', number_format($e->droppedOps))];
+            }
+            if ($e->modelDropped) {
+                $out[] = ['kind' => 'notice', 'text' => 'ℹ️ endpoint documentation not sent to the model (token budget)'];
+            }
+            if ($e->unavailable !== null) {
+                $out[] = ['kind' => 'notice', 'text' => '⚠️ API context unavailable (' . $this->esc($e->unavailable) . ')'];
+            }
+        }
         foreach ($d->podEventLines as $line) {
             $out[] = ['kind' => 'notice', 'text' => $this->esc($line)];
         }
@@ -296,9 +342,17 @@ final class DigestRenderer
             $trend .= ' · first seen after ' . $this->esc($after);
         }
 
+        $title = $f->title;
+        foreach ($f->fingerprints as $fp) {
+            if (isset($d->findingLabels[$fp])) {
+                $title = $d->findingLabels[$fp] . ' — ' . $title;
+                break;
+            }
+        }
+
         return sprintf(
             "• %s — %s×%s  `%s`\n  Evidence: %s\n  Hypothesis: %s  Next: %s",
-            $this->esc($f->title),
+            $this->esc($title),
             number_format($count),
             $trend,
             substr($f->fingerprints[0], 0, 12),
@@ -360,6 +414,18 @@ final class DigestRenderer
         foreach ($f->fingerprints as $fp) {
             if (isset($d->annotations[$fp])) {
                 return "\n  🔗 " . $this->esc($d->annotations[$fp]);
+            }
+        }
+
+        return '';
+    }
+
+    /** One documentation line for the finding's endpoint (spec 010): masked and capped upstream, escaped here like any model-adjacent text. */
+    private function endpointLine(Finding $f, DigestData $d): string
+    {
+        foreach ($f->fingerprints as $fp) {
+            if (isset($d->endpoints->lines[$fp])) {
+                return "\n  📖 " . $this->esc($d->endpoints->lines[$fp]);
             }
         }
 
@@ -453,6 +519,30 @@ final class DigestRenderer
     private function k(int $n): string
     {
         return $n < 1000 ? (string) $n : rtrim(rtrim(number_format($n / 1000, 1, '.', ''), '0'), '.') . 'k';
+    }
+
+    private function gapLine(DigestData $d): string
+    {
+        assert($d->gapFrom !== null && $d->gapTo !== null);
+
+        return self::formatGapLine($d->gapFrom, $d->gapTo, $d->gapWindows);
+    }
+
+    public static function formatGapLine(DateTimeImmutable $from, DateTimeImmutable $to, ?int $gapWindows): string
+    {
+        $fmt = static fn (DateTimeImmutable $t): string => $t->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i') . ' UTC';
+        $fromS = $fmt($from);
+        $toS = $fmt($to);
+        if ($gapWindows === null) {
+            return sprintf('⚠️ %s to %s: not analysed. Events in that span were not read.', $fromS, $toS);
+        }
+
+        return sprintf(
+            '⚠️ %s to %s: not analysed (%d window(s) missing or failed). Events in that span were not read.',
+            $fromS,
+            $toS,
+            $gapWindows,
+        );
     }
 
     private function esc(string $s): string

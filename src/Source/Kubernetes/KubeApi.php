@@ -233,14 +233,9 @@ final class KubeApi
                     if (isset($tripped['large'])) {
                         throw new SourceUnavailable('response too large', true); // a curl handler wraps the sink's abort: not a timeout, not retried
                     }
-                    // noted here, not read back from a chained cause; errno 6 (DNS) and 7 (refused) are a wrong or down host, not a slow one
-                    // Guzzle 7 keeps the handler's context on the exception; Guzzle 8 does not, and there the cause stays a plain connection failure.
-                    $errno = method_exists($e, 'getHandlerContext') ? ($e->getHandlerContext()['errno'] ?? null) : null;
-                    if ($errno === 6 || $errno === 7) {
-                        $note->unreachable = true;
-                    } else {
-                        $note->timedOut = true;
-                    }
+                    // noted here, not read back from a chained cause: a wrong or down host is not a slow one
+                    $note->unreachable = !self::isTimeout($e);
+                    $note->timedOut = !$note->unreachable;
                     throw $e;
                 }
             }, 'kubernetes', true);
@@ -266,6 +261,28 @@ final class KubeApi
         } catch (SourceUnavailable $e) {
             throw new SourceUnavailable($e->getMessage() === 'kubernetes response too large' ? $e->getMessage() : 'kubernetes invalid response');
         }
+    }
+
+    /**
+     * Guzzle 8 says what happened in the class (a timeout is a ConnectTimeoutException or NetworkTimeoutException; a plain
+     * ConnectException is a refused connection or a name that does not resolve). Guzzle 7 keeps the cURL errno on the exception:
+     * 6 (DNS) and 7 (refused) are unreachable, anything else (28, or no context) is a timeout.
+     */
+    private static function isTimeout(ConnectException $e): bool
+    {
+        $timeouts = array_filter(['GuzzleHttp\\Exception\\ConnectTimeoutException', 'GuzzleHttp\\Exception\\NetworkTimeoutException'], class_exists(...));
+        if ($timeouts !== []) {
+            foreach ($timeouts as $class) {
+                if (is_a($e, $class)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        $errno = method_exists($e, 'getHandlerContext') ? ($e->getHandlerContext()['errno'] ?? null) : null;
+
+        return $errno !== 6 && $errno !== 7;
     }
 
     /**
@@ -330,6 +347,7 @@ final class KubeApi
         if ($this->afterResolve !== null) {
             ($this->afterResolve)(); // test seam: lets a test swap a path component between the check and the open
         }
+        clearstatcache(true); // judge the file system as it is now, not PHP's cached stat/realpath answers (a swap after the check must be seen)
         $before = @lstat($real);
         $h = $before === false || ($before['mode'] & 0170000) !== 0100000 ? false : @fopen($real, 'rn');
         if ($before === false || $h === false) {
@@ -339,6 +357,7 @@ final class KubeApi
             // Judge the opened handle, then the path once more: the file we hold must be the one the check approved, still reached by
             // the same real path, and nothing about it may have changed on the way.
             $st = fstat($h);
+            clearstatcache(true);
             $after = @stat($real);
             if ($st === false || $after === false || realpath($real) !== $real || KubeSettings::resolveTokenFile($path) !== $real
                 || !KubeSettings::safeTokenStat($st, KubeSettings::effectiveUser())

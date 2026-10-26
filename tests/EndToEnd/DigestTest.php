@@ -261,7 +261,11 @@ final class DigestTest extends TestCase
         foreach ($spy->puts as $key => $ttl) {
             // default retention; the liveness records (spec 002) live 3 x retention
             // the delivered-digest marker is deliberately short-lived (A4-07)
-            self::assertSame(str_starts_with($key, 'hb:') || str_starts_with($key, 'trig:') ? 7776000 : (str_starts_with($key, 'sent:') ? 21600 : 2592000), $ttl, $key);
+            self::assertSame(
+                str_starts_with($key, 'hb:') || str_starts_with($key, 'trig:') || str_starts_with($key, 'hw:') ? 7776000 : (str_starts_with($key, 'sent:') ? 21600 : 2592000),
+                $ttl,
+                $key,
+            );
         }
         foreach ($spy->locks as $ttl) {
             self::assertSame(900, $ttl); // lock_ttl

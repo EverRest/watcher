@@ -11,8 +11,10 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
+use PDO;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
+use Watcher\State\Purgeable;
 use Watcher\Level;
 use Watcher\Schedule\Window;
 use Watcher\Source\ReadFilter;
@@ -148,6 +150,29 @@ final class FactoryTest extends TestCase
         self::assertSame('stale', Factory::heartbeatStatus($config, $clock)->state);
     }
 
+    public function testPdoStoreIsPurgeableThroughTheLazyWrapper(): void
+    {
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
+        $config['state'] = ['driver' => 'pdo', 'pdo' => ['dsn' => 'sqlite::memory:']];
+        $store = Factory::state(WatchConfig::fromArray($config), new FrozenClock(new \DateTimeImmutable()));
+
+        self::assertInstanceOf(Purgeable::class, $store);
+    }
+
+    public function testMysqlPdoSetsFoundRowsAtConnect(): void
+    {
+        $method = new \ReflectionMethod(Factory::class, 'pdo');
+        $method->setAccessible(true);
+        $file = (new \ReflectionClass(Factory::class))->getFileName();
+        self::assertIsString($file);
+        $src = file_get_contents($file);
+        self::assertIsString($src);
+        self::assertStringContainsString('MYSQL_ATTR_FOUND_ROWS', $src);
+        self::assertStringContainsString("str_starts_with(\$dsn, 'mysql:')", $src);
+        $pdo = $method->invoke(null, ['dsn' => 'sqlite::memory:']);
+        self::assertSame('sqlite', $pdo->getAttribute(PDO::ATTR_DRIVER_NAME));
+    }
+
     public function testTheFileStoreGetsScheduleLockTtlAsItsLockLifetime(): void
     {
         $dir = sys_get_temp_dir() . '/watcher-lt-' . bin2hex(random_bytes(4));
@@ -177,6 +202,26 @@ final class FactoryTest extends TestCase
         $this->expectException(\Watcher\Notify\DeliveryFailed::class);
         $this->expectExceptionMessage('telegram delivery failed: HTTP 429');
         $notifier->send(new \Watcher\Notify\Message('x'), \Watcher\Notify\Destination::telegram('123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789', '-100123'));
+    }
+
+    public function testTheStateStoreOfARedisConfigShowsNoPasswordInAnyDumpOrExport(): void
+    {
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
+        $config['state'] = ['driver' => 'redis', 'redis' => ['host' => '127.0.0.1', 'password' => 'REDISPWzqkvcanary']];
+        $c = WatchConfig::fromArray($config);
+        $clock = new \Watcher\Schedule\SystemClock();
+        $objects = [Factory::state($c, $clock), Factory::state($c, $clock, null)];
+
+        foreach ($objects as $store) {
+            ob_start();
+            var_dump($store);
+            var_dump((array) $store);
+            print_r($store);
+            print_r((array) $store);
+            $dump = (string) ob_get_clean() . var_export($store, true) . var_export((array) $store, true) . json_encode($store);
+
+            self::assertStringNotContainsString('REDISPWzqkvcanary', $dump);
+        }
     }
 
     /** @return array<string, mixed> */

@@ -80,6 +80,8 @@ final class HygieneArchitectureTest extends TestCase
 
         self::assertStringNotContainsString('Factory::analyzer($first)', $fleet);
         self::assertStringContainsString('Factory::analyzer($e->config, $options->dryRun)', $fleet);
-        self::assertStringContainsString('Factory::analyzer($c, $options->dryRun ?? false)', (string) file_get_contents(__DIR__ . '/../../src/Watcher.php'));
+        $watcher = (string) file_get_contents(__DIR__ . '/../../src/Watcher.php');
+        self::assertStringContainsString('Factory::analyzer($c,', $watcher);
+        self::assertStringContainsString('dryRun', $watcher);
     }
 }

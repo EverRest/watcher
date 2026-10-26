@@ -225,6 +225,18 @@ Sources that fetch from a URL they were given (metrics, Sentry, an OpenAPI spec)
 proxy the connection goes where the proxy decides, so the check does not cover it. Loki and Slack keep working behind a proxy and are not
 changed; where a proxy must not be used, leave those variables unset for the process.
 
+## API context (spec 010)
+
+With `api_context` configured, a finding whose masked template names a documented route of at most 2 segments gets one `📖 GET /orders/{id} — Get an order [orders]`
+line in the digest and a short `ep` field in the analysis payload. The OpenAPI description is read only when some selected template names a route, at
+most once per `api_context.ttl`, and cached reduced in the state store (key `api:<service>:<source hash>-<settings fingerprint>`, always with a TTL; a
+change of `summary_cap`, `base_path` or the redaction rules is a cache miss). The cache is bounded by the state codec (4 MiB, 100,000 elements, 16,000
+containers, counted on the text): a document with more operations than fit keeps the first ones and the digest says `N operation(s) not kept (cache limit)`;
+an entry the store still cannot hold is simply not cached and read again next run. A source that cannot be read gives one `⚠️ API context unavailable (<token>)`
+note and never fails the run. `watcher check` adds an `api_context` line (`N operations kept, M not kept`, or the failure token) that bypasses the cache,
+posts nothing and spends no tokens. Under `--dry-run` the source is read and nothing is cached. When the analysis input would exceed `analysis.max_input_tokens`,
+the `ep` fields are the first context dropped (the digest lines stay, with a note).
+
 ## Availability guards
 
 A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.
@@ -269,8 +281,8 @@ last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
 compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
 ```
 
-`state` is `ok`, `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
-failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 stale or
+`state` is `ok`, `degraded` (the last run worked but the Kubernetes pod events could not be read: `events:` shows `unavailable` or `stale`, and `reason=k8s_ingest_failed:<code>`), `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
+failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 degraded, stale or
 failed, 3 unknown, 2 bad config. A wrong host clock shows in the `compared:` line, which prints both instants.
 
 Alert from the monitor you already have, probing every 15 minutes:
@@ -302,7 +314,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   runs a subset; correlation then uses only what ran. `--json` prints one line on stdout.
 - **Check and status**: `fleet:check` runs the single-service check for every service plus one shared state check, prints
   the resolved order and warns when a declared dependency is provided by no fleet service. `fleet:status` prints the
-  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` stale or failed, `3` unknown, `0` ok. Alert on the
+  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` degraded (pod events unread), stale or failed, `3` unknown, `0` ok. Alert on the
   fleet heartbeat as in [Heartbeat](#heartbeat-staleness-and-alerting).
 - **Dry run**: `fleet:run --dry-run` prints every service's digest, the combined digest (with `digest: combined`) and the
   correlated finding; nothing is posted, no state is written, the fleet counters are untouched.

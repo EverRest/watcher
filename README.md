@@ -133,6 +133,8 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
 | [012](specs/012-feature-flags/spec.md) | Feature flags and environments | Implemented (changelog) |
 | [013](specs/013-observability-sink/spec.md) | Observability sink | Implemented (changelog) |
+| [014](specs/014-schedule-periods/spec.md) | Schedule periods | Spec written |
+| [015](specs/015-mcp-readonly/spec.md) | Read-only MCP server, onboarding and Q&A | Spec written |
 <!-- docs:end -->
 
 ## Configuration
@@ -187,6 +189,7 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 - Fail closed per field or event: a field that cannot be scanned is dropped, and a line the rules cannot scan becomes `<UNSCANNABLE>` (it never fails the window). A shape no rule recognises is not an error and passes; see the limits in `docs/privacy.md`.
   Add your own patterns with `redaction.extra_patterns`.
 - Model output is scrubbed again before it is cached or shown.
+- The model cannot lower an error-or-higher group: its findings are never shown below the group's level, and a cached verdict below that level is not reused (see `docs/privacy.md`).
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.
 
 What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,
@@ -228,7 +231,7 @@ Every digest ends with a cost line: tokens in/out/cached, model per step, approx
 | 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
-exits 0 when `ok`, 1 when `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
+exits 0 when `ok`, 1 when `degraded` (the last run worked but the pod events could not be read), `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to

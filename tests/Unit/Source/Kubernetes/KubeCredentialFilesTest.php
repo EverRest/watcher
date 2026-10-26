@@ -107,6 +107,29 @@ final class KubeCredentialFilesTest extends TestCase
         serialize($s);
     }
 
+    public function testASecretValueIsInvisibleToEveryDumpExportCastAndCloneAndSerialize(): void
+    {
+        $secret = new \Watcher\Source\Kubernetes\SecretValue('SECRET-CANARY-VALUE');
+        ob_start();
+        var_dump($secret);
+        var_dump((array) $secret);
+        print_r($secret);
+        print_r((array) $secret);
+        debug_zval_dump($secret);
+        $dump = (string) ob_get_clean() . var_export($secret, true) . var_export((array) $secret, true) . json_encode($secret) . json_encode(get_object_vars($secret));
+
+        self::assertStringNotContainsString('SECRET-CANARY-VALUE', $dump);
+        self::assertSame('SECRET-CANARY-VALUE', $secret->reveal());
+        foreach ([static fn () => serialize($secret), static fn () => clone $secret] as $try) {
+            try {
+                $try();
+                self::fail('expected a LogicException');
+            } catch (\LogicException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
     public function testTheInClusterServiceAccountTokenIsMaskedToo(): void
     {
         $dir = $this->dir . '/sa';

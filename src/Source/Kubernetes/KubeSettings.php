@@ -263,6 +263,9 @@ final class KubeSettings implements \JsonSerializable
         if (!str_starts_with($path, '/')) {
             return null;
         }
+        // PHP caches stat() and realpath() results (the realpath cache for 120 s by default): a symlink swapped or a mode changed
+        // after an earlier check would be judged on the old answer. Every check starts from the file system, not from the cache.
+        clearstatcache(true);
         $dir = realpath(dirname($path));
         $real = realpath($path);
         if ($dir === false || $dir === '/' || $real === false || !str_starts_with($real, $dir . '/')) {

@@ -9,6 +9,9 @@ final class TelegramText
 {
     public static function section(string $kind, string $source): string
     {
+        if ($kind === 'draft') {
+            return '<pre>' . self::esc($source) . '</pre>';
+        }
         $inner = '';
         foreach (Mrkdwn::tokens($source) as $t) {
             $inner .= match ($t[0]) {

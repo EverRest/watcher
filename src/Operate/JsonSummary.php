@@ -69,12 +69,21 @@ final class JsonSummary
         return preg_match(self::REASON, $reason) === 1 && preg_match('/[\w-]{24,}/', $reason) !== 1 ? $reason : 'unspecified';
     }
 
+    /**
+     * Package version for digests and observe events. Must fit the event schema
+     * (`^[A-Za-z0-9._+-]{1,32}$`): Composer branch installs can be longer
+     * (e.g. `dev-fix-review-batch2-state-slack`).
+     */
     public static function packageVersion(string $package): string
     {
         try {
-            return InstalledVersions::getPrettyVersion($package) ?? 'unknown';
+            $raw = InstalledVersions::getPrettyVersion($package) ?? 'unknown';
         } catch (Throwable) {
-            return 'unknown';
+            $raw = 'unknown';
         }
+        $safe = preg_replace('/[^A-Za-z0-9._+-]/', '-', $raw) ?? 'unknown';
+        $safe = trim($safe, '.-+_') ?: 'unknown';
+
+        return substr($safe, 0, 32);
     }
 }

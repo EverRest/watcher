@@ -15,6 +15,8 @@ final class EventMaskerFuzzTest extends TestCase
 {
     private const CANARY = 'CANARYxq9zv7';
 
+    private const KEYWORDS = ['secret', 'secrets', 'configmap', 'configmaps', 'container', 'containers', 'endpoint', 'endpoints', 'service', 'services', 'serviceaccount', 'serviceaccounts', 'persistentvolumeclaim', 'persistentvolumeclaims', 'pvc', 'pvcs', 'volume', 'volumes', 'claim', 'pod', 'image'];
+
     /** @return list<callable(string): string> */
     private static function contexts(): array
     {
@@ -50,6 +52,11 @@ final class EventMaskerFuzzTest extends TestCase
             static fn (string $n): string => "secret\u{00AD}{$n} not found",
             static fn (string $n): string => "container\u{200B}{$n} failed",
             static fn (string $n): string => "configmap\x00{$n} missing",
+            static fn (string $n): string => "secret%20{$n} not found",
+            static fn (string $n): string => "{\"secret\":{$n}} not found",
+            // credential-shaped tokens whose userinfo holds a keyword followed by a separator the rewrites treat specially
+            static fn (string $n): string => 'https://u:' . self::KEYWORDS[strlen($n) % count(self::KEYWORDS)] . ['%20', '+', '%09', '%0a', '%2520'][strlen($n) % 5] . $n . '@host.example/x',
+            static fn (string $n): string => 'docker://' . self::KEYWORDS[strlen($n) % count(self::KEYWORDS)] . '%20x:' . $n . '@h.example',
             // stray quotes: one open quote and no close
             static fn (string $n): string => "secret \"{$n} not found",
             static fn (string $n): string => "secret \u{201C}{$n} and more text",
@@ -98,6 +105,84 @@ final class EventMaskerFuzzTest extends TestCase
 
         self::assertLessThan(5.0, microtime(true) - $started, 'the fuzz run is fast');
         self::assertSame([], array_slice($bad, 0, 3, true), count($bad) . ' inputs leaked; first three shown');
+    }
+
+    /** Every keyword followed by every separator, inside every credentialed shape: the password never survives, whatever the rewrites do with the keyword. */
+    public function testNoCanarySurvivesAKeywordAndSeparatorInsideACredentialedToken(): void
+    {
+        $templates = [
+            'https://u:%s@host.example/x', 'https://%s:pw@host.example/', 'docker://u:%s@h.example', 'dial u:%s@db.internal:5432', '"https://u:%s@host.example"',
+            'url=https://u:%s@host.example', '{"url":"https://u:%s@host.example"}', 'postgres://app:%s@db.internal/x', 'https://u:p%s@host.example?x=1',
+        ];
+        $masker = new EventMasker(['shop']);
+        $bad = [];
+        foreach (self::KEYWORDS as $keyword) {
+            foreach (['%20', '+', '%09', '%0a', '%0A', '%2520', '%250a', '%20%20', "\u{00AD}", "\u{200B}"] as $separator) {
+                foreach ($templates as $template) {
+                    foreach (self::variants() as $variant) {
+                        $message = $variant('Pull failed: ' . sprintf($template, $keyword . $separator . self::CANARY));
+                        $out = str_replace("\u{200B}", '', $masker->mask($message, [], []));
+                        foreach ([self::CANARY, 'xq9zv7', 'ＣＡＮＡＲＹ', 'host.example', 'db.internal'] as $needle) {
+                            if (str_contains($out, $needle)) {
+                                $bad[$message] = $out;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self::assertSame([], array_slice($bad, 0, 3, true), count($bad) . ' inputs leaked; first three shown');
+    }
+
+    /**
+     * Differential: each rewrite the masker applies to the text first, written out here as its own function. If the masker hides the
+     * canary in the text as it is, it must hide it just as well after the rewrite: a rewrite may only ever add masking. A token with the
+     * shape of a credential (a ':' before an '@', not a sha256 digest) is never rewritten: the masker has already replaced it whole
+     * by then, and a test-side rewrite that put a space into it would test a different message.
+     */
+    public function testNoRewriteRuleMakesTheMaskerRevealMore(): void
+    {
+        $words = implode('|', self::KEYWORDS);
+        $rules = [
+            'invisible glue' => static fn (string $t): string => (string) preg_replace('/\b(' . $words . ')[\p{Cf}\p{Cc}\p{Cn}]++(?=[^\p{Cf}\p{Cc}\p{Cn}\s=:])/iu', '$1 ', $t),
+            '%XX letters' => static fn (string $t): string => (string) preg_replace_callback('/%(3[0-9]|4[1-9a-f]|5[0-9a]|6[1-9a-f]|7[0-9a])/i', static fn (array $m): string => chr((int) hexdec($m[1])), $t),
+            '%20 after a keyword' => static fn (string $t): string => (string) preg_replace('/\b(' . $words . ')%20(?=\S)/i', '$1 ', $t),
+            'JSON key' => static fn (string $t): string => (string) preg_replace('/["\'](' . $words . ')["\']\s*:\s*(?=\S)/i', '$1=', $t),
+            'plus as space' => static fn (string $t): string => str_replace('+', ' ', $t),
+            'whitespace collapse' => static fn (string $t): string => (string) preg_replace('/\s+/u', ' ', $t),
+            'fullwidth fold' => static fn (string $t): string => class_exists(\Normalizer::class) ? (string) \Normalizer::normalize($t, \Normalizer::FORM_KC) : $t,
+            'percent decode' => static fn (string $t): string => rawurldecode($t),
+        ];
+        $contexts = [];
+        foreach (self::KEYWORDS as $keyword) {
+            foreach (['%20', '+', '%09', '%0a', '%2520', ' ', '=', ':', ': ', '/'] as $separator) {
+                $name = $keyword . $separator . self::CANARY;
+                foreach ([
+                    "{$name} not found", "error: {$name}", "\"{$name}\" missing", "'{$name}' missing", "x {$name}, y", "{\"{$keyword}\":{$separator}" . self::CANARY . '}',
+                    "https://u:{$name}@host.example/x", "https://{$name}:pw@h.example", "docker://u:{$name}@h.example", "dial u:{$name}@db.internal:5432",
+                    "\"https://u:{$name}@host.example\"", "url=https://u:{$name}@host.example", "Back-off pulling image {$name}", "container {$name} failed",
+                ] as $context) {
+                    $contexts[] = $context;
+                }
+            }
+        }
+        $masker = new EventMasker(['shop']);
+        $bad = [];
+        foreach ($contexts as $context) {
+            if (str_contains($masker->mask($context, [], []), self::CANARY)) {
+                continue; // shown as it is: nothing to compare (names the masker keeps by design)
+            }
+            foreach ($rules as $name => $rule) {
+                $rewritten = (string) preg_replace_callback('/\S+/u', static fn (array $m): string => preg_match('/:.*@(?!sha256:)/s', $m[0]) === 1 ? $m[0] : $rule($m[0]), $context);
+                if (str_contains($masker->mask($rewritten, [], []), self::CANARY)) {
+                    $bad[$name . ' | ' . $context] = $rewritten;
+                }
+            }
+        }
+
+        self::assertGreaterThan(1000, count($contexts));
+        self::assertSame([], array_slice($bad, 0, 5, true), count($bad) . ' rewrites revealed more; first five shown');
     }
 
     public function testHostileTwoThousandCharStringsDoNotBacktrack(): void
