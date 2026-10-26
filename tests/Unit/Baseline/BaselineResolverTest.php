@@ -14,6 +14,7 @@ use Watcher\Schedule\RunGate;
 use Watcher\Schedule\Window;
 use Watcher\State\Keys;
 use Watcher\Tests\Fakes\FrozenClock;
+use Watcher\Tests\Fakes\HostileValues;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 
 final class BaselineResolverTest extends TestCase
@@ -261,5 +262,63 @@ final class BaselineResolverTest extends TestCase
         self::assertSame('weekday', $c->usedMode);
         self::assertCount(3, $c->ends);
         self::assertSame(9, $c->previousFor('a'));
+    }
+
+    public function testCorruptSnapshotIsTreatedAsMissingAndCounted(): void
+    {
+        $this->days([2, 4, 6, 8, 2, 4, 6]); // mean 32/7
+        $this->corrupt(3, 'abc');
+
+        $c = $this->resolver(['mode' => 'rolling'])->resolve(self::window(), ['a'], null, null);
+
+        self::assertSame('rolling', $c->usedMode);
+        self::assertSame(6, $c->found); // the day-3 snapshot is skipped, as if it were missing
+        self::assertSame(1, $c->unreadable);
+    }
+
+    public function testCorruptPreviousSnapshotIsTreatedAsMissingAndCounted(): void
+    {
+        $prev = ['groups' => ['a' => ['x']], 'totals' => [], 'fpv' => Fingerprinter::FPV];
+
+        $c = $this->resolver(['mode' => 'previous'])->resolve(self::window(), ['a'], $prev, null);
+
+        self::assertTrue($c->isBaseline());
+        self::assertSame([], $c->values);
+        self::assertSame(1, $c->unreadable);
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function hostileValues(): array
+    {
+        return HostileValues::all();
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostileValues')]
+    public function testHostileStoredValueNeverRaisesAWarningOrATypeError(mixed $value): void
+    {
+        $this->days([2, 4, 6, 8, 2, 4, 6]);
+        $this->corrupt(1, $value);
+        $prev = ['groups' => ['a' => $value], 'totals' => [], 'fpv' => Fingerprinter::FPV];
+
+        set_error_handler(static function (int $no, string $message): never {
+            throw new \ErrorException($message, 0, $no); // a warning fails the test, as does a TypeError below
+        });
+        try {
+            foreach (['previous', 'rolling', 'weekday'] as $mode) {
+                $c = $this->resolver(['mode' => $mode])->resolve(self::window(), ['a'], $prev, null);
+                $read = $c->previousFor('a'); // what the run reads back: a value beyond int range must not warn here either
+                $this->addToAssertionCount(1);
+            }
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /** Writes a snapshot whose group value is not a count, $daysAgo days before the window end. */
+    private function corrupt(int $daysAgo, mixed $value): void
+    {
+        $end = (new DateTimeImmutable('2026-10-28 06:00', new DateTimeZone('UTC')))->modify('-' . $daysAgo . ' days');
+        $doc = ['groups' => ['a' => $value], 'totals' => [], 'fpv' => Fingerprinter::FPV, 'start' => $end->modify('-24 hours')->format('Y-m-d\TH:i:s\Z')];
+        $this->state->put(Keys::snapshot('svc', $end->format('Y-m-d\TH:i:s\Z')), $doc, 86400 * 60);
     }
 }

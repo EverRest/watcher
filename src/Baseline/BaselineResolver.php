@@ -43,6 +43,7 @@ final class BaselineResolver
         $candidates = 0;
         $found = 0;
         $excluded = 0;
+        $unreadable = 0;
 
         if ($mode !== 'previous') {
             $step = $mode === 'weekday' ? 7 : max(1, (int) round($seconds / 86400));
@@ -61,6 +62,10 @@ final class BaselineResolver
                     ++$excluded;
                     continue;
                 }
+                if (!self::intact($doc)) {
+                    ++$unreadable;
+                    continue;
+                }
                 $used[] = [$end, $doc];
             }
             $found = count($used);
@@ -71,8 +76,12 @@ final class BaselineResolver
         }
 
         $usedMode = $used === [] ? 'previous' : $mode;
-        if ($used === [] && Fingerprinter::snapshotUsable($prev)) {
-            $used = [[$prevEnd ?? $window->start, $prev]];
+        if ($used === [] && $prev !== null && Fingerprinter::snapshotUsable($prev)) {
+            if (self::intact($prev)) {
+                $used = [[$prevEnd ?? $window->start, $prev]];
+            } else {
+                ++$unreadable;
+            }
         }
         $used = array_reverse($used); // ascending ends
 
@@ -125,12 +134,35 @@ final class BaselineResolver
             $rare,
             $this->growthFactor,
             $lengthChange,
+            $unreadable,
         );
     }
 
     private static function key(DateTimeImmutable $end): string
     {
         return $end->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z');
+    }
+
+    /**
+     * A snapshot whose group values are all counts. Anything else would reach arithmetic or a cast and abort or warn the run,
+     * so the caller treats such a snapshot as missing and counts it.
+     *
+     * @param array<mixed>|null $doc
+     */
+    public static function intact(?array $doc): bool
+    {
+        $groups = $doc['groups'] ?? [];
+        if (!is_array($groups)) {
+            return false;
+        }
+        foreach ($groups as $n) {
+            // Up to 10^15: read back as an int (Comparison::previousFor()), a bigger value would not cast without a warning.
+            if (!(is_int($n) || is_float($n)) || !is_finite((float) $n) || $n < 0 || $n > 1e15) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param non-empty-list<float|int> $set */

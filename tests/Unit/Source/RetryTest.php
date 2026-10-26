@@ -43,6 +43,24 @@ final class RetryTest extends TestCase
         };
     }
 
+    public function testACutReplyIsNotRequestedAgain(): void
+    {
+        $retry = $this->retry();
+        $tripped = new \ArrayObject(['large' => true]); // the sink refused the reply: the transfer ended with a Guzzle exception
+        try {
+            $retry->send(function (): ResponseInterface {
+                ++$this->calls;
+
+                throw new \GuzzleHttp\Exception\RequestException('cURL error 23', new Request('GET', 'http://x/'));
+            }, 'test', true, $tripped);
+            self::fail('expected SourceUnavailable');
+        } catch (SourceUnavailable $e) {
+            self::assertTrue($e->tooLarge);
+        }
+        self::assertSame(1, $this->calls);
+        self::assertSame([], $this->slept);
+    }
+
     public function testNetworkFailureDoesNotChainTheGuzzleExceptionWhichCarriesTheUrl(): void
     {
         $url = 'https://api.telegram.org/botSECRET-TOKEN/sendMessage';
@@ -152,6 +170,36 @@ final class RetryTest extends TestCase
 
         self::assertSame(429, $r->getStatusCode());
         self::assertSame(1, $this->calls);
+        self::assertSame([], $this->slept);
+    }
+
+    /** @return array<string, array{string, mixed}> */
+    public static function hugeWaits(): array
+    {
+        return [
+            'Retry-After beyond float range' => ['1e400', null],
+            'Retry-After huge digits' => ['99999999999999999999999', null],
+            'hint beyond int range' => ['', PHP_INT_MAX],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('hugeWaits')]
+    public function testAHugeRemoteWaitGivesUpWithoutACastWarning(string $header, mixed $hint): void
+    {
+        set_error_handler(static function (int $no, string $message): never {
+            throw new \ErrorException($message, 0, $no); // a cast of an out-of-range number warns
+        });
+        try {
+            $r = $this->retry(60)->sendRateLimited(
+                $this->sender([new Response(429, $header === '' ? [] : ['Retry-After' => $header]), new Response(200)]),
+                'x',
+                static fn (): int|null => $hint,
+            );
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame(429, $r->getStatusCode());
         self::assertSame([], $this->slept);
     }
 

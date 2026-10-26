@@ -258,6 +258,40 @@ final class FleetConfigTest extends TestCase
         FleetConfig::fromPath('/nonexistent/fleet.php');
     }
 
+    public function testASwitchedOffFleetFileValidatesNoServiceEntry(): void
+    {
+        $file = sys_get_temp_dir() . '/watcher-fleet-off-' . bin2hex(random_bytes(4)) . '.php';
+        file_put_contents($file, '<?php return ' . var_export(self::fleet([self::service('api'), ['service' => 'bad-one']], ['enabled' => false]), true) . ';');
+        try {
+            $f = FleetConfig::fromPath($file);
+        } finally {
+            unlink($file);
+        }
+
+        self::assertFalse($f->enabled);
+        self::assertSame(['api', 'bad-one'], $f->serviceNames());
+        self::assertFalse(FleetConfig::fromArray(self::fleet([['service' => 'bad-one']], ['enabled' => false]))->enabled);
+    }
+
+    public function testASwitchedOffFleetDirectoryOpensNoServiceFile(): void
+    {
+        $dir = sys_get_temp_dir() . '/watcher-fleet-off-dir-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents("$dir/_fleet.php", '<?php return ' . var_export(['fleet' => 'dirfleet', 'enabled' => false], true) . ';');
+        file_put_contents("$dir/10-api.php", "<?php\nthrow new \\LogicException('service file was opened');\n");
+
+        try {
+            $f = FleetConfig::fromPath($dir);
+        } finally {
+            array_map('unlink', glob("$dir/*") ?: []);
+            rmdir($dir);
+        }
+
+        self::assertFalse($f->enabled);
+        self::assertSame('dirfleet', $f->name);
+        self::assertSame([], $f->serviceNames());
+    }
+
     private const TOKEN = '123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789';
 
     /**

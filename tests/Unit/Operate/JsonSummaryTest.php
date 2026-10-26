@@ -24,6 +24,7 @@ final class JsonSummaryTest extends TestCase
     /** The names under `read_quality`, fixed: a consumer can rely on every one of them being there. */
     private const READ_QUALITY = [
         'unknown_levels', 'orphan_trace_lines', 'message_tails_dropped', 'truncated_lines', 'truncated_structured', 'regex_failures', 'pages_shrunk',
+        'malformed_entries',
     ];
 
     /** @return array<string, mixed> */
@@ -93,7 +94,7 @@ final class JsonSummaryTest extends TestCase
         $stats->oversizedLines = 5;
         $stats->overflowedEvents = 6;
         $stats->patternFailures = 7;
-        $stats->readQuality = ['unknown_levels' => 8, 'pages_shrunk' => 9, 'not_a_known_key' => 99];
+        $stats->readQuality = ['unknown_levels' => 8, 'pages_shrunk' => 9, 'malformed_entries' => 10, 'not_a_known_key' => 99];
 
         $j = $this->decode((new JsonSummary())->render(new RunSummaryData(RunOutcome::Reported, 's', null, null, null, $stats)));
 
@@ -101,6 +102,7 @@ final class JsonSummaryTest extends TestCase
         self::assertSame(self::READ_QUALITY, array_keys($j['read_quality']));
         self::assertSame(8, $j['read_quality']['unknown_levels']);
         self::assertSame(9, $j['read_quality']['pages_shrunk']);
+        self::assertSame(10, $j['read_quality']['malformed_entries']);
         self::assertSame(0, $j['read_quality']['regex_failures'], 'a counter the source did not report is 0, not missing');
 
         $none = $this->decode((new JsonSummary())->render(new RunSummaryData(RunOutcome::Failed, 's')));
