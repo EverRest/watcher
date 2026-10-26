@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Kubernetes events as a second log source kind for everrest/watcher, for pod-level problems invisible in application logs: CrashLoopBackOff, OOMKilled, ImagePullBackOff, failed probes, restarts, HPA errors, evictions. Read-only via the Kubernetes API (list/get events and pods) with a read-only service account or kubeconfig; namespace and label selectors; dedupe repeated events by count and last timestamp; works alongside Loki or Datadog in a fleet; pod and node names, image tags, registries and annotations masked or allowlisted. Source: docs/audit-2026-10-23.md feature 3, docs/roadmap.md item 008, the hand-made backlog.md backlog (half pod-level)."
 

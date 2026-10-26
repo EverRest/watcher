@@ -7,6 +7,7 @@ namespace Watcher\Tests\Unit\Source\Kubernetes;
 use DateTimeImmutable;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
@@ -308,10 +309,12 @@ final class KubeApiTest extends TestCase
                 // gzip: a 1 KiB slice of compressed zeros inflates to about a megabyte, like curl's decoder would hand over
                 $piece = $gzip ? (string) inflate_add($ctx, substr($zip, $i * 1024, 1024)) : str_repeat('x', $size);
                 $probe->written += strlen($piece);
-                $sink->write($piece);
+                if ($sink->write($piece) < strlen($piece)) { // a short write: curl ends the transfer, Guzzle reports it
+                    throw new RequestException('cURL error 23', new Request('GET', 'https://k8s.example:6443/'));
+                }
             }
 
-            return \GuzzleHttp\Promise\Create::promiseFor($response);
+            return \GuzzleHttp\Promise\Create::promiseFor(self::asInterface(new Response(200, $headers, $sink)));
         };
         $settings = KubeSettings::fromArray(['namespaces' => ['shop'], 'api' => ['server' => 'https://k8s.example:6443', 'token' => self::TOKEN, 'ca_file' => $this->ca]], true, true, false);
 

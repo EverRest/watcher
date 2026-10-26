@@ -130,6 +130,17 @@ Off unless you enable a sink. An event is built from the typed results the diges
 
 Retention of what a sink delivers is yours (Loki, Elasticsearch, Prometheus); watcher bounds only its own files (`file` sink: `max_files`, `retention_days`) and its counters (expire with `state.retention`). The `http` URL and token are credentials: masked in every message, never in an exception, log line or `check` output. The privacy corpus runs through all four sinks with a planted secret and e-mail (`tests/EndToEnd/ObservePrivacyTest.php`).
 
+## What the metrics and Sentry sources add (spec 009)
+
+Two new field classes, both optional and off by default. **Metric numbers**: one current and one baseline number per declared query, and at most 5
+values of a label **name** you allowlisted (each must survive the Normalizer unchanged and then the Redactor, otherwise it is dropped; an e-mail or an id
+never shows). **Masked Sentry text**: an issue title (cut at 300) and culprit (cut at 120) are masked first and cut after, so a half e-mail cannot survive the cut; a rare
+issue (fewer than `redaction.min_group_events_for_text` events) withholds both. Everything else Sentry returns (users, tags, breadcrumbs, permalinks, event
+payloads, short ids) is never read into an object. The model receives up to three **metric numbers** (declared name, current and baseline value, unit, relative change) in the `m` section of the payload, added after redaction from the measured values and the config, never from log or label text, so the digit masking of the Redactor does not touch them; a metric anomaly's group carries `mi`, the index of its metric. A trace id, when a tracing link is configured, is read from the raw event field of the group's earliest event and appears only inside the link URL of the digest. The event sinks never receive this text: a Sentry or metric-anomaly group appears there as counts only: its fingerprint (`sentry:<id>`, `metric:<hash>`) is not the 12-hex form the event schema allows, so the sanitizer sends `null` for it. The
+tokens (`metrics.source.auth.token`, `sentry.auth_token`) are masked everywhere and absent from every dump of the objects that hold them. Tests:
+`MetricsSentryPrivacyTest` plants an e-mail, a secret and a personal id in an issue title, culprit and label value and scans every sink, the model input,
+the summary, the host log and the notices.
+
 ## What is sent to the log backend
 
 Read-only queries: your stream tags, level words, and a subset of your watch rules as search filters: `template` rules that are plain literals and `error_type` rules whose regex RE2 can run (Loki), or only single-word patterns (Datadog). The text comes from your config, never from log data. `field` rules and non-literal `template` rules (a template regex applies to the masked template, not to raw lines) are never sent; they are matched in memory on the lines that were read. Nothing derived from log
@@ -159,11 +170,9 @@ host log gets the key kind (`snap`, `run`, ...) only, never the key or any conte
 ## What reaches host logs and exit output
 
 The one-line summary on stdout and `watcher [error] ...` lines on stderr carry messages only, with line breaks and
-terminal control characters (ESC and the other C0 characters) removed. Exception objects are not logged, because the SDK's
-request (including the API key) hangs on them; delivery failures are logged as the exception class and a masked message.
-Config objects (`WatchConfig`, `FleetConfig`) show `[redacted]` for their credential sections in `var_dump`, `print_r`,
-`dd()` and `json_encode`, and the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes
-those arguments from stack traces).
+terminal control characters (ESC and the other C0 characters) removed. Exception objects are not logged, because an HTTP
+request (including the API key) can hang on them; delivery failures are logged as the exception class and a masked message.
+Config objects (`WatchConfig`, `FleetConfig`) hold every credential in a `SecretValue` (the value is read with `->reveal()`, the `WatchConfig::reveal()` helper, or `WatchConfig::plain()` for comparisons). A dump of them (`var_dump`, `print_r`, `var_export`, `json_encode`) shows no value, and `serialize` refuses to serialize a credential; the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes those arguments from stack traces). `tests/Unit/Config/SecretDumpTest.php` plants a fake value at every secret key of the catalog and fails when one reaches a dump.
 
 ## Kubernetes events (spec 008)
 
@@ -203,8 +212,24 @@ new value in the model payload is the group status `expected` (alongside `new`, 
 
 Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) and host-like (any `word.word`) are inflated by false positives; texts that cannot be decoded are counted as `unscannable`, not categorised; a name that is identical in every event is not a pattern and is not found (the variable-free-text signal only sees names that vary), which is why a masked template is shown, stored and proposed as a watch rule only when it generalises at least `hygiene.variable_distinct` different messages (or `hygiene.allow_constant_labels` is true), and why each literal word of it must be common log vocabulary or seen at `hygiene.literal_min_sites` different code locations (files) in the pass; all messages without a location count as one source, so a family that varies one word is still one source (otherwise `<w>`; only the exact placeholders `<N>`, `<ID>`, `<EMAIL>`, ... are skipped, any other text in angle brackets is text: a name that is constant inside a family that varies elsewhere is hidden too, at the price of hiding domain words used at one site only) (a sentence that never varies may be one person's name: its row shows no label and no watch proposal is made for it; mute proposals carry a fingerprint only); phone numbers without a plus sign and postal addresses are not detected; digits in a path are masked, so `Controller1.php` and `Controller2.php` are one site; a line that is longer than 4096 characters is cut before it is scanned.
 
+## MCP server (spec 015)
+
+`watcher mcp` is read-only: its tools read the state store and the heartbeat, and never send, post, or write state.
+
+- **Which file runs.** The server runs the configuration file it was started with, as PHP, at start-up (the same as `watcher run`).
+  `watcher_validate_config` and `watcher_rollout_check` accept a path only when it is that configured file (`realpath` equal).
+  Any other PHP file, including a sibling in the same directory, is refused with `path_not_allowed` before it is read. With
+  `--setup` there is no configured file yet, so these two tools refuse every path. Keep the configuration free of side effects:
+  it is your own file, and it runs on each start.
+- **What leaves the server.** Validation returns key paths, error codes and catalog hints. It never returns a value, a message or
+  a string of the file. A plain-text secret literal is reported by its key path only.
+
 ## Limits you must know
 
+- **Outbound URLs are checked by their text, not by their DNS answer.** A configured host name that resolves to a loopback,
+  private or metadata address (`127.0.0.1.nip.io`) is sent to, with any token configured for that source. Only the operator writes
+  these URLs, so the check does not defend against them; keep them to hosts you trust (`docs/operations.md`, Proxies and the
+  internal-address check).
 - **Keyword-less secrets and bare names are not detected.** A credential is masked by its key name or its shape. A password
   written as a bare word (`login failed for hunter2`), a value after a key that is not in the list above, a token under 20
   characters after no key, a customer name inside SQL or Postgres detail text (`Key (name)=(Olena Shevchenko)`) or inside

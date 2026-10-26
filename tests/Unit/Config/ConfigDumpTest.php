@@ -49,7 +49,7 @@ final class ConfigDumpTest extends TestCase
             self::assertStringNotContainsString($secret, $dump);
         }
         self::assertStringContainsString('svc', $dump);
-        self::assertSame('sk-secret-key-AAAA', $c->analysis['api_key'], 'the real value is still there for the code that needs it');
+        self::assertSame('sk-secret-key-AAAA', WatchConfig::reveal($c->analysis['api_key']), 'the real value is still there for the code that needs it');
     }
 
     public function testFleetConfigDumpsShowNoSecret(): void

@@ -19,6 +19,8 @@ The host triggers the package **at least once an hour**. On each trigger the pac
 
 The first run for a service only records a **baseline** (no model call). Analysis starts with the second window.
 
+**Several runs per day (spec 014).** Set `schedule.every` (`PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H` or `PT12H`) or a list of `schedule.run_at` times at least one hour apart (not both). Windows are contiguous. Around a clock change the boundary that does not exist is dropped and the repeated hour uses its first occurrence. A high-water mark per service stops the same window being reported twice. `schedule.catch_up` (1 to 24, needs `every`) lets one trigger work through windows missed during an outage, oldest first. `schedule.ingestion_delay` moves window ends back for logs that are indexed late. Optional caps: `analysis.max_runs_per_day` ends further runs of the day with the outcome `capped` and one notice; `analysis.run_budget_usd` limits one run's spend. The trigger must still fire at least as often as the period.
+
 **A skipped or failed day is not a new baseline.** After every successful snapshot write the run also writes
 `snap:<service>:last` (the window key, same TTL as `state.retention`). When the snapshot of the exact previous window is
 missing, the run compares with the pointer's snapshot if it is at most 7 days older than this window's end, and the digest
@@ -221,10 +223,37 @@ in-cluster URL (`*.svc`, `*.cluster.local`) or an RFC 1918 address. `allow_insec
 ### Proxies and the internal-address check
 
 Sources that fetch from a URL they were given (metrics, Sentry, an OpenAPI spec) refuse literal internal addresses and in-cluster names
-(`SecureUrl::internalHost`; names are not resolved). Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
+unless the operator opts in (`SecureUrl::internalHost`; names are not resolved). So a host name whose DNS answer is an internal address
+(`127.0.0.1.nip.io`, or a name that later rebinds) passes the check. Every such URL is read from the config file, so this is accepted:
+it matters only if a URL ever comes from untrusted input, and then the fix is to resolve once and connect to the checked address
+(`CURLOPT_RESOLVE`).
+
+Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
 proxy the connection goes where the proxy decides, so the check does not cover it. Loki and Slack keep working behind a proxy and are not
 changed; where a proxy must not be used, leave those variables unset for the process.
 
+### Metrics and Sentry (spec 009)
+
+`metrics` (Prometheus, or Grafana's datasource proxy) and `sentry` are optional and read-only; absent, a run is unchanged. An internal
+Prometheus or Sentry is the normal case: set `allow_private_network: true` on that section for an RFC 1918 address or a cluster-local `*.svc` /
+`*.cluster.local` name (default `false`, one flag per section, like `observe.http.allow_private_network`), and `allow_insecure: true` as well when it is plain
+`http`. Link-local, CGNAT, metadata and reserved ranges stay refused. When a source cannot be read, the digest says so with a fixed word and nothing else changes:
+`Metrics unavailable (timeout)`, `Sentry unavailable (window_too_old)` (`unreachable`, `unauthorized`, `timeout`, `bad_response`, `rate_limited`, `too_large`,
+`window_too_old`). `window_too_old`: the window starts before the oldest Sentry stats bucket (24 h hourly, 14 d daily), so the count would be a fraction of the
+window; use a shorter `schedule.window`. `N Sentry issues dropped` counts issues that could not be read honestly. `timeout` is also what a source reports when the
+run deadline ends it. A chunked or compressed reply without `Content-Length` is cut at the cap as it streams (`ResponseLimit`). `watcher check` gains a `metrics` row (one `vector(1)` query) and a `sentry` row (one issue read over the last five minutes) when the section is configured and enabled; a failure is a fixed word, never a URL or token. In a fleet each service is checked and run with its own sections and tokens.
+
+**`--dry-run` and `--estimate` read the sources.** The metrics and Sentry reads are read-only but real and credentialed, and a dry run or an estimate makes
+the same ones a run does (`--estimate` makes no model call; neither posts anything or writes state). The banner says which reads were made:
+`== external reads made (read-only, credentialed): metrics, sentry ==`. To avoid them, set `enabled: false` on the section.
+
+**Ranking (spec 009).** A log group at level Error or above is never displaced by a metric-anomaly or Sentry group: log groups are selected by `top_n` exactly as
+without these sources, Sentry groups get only the `top_n` volume slots the log groups leave free, and anomaly and Sentry groups rank below the lowest such log group, so the analysis budget (`top_m`, the input cut) only gives them the
+slots that remain. A Sentry Error still counts as explaining a metric move, so no anomaly is raised for it.
+
+**Metric labels in the digest.** A label value reaches the `Metrics:` line only when it is 1 to 64 characters of `A-Za-z0-9_.:-` and survives masking
+unchanged; anything else (control, format or non-character code points, spaces, chat markup) is dropped, not shown masked. A ratio that is not a finite
+number (a baseline near zero) prints `change not computable`; a metric problem never fails the run.
 ## API context (spec 010)
 
 With `api_context` configured, a finding whose masked template names a documented route of at most 2 segments gets one `📖 GET /orders/{id} — Get an order [orders]`
@@ -239,7 +268,7 @@ the `ep` fields are the first context dropped (the digest lines stay, with a not
 
 ## Availability guards
 
-A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.
+A run is bounded by `schedule.run_deadline`, memory (80% of `memory_limit`), 64 KB per line, 16 MB per backend reply and a Loki page/time budget. A notification reply (Slack, Discord, Telegram) is read up to 64 KB: a declared `Content-Length` over that aborts at the headers, and a chunked reply is cut as it streams. A slow reply that stays under the cap is bounded only by the 30 s HTTP timeout; one that passes the cap is cut at once. When any of them (or the event cap on a quiet run, group overflow, lines that could not be scanned, or a source that returned **nothing at all for 3 consecutive windows** while level totals are on) cuts the picture short, one short notice of counts goes to the notice destination, once per window, and the reason is in the run record, the heartbeat reason and the JSON `reason` (`truncated:deadline`, `truncated:memory`, `truncated:cursor`, `truncated:cap`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`). `watcher status` prints it as `last warning`. A failed run posts at most 3 failure notices per window. If a digest was delivered but a state write then failed, a short-lived marker stops the next trigger from sending it again. A PHP fatal (for example memory exhausted) cannot be caught: a shutdown handler releases the lock and logs `E_ERROR` (type only) to the host logger. A `--dry-run` refuses to start when the real daily cap is already spent, and repeated dry runs in one process show cumulative cost.
 
 A flood of one already-reported fingerprint can still fill `event_cap` with old events; the quiet-run notice tells you so, and `source.event_cap`, a narrower `stream_tags` or (Datadog) `newest_first` are the remedies.
 
@@ -336,7 +365,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
 - `watcher run --dry-run` runs the whole pipeline for the window ending at the latest `run_at` instant (ignoring the due
   hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
   billed**; spend is not recorded.
-- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
+- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`). With `metrics` or `sentry` configured the summary also carries `metrics` (`read`, `failed`, `anomalies`) and `sentry` (`read`, `dropped`, `merged`, `failed`); counts only, absent when the section is not configured. Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
 
 ## Log hygiene reports (spec 006)
 

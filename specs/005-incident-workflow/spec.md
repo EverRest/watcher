@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-23 — **Rewritten**: 2026-10-24
 
-**Status**: Draft (v1 rewritten to fit Principle II as ratified; see "Scope change" and "Deferred")
+**Status**: Phases 1-3 implemented in 0.2.1; weekly report deferred. tasks.md checkboxes are not yet reconciled with the code
 
 **Input**: Owner request 2026-10-24: spec 005 without Slack buttons. v1 contains no inbound endpoint, no buttons, no
 threads and no write to any tracker. Only: (1) memory of known issues (fingerprint -> ticket key from configuration,

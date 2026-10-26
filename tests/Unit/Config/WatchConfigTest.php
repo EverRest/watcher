@@ -84,7 +84,7 @@ final class WatchConfigTest extends TestCase
         self::assertSame(['svc.cluster.local'], $c->dependencyDomains);
         self::assertSame([], $c->watchRules);
         self::assertSame([], $c->mute);
-        self::assertSame($c->notify['digest'], $c->notify['notice']);
+        self::assertSame(WatchConfig::plain($c->notify['digest']), WatchConfig::plain($c->notify['notice']));
     }
 
     public function testZeroBudgetAndEveryLevelModeAreAccepted(): void
@@ -115,7 +115,7 @@ final class WatchConfigTest extends TestCase
         self::assertSame('Europe/Kyiv', $c->schedule['timezone']);
         self::assertSame(Level::Critical, $c->selection['min_level']);
         self::assertSame(2.5, $c->selection['growth_factor']);
-        self::assertSame('https://hooks.example/other', $c->notify['notice']['webhook']);
+        self::assertSame('https://hooks.example/other', WatchConfig::reveal($c->notify['notice']['webhook']));
         self::assertSame('short', $c->serviceContext);
     }
 

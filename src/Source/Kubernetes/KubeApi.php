@@ -238,7 +238,7 @@ final class KubeApi
                     $note->timedOut = !$note->unreachable;
                     throw $e;
                 }
-            }, 'kubernetes', true);
+            }, 'kubernetes', true, $tripped);
         } catch (SourceUnavailable) {
             throw new SourceUnavailable(isset($tripped['large']) ? 'kubernetes response too large' : ($note->timedOut ? 'kubernetes timeout' : ($note->unreachable ? 'kubernetes unreachable' : 'kubernetes unavailable')));
         } catch (\Throwable) {

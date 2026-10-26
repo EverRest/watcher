@@ -117,7 +117,7 @@ final class FleetConfig
             $timezone,
             $timeBudget,
             self::budget(self::map($config['budget'] ?? [], 'budget')),
-            $notify,
+            WatchConfig::hide($notify, 'digest.webhook', 'digest.bot_token', 'notice.webhook', 'notice.bot_token'),
             $corr['enabled'] ?? true,
             isset($corr['tolerance']) ? self::seconds($corr['tolerance'], 'correlation.tolerance') : 0,
             $enabled,
@@ -290,10 +290,10 @@ final class FleetConfig
     private static function sameShared(ServiceEntry $first, ServiceEntry $entry, string $label): void
     {
         $of = "(differs from services[0] ({$first->name()}))";
-        if ($first->config->state != $entry->config->state) {
+        if (WatchConfig::plain($first->config->state) != WatchConfig::plain($entry->config->state)) {
             throw new InvalidConfig("$label: state must be identical in all services $of");
         }
-        if ($first->config->analysis['api_key'] !== $entry->config->analysis['api_key']) {
+        if (WatchConfig::reveal($first->config->analysis['api_key']) !== WatchConfig::reveal($entry->config->analysis['api_key'])) {
             throw new InvalidConfig("$label: analysis.api_key must be identical in all services $of");
         }
     }

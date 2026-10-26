@@ -54,6 +54,8 @@ final class JsonSummary
             'overflowed_events' => $s->overflowedEvents ?? 0,
             'pattern_failures' => $s->patternFailures ?? 0,
             'read_quality' => array_combine(self::READ_QUALITY, array_map(static fn (string $k): int => $s->readQuality[$k] ?? 0, self::READ_QUALITY)),
+            ...($s?->metrics() === null ? [] : ['metrics' => $s->metrics()]),
+            ...($s?->sentry() === null ? [] : ['sentry' => $s->sentry()]),
             ...($s?->events === null ? [] : ['events' => $s->events]),
             ...($d->runId() === null ? [] : ['run_id' => $d->runId(), 'sink_failures' => (object) $d->sinkFailures()]),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);

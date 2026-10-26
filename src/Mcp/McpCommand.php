@@ -110,7 +110,8 @@ final class McpCommand
     private static function setupServer($in, $out, $err, ClockInterface $clock): Server
     {
         $root = dirname(__DIR__, 2);
-        $tools = [...self::onboardingTools(new PathPolicy([(string) getcwd()]), null, $clock), ...self::docsTools($root)];
+        // F1: no configured file yet, so no PHP file is approved; a root at the cwd would run any PHP file of the project
+        $tools = [...self::onboardingTools(new PathPolicy([]), null, $clock), ...self::docsTools($root)];
 
         return self::assemble($tools, ['onboarding', 'docs'], false, null, $in, $out, $err, $clock, $root);
     }
@@ -174,8 +175,8 @@ final class McpCommand
             fwrite($err, "watcher [error] mcp.allow_dry_run is set but this build has no dry-run adapter; watcher_dry_run is not offered\n");
         }
         $root = dirname(__DIR__, 2);
-        $roots = [dirname((string) realpath($file))];
-        $tools = [...$inspect, ...self::onboardingTools(new PathPolicy($roots), static fn (WatchConfig $w): StateStore => self::store($w, $clock, $log), $clock), ...self::docsTools($root)];
+        // F1: the configured file itself is the only PHP file a client may name; its directory's other files are not approved
+        $tools = [...$inspect, ...self::onboardingTools(PathPolicy::forFile($file), static fn (WatchConfig $w): StateStore => self::store($w, $clock, $log), $clock), ...self::docsTools($root)];
 
         return self::assemble($tools, $settings->groups, $allowDry, $c->service, $in, $out, $err, $clock, $root);
     }

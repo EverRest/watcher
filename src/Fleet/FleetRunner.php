@@ -12,6 +12,7 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
+use Watcher\Config\WatchConfig;
 use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
@@ -86,7 +87,12 @@ final class FleetRunner
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
         $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share, $http): callable {
-            $watcher = new Watcher(
+            // Spec 009: a service's own metrics and Sentry (its own tokens, one 60 s budget per call) stop with the run deadline of its Watcher.
+            $late = new class () {
+                public ?Watcher $watcher = null;
+            };
+            $stop = static fn (): ?string => $late->watcher?->stopReason();
+            $watcher = $late->watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
                 $state,
@@ -100,6 +106,8 @@ final class FleetRunner
                 events: $events[$e->name()],
                 sinks: $sinks[$e->name()],
                 counters: $counters[$e->name()],
+                metrics: $e->config->enabled ? Factory::metricSource($e->config, $http, $stop) : null,
+                issues: $e->config->enabled ? Factory::issueSource($e->config, $http, $clock, $stop) : null,
                 apiContext: Factory::apiContext($e->config, $http, $clock),
             );
             if ($share !== null) {
@@ -311,7 +319,7 @@ final class FleetRunner
             array_push($secrets, ...$entry->config->secrets());
         }
         foreach ($this->config->notify as $block) {
-            foreach (is_array($block) ? $block : [] as $v) {
+            foreach (is_array($block) ? WatchConfig::plain($block) : [] as $v) { // the holders read back: a SecretValue is no string
                 if (is_string($v)) {
                     $secrets[] = $v;
                 }

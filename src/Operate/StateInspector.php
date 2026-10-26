@@ -6,6 +6,7 @@ namespace Watcher\Operate;
 
 use InvalidArgumentException;
 use Watcher\Privacy\Redactor;
+use Watcher\Source\Kubernetes\SecretValue;
 use Watcher\State\Keys;
 use Watcher\State\StateStore;
 
@@ -21,7 +22,7 @@ final class StateInspector
 
     private const WINDOW_END = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/D';
 
-    /** @var list<string> */
+    /** @var list<SecretValue> the values to mask: holders, so a dump of the inspector shows none */
     private readonly array $secrets;
 
     /** @param list<string> $secrets WatchConfig::secrets() */
@@ -32,7 +33,7 @@ final class StateInspector
         array $secrets = [],
     ) {
         usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a)); // longest first, so a prefix secret cannot leave its suffix
-        $this->secrets = $secrets;
+        $this->secrets = array_map(static fn (string $secret): SecretValue => new SecretValue($secret), $secrets);
     }
 
     /**
@@ -89,7 +90,9 @@ final class StateInspector
 
     private function secrets(string $s): string
     {
-        return $this->secrets === [] ? $s : str_replace($this->secrets, '[secret]', $s);
+        $values = array_map(static fn (SecretValue $secret): string => $secret->reveal(), $this->secrets);
+
+        return $values === [] ? $s : str_replace($values, '[secret]', $s);
     }
 
     private function cut(string $s): string

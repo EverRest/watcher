@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-23
 
-**Status**: Draft
+**Status**: Implemented (T114, the live run, is pending)
 
 **Input**: User description: "everrest/watcher — scheduled, model-routed log analysis PHP package reporting to Slack. Full approved brief: docs/brief.md"
 

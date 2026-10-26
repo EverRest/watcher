@@ -49,6 +49,8 @@ final class Reducer
         private readonly ?int $comparisonBudget = null,
         private readonly bool $groupBySimilarity = true,
         private readonly int $memoryBudgetBytes = TemplateMiner::DEFAULT_MEMORY_BUDGET,
+        /** @var (\Closure(LogEvent, string): void)|null called once per event with the fingerprint of the group it joined (spec 009 trace ids); a throwing observer is not caught, it is our code */
+        private readonly ?\Closure $onEvent = null,
     ) {
         $this->mining = new MiningStats();
     }
@@ -120,6 +122,9 @@ final class Reducer
                 if ($this->onFolded !== null) {
                     ($this->onFolded)($e);
                 }
+            }
+            if ($this->onEvent !== null) {
+                ($this->onEvent)($e, (string) $fp);
             }
             if (!isset($groups[$fp])) {
                 $groups[$fp] = ['own' => $own, 'level' => $e->level, 'type' => $own ? $e->errorType : null, 'frames' => $own ? $e->frames : [],

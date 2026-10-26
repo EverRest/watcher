@@ -41,11 +41,6 @@ final class FactoryTest extends TestCase
         self::assertSame(10, Factory::analyzerHttpOptions(30)['timeout']);
     }
 
-    public function testTheSdkDoesNotRetryOnItsOwn(): void
-    {
-        self::assertSame(['maxRetries' => 0], Factory::analyzerRequestOptions());
-    }
-
     /**
      * @param array<string, mixed> $source
      * @return array<string, mixed>

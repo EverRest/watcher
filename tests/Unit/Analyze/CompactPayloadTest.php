@@ -137,8 +137,8 @@ final class CompactPayloadTest extends TestCase
     {
         $groups = [self::group('a', 'GET /orders/<N>'), self::group('b', 'Other')];
         $plain = CompactPayload::encode($groups);
-        $withNone = CompactPayload::encode($groups, [], []);
-        $d = self::decode(CompactPayload::encode($groups, [], ['b' => 'GET /orders/{id} — Get an order']));
+        $withNone = CompactPayload::encode($groups, [], null, []);
+        $d = self::decode(CompactPayload::encode($groups, [], null, ['b' => 'GET /orders/{id} — Get an order']));
 
         self::assertSame($plain, $withNone);
         self::assertArrayNotHasKey('ep', $d['g'][0]);

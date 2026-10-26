@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace Watcher\Config;
 
+use Watcher\Issues\SentrySettings;
+use Watcher\Metrics\MetricsSettings;
 use Watcher\Notify\Destination;
 use Watcher\Observe\EventSchema;
 use Watcher\Observe\ObserveSettings;
-use Watcher\Analyze\SdkMessagesClient;
 use Watcher\Level;
 use Watcher\State\Redis\RedisClient;
 use Watcher\Source\Kubernetes\KubeSettings;
+use Watcher\Source\Kubernetes\SecretValue;
 
 /**
  * Validated, default-filled, immutable configuration (contracts/configuration.md).
@@ -24,7 +26,7 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'kubernetes', 'events', 'observe', 'hygiene', 'api_context',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
         'known_issues', 'drafts', 'report',
     ];
 
@@ -83,6 +85,8 @@ final class WatchConfig implements \JsonSerializable
         public readonly string $stateKey,
         private readonly array $flags,
         public readonly ObserveSettings $observe,
+        public readonly ?MetricsSettings $metrics,
+        public readonly ?SentrySettings $sentry,
         public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
         public readonly \Watcher\Incident\IncidentSettings $incident,
         public readonly ?KubeSettings $kubernetes = null,
@@ -100,7 +104,7 @@ final class WatchConfig implements \JsonSerializable
     public function __debugInfo(): array
     {
         $out = get_object_vars($this);
-        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags', 'observe', 'apiContext'] as $k) {
+        foreach (['source', 'analysis', 'notify', 'state', 'serviceContext', 'flags', 'observe', 'metrics', 'sentry', 'apiContext'] as $k) {
             $out[$k] = '[redacted]';
         }
 
@@ -275,7 +279,7 @@ final class WatchConfig implements \JsonSerializable
         return new self(
             $service,
             $schedule,
-            $source,
+            self::hide($source, 'loki.auth.token', 'loki.auth.password', 'datadog.api_key', 'datadog.app_key'),
             $flags['watch_rules'] ? $rules : [],
             $flags['mute'] ? $mute : [],
             $ctx,
@@ -286,11 +290,11 @@ final class WatchConfig implements \JsonSerializable
             $links,
             self::repo($config['repo'] ?? null),
             $selection,
-            $analysis,
+            self::hide($analysis, 'api_key'),
             $patterns,
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
-            $state,
-            $notify,
+            self::hide($state, 'redis.password', 'pdo.dsn', 'pdo.username', 'pdo.password'),
+            self::hide($notify, 'digest.webhook', 'digest.bot_token', 'notice.webhook', 'notice.bot_token'),
             $heartbeat,
             $baseline,
             self::grouping($groupingSec),
@@ -299,11 +303,55 @@ final class WatchConfig implements \JsonSerializable
             $environment === null ? $service : $service . '@' . $environment,
             $flags,
             $observe,
+            // Spec 009: absent = off. Validated even with `enabled: false`; not a FLAG (the section's own `enabled` is the switch).
+            is_array($config['metrics'] ?? null) ? MetricsSettings::fromArray($config['metrics'], $service) : self::absent($config, 'metrics'),
+            is_array($config['sentry'] ?? null) ? SentrySettings::fromArray($config['sentry']) : self::absent($config, 'sentry'),
             \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
             $incident,
             $kubernetes,
-            array_key_exists('api_context', $config) ? self::apiContext($config['api_context'], $state['retention']) : null,
+            array_key_exists('api_context', $config) ? self::hide(self::apiContext($config['api_context'], $state['retention']), 'source', 'auth_token') : null,
         );
+    }
+
+    /**
+     * The credential leaves of a section become {@see SecretValue} holders, so a dump of the config (var_export, print_r, serialize)
+     * shows none. Paths are dotted keys inside the section; a missing or non-string leaf is left alone.
+     *
+     * @param array<string, mixed> $section
+     * @return array<string, mixed>
+     */
+    public static function hide(array $section, string ...$paths): array
+    {
+        foreach ($paths as $path) {
+            $parts = explode('.', $path, 2);
+            $head = $parts[0];
+            if (!array_key_exists($head, $section)) {
+                continue;
+            }
+            if (isset($parts[1]) && is_array($section[$head])) {
+                $section[$head] = self::hide($section[$head], $parts[1]);
+            } elseif (!isset($parts[1]) && is_string($section[$head])) {
+                $section[$head] = new SecretValue($section[$head]);
+            }
+        }
+
+        return $section;
+    }
+
+    /** The value of a holder made by {@see hide()}, read at the point of use; a plain string passes through. */
+    public static function reveal(mixed $value): string
+    {
+        return $value instanceof SecretValue ? $value->reveal() : (string) $value;
+    }
+
+    /** A section with every holder read back, for comparing two sections: a SecretValue alone compares equal to any other. Never for output. */
+    public static function plain(mixed $value): mixed
+    {
+        if ($value instanceof SecretValue) {
+            return $value->reveal();
+        }
+
+        return is_array($value) ? array_map(self::plain(...), $value) : $value;
     }
 
     /**
@@ -672,11 +720,11 @@ final class WatchConfig implements \JsonSerializable
         }
 
         $client = self::optStr($a, 'client', 'http', 'analysis.client');
-        if (!in_array($client, ['http', 'sdk'], true)) {
-            throw new InvalidConfig('analysis.client must be http or sdk');
+        if ($client === 'sdk') {
+            throw new InvalidConfig('analysis.client: the SDK client was removed; use analysis.client=http (the default)');
         }
-        if ($client === 'sdk' && !SdkMessagesClient::available()) {
-            throw new InvalidConfig('analysis.client is sdk but anthropic-ai/sdk is not installed: run composer require anthropic-ai/sdk, or set analysis.client to http');
+        if ($client !== 'http') {
+            throw new InvalidConfig('analysis.client must be http');
         }
 
         $prices = self::prices(self::section($a, 'prices'), $models);
@@ -942,9 +990,9 @@ final class WatchConfig implements \JsonSerializable
     {
         return match ($entry['driver']) {
             'none' => Destination::none(),
-            'telegram' => Destination::telegram($entry['bot_token'], $entry['chat_id'], $entry['thread_id'] ?? null),
-            'discord' => Destination::discord($entry['webhook']),
-            default => Destination::slack($entry['webhook'], ($entry['allow_insecure'] ?? false) === true),
+            'telegram' => Destination::telegram(self::reveal($entry['bot_token']), $entry['chat_id'], $entry['thread_id'] ?? null),
+            'discord' => Destination::discord(self::reveal($entry['webhook'])),
+            default => Destination::slack(self::reveal($entry['webhook']), ($entry['allow_insecure'] ?? false) === true),
         };
     }
 
@@ -961,7 +1009,7 @@ final class WatchConfig implements \JsonSerializable
         foreach (['digest', 'notice'] as $kind) {
             foreach (['webhook', 'bot_token', 'chat_id'] as $k) {
                 if (isset($this->notify[$kind][$k])) {
-                    $out[] = (string) $this->notify[$kind][$k];
+                    $out[] = self::reveal($this->notify[$kind][$k]);
                 }
             }
         }
@@ -989,13 +1037,26 @@ final class WatchConfig implements \JsonSerializable
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
             ...($this->kubernetes?->maskValues() ?? []), // the API token, or what token_file holds right now
             ...$this->observe->secrets(),
+            ...($this->metrics?->secrets() ?? []),
+            ...($this->sentry?->secrets() ?? []),
             ...$this->apiContextSecrets(),
         ];
-        $secrets = array_values(array_unique(array_filter($candidates, static fn (mixed $v): bool => is_string($v) && $v !== '')));
+        $values = array_map(static fn (mixed $v): mixed => $v instanceof SecretValue ? $v->reveal() : $v, $candidates);
+        $secrets = array_values(array_unique(array_filter($values, static fn (mixed $v): bool => is_string($v) && $v !== '')));
         // Longest first: masking `sk-ant` before `sk-ant-SECRET` would leave `-SECRET` behind. (usort is stable in PHP 8.)
         usort($secrets, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
 
         return $secrets;
+    }
+
+    /** @param array<array-key, mixed> $config */
+    private static function absent(array $config, string $key): null
+    {
+        if (($config[$key] ?? null) !== null) {
+            throw new InvalidConfig($key . ' must be a map');
+        }
+
+        return null;
     }
 
     /**
@@ -1005,11 +1066,11 @@ final class WatchConfig implements \JsonSerializable
      */
     private function apiContextSecrets(): array
     {
-        $source = $this->apiContext['source'] ?? null;
+        $source = self::reveal($this->apiContext['source'] ?? '');
 
         return array_values(array_filter([
-            $this->apiContext['auth_token'] ?? null,
-            is_string($source) && preg_match('~^https?://~i', $source) === 1 ? $source : null,
+            isset($this->apiContext['auth_token']) ? self::reveal($this->apiContext['auth_token']) : null,
+            preg_match('~^https?://~i', $source) === 1 ? $source : null,
         ], 'is_string'));
     }
 
@@ -1209,11 +1270,35 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function links(array $links): array
     {
-        self::only($links, ['grafana', 'datadog', 'logs', 'code'], 'links');
+        self::only($links, ['grafana', 'datadog', 'logs', 'code', 'tempo', 'datadog_apm'], 'links');
         foreach (['grafana' => ['base_url', 'datasource_uid'], 'datadog' => ['app_url']] as $name => $keys) {
             if (is_array($links[$name] ?? null)) {
                 self::only($links[$name], $keys, 'links.' . $name);
             }
+        }
+
+        // Spec 009 US4: trace links. Built, never fetched; the trace id exists only inside the link URL.
+        foreach (['tempo' => ['base_url', 'datasource_uid', 'trace_field', 'service_name'], 'datadog_apm' => ['trace_field', 'service']] as $name => $keys) {
+            if (!array_key_exists($name, $links)) {
+                continue;
+            }
+            if (!is_array($links[$name])) {
+                throw new InvalidConfig('links.' . $name . ' must be a map');
+            }
+            self::only($links[$name], $keys, 'links.' . $name);
+            foreach ($keys as $k) {
+                $v = $links[$name][$k] ?? null;
+                $bad = $v !== null && (!is_string($v) || $v === '' || ($k === 'trace_field' && preg_match('/^[A-Za-z0-9_.-]{1,40}$/D', $v) !== 1));
+                if ($bad || ($name === 'tempo' && in_array($k, ['base_url', 'datasource_uid'], true) && $v === null)) {
+                    throw new InvalidConfig('links.' . $name . '.' . $k . ($v === null ? ' is required' : ' is invalid'));
+                }
+            }
+        }
+        if (isset($links['tempo']['base_url']) && SecureUrl::problem((string) $links['tempo']['base_url']) !== null) {
+            throw new InvalidConfig('links.tempo.base_url must be an https URL without credentials');
+        }
+        if (array_key_exists('datadog_apm', $links) && !is_string($links['datadog']['app_url'] ?? null)) {
+            throw new InvalidConfig('links.datadog_apm requires links.datadog.app_url');
         }
 
         return $links;

@@ -119,7 +119,7 @@ final class ApiContextTest extends TestCase
             self::assertInstanceOf(TriageRequest::class, $t);
             self::assertStringNotContainsString('"ep"', CompactPayload::encode($t->groups));
         }
-        self::assertStringContainsString('"ep":"GET /orders/{id} — Get an order"', CompactPayload::encode($h->analyzer->requests[0]->groups, [], $h->analyzer->requests[0]->endpoints));
+        self::assertStringContainsString('"ep":"GET /orders/{id} — Get an order"', CompactPayload::encode($h->analyzer->requests[0]->groups, [], null, $h->analyzer->requests[0]->endpoints));
     }
 
     public function testAnUnmatchedRouteAttachesNothingAndSaysNothing(): void
@@ -167,7 +167,7 @@ final class ApiContextTest extends TestCase
         self::assertSame([], $disabled->analyzer->requests[0]->endpoints);
         self::assertSame(
             CompactPayload::encode($off->analyzer->requests[0]->groups),
-            CompactPayload::encode($disabled->analyzer->requests[0]->groups, [], $disabled->analyzer->requests[0]->endpoints),
+            CompactPayload::encode($disabled->analyzer->requests[0]->groups, [], null, $disabled->analyzer->requests[0]->endpoints),
         );
     }
 
@@ -287,7 +287,7 @@ final class ApiContextTest extends TestCase
         $result = $make()->run();
 
         rewind($stream);
-        $requests = (string) json_encode(array_map(static fn ($r): string => CompactPayload::encode($r->groups, $r->dependencyContext, $r->endpoints), $h->analyzer->requests), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $requests = (string) json_encode(array_map(static fn ($r): string => CompactPayload::encode($r->groups, $r->dependencyContext, null, $r->endpoints), $h->analyzer->requests), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $outputs = [
             'model payload' => $requests,
             'digest' => $this->digest($h),

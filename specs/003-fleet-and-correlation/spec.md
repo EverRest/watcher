@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-23
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Fleet mode and cross-service correlation for everrest/watcher: one process watches several services (each with its own config) with shared state and a shared budget, so services that have no scheduler of their own can be watched from one place; and when errors in a service coincide with errors in a service it depends on, one correlated finding names the likely upstream cause instead of several separate findings. Source: docs/audit-2026-10-23.md, features 1 and 2, and the rollout survey of the three example services."
 

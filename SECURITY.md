@@ -22,3 +22,7 @@ Response targets (best effort, one maintainer): acknowledgement within 5 working
 
 - The configuration file is PHP code and is executed by design: never point `--config` at an untrusted or world-writable path.
 - Log content is untrusted input to the model; redaction runs before anything leaves the process (see `docs/privacy.md`).
+- Outbound URLs (metrics, Sentry, OpenAPI spec, observe HTTP target) come from the operator's config. The internal-address check reads
+  the host text and does not resolve names, so a configured name that resolves to an internal address is not refused. Accepted
+  because only the operator sets these URLs. Revisit (resolve once and connect to the checked address) if any URL can come from
+  untrusted input. See `docs/operations.md`, Proxies and the internal-address check.

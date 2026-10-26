@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-24
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: "Add Telegram and Discord as notification channels besides Slack, for the digest, the notices and the fleet posts."
 

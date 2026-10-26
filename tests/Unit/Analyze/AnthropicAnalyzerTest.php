@@ -323,7 +323,7 @@ final class AnthropicAnalyzerTest extends TestCase
     public function testEpReachesTheUserMessageAndTheSystemNoteOnlyWhenPresent(): void
     {
         $base = self::request();
-        $withEp = new AnalysisRequest($base->groups, $base->serviceContext, $base->model, $base->maxOutputTokens, [], ['fp-aaa' => 'POST /refunds — Refund an order']);
+        $withEp = new AnalysisRequest($base->groups, $base->serviceContext, $base->model, $base->maxOutputTokens, [], null, ['fp-aaa' => 'POST /refunds — Refund an order']);
         $this->analyzer([self::json('message-valid.json')])->analyze($withEp);
         $with = $this->body();
         $this->analyzer([self::json('message-valid.json')])->analyze($base);

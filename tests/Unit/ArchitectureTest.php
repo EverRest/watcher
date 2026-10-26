@@ -322,4 +322,13 @@ final class ArchitectureTest extends TestCase
             self::assertGreaterThan(0, $found, $sink);
         }
     }
+
+    /** Spec 009 T041: the trace id cannot be carried by a group, the model payload or state: none of these files knows the word. */
+    public function testNoGroupPayloadOrStateFileMentionsATraceId(): void
+    {
+        $files = array_merge([self::ROOT . '/src/Privacy/RedactedGroup.php', self::ROOT . '/src/Reduce/ProblemGroup.php', self::ROOT . '/src/Analyze/CompactPayload.php'], glob(self::ROOT . '/src/State/*.php') ?: []);
+        foreach ($files as $f) {
+            self::assertStringNotContainsStringIgnoringCase('trace', (string) file_get_contents($f), $f);
+        }
+    }
 }

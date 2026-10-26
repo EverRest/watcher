@@ -6,6 +6,7 @@ namespace Watcher\Config;
 
 use Closure;
 use GuzzleHttp\Client;
+use GuzzleHttp\ClientInterface;
 use PDO;
 use PDOException;
 use Psr\Clock\ClockInterface;
@@ -15,7 +16,10 @@ use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Analyze\AnthropicHttpClient;
-use Watcher\Analyze\SdkMessagesClient;
+use Watcher\Issues\IssueSource;
+use Watcher\Issues\SentryIssueSource;
+use Watcher\Metrics\MetricSource;
+use Watcher\Metrics\PrometheusSource;
 use Watcher\ApiContext\ApiContextReader;
 use Watcher\ApiContext\ApiSpecCache;
 use Watcher\ApiContext\OpenApiReducer;
@@ -80,7 +84,7 @@ final class Factory
     }
 
     /**
-     * A long analysis reply can take well over 30 s, but a model call (two sequential attempts, no SDK retry) must stay within
+     * A long analysis reply can take well over 30 s, but a model call (two sequential attempts) must stay within
      * a quarter of lock_ttl, so a second run cannot start while this one is still analysing: timeout = lock_ttl / 4 / 2, within 10..180 s.
      * When the store supports {@see RenewableLock}, Watcher renews the run lock between pipeline steps and before each model call; the router makes at most 2 + escalation_cap model calls.
      *
@@ -89,12 +93,6 @@ final class Factory
     public static function analyzerHttpOptions(int $lockTtl = 900): array
     {
         return ['timeout' => max(10, min(180, intdiv($lockTtl, 8))), 'connect_timeout' => 10];
-    }
-
-    /** @return array{maxRetries: int} an SDK retry would multiply the worst case of a call; the next scheduled trigger is the retry */
-    public static function analyzerRequestOptions(): array
-    {
-        return ['maxRetries' => 0];
     }
 
     /** @param array<string, KubeApi> $apis shared by the entries of a fleet (pod events only) */
@@ -120,8 +118,8 @@ final class Factory
             return new DatadogSource(
                 $http,
                 (string) ($dd['site'] ?? 'datadoghq.com'),
-                (string) $dd['api_key'],
-                (string) $dd['app_key'],
+                WatchConfig::reveal($dd['api_key']),
+                WatchConfig::reveal($dd['app_key']),
                 clock: $clock,
                 levelMode: $c->source['level_mode'] === 'all' ? 'all' : 'status',
                 newestFirst: ($dd['newest_first'] ?? false) === true,
@@ -130,20 +128,76 @@ final class Factory
         }
         /** @var array<string, mixed> $loki */
         $loki = $c->source['loki'];
-        /** @var array<string, string>|null $auth */
+        /** @var array<string, mixed>|null $auth */
         $auth = $loki['auth'] ?? null;
         $tenant = $loki['tenant'] ?? null;
 
         return new LokiSource(
             $http,
             (string) $loki['url'],
-            ($auth['type'] ?? null) === 'bearer' ? $auth['token'] : null,
-            ($auth['type'] ?? null) === 'basic' ? $auth['user'] : null,
-            ($auth['type'] ?? null) === 'basic' ? $auth['password'] : null,
+            ($auth['type'] ?? null) === 'bearer' ? WatchConfig::reveal($auth['token']) : null,
+            ($auth['type'] ?? null) === 'basic' ? (string) $auth['user'] : null,
+            ($auth['type'] ?? null) === 'basic' ? WatchConfig::reveal($auth['password']) : null,
             is_string($tenant) ? $tenant : null,
             levelMode: (string) $c->source['level_mode'],
             allowInsecure: ($loki['allow_insecure'] ?? false) === true,
             maxResponseBytes: self::maxResponseBytes($c),
+        );
+    }
+
+    /** Wall-clock seconds one metrics or Sentry call (retries and pages included) may take; both sources share this one figure. */
+    public const SOURCE_BUDGET_SECONDS = 60;
+
+    /**
+     * The metrics source of spec 009, or null when the section is absent or `enabled: false`.
+     *
+     * @param (Closure(): ?string)|null $stop returns a reason once the run must wind down (`RunGuard::reason()`)
+     */
+    public static function metricSource(WatchConfig $c, ClientInterface $http, ?Closure $stop = null): ?MetricSource
+    {
+        $m = $c->metrics;
+        if ($m === null || !$m->enabled) {
+            return null;
+        }
+
+        return new PrometheusSource(
+            $http,
+            $m->baseUrl,
+            $m->token(),
+            $m->type === 'grafana' ? $m->datasourceUid : null,
+            $m->labelAllowlist,
+            $m->maxPoints,
+            allowInsecure: $m->allowInsecure,
+            budgetSeconds: self::SOURCE_BUDGET_SECONDS,
+            stop: $stop,
+            allowPrivateNetwork: $m->allowPrivateNetwork,
+        );
+    }
+
+    /**
+     * The Sentry issue source of spec 009, or null when the section is absent or `enabled: false`.
+     *
+     * @param (Closure(): ?string)|null $stop returns a reason once the run must wind down (`RunGuard::reason()`)
+     */
+    public static function issueSource(WatchConfig $c, ClientInterface $http, ClockInterface $clock, ?Closure $stop = null): ?IssueSource
+    {
+        $s = $c->sentry;
+        if ($s === null || !$s->enabled) {
+            return null;
+        }
+
+        return new SentryIssueSource(
+            $http,
+            $s->baseUrl,
+            $s->organization,
+            $s->project,
+            $s->token(),
+            $s->maxIssues,
+            clock: $clock,
+            allowInsecure: $s->allowInsecure,
+            budgetSeconds: self::SOURCE_BUDGET_SECONDS,
+            stop: $stop,
+            allowPrivateNetwork: $s->allowPrivateNetwork,
         );
     }
 
@@ -269,7 +323,7 @@ final class Factory
                     'port' => (int) ($r['port'] ?? 6379),
                     'database' => (int) ($r['database'] ?? 0),
                     'username' => isset($r['username'], $r['password']) ? (string) $r['username'] : null,
-                    'password' => isset($r['password']) ? (string) $r['password'] : null,
+                    'password' => isset($r['password']) ? WatchConfig::reveal($r['password']) : null,
                     'timeout' => 5.0,
                     'read_write_timeout' => self::redisReadTimeout($r),
                 ], static fn (mixed $v): bool => $v !== null)));
@@ -282,7 +336,8 @@ final class Factory
             $redis->connect((string) ($r['host'] ?? '127.0.0.1'), (int) ($r['port'] ?? 6379), 5.0, null, 0, self::redisReadTimeout($r));
             if (isset($r['password'])) {
                 // Redis 6 ACL: with a username the pair is sent; use a `tls://` host for TLS.
-                $redis->auth(isset($r['username']) ? [(string) $r['username'], (string) $r['password']] : (string) $r['password']);
+                $password = WatchConfig::reveal($r['password']);
+                $redis->auth(isset($r['username']) ? [(string) $r['username'], $password] : $password);
             }
             $redis->select((int) ($r['database'] ?? 0));
         } catch (RedisException) {
@@ -295,14 +350,14 @@ final class Factory
     /** @param array<string, mixed> $p */
     private static function pdo(array $p): PDO
     {
-        $dsn = (string) $p['dsn'];
+        $dsn = WatchConfig::reveal($p['dsn']);
         $options = [];
         // MySQL reports changed rows, not matched; put/renew treat rowCount 0 as a miss (P-M1).
         if (str_starts_with($dsn, 'mysql:')) {
             $options[PDO::MYSQL_ATTR_FOUND_ROWS] = true;
         }
         try {
-            return new PDO($dsn, $p['username'] ?? null, $p['password'] ?? null, $options);
+            return new PDO($dsn, isset($p['username']) ? WatchConfig::reveal($p['username']) : null, isset($p['password']) ? WatchConfig::reveal($p['password']) : null, $options);
         } catch (PDOException) {
             throw new InvalidConfig('state.pdo: cannot connect'); // not chained: the driver message can carry the DSN or password
         }
@@ -402,12 +457,10 @@ final class Factory
         }
 
         $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
-        $key = (string) $c->analysis['api_key'];
+        $key = WatchConfig::reveal($c->analysis['api_key']);
 
         $analyzer = new AnthropicAnalyzer(
-            $c->analysis['client'] === 'sdk'
-                ? new SdkMessagesClient($key, new Client($options), null, self::analyzerRequestOptions())
-                : new AnthropicHttpClient($key, new Client($options), $options['timeout']),
+            new AnthropicHttpClient($key, new Client($options), $options['timeout']),
             $c->on('advice'),
         );
 
@@ -499,7 +552,7 @@ final class Factory
     /** Models-list probe for `check`; null for a provider without one. Makes no call by itself. */
     public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
     {
-        return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, (string) $c->analysis['api_key']) : null;
+        return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, WatchConfig::reveal($c->analysis['api_key'])) : null;
     }
 
     /** The OpenAPI context reader (spec 010); null when the section is absent or switched off, so nothing is built, read or cached. */
@@ -511,7 +564,7 @@ final class Factory
         }
 
         return new ApiContextReader(
-            source: new OpenApiSource($http, (string) $a['source'], $a['auth_token'], $a['max_bytes'], null, null, $a['allow_insecure'], $a['allowed_roots'], $a['allow_private_network']),
+            source: new OpenApiSource($http, WatchConfig::reveal($a['source']), $a['auth_token'] === null ? null : WatchConfig::reveal($a['auth_token']), $a['max_bytes'], null, null, $a['allow_insecure'], $a['allowed_roots'], $a['allow_private_network']),
             reducer: new OpenApiReducer($redactor, $a['summary_cap'], $a['base_path']),
             cache: new ApiSpecCache($state, $clock ?? new SystemClock(), $a['ttl']),
             service: $config->stateKey,
@@ -561,7 +614,7 @@ final class Factory
         $state = self::state($c, $clock);
         $probe = $c->observe->anyEnabled() ? self::observe($c, $clock, null, new ObserveCounters($state, $c->stateKey, $c->state['retention']), probe: true) : null;
 
-        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, events: self::events($c, $http, $clock), kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe, apiContext: self::apiContextReader(config: $c, http: $http, state: $state, redactor: new Redactor(new Normalizer(extraPatterns: $c->redactionPatterns), $c->redactionPatterns), clock: $clock));
+        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, events: self::events($c, $http, $clock), kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe, metrics: self::metricSource($c, $http), issues: self::issueSource($c, $http, $clock), apiContext: self::apiContextReader(config: $c, http: $http, state: $state, redactor: new Redactor(new Normalizer(extraPatterns: $c->redactionPatterns), $c->redactionPatterns), clock: $clock));
     }
 
     /**

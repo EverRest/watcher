@@ -62,12 +62,14 @@ final class HttpTargetSharedClassifierTest extends TestCase
                 ++$attempts;
                 $sink = ResponseLimit::options($tripped, 1024)['sink']; // built inside the retry closure, so a retry starts a fresh count
                 for ($i = 0; $i < 1000; ++$i) { // 512 KB offered in 512-byte chunks, as a chunked reply without Content-Length would
-                    $sink->write(str_repeat('x', 512));
+                    if ($sink->write(str_repeat('x', 512)) < 512) { // a short write: curl ends the transfer and Guzzle reports it
+                        throw new \GuzzleHttp\Exception\RequestException('cURL error 23', new \GuzzleHttp\Psr7\Request('GET', 'http://x/'));
+                    }
                     $written += 512;
                 }
 
                 return new Response(200);
-            }, 'target', true);
+            }, 'target', true, $tripped);
             self::fail('expected the abort');
         } catch (\Watcher\Source\SourceUnavailable $e) {
             self::assertTrue($e->tooLarge, 'named as the response cap');

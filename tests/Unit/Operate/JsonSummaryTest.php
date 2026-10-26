@@ -70,6 +70,21 @@ final class JsonSummaryTest extends TestCase
         self::assertNotSame('', $j['version']);
     }
 
+    public function testMetricsAndSentryCountsAppearOnlyWhenConfigured(): void
+    {
+        $stats = new \Watcher\Operate\RunStats();
+        $plain = $this->decode((new JsonSummary())->render(new RunSummaryData(RunOutcome::Reported, 'svc', stats: $stats)));
+        self::assertSame(self::FIELDS, array_keys($plain)); // unconfigured: byte-identical key list
+
+        $stats->setMetrics(['read' => 2, 'failed' => 0, 'anomalies' => 1]);
+        $stats->setSentry(['read' => 5, 'dropped' => 1, 'merged' => 4, 'failed' => 0]);
+        $j = $this->decode((new JsonSummary())->render(new RunSummaryData(RunOutcome::Reported, 'svc', stats: $stats)));
+
+        self::assertSame([...self::FIELDS, 'metrics', 'sentry'], array_keys($j));
+        self::assertSame(['read' => 2, 'failed' => 0, 'anomalies' => 1], $j['metrics']);
+        self::assertSame(['read' => 5, 'dropped' => 1, 'merged' => 4, 'failed' => 0], $j['sentry']);
+    }
+
     public function testTheHealthCountersAreAlwaysThereWithStableNames(): void
     {
         $stats = new RunStats();

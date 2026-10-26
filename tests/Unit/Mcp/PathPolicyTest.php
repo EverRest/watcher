@@ -51,6 +51,30 @@ final class PathPolicyTest extends TestCase
         self::assertSame($this->root . '/watcher.php', $a->real);
     }
 
+    public function testAFileRootApprovesThatFileAndNoSibling(): void
+    {
+        file_put_contents($this->root . '/other.php', "<?php return [];\n");
+        chmod($this->root . '/other.php', 0644);
+        $policy = PathPolicy::forFile($this->root . '/watcher.php');
+        self::assertSame($this->root . '/watcher.php', $policy->approve($this->root . '/watcher.php')->real);
+        try {
+            $policy->approve($this->root . '/other.php');
+            self::fail('a sibling was approved');
+        } catch (ToolError $e) {
+            self::assertSame('path_not_allowed', $e->errorCode);
+        }
+    }
+
+    public function testAnEmptyPolicyApprovesNothing(): void
+    {
+        try {
+            (new PathPolicy([]))->approve($this->root . '/watcher.php');
+            self::fail('an empty policy approved a file');
+        } catch (ToolError $e) {
+            self::assertSame('path_not_allowed', $e->errorCode);
+        }
+    }
+
     /** @return array<string, array{string}> */
     public static function literal(): array
     {
@@ -151,6 +175,28 @@ final class PathPolicyTest extends TestCase
         $ok = (new ConfigFileReader())->read($this->policy()->approve($this->root . '/watcher.php'));
         self::assertSame("<?php return [];\n", $ok->bytes);
         self::assertTrue($ok->stillTheSame());
+        $ok->close();
+    }
+
+    public function testTheRecheckBeforeIncludeSeesAReplacementEvenAfterAStatWasCached(): void
+    {
+        $approved = $this->policy()->approve($this->root . '/watcher.php');
+        $ok = (new ConfigFileReader())->read($approved);
+        self::assertTrue($ok->stillTheSame()); // primes PHP's stat cache for this path
+        rename($this->root . '/watcher.php', $this->root . '/approved-original.php'); // the original stays alive: its inode cannot be reused
+        file_put_contents($this->root . '/watcher.php', '<?php return ["swapped" => true];');
+        chmod($this->root . '/watcher.php', 0644);
+        self::assertFalse($ok->stillTheSame(), 'a cached lstat must not hide the swap');
+        $ok->close();
+    }
+
+    public function testAnInPlaceRewriteOfTheSameInodeIsRefusedBeforeInclude(): void
+    {
+        // same inode, same name: only the content changed. dev/ino cannot see this; mtime/ctime can.
+        touch($this->root . '/watcher.php', 1_000_000_000); // a clearly old mtime, so the rewrite below moves it
+        $ok = (new ConfigFileReader())->read($this->policy()->approve($this->root . '/watcher.php'));
+        file_put_contents($this->root . '/watcher.php', '<?php return ["sam" => 1];'); // same inode, new content and mtime
+        self::assertFalse($ok->stillTheSame(), 'an in-place rewrite must be refused before the include');
         $ok->close();
     }
 

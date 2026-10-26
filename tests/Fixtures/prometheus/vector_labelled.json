@@ -1,0 +1,1 @@
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"code":"500","pod":"a","customer":"customer-4711"},"value":[1792713600,"2"]},{"metric":{"code":"502","pod":"b","customer":"anna.kowalski@example.org"},"value":[1792713600,"3.5"]}]}}
