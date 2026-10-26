@@ -121,7 +121,7 @@ final class HostileVolumeBudgetTest extends TestCase
 
         self::assertNotEmpty($this->analyzer->triageGroups);
         // group_cap distinct groups, plus the overflow group that folds everything beyond the cap.
-        self::assertLessThanOrEqual(101, max($this->analyzer->triageGroups), 'a triage request carried more groups than the cap allows');
+        self::assertLessThanOrEqual(101, max(0, ...$this->analyzer->triageGroups), 'a triage request carried more groups than the cap allows');
         self::assertStringContainsString('cluster cap hit', implode("\n", $h->sentTexts()), 'the cap was not reported in the digest');
     }
 }

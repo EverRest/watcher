@@ -73,7 +73,7 @@ final class PromptInjectionTest extends TestCase
     private function delivered(string $driver, string $line, string $answer): string
     {
         $bodies = [];
-        $http = new Client(['handler' => HandlerStack::create(static function (RequestInterface $r) use (&$bodies): PromiseInterface {
+        $http = new Client(['handler' => new HandlerStack(static function (RequestInterface $r) use (&$bodies): PromiseInterface {
             $bodies[] = (string) $r->getBody();
 
             return Create::promiseFor(new Response(200, [], '{"ok":true}'));
