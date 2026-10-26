@@ -11,6 +11,10 @@
 - `watcher mcp --setup` (no configured file) had the project directory as its root, so the same tools ran any PHP file of the project. It now approves no path: both tools return `path_not_allowed` until a configuration exists. Behaviour change: validation in setup mode is off; re-enabling it needs the no-execute validator (option B, not done).
 - The configured file itself still runs as PHP: at each server start (`watcher mcp`) and on `watcher_validate_config` for that file. The validator does not parse without running it; that is option B.
 
+### Documentation (security: F5, Redis over TLS)
+- Checked, no code change: both Redis clients verify the server certificate by default. phpredis (`tls://` host) and Predis (`scheme` `tls`) refuse a self-signed certificate against Redis 8 with the system trust store (`certificate verify failed`); the password is never sent to such a server. A private CA is trusted through PHP's `openssl.cafile`; both clients connect with it. No `state.redis.tls.*` key was added, because nothing was missing.
+- `docs/operations.md` ("Redis requirements"): use a `tls://` host outside a trusted network. On a plain TCP connection `AUTH` (the password and the ACL username) travels in clear text.
+
 ## 0.2.1 — 2026-10-26 — Kubernetes events, schedule periods, incident workflow, log hygiene, MCP, observability sinks, API context, kill switch
 
 Product release label **v0.2.1** (root VERSION). This release contains everything listed below. Do not install `v0.2.0`: that tag was created on an earlier commit and lacks the kill switch, the API context, the hygiene fixes and the notes below.
