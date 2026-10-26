@@ -433,7 +433,12 @@ env:
 ```
 
 A fleet has the same switches: fleet `enabled`, and `enabled` per entry or in `defaults` (a disabled service is reported
-`disabled`, not failed). Two environments must not share a store prefix: the process cannot detect that, so give each its
+`disabled`, not failed). The fleet switch is read first, from the raw `enabled` key of the fleet file (or of `_fleet.php`
+in a directory), and only `enabled: false` switches a fleet off (absent means on, as documented in
+[configuration.md](configuration.md#feature-flags-spec-012)). A switched-off fleet validates no entry and opens no service
+file: `fleet:run`, `fleet:status` and `fleet:check` exit 0 with every service `disabled`. Its service names are the raw
+`service` values that look like names, so a directory fleet shows none. A broken entry therefore does not break a
+switched-off fleet, and fixing it is not needed to keep the fleet off. Two environments must not share a store prefix: the process cannot detect that, so give each its
 own `environment` (fleet validation rejects a duplicate `service@environment`).
 
 ## Rollback / disabling
