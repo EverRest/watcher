@@ -1,0 +1,20 @@
+{
+  "openapi": "3.0.0",
+  "info": {"title": "Seeded", "version": "1", "description": "owner jane.doe.seed@example.com"},
+  "servers": [{"url": "https://{user}.seed-host.example.com/api", "variables": {"user": {"default": "seed-server-variable-9f8e7d"}}}],
+  "x-internal": {"contact": "seed-extension-value@example.com"},
+  "paths": {
+    "/customers/{id}": {
+      "x-note": "seed-path-extension-4711",
+      "get": {
+        "summary": "Look up the customer anna.seed@example.com",
+        "description": "seed-description-secret-5521",
+        "tags": ["customers"],
+        "x-vendor": "seed-operation-extension-7788",
+        "parameters": [{"name": "id", "in": "path", "example": "seed-param-example-1234", "schema": {"type": "string", "default": "seed-schema-default-9911"}}],
+        "requestBody": {"content": {"application/json": {"example": {"email": "seed-body@example.com"}}}},
+        "responses": {"200": {"description": "ok", "content": {"application/json": {"example": {"token": "seed-response-token-3344"}}}}}
+      }
+    }
+  }
+}

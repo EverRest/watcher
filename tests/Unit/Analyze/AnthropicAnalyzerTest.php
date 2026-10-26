@@ -319,4 +319,21 @@ final class AnthropicAnalyzerTest extends TestCase
 
         self::assertSame('api.anthropic.com', $this->history[0]['request']->getUri()->getHost());
     }
+
+    public function testEpReachesTheUserMessageAndTheSystemNoteOnlyWhenPresent(): void
+    {
+        $base = self::request();
+        $withEp = new AnalysisRequest($base->groups, $base->serviceContext, $base->model, $base->maxOutputTokens, [], ['fp-aaa' => 'POST /refunds — Refund an order']);
+        $this->analyzer([self::json('message-valid.json')])->analyze($withEp);
+        $with = $this->body();
+        $this->analyzer([self::json('message-valid.json')])->analyze($base);
+        $without = $this->body();
+
+        $sys = static fn (array $b): string => implode("\n", array_column($b['system'], 'text'));
+        $user = static fn (array $b): string => (string) (is_string($b['messages'][0]['content']) ? $b['messages'][0]['content'] : $b['messages'][0]['content'][0]['text']);
+        self::assertStringContainsString('"ep":"POST /refunds — Refund an order"', $user($with));
+        self::assertStringContainsString('not evidence of the cause', $sys($with));
+        self::assertStringNotContainsString('"ep"', $user($without));
+        self::assertStringNotContainsString('not evidence of the cause', $sys($without));
+    }
 }

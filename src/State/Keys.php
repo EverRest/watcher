@@ -29,6 +29,7 @@ final class Keys
     public const OBSFAIL = 'obsfail';
     public const OBSDELIV = 'obsdeliv';
     public const OBSSEEN = 'obsseen';
+    public const API = 'api';
     public const HYGIENE = 'hyg';
     public const LEDGER = 'ledger';
     public const HIGH_WATER = 'hw';
@@ -213,6 +214,12 @@ final class Keys
     public static function observeSeen(string $service, string $sink): string
     {
         return self::join(self::OBSSEEN, $service, $sink);
+    }
+
+    /** Reduced OpenAPI document of one service and source; `$sourceId` is a hash, never the URL or path. */
+    public static function apiContext(string $service, string $sourceId): string
+    {
+        return self::join(self::API, $service, $sourceId);
     }
 
     /** Aggregates of one hygiene pass for a service-local date (spec 006, data-model.md). */

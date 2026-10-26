@@ -10,7 +10,7 @@ All scenarios run with fakes, temp files and recorded HTTP fixtures (no network)
 | 3 | 8 distinct routes, `max_endpoints` 5 | 5 lines in candidate order, footer `3 endpoint lines skipped`; same route in two groups counts once | same |
 | 4 | Feature absent / `enabled: false` | source never opened, no `put`, model input and digest byte-identical (SC-003) | `tests/EndToEnd/ApiContextTest.php` (spy on source + `RecordingStateStore`) |
 | 5 | No selected group names a route | no source read, no cache read | same |
-| 6 | Match table (35 matcher rows, rows marked S are synthetic templates) | 0 wrong matches; "none" rows attach nothing (SC-002) | `tests/Unit/ApiContext/RouteMatcherTest.php`, `RouteExtractorTest.php` |
+| 6 | Match table (41 rows, rows marked S are synthetic templates) | 0 wrong matches; "none" rows attach nothing (SC-002) | `tests/Unit/ApiContext/RouteMatcherTest.php`, `RouteExtractorTest.php` |
 | 6b | Round-trip: raw line -> real Normalizer -> extractor -> matcher (`GET /orders/8812` matches; `POST /orders/8812/refund` -> `<PATH>/…/<N>/refund` attaches nothing; 3+ segments never match) | the 2-segment limit is pinned | `tests/Unit/ApiContext/RouteRoundTripTest.php` |
 | 7 | Fixture with seeded values in examples, descriptions, parameters, extensions, server variables, and an e-mail in a summary | cache entry, model input, digest, `--json` hold no seeded value (SC-001) | `tests/Unit/ApiContext/OpenApiReducerTest.php`, `tests/EndToEnd/PrivacyTest.php` |
 | 8 | Swagger 2.0, OpenAPI 3.0, 3.1 | same reduction; `openapi: 4.0` -> `unsupported_version` | `OpenApiReducerTest.php` |

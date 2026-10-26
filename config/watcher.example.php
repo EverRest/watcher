@@ -192,6 +192,13 @@ return [
         'path_map' => ['/var/www/html/' => 'app/'],      // container path => repository path, for stack-frame links
     ],
 
+    // OpenAPI endpoint documentation (docs/configuration.md#api_context, spec 010). OFF unless this section exists. Routes of at most 2 segments only.
+    // 'api_context' => [
+    //     'source' => Env::string('WATCHER_OPENAPI_SOURCE'),         // absolute JSON file path, or an https URL (a secret if it holds a token)
+    //     'auth_token' => Env::string('WATCHER_OPENAPI_TOKEN'),      // optional bearer token
+    //     'ttl' => 'PT24H',                                          // the reduced spec is cached this long, then read again
+    //     'max_endpoints' => 5,                                      // 1..20 per run
+    // ],
     // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default; the cost report works regardless.
     'hygiene' => [
         'enabled' => false,

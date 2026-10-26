@@ -19,6 +19,8 @@ final class AnalysisRequest
         public readonly string $model,
         public readonly int $maxOutputTokens,
         public readonly array $dependencyContext = [],
+        /** @var array<string, string> fingerprint => `ep`, the masked one-line endpoint documentation (spec 010) */
+        public readonly array $endpoints = [],
     ) {
     }
 }
