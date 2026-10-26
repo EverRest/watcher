@@ -204,6 +204,26 @@ final class FactoryTest extends TestCase
         $notifier->send(new \Watcher\Notify\Message('x'), \Watcher\Notify\Destination::telegram('123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789', '-100123'));
     }
 
+    public function testTheStateStoreOfARedisConfigShowsNoPasswordInAnyDumpOrExport(): void
+    {
+        $config = self::config(['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid']]);
+        $config['state'] = ['driver' => 'redis', 'redis' => ['host' => '127.0.0.1', 'password' => 'REDISPWzqkvcanary']];
+        $c = WatchConfig::fromArray($config);
+        $clock = new \Watcher\Schedule\SystemClock();
+        $objects = [Factory::state($c, $clock), Factory::state($c, $clock, null)];
+
+        foreach ($objects as $store) {
+            ob_start();
+            var_dump($store);
+            var_dump((array) $store);
+            print_r($store);
+            print_r((array) $store);
+            $dump = (string) ob_get_clean() . var_export($store, true) . var_export((array) $store, true) . json_encode($store);
+
+            self::assertStringNotContainsString('REDISPWzqkvcanary', $dump);
+        }
+    }
+
     /** @return array<string, mixed> */
     private static function hygieneConfig(bool $hygiene): array
     {

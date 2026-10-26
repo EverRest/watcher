@@ -88,7 +88,7 @@ final class TemplateMiner
         }
         $text = implode(' ', $tokens);
         if (isset($this->index[$bucket][$text])) {
-            ++$this->buckets[$bucket][$this->index[$bucket][$text]]['count'];
+            $this->buckets[$bucket][$this->index[$bucket][$text]]['count'] += $event->occurrences;
 
             return;
         }
@@ -103,7 +103,7 @@ final class TemplateMiner
         $this->bytes += $cost;
         ++$this->distinct;
         $this->index[$bucket][$text] = count($this->buckets[$bucket] ?? []);
-        $this->buckets[$bucket][] = ['tokens' => $tokens, 'text' => $text, 'count' => 1, 'fp' => $fingerprint];
+        $this->buckets[$bucket][] = ['tokens' => $tokens, 'text' => $text, 'count' => $event->occurrences, 'fp' => $fingerprint];
         $this->clustered = false;
     }
 

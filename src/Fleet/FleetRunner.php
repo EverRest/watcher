@@ -67,17 +67,20 @@ final class FleetRunner
         $state = Factory::state($first, $clock, $log);
         $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
         $sources = [];
+        $events = [];
         $sinks = [];
         $counters = [];
+        $apis = []; // pod events: entries on one cluster with the same credentials share one client and its list memo
         foreach ($fleet->services as $e) {
-            $sources[$e->name()] = Factory::source($e->config, $http, $clock);
+            $sources[$e->name()] = Factory::source($e->config, $http, $clock, $apis);
+            $events[$e->name()] = Factory::events($e->config, $http, $clock, $apis);
             // Spec 013: each service flushes its own events (its own service/environment, its own Prometheus file).
             $counters[$e->name()] = new ObserveCounters($state, $e->config->stateKey, $e->config->state['retention']);
             $sinks[$e->name()] = $e->config->enabled ? Factory::observe($e->config, $clock, $log, $counters[$e->name()], stdoutToStderr: $stdoutToStderr) : null;
         }
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
-        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share): callable {
+        $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share): callable {
             $watcher = new Watcher(
                 $e->config,
                 $sources[$e->name()],
@@ -89,8 +92,9 @@ final class FleetRunner
                 $options,
                 $out,
                 $seam,
-                $sinks[$e->name()],
-                $counters[$e->name()],
+                events: $events[$e->name()],
+                sinks: $sinks[$e->name()],
+                counters: $counters[$e->name()],
             );
             if ($share !== null) {
                 $watcher->limitRunTo($share);
