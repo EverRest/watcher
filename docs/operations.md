@@ -223,7 +223,10 @@ in-cluster URL (`*.svc`, `*.cluster.local`) or an RFC 1918 address. `allow_insec
 ### Proxies and the internal-address check
 
 Sources that fetch from a URL they were given (metrics, Sentry, an OpenAPI spec) refuse literal internal addresses and in-cluster names
-unless the operator opts in (`SecureUrl::internalHost`; names are not resolved). Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
+unless the operator opts in (`SecureUrl::internalHost`; names are not resolved). So a host name whose DNS answer is an internal address
+(`127.0.0.1.nip.io`, or a name that later rebinds) passes the check. Every such URL is read from the config file, so this is accepted:
+it matters only if a URL ever comes from untrusted input, and then the fix is to resolve once and connect to the checked address
+(`CURLOPT_RESOLVE`). Guzzle honours `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment: through a
 proxy the connection goes where the proxy decides, so the check does not cover it. Loki and Slack keep working behind a proxy and are not
 changed; where a proxy must not be used, leave those variables unset for the process.
 

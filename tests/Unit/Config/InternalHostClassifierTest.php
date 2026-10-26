@@ -208,6 +208,19 @@ final class InternalHostClassifierTest extends TestCase
         self::assertNull(SecureUrl::problem('https://prom.invalid/', false, true));
     }
 
+    /**
+     * Decision F4 (option a, document only): a host NAME is never resolved, so a name whose DNS answer is an internal address passes.
+     * The URLs this check guards come from the operator's config file, so the gap is accepted and documented (docs/operations.md,
+     * docs/privacy.md). This test pins that behaviour. When a URL can come from untrusted input, resolve once, connect to the checked
+     * address (CURLOPT_RESOLVE) and flip these assertions to refusals.
+     */
+    public function testANameThatResolvesToAnInternalAddressIsNotRefusedBecauseNamesAreNotResolved(): void
+    {
+        self::assertNull(SecureUrl::problem('https://127.0.0.1.nip.io/', false, true));
+        self::assertNull(SecureUrl::problem('https://169.254.169.254.nip.io/', false, true));
+        self::assertFalse(SecureUrl::internalHost('127.0.0.1.nip.io'));
+    }
+
     public function testTheOptInKeepsTheBaseRules(): void
     {
         self::assertNotNull(SecureUrl::problem('http://prom.invalid', true, true));
