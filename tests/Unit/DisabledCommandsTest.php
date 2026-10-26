@@ -7,8 +7,13 @@ namespace Watcher\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use Watcher\Cli\Application;
 use Watcher\Config\Factory;
+use Watcher\Config\InvalidConfig;
+use Watcher\Fleet\FleetCheck;
 use Watcher\Fleet\FleetConfig;
+use Watcher\Fleet\FleetRunner;
 use Watcher\Fleet\FleetStatus;
+use Watcher\Hygiene\Hygiene;
+use Watcher\Hygiene\HygieneOptions;
 use Watcher\Operate\RunOptions;
 use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Tests\Fakes\InMemoryStateStore;
@@ -42,11 +47,6 @@ final class DisabledCommandsTest extends TestCase
     {
         $this->file = sys_get_temp_dir() . '/watcher-off-' . bin2hex(random_bytes(4)) . '.php';
         file_put_contents($this->file, '<?php return ' . var_export(self::config(), true) . ';');
-    }
-
-    protected function tearDown(): void
-    {
-        @unlink($this->file);
     }
 
     /**
@@ -145,5 +145,123 @@ final class DisabledCommandsTest extends TestCase
             self::assertStringContainsString('fleet', $key, 'only the fleet\'s own record may be read');
         }
         self::assertSame(['disabled', 'disabled'], array_values(array_map(static fn ($h): string => $h->state, $status->services)));
+    }
+
+    /** A fleet file, switched off, whose second entry cannot validate. Nothing may read the entry. */
+    private function switchedOffFleetFile(): string
+    {
+        $dir = sys_get_temp_dir() . '/watcher-off-state-' . bin2hex(random_bytes(4));
+        $svc = static fn (string $n): array => ['service' => $n] + array_diff_key(self::config(true), ['service' => 1]) + ['state' => ['driver' => 'file', 'file' => ['path' => $dir]]];
+        $file = sys_get_temp_dir() . '/watcher-off-fleet-' . bin2hex(random_bytes(4)) . '.php';
+        file_put_contents($file, '<?php return ' . var_export(['fleet' => 'platform', 'enabled' => false, 'services' => [$svc('api'), ['service' => 'bad-one']]], true) . ';');
+        $this->fleetFiles[] = $file;
+
+        return $file;
+    }
+
+    /** @var list<string> */
+    private array $fleetFiles = [];
+
+    protected function tearDown(): void
+    {
+        @unlink($this->file);
+        foreach ($this->fleetFiles as $file) {
+            @unlink($file);
+        }
+    }
+
+    public function testFleetRunOfASwitchedOffFleetIsDisabledAndTouchesNoState(): void
+    {
+        $file = $this->switchedOffFleetFile();
+        $dir = self::stateDirOf($file);
+
+        $result = FleetRunner::fromConfig($file)->run(null, RunOptions::default());
+
+        self::assertSame(['api', 'bad-one'], array_map(static fn ($s): string => $s->service, $result->services));
+        self::assertSame(['disabled', 'disabled'], array_map(static fn ($s): string => $s->outcome, $result->services));
+        self::assertSame(0, $result->exitCode());
+        self::assertDirectoryDoesNotExist($dir);
+    }
+
+    public function testFleetStatusOfASwitchedOffFleetReadsNoStore(): void
+    {
+        $file = $this->switchedOffFleetFile();
+        $dir = self::stateDirOf($file);
+
+        $status = FleetStatus::fromConfig($file);
+
+        self::assertSame(0, $status->exitCode());
+        self::assertSame(['api', 'bad-one'], array_keys($status->services));
+        self::assertDirectoryDoesNotExist($dir);
+    }
+
+    public function testFleetCheckOfASwitchedOffFleetCallsNothing(): void
+    {
+        $file = $this->switchedOffFleetFile();
+        $dir = self::stateDirOf($file);
+
+        $report = FleetCheck::fromConfig($file)->run(false);
+
+        self::assertSame(0, $report->exitCode());
+        self::assertStringContainsString('disabled', $report->text());
+        self::assertDirectoryDoesNotExist($dir);
+    }
+
+    public function testRunOfASwitchedOffFleetFileIsDisabledWithoutValidatingItsServices(): void
+    {
+        $file = $this->switchedOffFleetFile();
+        $this->file = $file;
+
+        [$code, $out] = $this->cli(['run']);
+
+        self::assertSame(0, $code);
+        self::assertStringContainsString('outcome=disabled', $out);
+    }
+
+    public function testCheckOfASwitchedOffFleetFileOpensNoServiceAndBuildsNothing(): void
+    {
+        $file = $this->switchedOffFleetFile();
+        $dir = self::stateDirOf($file);
+        $this->file = $file;
+
+        [$code, $out] = $this->cli(['check']);
+
+        self::assertNotSame(0, $code, 'check validates the single-service config and the fleet keys are not one');
+        self::assertStringNotContainsString('bad-one', $out);
+        self::assertDirectoryDoesNotExist($dir);
+    }
+
+    public function testStatusOfASwitchedOffFleetFileReadsNoStore(): void
+    {
+        $file = $this->switchedOffFleetFile();
+        $dir = self::stateDirOf($file);
+        $this->file = $file;
+
+        $this->cli(['status']);
+
+        self::assertDirectoryDoesNotExist($dir);
+    }
+
+    public function testHygieneOfASwitchedOffFleetFileReadsNoStore(): void
+    {
+        $file = $this->switchedOffFleetFile();
+        $dir = self::stateDirOf($file);
+
+        // Hygiene validates the single-service config before its switch (see docs/configuration.md drift note): a fleet file is
+        // rejected as an unknown key, and nothing is built or read.
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('Unknown configuration key: fleet');
+        try {
+            Hygiene::fromConfig(require $file)->run(HygieneOptions::fromInput(null, null, null, null, false));
+        } finally {
+            self::assertDirectoryDoesNotExist($dir);
+        }
+    }
+
+    private static function stateDirOf(string $file): string
+    {
+        $config = require $file;
+
+        return $config['services'][0]['state']['file']['path'];
     }
 }

@@ -165,6 +165,7 @@ when loaded, else `predis/predis` (`composer require predis/predis`, `^2.0 || ^3
 - **`maxmemory-policy noeviction`** (or a `volatile-*` policy on an instance that holds only data with TTLs you accept losing). `allkeys-*` policies can evict the spend counters, the run lock and the delivered markers, which makes the budget cap and the duplicate-digest protection fail open.
 - **One key prefix per environment.** Two environments (or two tenants) with the same `service` on one Redis database share locks, spend and markers. Give each its own `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`) or its own database.
 - An injected `\Redis` must use no serializer and no compression (`SERIALIZER_NONE`, `COMPRESSION_NONE`); it is refused otherwise.
+- **TLS and the password.** `AUTH` sends the password (and the ACL `username` with it) in clear text on a plain TCP connection, so use a `tls://` host (`state.redis.host: tls://redis.example.com`) whenever the network between watcher and Redis is not one you trust: a shared VPC, another tenant's network, a link across clusters or regions. Both clients verify the server certificate by default and refuse a self-signed or unknown-CA certificate, so the password is not sent to an impostor. To trust a private CA, set PHP's `openssl.cafile` (in the image's `php.ini`) to its bundle; there is no watcher key for it. Never disable verification to make a connection work.
 - **Size budget.** A stored value may be at most 4 MB of JSON, 100,000 elements and 16,000 arrays/objects (`StateCodec`), so the worst accepted value decodes to about 16 MB of PHP memory. Larger values are refused at write (`StateValueTooLarge`, the run fails visibly) instead of being written and read back as missing. A snapshot passes up to roughly 90,000 groups; the default `source.group_cap` is 5,000.
 - **Errors fail closed.** A failed `GET` (a phpredis `false` with an error, a Predis error reply) raises and the run fails; only a missing key reads as missing.
 - **Lost lock.** If the run lock is found expired or taken when it is renewed, the run stops at that checkpoint (reason `lock_lost`, host log and exit code 1, no digest). With asynchronous Redis replication a failover can lose a lock; the delivered marker still prevents a second digest for the same window.
@@ -432,7 +433,12 @@ env:
 ```
 
 A fleet has the same switches: fleet `enabled`, and `enabled` per entry or in `defaults` (a disabled service is reported
-`disabled`, not failed). Two environments must not share a store prefix: the process cannot detect that, so give each its
+`disabled`, not failed). The fleet switch is read first, from the raw `enabled` key of the fleet file (or of `_fleet.php`
+in a directory), and only `enabled: false` switches a fleet off (absent means on, as documented in
+[configuration.md](configuration.md#feature-flags-spec-012)). A switched-off fleet validates no entry and opens no service
+file: `fleet:run`, `fleet:status` and `fleet:check` exit 0 with every service `disabled`. Its service names are the raw
+`service` values that look like names, so a directory fleet shows none. A broken entry therefore does not break a
+switched-off fleet, and fixing it is not needed to keep the fleet off. Two environments must not share a store prefix: the process cannot detect that, so give each its
 own `environment` (fleet validation rejects a duplicate `service@environment`).
 
 ## Rollback / disabling

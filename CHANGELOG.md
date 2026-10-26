@@ -11,9 +11,16 @@
 - A JSON log line with a `severity` beyond int range is read as its text level instead of cast with a warning.
 - Config: a model name that is not a string and a Datadog `site` that is not a host name are refused as `InvalidConfig`. Both were already refused; the change pins that with tests.
 
+### Documentation (security: F5, Redis over TLS)
+- Checked, no code change: both Redis clients verify the server certificate by default. phpredis (`tls://` host) and Predis (`scheme` `tls`) refuse a self-signed certificate against Redis 8 with the system trust store (`certificate verify failed`); the password is never sent to such a server. A private CA is trusted through PHP's `openssl.cafile`; both clients connect with it. No `state.redis.tls.*` key was added, because nothing was missing.
+- `docs/operations.md` ("Redis requirements"): use a `tls://` host outside a trusted network. On a plain TCP connection `AUTH` (the password and the ACL username) travels in clear text.
+
 ## 0.3.0 — 2026-10-26 — Config credentials hidden from dumps, SDK path removed, MCP no longer runs sibling PHP files, notifier reply cap
 
 Product release label **v0.3.0** (root VERSION). Contains everything below, including the notes of the untagged 0.2.1. Do not install `v0.2.0`.
+
+**FIXED**
+- Fixed (F7, fleet master switch): with the fleet `enabled` set to `false`, `fleet:run`, `fleet:status` and `fleet:check` validated every entry and opened every service file first, so one broken service file broke a switched-off fleet. The fleet file's raw `enabled` key is now read before anything else: a switched-off fleet validates no entry, opens no service file, builds no source, state or notifier, and exits 0 with each service reported `disabled`. The disabled names are the raw `service` values that look like names; a directory fleet switched off shows none. Only `enabled: false` switches a fleet off, as before (absent stays on).
 
 **BREAKING / UPGRADE**
 - Changed (**breaking for code that reads the config arrays**): the credentials of a built config are no longer plain strings. `WatchConfig` keeps every secret leaf (`source.loki.auth.token` and `.password`, `source.datadog.api_key` and `app_key`, `analysis.api_key`, `notify.{digest,notice}.webhook` and `bot_token`, `state.redis.password`, `state.pdo.dsn`, `username` and `password`, `api_context.source` and `auth_token`) as a `SecretValue`, in the public arrays `source`, `analysis`, `notify`, `state` and `apiContext`, and `FleetConfig::` the same way. `var_export`, `print_r`, `serialize` and an object dump of a config, of a Watcher or of the Factory results no longer show a credential (they showed one before, through `var_export`, `print_r` and `serialize`). Upgrade: read a leaf with `WatchConfig::reveal()` (a plain string passes through), call `->reveal()` on a `SecretValue` directly, or use `WatchConfig::plain()` to compare sections. `WatchConfig::secrets()` and `destination()` keep their signatures. `serialize()` of a config now throws, since a credential cannot be serialized.
