@@ -216,6 +216,10 @@ Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) an
 
 ## Limits you must know
 
+- **Outbound URLs are checked by their text, not by their DNS answer.** A configured host name that resolves to a loopback,
+  private or metadata address (`127.0.0.1.nip.io`) is sent to, with any token configured for that source. Only the operator writes
+  these URLs, so the check does not defend against them; keep them to hosts you trust (`docs/operations.md`, Proxies and the
+  internal-address check).
 - **Keyword-less secrets and bare names are not detected.** A credential is masked by its key name or its shape. A password
   written as a bare word (`login failed for hunter2`), a value after a key that is not in the list above, a token under 20
   characters after no key, a customer name inside SQL or Postgres detail text (`Key (name)=(Olena Shevchenko)`) or inside
