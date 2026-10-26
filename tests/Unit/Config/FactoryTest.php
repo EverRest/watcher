@@ -126,7 +126,7 @@ final class FactoryTest extends TestCase
     {
         $this->expectException(\Watcher\Config\InvalidConfig::class);
 
-        Factory::doctor(['service' => 'svc']);
+        Factory::doctor(['service' => 'svc', 'enabled' => true]); // the switch is on: validation runs
     }
 
     public function testHeartbeatStatusReadsTheConfiguredStore(): void

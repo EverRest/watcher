@@ -604,10 +604,13 @@ final class Factory
      */
     public static function doctor(array $config, ?Client $http = null, ?ClockInterface $clock = null): Doctor
     {
-        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
+        if (WatchConfig::masterSwitchOff($config)) {
+            // Master switch first: a broken config is not validated; no source, state, catalog or notifier is built.
+            return Doctor::switchedOff($clock);
+        }
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         if (!$c->enabled) {
-            // Master switch: validate only; no source, state, catalog or notifier is built.
             return new Doctor($c, RefusedAccess::source(), RefusedAccess::state(), null, RefusedAccess::notifier(), $clock);
         }
         $http ??= self::http();
@@ -640,8 +643,12 @@ final class Factory
      */
     public static function heartbeatStatus(array $config, ?ClockInterface $clock = null, ?LoggerInterface $log = null): HeartbeatStatus
     {
-        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $clock ??= new SystemClock();
+        if (WatchConfig::masterSwitchOff($config)) {
+            // Master switch first: a broken config is not validated and no store is read; the stale limit is not known here.
+            return HeartbeatStatus::disabled(0, $clock->now());
+        }
+        $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         if (!$c->enabled || !$c->on('heartbeat')) {
             return HeartbeatStatus::disabled($c->heartbeat['stale_after'], $clock->now());
         }
