@@ -145,6 +145,12 @@ final class OpenApiReducer
         return $m === null ? '' : mb_substr($m, 0, $this->summaryCap);
     }
 
+    /**
+     * The exact placeholders the Normalizer and the Redactor write. Nothing else in angle brackets is one: `<X:ivan@…>` or
+     * `<USER:Ivan Petrenko 123…>` is free text and stays a word, so the vocabulary check drops it.
+     */
+    private const PLACEHOLDER = '/<(?:N|ID|IP|PAN|EMAIL|URL|HOST|USER|TOKEN|STR|PATH|NAME|TRUNC|UNSCANNABLE)>/';
+
     private const COMMON = [
         'a', 'an', 'the', 'of', 'for', 'to', 'by', 'with', 'from', 'in', 'on', 'and', 'or', 'all', 'any', 'one', 'this', 'that', 'is', 'are', 'be', 'as', 'at',
         'get', 'list', 'create', 'update', 'delete', 'remove', 'add', 'fetch', 'retrieve', 'return', 'read', 'write', 'search', 'find', 'check', 'new', 'existing',
@@ -165,7 +171,7 @@ final class OpenApiReducer
         foreach (self::COMMON as $w) {
             $known[self::stem($w)] = true;
         }
-        $bare = (string) preg_replace('/<[A-Z]+(?::[^>]*)?>/', ' ', $text); // masked placeholders
+        $bare = (string) preg_replace(self::PLACEHOLDER, ' ', $text); // masked placeholders
         preg_match_all('/\p{L}+/u', $bare, $words);
         foreach ($words[0] as $w) {
             if (!isset($known[self::stem($w)])) {

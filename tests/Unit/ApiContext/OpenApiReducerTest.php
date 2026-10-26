@@ -268,6 +268,32 @@ final class OpenApiReducerTest extends TestCase
         }
     }
 
+    /** @return array<string, array{string}> */
+    public static function fakePlaceholders(): array
+    {
+        return [
+            'an e-mail in a tag named X' => ['<X:ivan.petrenko@corp.example>'],
+            'a name and a number in a tag named USER' => ['<USER:Ivan Petrenko 12345678901>'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('fakePlaceholders')]
+    public function testAFreePayloadInAngleBracketsIsNotAPlaceholderAndIsDropped(string $text): void
+    {
+        $doc = ['openapi' => '3.0.0', 'paths' => ['/orders/{id}' => ['get' => ['summary' => 'Get order ' . $text]]]];
+        $op = $this->reducer()->reduce($doc)->ops[0];
+
+        self::assertSame('', $op->summary, 'only the exact Redactor placeholders are removed; anything else is free text');
+        self::assertSame(0, preg_match('/ivan|petrenko|corp\.example|12345678901/i', json_encode($op) ?: ''));
+    }
+
+    public function testARealPlaceholderFromTheRedactorStillPassesTheVocabulary(): void
+    {
+        $doc = ['openapi' => '3.0.0', 'paths' => ['/orders/{id}' => ['get' => ['summary' => 'Get order <ID>']]]];
+
+        self::assertSame('Get order <ID>', $this->reducer()->reduce($doc)->ops[0]->summary);
+    }
+
     public function testNumbersInAllowedSummariesAreMasked(): void
     {
         $doc = ['openapi' => '3.0.0', 'paths' => ['/orders/{id}' => ['get' => ['summary' => 'Get order 12345678901']]]];
