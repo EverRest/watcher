@@ -19,7 +19,7 @@ final class FeatureFlagsConfigTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki']],
             'analysis' => [
-                'api_key' => 'k',
+                'api_keys' => ['gemini' => 'k'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],
@@ -92,7 +92,6 @@ final class FeatureFlagsConfigTest extends TestCase
             'grouping' => [['grouping' => ['enabled' => false]], 'grouping', 'grouping.enabled'],
             'notice' => [['notify' => ['notice' => ['enabled' => false]]], 'notice', 'notify.notice.enabled'],
             'digest' => [['notify' => ['digest' => ['enabled' => false]]], 'digest', 'notify.digest.enabled'],
-            'kubernetes' => [['kubernetes' => ['enabled' => false]], 'kubernetes', 'kubernetes.enabled'],
             'known_issues' => [['known_issues' => ['enabled' => false]], 'known_issues', 'known_issues.enabled'],
             'drafts' => [['drafts' => ['enabled' => false]], 'drafts', 'drafts.enabled'],
             'routes' => [['notify' => ['routes_enabled' => false]], 'routes', 'notify.routes_enabled'],
@@ -236,7 +235,7 @@ final class FeatureFlagsConfigTest extends TestCase
     public function testThePublishableConfigIsSwitchedByEnvironmentVariables(): void
     {
         $base = [
-            'WATCHER_SERVICE' => 'svc', 'WATCHER_RUN_AT' => '06:00', 'WATCHER_LOKI_URL' => 'https://loki', 'WATCHER_ANTHROPIC_KEY' => 'k',
+            'WATCHER_SERVICE' => 'svc', 'WATCHER_RUN_AT' => '06:00', 'WATCHER_LOKI_URL' => 'https://loki', 'WATCHER_GEMINI_KEY' => 'k',
             'WATCHER_MODEL_TRIAGE' => 'm1', 'WATCHER_MODEL_ANALYZE' => 'm2', 'WATCHER_MODEL_ESCALATE' => 'm3', 'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example/x',
             'WATCHER_STATE' => 'file', 'WATCHER_LOKI_TOKEN' => 't', 'WATCHER_REPO_URL' => 'https://git.example.com/g/p',
         ];
@@ -258,7 +257,7 @@ final class FeatureFlagsConfigTest extends TestCase
             }
         });
         $off = [];
-        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST', 'KNOWN_ISSUES', 'DRAFTS', 'ROUTES', 'KUBERNETES'] as $name) {
+        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST', 'KNOWN_ISSUES', 'DRAFTS', 'ROUTES'] as $name) {
             $off["WATCHER_{$name}_ENABLED"] = 'false';
         }
         self::withEnv($base + $off + ['WATCHER_ENABLED' => 'yes', 'WATCHER_ENVIRONMENT' => 'int'], function () use ($load): void {

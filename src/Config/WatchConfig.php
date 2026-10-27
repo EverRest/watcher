@@ -11,7 +11,6 @@ use Watcher\Observe\EventSchema;
 use Watcher\Observe\ObserveSettings;
 use Watcher\Level;
 use Watcher\State\Redis\RedisClient;
-use Watcher\Source\Kubernetes\KubeSettings;
 use Watcher\Source\Kubernetes\SecretValue;
 
 /**
@@ -26,14 +25,14 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
         'known_issues', 'drafts', 'report',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
-        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'notice', 'digest', 'kubernetes',
+        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'notice', 'digest',
         'known_issues', 'drafts', 'routes',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
@@ -89,7 +88,6 @@ final class WatchConfig implements \JsonSerializable
         public readonly ?SentrySettings $sentry,
         public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
         public readonly \Watcher\Incident\IncidentSettings $incident,
-        public readonly ?KubeSettings $kubernetes = null,
         /** @var array<string, mixed>|null the validated `api_context` section (spec 010), null when absent; not a feature flag */
         public readonly ?array $apiContext = null,
     ) {
@@ -151,11 +149,22 @@ final class WatchConfig implements \JsonSerializable
     public static function fromArray(#[\SensitiveParameter] array $config): self
     {
         $removed = [];
-        foreach (require dirname(__DIR__, 2) . '/resources/removed-config-keys.php' as $path => $message) {
-            [$section, $key] = str_contains($path, '.') ? explode('.', $path, 2) : [$path, null];
-            if (array_key_exists($section, $config) && ($key === null || (is_array($config[$section]) && array_key_exists($key, $config[$section])))) {
-                $removed[] = $message; // every removed key is named at once, in the table's order (`watcher check` lists them all)
+        foreach (require dirname(__DIR__, 2) . '/resources/removed-config-keys.php' as $rule => $message) {
+            // `path` or `path=value`: a value rule matches only that value (e.g. source.driver=kubernetes, analysis.provider=anthropic)
+            $parts = explode('=', $rule, 2);
+            $path = $parts[0];
+            $value = $parts[1] ?? null;
+            $node = $config;
+            foreach (explode('.', $path) as $part) {
+                if (!is_array($node) || !array_key_exists($part, $node)) {
+                    continue 2;
+                }
+                $node = $node[$part];
             }
+            if ($value !== null && $node !== $value) {
+                continue;
+            }
+            $removed[] = $message; // every removed key is named at once, in the table's order (`watcher check` lists them all)
         }
         if ($removed !== []) {
             throw new InvalidConfig(implode('; ', $removed));
@@ -180,8 +189,6 @@ final class WatchConfig implements \JsonSerializable
         [$schedule, $interval] = self::schedule(self::section($config, 'schedule'));
 
         $source = self::source(self::section($config, 'source'));
-
-        [$kubernetes, $flags['kubernetes']] = self::kubernetes($config, $source['driver']);
 
         $selSec = self::section($config, 'selection');
         self::only($selSec, ['min_level', 'growth_factor', 'top_n', 'top_m', 'escalation'], 'selection');
@@ -300,7 +307,7 @@ final class WatchConfig implements \JsonSerializable
             $links,
             self::repo($config['repo'] ?? null),
             $selection,
-            self::hide($analysis, 'api_key', 'api_keys.anthropic', 'api_keys.openai', 'api_keys.gemini'),
+            self::hide($analysis, 'api_keys.openai', 'api_keys.gemini'),
             $patterns,
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
             self::hide($state, 'redis.password', 'pdo.dsn', 'pdo.username', 'pdo.password'),
@@ -318,7 +325,6 @@ final class WatchConfig implements \JsonSerializable
             is_array($config['sentry'] ?? null) ? SentrySettings::fromArray($config['sentry']) : self::absent($config, 'sentry'),
             \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
             $incident,
-            $kubernetes,
             array_key_exists('api_context', $config) ? self::hide(self::apiContext($config['api_context'], $state['retention']), 'source', 'auth_token') : null,
         );
     }
@@ -683,8 +689,8 @@ final class WatchConfig implements \JsonSerializable
             if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iD', self::optStr($dd, 'site', 'datadoghq.com', 'source.datadog.site')) !== 1) {
                 throw new InvalidConfig('source.datadog.site must be a Datadog site host such as datadoghq.eu');
             }
-        } elseif ($driver !== 'kubernetes') { // its settings live in the top-level `kubernetes` section (spec 008)
-            throw new InvalidConfig('source.driver must be loki, datadog or kubernetes');
+        } else {
+            throw new InvalidConfig('source.driver must be loki or datadog');
         }
 
         $tags = $s['stream_tags'] ?? [];
@@ -709,7 +715,7 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function analysis(array $a): array
     {
-        self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'api_key', 'models', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'triage', 'advice'], 'analysis');
+        self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'models', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'triage', 'advice'], 'analysis');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
         foreach (self::STEPS as $step) {
@@ -730,10 +736,10 @@ final class WatchConfig implements \JsonSerializable
 
         // The transport is chosen per provider now; the key is accepted (every existing config has `http`) and ignored.
         if (array_key_exists('client', $a) && $a['client'] !== 'http') {
-            throw new InvalidConfig('analysis.client is no longer a transport choice; the Anthropic transport is the official SDK. Delete the key.');
+            throw new InvalidConfig('analysis.client is no longer a transport choice; every provider uses the package HTTP client. Delete the key.');
         }
         $client = 'http';
-        [$provider, $stepProviders, $apiKeys, $options] = self::providers($a, $models);
+        [$provider, $stepProviders, $apiKeys, $options] = self::providers($a);
 
         return array_merge($a, $limits, [
             'provider' => $provider,
@@ -748,10 +754,9 @@ final class WatchConfig implements \JsonSerializable
     }
 
     /** Model-provider names this release knows. Adding one needs its adapter (specs/016-model-providers). */
-    private const PROVIDERS = ['anthropic', 'openai', 'gemini'];
+    private const PROVIDERS = ['openai', 'gemini'];
 
     private const PROVIDER_BASE_URLS = [
-        'anthropic' => 'https://api.anthropic.com',
         'openai' => 'https://api.openai.com',
         'gemini' => 'https://generativelanguage.googleapis.com',
     ];
@@ -760,13 +765,15 @@ final class WatchConfig implements \JsonSerializable
      * The provider of each step, the key of each provider in use, and the options of each provider (every provider listed).
      *
      * @param array<string, mixed> $a
-     * @param array<string, mixed> $models
      *
      * @return array{0: string, 1: array<string, string>, 2: array<string, string>, 3: array<string, array{base_url: string, retries: int}>}
      */
-    private static function providers(array $a, array $models): array
+    private static function providers(array $a): array
     {
-        $provider = self::optStr($a, 'provider', 'anthropic', 'analysis.provider');
+        $provider = self::optStr($a, 'provider', 'gemini', 'analysis.provider');
+        if ($provider === 'anthropic') {
+            throw new InvalidConfig('analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+        }
         if (!in_array($provider, self::PROVIDERS, true)) {
             throw new InvalidConfig('analysis.provider must be one of: ' . implode(', ', self::PROVIDERS));
         }
@@ -776,6 +783,9 @@ final class WatchConfig implements \JsonSerializable
         $steps = [];
         foreach (self::STEPS as $step) {
             $name = $perStep[$step] ?? $provider;
+            if ($name === 'anthropic') {
+                throw new InvalidConfig('analysis.providers.' . $step . ' = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+            }
             if (!is_string($name) || !in_array($name, self::PROVIDERS, true)) {
                 throw new InvalidConfig('analysis.providers.' . $step . ' must be one of: ' . implode(', ', self::PROVIDERS));
             }
@@ -786,16 +796,14 @@ final class WatchConfig implements \JsonSerializable
         self::only($keys, self::PROVIDERS, 'analysis.api_keys');
         $apiKeys = [];
         foreach (self::PROVIDERS as $name) {
-            $key = $keys[$name] ?? ($name === 'anthropic' ? ($a['api_key'] ?? null) : null);
+            $key = $keys[$name] ?? null;
             if (is_string($key) && $key !== '') {
                 $apiKeys[$name] = $key;
             }
         }
         foreach (array_unique(array_values($steps)) as $name) {
             if (!isset($apiKeys[$name])) {
-                throw new InvalidConfig($name === 'anthropic'
-                    ? 'analysis.api_key (or analysis.api_keys.anthropic) is required for the anthropic provider'
-                    : 'analysis.api_keys.' . $name . ' is required for the provider in use');
+                throw new InvalidConfig('analysis.api_keys.' . $name . ' is required for the provider in use');
             }
         }
 
@@ -813,7 +821,7 @@ final class WatchConfig implements \JsonSerializable
             if (!is_int($retries) || $retries < 0 || $retries > 3) {
                 throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0 to 3');
             }
-            if ($name !== 'anthropic' && $retries !== 0) {
+            if ($retries !== 0) {
                 throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0: this adapter does not retry (the analyzer makes its second attempt)');
             }
             $options[$name] = ['base_url' => $url, 'retries' => $retries];
@@ -1044,7 +1052,6 @@ final class WatchConfig implements \JsonSerializable
             $this->state['redis']['password'] ?? null,
             $this->state['pdo']['password'] ?? null,
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
-            ...($this->kubernetes?->maskValues() ?? []), // the API token, or what token_file holds right now
             ...$this->observe->secrets(),
             ...($this->metrics?->secrets() ?? []),
             ...($this->sentry?->secrets() ?? []),
@@ -1311,50 +1318,6 @@ final class WatchConfig implements \JsonSerializable
         }
 
         return $links;
-    }
-
-    /**
-     * Spec 008: the `kubernetes` section plus `events` (beside `source`) and `source.driver: kubernetes`.
-     * A section holding only the flag is not validated further; any other content, or any use, is.
-     *
-     * @param array<string, mixed> $config
-     * @return array{0: ?KubeSettings, 1: bool} settings, the `kubernetes.enabled` flag
-     */
-    private static function kubernetes(array $config, string $driver): array
-    {
-        $sec = self::section($config, 'kubernetes');
-        $on = self::flag($sec, 'enabled', 'kubernetes.enabled');
-        unset($sec['enabled']);
-        $events = $config['events'] ?? null;
-        if ($events !== null) {
-            if (!is_array($events)) {
-                throw new InvalidConfig('events must be a map');
-            }
-            self::only($events, ['driver'], 'events');
-            if (($events['driver'] ?? null) !== 'kubernetes') {
-                throw new InvalidConfig('events.driver must be kubernetes');
-            }
-        }
-        $asSource = $driver === 'kubernetes';
-        if ($sec === [] && $events === null && !$asSource) {
-            return [null, $on];
-        }
-        if ($sec === [] && ($events !== null || $asSource)) {
-            throw new InvalidConfig(($asSource ? 'source.driver kubernetes' : 'events') . ' needs the kubernetes section');
-        }
-        $deps = is_array($config['dependencies'] ?? null) ? $config['dependencies'] : [];
-        unset($deps['enabled']);
-        if ($asSource && $deps !== []) {
-            throw new InvalidConfig('dependencies are not available with source.driver kubernetes: they are read from the service source');
-        }
-        if ($asSource && !$on) {
-            throw new InvalidConfig('source.driver kubernetes needs kubernetes.enabled to be true');
-        }
-        try {
-            return [KubeSettings::fromArray($sec, $on, $events !== null, $asSource), $on];
-        } catch (\InvalidArgumentException $e) {
-            throw new InvalidConfig($e->getMessage()); // paths only, never a value
-        }
     }
 
     /** @param array<string, mixed> $s */

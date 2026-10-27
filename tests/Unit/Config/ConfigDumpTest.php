@@ -6,11 +6,10 @@ namespace Watcher\Tests\Unit\Config;
 
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\ProviderAnalyzer;
 use Watcher\Config\WatchConfig;
 use Watcher\Fleet\FleetConfig;
 use Watcher\Notify\Destination;
-use Watcher\Operate\AnthropicModelCatalog;
 use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
 use Watcher\State\PdoStateStore;
@@ -28,7 +27,7 @@ final class ConfigDumpTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example', 'auth' => ['type' => 'bearer', 'token' => 'loki-bearer-BBBB']]],
             'analysis' => [
-                'api_key' => 'sk-secret-key-AAAA',
+                'api_keys' => ['gemini' => 'sk-secret-key-AAAA'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],
@@ -49,7 +48,7 @@ final class ConfigDumpTest extends TestCase
             self::assertStringNotContainsString($secret, $dump);
         }
         self::assertStringContainsString('svc', $dump);
-        self::assertSame('sk-secret-key-AAAA', WatchConfig::reveal($c->analysis['api_key']), 'the real value is still there for the code that needs it');
+        self::assertSame('sk-secret-key-AAAA', WatchConfig::reveal($c->analysis['api_keys']['gemini']), 'the real value is still there for the code that needs it');
     }
 
     public function testFleetConfigDumpsShowNoSecret(): void
@@ -70,8 +69,7 @@ final class ConfigDumpTest extends TestCase
             self::markTestSkipped('PHP < 8.2 has no SensitiveParameter; the attribute is inert there');
         }
         $expect = [
-            [AnthropicAnalyzer::class, ['apiKey']],
-            [AnthropicModelCatalog::class, ['apiKey']],
+            [ProviderAnalyzer::class, ['apiKey']],
             [LokiSource::class, ['bearerToken', 'basicPassword', 'tenant']],
             [DatadogSource::class, ['apiKey', 'appKey']],
             [Destination::class, ['webhook', 'botToken', 'chatId']],

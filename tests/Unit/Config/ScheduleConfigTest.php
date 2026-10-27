@@ -21,7 +21,7 @@ final class ScheduleConfigTest extends TestCase
                 'loki' => ['url' => 'https://loki', 'auth' => ['type' => 'bearer', 'token' => 'tok']],
             ],
             'analysis' => [
-                'api_key' => 'sk',
+                'api_keys' => ['gemini' => 'sk'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],

@@ -67,7 +67,6 @@ final class HeartbeatStatus
             . "last run:       $last\n"
             . 'last ok:        ' . $at($this->comparedWith) . '  age=' . ($this->ageSeconds === null ? '-' : self::span($this->ageSeconds)) . '  limit=' . self::span($this->limitSeconds) . "\n"
             . 'last trigger:   ' . $at($this->lastTriggerAt) . "\n"
-            . (is_string($rec['events'] ?? null) ? 'events:         ' . $rec['events'] . "\n" : '')
             . (is_string($rec['reason'] ?? null) && $rec['reason'] !== '' ? 'last warning:   ' . $rec['reason'] . "\n" : '')
             . 'compared:       now=' . $this->now->format(DATE_ATOM) . ' against last ok ' . $at($this->comparedWith) . "\n"
             . implode('', array_map(static fn (string $w): string => 'warning: ' . $w . "\n", $this->warnings));

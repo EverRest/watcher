@@ -17,7 +17,6 @@ use Watcher\Notify\Notifier;
 use Watcher\Observe\EventFactory;
 use Watcher\Observe\SinkDispatcher;
 use Watcher\Schedule\Window;
-use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
@@ -31,7 +30,7 @@ use Watcher\State\StateStore;
  *   new Doctor($config, Factory::source($config, $http, $clock), Factory::state($config, $clock),
  *              Factory::modelCatalog($config, $http), Factory::notifier($http, $config->schedule['lock_ttl']), $clock)
  * and, when WatchConfig::fromArray throws InvalidConfig: Doctor::configFailure($e->getMessage()).
- * where Factory::modelCatalog returns ?ModelCatalog: `in_array('anthropic', $c->analysis['step_providers'], true) ? new AnthropicModelCatalog(...) : null`.
+ * where Factory::modelCatalog returns ?ModelCatalog (null while no provider has a model list).
  */
 final class Doctor
 {
@@ -49,8 +48,6 @@ final class Doctor
         private readonly ?ModelCatalog $catalog,
         private readonly Notifier $notifier,
         private readonly ClockInterface $clock,
-        private readonly bool $kubernetes = false,
-        private readonly ?KubernetesEventsSource $events = null,
         private readonly ?SinkDispatcher $observe = null,
         private readonly ?MetricSource $metrics = null,
         private readonly ?IssueSource $issues = null,
@@ -93,9 +90,6 @@ final class Doctor
         }
         $results = [CheckResult::pass('config')];
         $results[] = $this->guard('source', fn (): CheckResult => $this->source());
-        if ($this->config->kubernetes !== null && $this->config->kubernetes->events) {
-            $results[] = $this->guard('events', fn (): CheckResult => $this->events());
-        }
         [$auth, $models] = $this->provider();
         $results[] = $auth;
         $results[] = $models;
@@ -134,37 +128,8 @@ final class Doctor
         }
     }
 
-    /** Spec 008: reads only (GET, limit=1); the wording is a fixed vocabulary, never a URL, a token or a body. */
-    private function events(): CheckResult
-    {
-        $k = $this->config->kubernetes;
-        if ($k === null || !$this->config->on('kubernetes') || $this->events === null) {
-            return CheckResult::skip('events', 'disabled');
-        }
-        foreach ($this->events->probe() as $ns => $reason) {
-            if ($reason !== '') {
-                return CheckResult::fail('events', 'namespace ' . $ns . ': ' . $reason);
-            }
-        }
-        $tags = implode(' ', array_map('strval', $this->config->source['stream_tags'] ?? []));
-        if ($k->exporter || preg_match('/event[-_]?(exporter|router)|kube[-_]?events/i', $tags) === 1) {
-            return CheckResult::warn('events', 'native events and an event exporter are both configured; the same events would be counted twice');
-        }
-
-        return CheckResult::pass('events');
-    }
-
     private function source(): CheckResult
     {
-        if ($this->source instanceof KubernetesEventsSource) {
-            foreach ($this->source->probe() as $ns => $reason) {
-                if ($reason !== '') {
-                    return CheckResult::fail('source', 'namespace ' . $ns . ': ' . $reason);
-                }
-            }
-
-            return CheckResult::pass('source');
-        }
         $window = Window::endingAt($this->clock->now(), 'PT5M');
         try {
             $this->source->totals($window, new StreamSelector(array_map('strval', $this->config->source['stream_tags'])));
@@ -239,10 +204,6 @@ final class Doctor
     {
         $bad = [];
         foreach (self::STEPS as $step) {
-            // Only the steps that Anthropic serves are in its model list; other providers are not probed here.
-            if (($this->config->analysis['step_providers'][$step] ?? 'anthropic') !== 'anthropic') {
-                continue;
-            }
             $want = (string) $this->config->analysis['models'][$step];
             // An alias ("m-mid") is listed under its dated form ("m-mid-20250929").
             $found = array_filter($ids, static fn (string $id): bool => $id === $want || preg_match('/^' . preg_quote($want, '/') . '-\d{8}$/D', $id) === 1);
@@ -281,7 +242,7 @@ final class Doctor
         if (!$first || $second) {
             return CheckResult::fail('state', 'lock not exclusive');
         }
-        $warnings = self::stateWarnings($this->config->state, $this->kubernetes, extension_loaded('zlib'));
+        $warnings = self::stateWarnings($this->config->state, extension_loaded('zlib'));
 
         return CheckResult::pass('state', $warnings === [] ? '' : 'warning: ' . implode('; ', $warnings));
     }
@@ -292,12 +253,9 @@ final class Doctor
      * @param array<string, mixed> $state
      * @return list<string>
      */
-    public static function stateWarnings(array $state, bool $kubernetes, bool $zlib): array
+    public static function stateWarnings(array $state, bool $zlib): array
     {
         $out = [];
-        if (($state['driver'] ?? null) === 'file' && $kubernetes) {
-            $out[] = 'state.driver=file inside Kubernetes (KUBERNETES_SERVICE_HOST is set): a pod-local directory loses history on every new pod; use state.driver=redis (docs/operations.md)';
-        }
         $redis = is_array($state['redis'] ?? null) ? $state['redis'] : [];
         if (($state['driver'] ?? null) === 'redis' && ($redis['compress_min_bytes'] ?? 512) !== 0 && !$zlib) {
             $out[] = 'ext-zlib is not loaded: Redis values are stored uncompressed';

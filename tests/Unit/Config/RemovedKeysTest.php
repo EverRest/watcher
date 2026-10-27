@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Watcher\Config\InvalidConfig;
 use Watcher\Config\WatchConfig;
 
-/** 0.5.0 removes the budget and price keys: each fails at load with its exact message (contracts/config-migration.md). Red until US2. */
+/** 0.5.0 removes the budget and price keys, 0.6.1 removes Anthropic: each fails at load with its exact message (contracts/config-migration.md). */
 final class RemovedKeysTest extends TestCase
 {
     /** @return array<string, mixed> */
@@ -18,7 +18,7 @@ final class RemovedKeysTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid', 'auth' => ['type' => 'bearer', 'token' => 'tok']]],
-            'analysis' => ['api_key' => 'k', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c']],
+            'analysis' => ['api_keys' => ['gemini' => 'k'], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c']],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],
         ];
@@ -91,6 +91,56 @@ final class RemovedKeysTest extends TestCase
         self::expectFailure($c, 'analysis.max_runs_per_day was removed in 0.5.0; there is no replacement. Delete this key.');
     }
 
+    public function testAnalysisApiKeyFailsAndNamesTheReplacement(): void
+    {
+        $c = self::base();
+        $c['analysis']['api_key'] = 'k';
+
+        self::expectFailure($c, 'analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
+    }
+
+    public function testAnthropicApiKeyFailsAndNamesTheReplacement(): void
+    {
+        $c = self::base();
+        $c['analysis']['api_keys']['anthropic'] = 'k';
+
+        self::expectFailure($c, 'analysis.api_keys.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai.');
+    }
+
+    public function testAnthropicProvidersOptionsFailsAndSaysToDeleteIt(): void
+    {
+        $c = self::base();
+        $c['analysis']['providers_options'] = ['anthropic' => ['retries' => 0]];
+
+        self::expectFailure($c, 'analysis.providers_options.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Delete this section.');
+    }
+
+    public function testAnthropicAsTheProviderFails(): void
+    {
+        $c = self::base();
+        $c['analysis']['provider'] = 'anthropic';
+
+        self::expectFailure($c, 'analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+    }
+
+    public function testAnthropicAsAStepProviderFails(): void
+    {
+        $c = self::base();
+        $c['analysis']['providers'] = ['triage' => 'anthropic'];
+
+        self::expectFailure($c, 'analysis.providers.triage = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+    }
+
+    public function testTheRemovedApiKeyFailsEvenBesideAValidGeminiConfig(): void
+    {
+        $c = self::base();
+        $c['analysis']['provider'] = 'gemini';
+        $c['analysis']['api_keys'] = ['gemini' => 'gm-secret'];
+        $c['analysis']['api_key'] = 'sk-old-secret';
+
+        self::expectFailure($c, 'analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
+    }
+
     public function testEveryRemovedKeyIsNamedInTableOrder(): void
     {
         $c = self::base();
@@ -98,5 +148,47 @@ final class RemovedKeysTest extends TestCase
         $c['budget'] = ['daily_budget_usd' => 1.0];
 
         self::expectFailure($c, 'analysis.prices was removed in 0.5.0; there is no replacement. Delete this key.; budget was removed in 0.5.0; there is no replacement. Delete this section.');
+    }
+
+    public function testKubernetesSectionFailsWithTheRemovalMessageEvenWhenDisabled(): void
+    {
+        $c = self::base();
+        $c['kubernetes'] = ['enabled' => false];
+
+        self::expectFailure($c, 'kubernetes section was removed in 0.6.0; there is no replacement. Delete this section.');
+    }
+
+    public function testEventsSectionFails(): void
+    {
+        $c = self::base();
+        $c['events'] = ['driver' => 'kubernetes'];
+
+        self::expectFailure($c, 'events section was removed in 0.6.0; there is no replacement. Delete this section.');
+    }
+
+    public function testSourceDriverKubernetesFails(): void
+    {
+        $c = self::base();
+        $c['source'] = ['driver' => 'kubernetes'];
+
+        self::expectFailure($c, 'source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
+    }
+
+    public function testSourceDriverLokiStillLoads(): void
+    {
+        $c = self::base();
+
+        self::assertSame('loki', WatchConfig::fromArray($c)->source['driver']);
+    }
+
+    public function testEveryKubernetesRemovalIsNamedTogetherWithOtherRemovedKeys(): void
+    {
+        $c = self::base();
+        $c['source'] = ['driver' => 'kubernetes'];
+        $c['kubernetes'] = ['namespaces' => ['shop']];
+        $c['events'] = ['driver' => 'kubernetes'];
+        $c['analysis']['prices'] = ['a' => [1, 5, 0.1, 1.25]];
+
+        self::expectFailure($c, 'analysis.prices was removed in 0.5.0; there is no replacement. Delete this key.; kubernetes section was removed in 0.6.0; there is no replacement. Delete this section.; events section was removed in 0.6.0; there is no replacement. Delete this section.; source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
     }
 }

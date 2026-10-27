@@ -13,11 +13,10 @@ use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
-use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\ProviderAnalyzer;
 use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\OpenAiProvider;
 use Watcher\Analyze\ProviderRegistry;
-use Watcher\Analyze\AnthropicSdkProvider;
 use Watcher\Config\WatchConfig;
 use Watcher\Level;
 use Watcher\RunOutcome;
@@ -34,7 +33,7 @@ final class ProviderRunTest extends TestCase
     public static function failures(): array
     {
         return [
-            'anthropic 401' => ['anthropic', 'unauthorised.json'],
+            'gemini 401' => ['gemini', 'unauthorised.json'],
             'openai 500' => ['openai', 'server_error.json'],
             'gemini 429' => ['gemini', 'rate_limited.json'],
         ];
@@ -67,12 +66,11 @@ final class ProviderRunTest extends TestCase
         });
         $http = new Client(['handler' => $stack]);
         $adapter = match ($provider) {
-            'anthropic' => new AnthropicSdkProvider($http, 'sk-test-key', 'https://anthropic.example.test', 60, 0),
             'openai' => new OpenAiProvider($http, 'sk-test-key', 'https://openai.example.test', 60, 0),
             'gemini' => new GeminiProvider($http, 'sk-test-key', 'https://gemini.example.test', 60, 0),
             default => throw new \LogicException("no adapter for $provider"),
         };
-        $analyzer = new AnthropicAnalyzer(ProviderRegistry::single($adapter, $provider));
+        $analyzer = new ProviderAnalyzer(ProviderRegistry::single($adapter, $provider));
         $config = WatchConfig::fromArray($h->config());
         $result = (new Watcher($config, $source, $h->state, $analyzer, $h->notifier, $h->clock))->run();
 

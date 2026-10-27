@@ -26,7 +26,7 @@ final class NotifyConfigTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki']],
             'analysis' => [
-                'api_key' => 'sk-secret-key',
+                'api_keys' => ['gemini' => 'sk-secret-key'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],
@@ -147,11 +147,11 @@ final class NotifyConfigTest extends TestCase
     public function testSecretsAreSortedLongestFirstAndUnique(): void
     {
         $raw = self::config(['digest' => ['webhook' => self::HOOK]]);
-        $raw['analysis']['api_key'] = 'sk-ant';
-        $raw['state'] = ['driver' => 'redis', 'redis' => ['password' => 'sk-ant-LONGER']];
+        $raw['analysis']['api_keys']['gemini'] = 'sk-gem';
+        $raw['state'] = ['driver' => 'redis', 'redis' => ['password' => 'sk-gem-LONGER']];
         $secrets = WatchConfig::fromArray($raw)->secrets();
 
-        self::assertLessThan(array_search('sk-ant', $secrets, true), array_search('sk-ant-LONGER', $secrets, true));
+        self::assertLessThan(array_search('sk-gem', $secrets, true), array_search('sk-gem-LONGER', $secrets, true));
         $lengths = array_map('strlen', $secrets);
         $sorted = $lengths;
         rsort($sorted);

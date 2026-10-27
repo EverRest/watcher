@@ -126,7 +126,7 @@ spec:
 ```
 
 The ConfigMap holds the config file (no secrets: it reads `getenv()`), the Secret holds the keys. Egress needed: your
-log backend, `api.anthropic.com`, the channel host (`hooks.slack.com`, `api.telegram.org`, `discord.com` / `discordapp.com`), and Redis or the database if used. A failed Job (exit 1 or 2) is
+log backend, the model API host (`api.openai.com` or `generativelanguage.googleapis.com`), the channel host (`hooks.slack.com`, `api.telegram.org`, `discord.com` / `discordapp.com`), and Redis or the database if used. A failed Job (exit 1 or 2) is
 also a signal for your cluster alerting.
 
 #### Where to keep state (Kubernetes)
@@ -144,8 +144,7 @@ env:
 ```
 
 Why not the default `emptyDir` (or any container-local path) with `state.driver=file`: it is deleted with the pod, so
-every run starts as a first run (a baseline, no comparison, no "already reported" memory). `watcher check` reports `pass` with a `warning:` on the state line when the driver is `file`
-and `KUBERNETES_SERVICE_HOST` is set, so this setup is visible before the first run.
+every run starts as a first run (a baseline, no comparison, no "already reported" memory).
 
 A PersistentVolumeClaim keeps the history and is the fallback when there is no Redis, with these limits:
 
@@ -286,13 +285,6 @@ A flood of one already-reported fingerprint can still fill `event_cap` with old 
 - **Quiet days.** No message means nothing qualified; to see that the job ran, look at the Job logs (the `outcome=` line).
   A weekly summary line is optional (`heartbeat.weekly_summary`); there is no daily heartbeat message.
 
-## Pod events need an hourly trigger
-
-With `events` (Kubernetes, [kubernetes.md](kubernetes.md)) every trigger reads the cluster, even outside the `run_at` hour,
-because the cluster keeps events about an hour. A daily-only trigger loses most events and the digest says so ("possible gap").
-`run --dry-run` reads the cluster and writes no ledger. If the cluster cannot be read the log part is reported as usual and the
-digest (or, on a quiet day, one notice) says "Pod events were not read: <reason>".
-
 ## Heartbeat, staleness and alerting
 
 Every finished run (reported, quiet, baselined, failed) stores a liveness record; a due-but-skipped trigger
@@ -306,7 +298,7 @@ last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
 compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
 ```
 
-`state` is `ok`, `degraded` (the last run worked but the Kubernetes pod events could not be read: `events:` shows `unavailable` or `stale`, and `reason=k8s_ingest_failed:<code>`), `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
+`state` is `ok`, `degraded` (not set by any source in 0.6.0), `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
 failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 degraded, stale or
 failed, 3 unknown, 2 bad config. A wrong host clock shows in the `compared:` line, which prints both instants.
 
@@ -339,7 +331,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   runs a subset; correlation then uses only what ran. `--json` prints one line on stdout.
 - **Check and status**: `fleet:check` runs the single-service check for every service plus one shared state check, prints
   the resolved order and warns when a declared dependency is provided by no fleet service. `fleet:status` prints the
-  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` degraded (pod events unread), stale or failed, `3` unknown, `0` ok. Alert on the
+  fleet heartbeat (id `fleet/<name>`) and each service's; exit `1` degraded, stale or failed, `3` unknown, `0` ok. Alert on the
   fleet heartbeat as in [Heartbeat](#heartbeat-staleness-and-alerting).
 - **Dry run**: `fleet:run --dry-run` prints every service's digest, the combined digest (with `digest: combined`) and the
   correlated finding; nothing is posted, no state is written, the fleet counters are untouched.
@@ -421,8 +413,8 @@ env:
   - { name: WATCHER_ENVIRONMENT, value: "int" }    # state keys: orders-api@int
   - { name: WATCHER_HEARTBEAT_WEEKLY_SUMMARY, value: "0" }
   - { name: WATCHER_ESCALATION_ENABLED, value: "0" }
-  - name: WATCHER_ANTHROPIC_KEY
-    valueFrom: { secretKeyRef: { name: watcher, key: anthropic-key } }
+  - name: WATCHER_GEMINI_KEY
+    valueFrom: { secretKeyRef: { name: watcher, key: gemini-key } }
 ```
 
 A fleet has the same switches: fleet `enabled`, and `enabled` per entry or in `defaults` (a disabled service is reported
