@@ -126,7 +126,7 @@ spec:
 ```
 
 The ConfigMap holds the config file (no secrets: it reads `getenv()`), the Secret holds the keys. Egress needed: your
-log backend, `api.anthropic.com`, the channel host (`hooks.slack.com`, `api.telegram.org`, `discord.com` / `discordapp.com`), and Redis or the database if used. A failed Job (exit 1 or 2) is
+log backend, the model API host (`api.openai.com` or `generativelanguage.googleapis.com`), the channel host (`hooks.slack.com`, `api.telegram.org`, `discord.com` / `discordapp.com`), and Redis or the database if used. A failed Job (exit 1 or 2) is
 also a signal for your cluster alerting.
 
 #### Where to keep state (Kubernetes)
@@ -421,8 +421,8 @@ env:
   - { name: WATCHER_ENVIRONMENT, value: "int" }    # state keys: orders-api@int
   - { name: WATCHER_HEARTBEAT_WEEKLY_SUMMARY, value: "0" }
   - { name: WATCHER_ESCALATION_ENABLED, value: "0" }
-  - name: WATCHER_ANTHROPIC_KEY
-    valueFrom: { secretKeyRef: { name: watcher, key: anthropic-key } }
+  - name: WATCHER_GEMINI_KEY
+    valueFrom: { secretKeyRef: { name: watcher, key: gemini-key } }
 ```
 
 A fleet has the same switches: fleet `enabled`, and `enabled` per entry or in `defaults` (a disabled service is reported

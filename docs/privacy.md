@@ -10,7 +10,7 @@ what it does **not**. Verify each claim against the code and tests named here, n
 log backend (Loki / Datadog)  --read-only queries-->  watcher (inside your service/job)
      raw lines stay here                                 |-- masks and groups in memory
                                                           |-- state store (your Redis / DB / disk)
-                                                          |-- Anthropic API   (masked groups only)
+                                                          |-- model API (OpenAI or Gemini; masked groups only)
                                                           '-- Slack webhook   (digest and notices)
 ```
 
@@ -20,7 +20,7 @@ model or to your notification channel. One caveat sits below it: Guzzle keeps a 
 closes, left behind if the process is killed). A Loki page of 5000 lines can exceed 2 MB, so on a host where the temp
 directory is shared or not encrypted, treat the temp directory as part of the data flow.
 
-## What is sent to the model provider (Anthropic)
+## What is sent to the model provider (OpenAI or Gemini)
 
 Per request, and only this:
 

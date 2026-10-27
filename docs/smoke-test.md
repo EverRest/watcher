@@ -1,7 +1,7 @@
 # First live smoke run (T114)
 
 Everything in the test suite runs against fakes and recorded fixtures. This guide is the first time `watcher` talks to
-real systems: your log backend, the Anthropic API and Slack. It takes about 45 minutes and makes a few model calls. It is read-only for your logs and posts only to a Slack channel you choose.
+real systems: your log backend, the Gemini API (or OpenAI) and Slack. It takes about 45 minutes and makes a few model calls. It is read-only for your logs and posts only to a Slack channel you choose.
 
 ## Other channels (spec 011)
 
@@ -29,7 +29,7 @@ If any check fails, stop and see [If something fails](#if-something-fails).
 | Need | Where to get it | Environment variable |
 |---|---|---|
 | Checkout of this repo with dependencies | `cd ~/code/watcher && composer install` (PHP 8.2 or newer) | n/a |
-| Anthropic API key | Anthropic Console > API keys > create a key named for this test. Set a usage limit on its workspace first. | `WATCHER_ANTHROPIC_KEY` |
+| Gemini API key | Google AI Studio > Get API key > create a key for this test. Set a usage limit on its Google Cloud project first. | `WATCHER_GEMINI_KEY` |
 | Three model ids (cheap / mid / strong) | Console model list. Triage = smallest, analysis = middle, escalation = strongest. | `WATCHER_MODEL_TRIAGE`, `WATCHER_MODEL_ANALYZE`, `WATCHER_MODEL_ESCALATE` |
 | Read-only Loki access | Grafana > Administration > Users and access > Service accounts > new account with role **Viewer** > add token. | `WATCHER_LOKI_TOKEN` |
 | Loki base URL | Through Grafana: `https://<grafana-host>/api/datasources/proxy/uid/<datasource-uid>` (the uid is in the data source's address bar). Direct Loki: its own base URL. | `WATCHER_LOKI_URL` |
@@ -51,7 +51,7 @@ WATCHER_ENABLED=1
 WATCHER_SERVICE=orders-api
 WATCHER_LOKI_URL=https://grafana.example.com/api/datasources/proxy/uid/abc123
 WATCHER_LOKI_TOKEN=...
-WATCHER_ANTHROPIC_KEY=...
+WATCHER_GEMINI_KEY=...
 WATCHER_SLACK_WEBHOOK=https://hooks.slack.com/services/...
 WATCHER_MODEL_TRIAGE=...
 WATCHER_MODEL_ANALYZE=...
@@ -70,16 +70,16 @@ After step 3 (config) run `watcher check` instead of hand-written curl calls:
 php bin/watcher check --config=docs/examples/smoke.config.php
 ```
 
-It checks the Loki query, the Anthropic models list (with the `x-api-key` scheme the analyzer sends),
-the three model ids, the state store and the webhook syntax, and prints PASS/FAIL per line. Add
-`--post-test` to post one labelled message to Slack. If `provider_auth` fails with "x-api-key rejected (HTTP 401)", the key is wrong or revoked.
+It checks the Loki query, the state store and the webhook syntax, and prints PASS/FAIL/SKIP per line. `provider_auth`
+and `models` show SKIP: no provider has a model list in this release, so the key and the model ids are checked by the
+first real run only. Add `--post-test` to post one labelled message to Slack.
 
 Fallback when `check` itself is the problem (free, read-only):
 
 ```bash
 curl -s -H "Authorization: Bearer $WATCHER_LOKI_TOKEN" "$WATCHER_LOKI_URL/loki/api/v1/labels"
-curl -s -o /dev/null -w "bearer: %{http_code}\n" https://api.anthropic.com/v1/models \
-  -H "Authorization: Bearer $WATCHER_ANTHROPIC_KEY" -H "anthropic-version: 2023-06-01"
+curl -s -o /dev/null -w "gemini key: %{http_code}\n" "https://generativelanguage.googleapis.com/v1beta/models" \
+  -H "x-goog-api-key: $WATCHER_GEMINI_KEY"
 ```
 
 ## 3. Config
@@ -227,7 +227,7 @@ Backend (Loki/Datadog), service labels:
 Check 1 outcome line:
 Check 2 outcome line + groups/events from the Slack notice:
 Check 3 outcome line + findings count:
-Anthropic header test (x-api-key / bearer HTTP codes):
+Gemini key test (HTTP code of the models list):
 Privacy check: any personal value found? (where, no value)
 Idempotency: skipped_done? yes/no
 SC-001: visible items N, found M, coverage %:
@@ -259,5 +259,5 @@ Also add a short entry to `CHANGELOG.md` under `## Unreleased` ("Verified agains
 ls /tmp/watcher-smoke && rm -r /tmp/watcher-smoke
 ```
 
-Revoke the smoke Anthropic key and the Slack webhook if they were created only for this test, and keep the env file
+Revoke the smoke Gemini key and the Slack webhook if they were created only for this test, and keep the env file
 out of version control.
