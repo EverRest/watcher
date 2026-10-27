@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 — 2026-10-28 — Remove Anthropic
+## 0.6.1 — 2026-10-28 — Remove Anthropic
 
 Breaking: Anthropic is no longer a provider. The providers are OpenAI and Gemini, and the default is Gemini. A configuration
 that still names Anthropic **fails at load**; nothing is converted.
@@ -9,11 +9,11 @@ that still names Anthropic **fails at load**; nothing is converted.
 
 | Key | Message |
 |---|---|
-| `analysis.api_key` | analysis.api_key was removed in 0.6.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use). |
-| `analysis.api_keys.anthropic` | analysis.api_keys.anthropic was removed in 0.6.0; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai. |
-| `analysis.providers_options.anthropic` | analysis.providers_options.anthropic was removed in 0.6.0; Anthropic is no longer a provider. Delete this section. |
-| `analysis.provider = anthropic` | analysis.provider = anthropic was removed in 0.6.0; Anthropic is no longer a provider. Use gemini or openai. |
-| `analysis.providers.<step> = anthropic` | the same, naming the step (`analysis.providers.triage = anthropic was removed in 0.6.0; ...`). |
+| `analysis.api_key` | analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use). |
+| `analysis.api_keys.anthropic` | analysis.api_keys.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai. |
+| `analysis.providers_options.anthropic` | analysis.providers_options.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Delete this section. |
+| `analysis.provider = anthropic` | analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai. |
+| `analysis.providers.<step> = anthropic` | the same, naming the step (`analysis.providers.triage = anthropic was removed in 0.6.1; ...`). |
 
 `WATCHER_ANTHROPIC_KEY` is no longer read by the setup catalog (MCP) and is replaced by `WATCHER_GEMINI_KEY`. The package reads no environment variables itself; the message is not repeated for it.
 

@@ -770,7 +770,7 @@ final class WatchConfig implements \JsonSerializable
     {
         $provider = self::optStr($a, 'provider', 'gemini', 'analysis.provider');
         if ($provider === 'anthropic') {
-            throw new InvalidConfig('analysis.provider = anthropic was removed in 0.6.0; Anthropic is no longer a provider. Use gemini or openai.');
+            throw new InvalidConfig('analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
         }
         if (!in_array($provider, self::PROVIDERS, true)) {
             throw new InvalidConfig('analysis.provider must be one of: ' . implode(', ', self::PROVIDERS));
@@ -782,7 +782,7 @@ final class WatchConfig implements \JsonSerializable
         foreach (self::STEPS as $step) {
             $name = $perStep[$step] ?? $provider;
             if ($name === 'anthropic') {
-                throw new InvalidConfig('analysis.providers.' . $step . ' = anthropic was removed in 0.6.0; Anthropic is no longer a provider. Use gemini or openai.');
+                throw new InvalidConfig('analysis.providers.' . $step . ' = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
             }
             if (!is_string($name) || !in_array($name, self::PROVIDERS, true)) {
                 throw new InvalidConfig('analysis.providers.' . $step . ' must be one of: ' . implode(', ', self::PROVIDERS));

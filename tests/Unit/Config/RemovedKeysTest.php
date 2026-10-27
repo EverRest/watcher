@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Watcher\Config\InvalidConfig;
 use Watcher\Config\WatchConfig;
 
-/** 0.5.0 removes the budget and price keys, 0.6.0 removes Anthropic: each fails at load with its exact message (contracts/config-migration.md). */
+/** 0.5.0 removes the budget and price keys, 0.6.1 removes Anthropic: each fails at load with its exact message (contracts/config-migration.md). */
 final class RemovedKeysTest extends TestCase
 {
     /** @return array<string, mixed> */
@@ -96,7 +96,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['api_key'] = 'k';
 
-        self::expectFailure($c, 'analysis.api_key was removed in 0.6.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
+        self::expectFailure($c, 'analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
     }
 
     public function testAnthropicApiKeyFailsAndNamesTheReplacement(): void
@@ -104,7 +104,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['api_keys']['anthropic'] = 'k';
 
-        self::expectFailure($c, 'analysis.api_keys.anthropic was removed in 0.6.0; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai.');
+        self::expectFailure($c, 'analysis.api_keys.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai.');
     }
 
     public function testAnthropicProvidersOptionsFailsAndSaysToDeleteIt(): void
@@ -112,7 +112,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['providers_options'] = ['anthropic' => ['retries' => 0]];
 
-        self::expectFailure($c, 'analysis.providers_options.anthropic was removed in 0.6.0; Anthropic is no longer a provider. Delete this section.');
+        self::expectFailure($c, 'analysis.providers_options.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Delete this section.');
     }
 
     public function testAnthropicAsTheProviderFails(): void
@@ -120,7 +120,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['provider'] = 'anthropic';
 
-        self::expectFailure($c, 'analysis.provider = anthropic was removed in 0.6.0; Anthropic is no longer a provider. Use gemini or openai.');
+        self::expectFailure($c, 'analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
     }
 
     public function testAnthropicAsAStepProviderFails(): void
@@ -128,7 +128,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['providers'] = ['triage' => 'anthropic'];
 
-        self::expectFailure($c, 'analysis.providers.triage = anthropic was removed in 0.6.0; Anthropic is no longer a provider. Use gemini or openai.');
+        self::expectFailure($c, 'analysis.providers.triage = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
     }
 
     public function testTheRemovedApiKeyFailsEvenBesideAValidGeminiConfig(): void
@@ -138,7 +138,7 @@ final class RemovedKeysTest extends TestCase
         $c['analysis']['api_keys'] = ['gemini' => 'gm-secret'];
         $c['analysis']['api_key'] = 'sk-old-secret';
 
-        self::expectFailure($c, 'analysis.api_key was removed in 0.6.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
+        self::expectFailure($c, 'analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
     }
 
     public function testEveryRemovedKeyIsNamedInTableOrder(): void
