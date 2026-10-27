@@ -76,7 +76,7 @@ final class HygieneNoticeTest extends TestCase
 
     public function testAConfiguredSecretNeverLeavesInANotice(): void
     {
-        $h = new HygieneHarness(['analysis' => ['api_key' => 'plainsecretvalue1']]);
+        $h = new HygieneHarness(['analysis' => ['api_keys' => ['gemini' => 'plainsecretvalue1']]]);
         $events = [];
         for ($i = 0; $i < 3; ++$i) {
             $events[] = HygieneHarness::event(Level::Info, 'sent to a' . $i . '@example.org using plainsecretvalue1', ['file' => '/var/www/html/app/Mail.php', 'line' => 1]);

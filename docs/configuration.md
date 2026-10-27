@@ -16,7 +16,7 @@ Secrets and model ids are never defaults in code: they come from the environment
 
 The master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**: set it to true (per environment) or `run` reports `disabled` and does nothing. See [Feature flags](#feature-flags-spec-012).
 
-`service`, `schedule.run_at`, `source.driver` with that driver's credentials, `analysis.api_key`,
+`service`, `schedule.run_at`, `source.driver` with that driver's credentials, `analysis.api_keys.<provider>`,
 `analysis.models.{triage,analyze,escalate}`, `state.driver` with its
 settings, `notify.digest.webhook`.
 
@@ -76,12 +76,11 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 | Key | Default | Notes |
 |---|---|---|
-| `analysis.provider` | `anthropic` | `anthropic`, `openai` or `gemini`: the provider of every step unless `analysis.providers` names another. |
-| `analysis.providers.{triage,analyze,escalate}` | `analysis.provider` | Optional per-step provider. Mix freely, e.g. triage on `gemini`, the rest on `anthropic`. |
-| `analysis.api_keys.{anthropic,openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key fails at load, naming the key path. |
-| `analysis.api_key` | required | The Anthropic key, kept for compatibility; same as `analysis.api_keys.anthropic`. |
-| `analysis.providers_options.{anthropic,openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` 0 to 3 for Anthropic (the SDK retries on its own); must be 0 for OpenAI and Gemini, which do not retry (the analyzer's second attempt is their retry). |
-| `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused: the Anthropic transport is the official SDK. Delete the key. |
+| `analysis.provider` | `gemini` | `openai` or `gemini`: the provider of every step unless `analysis.providers` names another. |
+| `analysis.providers.{triage,analyze,escalate}` | `analysis.provider` | Optional per-step provider. Mix freely, e.g. triage on `openai`, the rest on `gemini`. |
+| `analysis.api_keys.{openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key fails at load, naming the key path. |
+| `analysis.providers_options.{openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` must be 0: neither adapter retries (the analyzer's second attempt is their retry). |
+| `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused. Delete the key. |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
 | `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input limit; lowest-priority candidates are dropped first, with a note in the digest. The estimate (UTF-8 bytes / 3) includes the step's system prompt and the `service_context`, not only the groups. Enforced for `triage` (candidates), `analyze` (dependency context shrinks first) and `escalate`: an escalation sends the one finding's groups plus the dependency context that refers to them; over the limit, dependency context is trimmed first, then the groups' stack frames, and if it still does not fit the escalation is skipped (the first-pass finding is reported as it is; the digest says `N escalation(s) skipped`). |
 | `analysis.max_output_tokens` | triage 1500, analyze 4000, escalate 2000 | A floor, not a ceiling: triage uses `max(configured, 30 * groups + 500)` because the verdict list grows with the groups; analyze and escalate use `max(configured, 450 * groups + 300)` while `analysis.advice.enabled` is on (a finding with `how_to_check` and `related_checks` is about 450 output tokens at its text limits, so a full `top_m` of long findings is not cut off and retried). With advice off the configured value is used as it is. |
@@ -214,7 +213,7 @@ Validation covers the whole fleet before any call; the first error names the ent
 |---|---|---|
 | `fleet` | required | Name (`A-Za-z0-9._-`); part of the shared keys and messages. |
 | `services[]` | required | Entries. `priority` (int, default 0, higher first) and `provides` (names other services use for this one, default `[service]`) are fleet-only. Order: priority, then name, then dependencies first. Names must be unique and must not contain `/`. |
-| `defaults` | `[]` | Any single-service key, merged under every entry. `state` and `analysis.api_key` must end up identical in all entries. |
+| `defaults` | `[]` | Any single-service key, merged under every entry. `state` and `analysis.api_keys` must end up identical in all entries. |
 | `digest` | `per_service` | `per_service` posts each digest to the entry's `notify.digest`; `combined` posts one message to the fleet `notify.digest`. |
 | `notify` | `[]` | Fleet default destinations, merged under each entry's; also where the combined digest and the correlated finding go. |
 | `timezone` | `UTC` | Day boundary of the fleet counters. |
@@ -388,7 +387,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_SOURCE` | `source.driver` |
 | `WATCHER_LOKI_URL*`, `WATCHER_LOKI_TOKEN*`, `WATCHER_LOKI_TENANT` | `source.loki.*` |
 | `WATCHER_DD_SITE`, `WATCHER_DD_API_KEY*`, `WATCHER_DD_APP_KEY*` | `source.datadog.*` |
-| `WATCHER_ANTHROPIC_KEY*` | `analysis.api_key` |
+| `WATCHER_GEMINI_KEY*` | `analysis.api_keys.gemini` |
 | `WATCHER_MODEL_TRIAGE*`, `WATCHER_MODEL_ANALYZE*`, `WATCHER_MODEL_ESCALATE*` | `analysis.models.*` |
 | `WATCHER_STATE`, `WATCHER_STATE_PATH` | `state.driver`, `state.file.path` |
 | `WATCHER_RUN_DEADLINE` | `schedule.run_deadline` (seconds; shipped `config/watcher.php` only) |

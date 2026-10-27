@@ -200,7 +200,7 @@ final class FailureTest extends TestCase
     public function testNoNoticeEverCarriesAKeyOrAWebhook(): void
     {
         $h = new Harness([
-            'analysis' => ['api_key' => self::API_KEY],
+            'analysis' => ['api_keys' => ['gemini' => self::API_KEY]],
             'notify' => ['digest' => ['webhook' => self::DIGEST_HOOK], 'notice' => ['driver' => 'slack', 'webhook' => self::NOTICE_HOOK]],
         ]);
         self::baselined($h);

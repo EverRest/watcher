@@ -49,7 +49,7 @@ final class DoctorTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test', 'auth' => ['type' => 'bearer', 'token' => 'LOKITOKEN']], 'stream_tags' => ['app' => 'orders']],
             'analysis' => [
-                'api_key' => self::KEY,
+                'api_keys' => ['gemini' => self::KEY],
                 'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'],
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],

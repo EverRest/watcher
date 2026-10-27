@@ -30,7 +30,7 @@ use Watcher\State\StateStore;
  *   new Doctor($config, Factory::source($config, $http, $clock), Factory::state($config, $clock),
  *              Factory::modelCatalog($config, $http), Factory::notifier($http, $config->schedule['lock_ttl']), $clock)
  * and, when WatchConfig::fromArray throws InvalidConfig: Doctor::configFailure($e->getMessage()).
- * where Factory::modelCatalog returns ?ModelCatalog: `in_array('anthropic', $c->analysis['step_providers'], true) ? new AnthropicModelCatalog(...) : null`.
+ * where Factory::modelCatalog returns ?ModelCatalog (null while no provider has a model list).
  */
 final class Doctor
 {
@@ -204,10 +204,6 @@ final class Doctor
     {
         $bad = [];
         foreach (self::STEPS as $step) {
-            // Only the steps that Anthropic serves are in its model list; other providers are not probed here.
-            if (($this->config->analysis['step_providers'][$step] ?? 'anthropic') !== 'anthropic') {
-                continue;
-            }
             $want = (string) $this->config->analysis['models'][$step];
             // An alias ("m-mid") is listed under its dated form ("m-mid-20250929").
             $found = array_filter($ids, static fn (string $id): bool => $id === $want || preg_match('/^' . preg_quote($want, '/') . '-\d{8}$/D', $id) === 1);

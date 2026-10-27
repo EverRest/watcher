@@ -47,7 +47,7 @@ final class ObserveFactoryTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.com']],
-            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
+            'analysis' => ['api_keys' => ['gemini' => 'sk-secret-key'], 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => $driver === 'none' ? ['driver' => 'none'] : ['driver' => 'slack', 'webhook' => 'https://hooks.example/x']],
             'observe' => $observe,

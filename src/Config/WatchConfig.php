@@ -150,16 +150,21 @@ final class WatchConfig implements \JsonSerializable
     {
         $removed = [];
         foreach (require dirname(__DIR__, 2) . '/resources/removed-config-keys.php' as $rule => $message) {
-            $parts = explode('=', $rule, 2); // `source.driver=kubernetes`: the key must hold that value, not just exist
-            if (!str_contains($parts[0], '.')) {
-                $present = array_key_exists($parts[0], $config);
-            } else {
-                [$section, $key] = explode('.', $parts[0], 2);
-                $present = is_array($config[$section] ?? null) && array_key_exists($key, $config[$section]) && (!isset($parts[1]) || $config[$section][$key] === $parts[1]);
+            // `path` or `path=value`: a value rule matches only that value (e.g. source.driver=kubernetes, analysis.provider=anthropic)
+            $parts = explode('=', $rule, 2);
+            $path = $parts[0];
+            $value = $parts[1] ?? null;
+            $node = $config;
+            foreach (explode('.', $path) as $part) {
+                if (!is_array($node) || !array_key_exists($part, $node)) {
+                    continue 2;
+                }
+                $node = $node[$part];
             }
-            if ($present) {
-                $removed[] = $message; // every removed key is named at once, in the table's order (`watcher check` lists them all)
+            if ($value !== null && $node !== $value) {
+                continue;
             }
+            $removed[] = $message; // every removed key is named at once, in the table's order (`watcher check` lists them all)
         }
         if ($removed !== []) {
             throw new InvalidConfig(implode('; ', $removed));
@@ -302,7 +307,7 @@ final class WatchConfig implements \JsonSerializable
             $links,
             self::repo($config['repo'] ?? null),
             $selection,
-            self::hide($analysis, 'api_key', 'api_keys.anthropic', 'api_keys.openai', 'api_keys.gemini'),
+            self::hide($analysis, 'api_keys.openai', 'api_keys.gemini'),
             $patterns,
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
             self::hide($state, 'redis.password', 'pdo.dsn', 'pdo.username', 'pdo.password'),
@@ -710,7 +715,7 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function analysis(array $a): array
     {
-        self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'api_key', 'models', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'triage', 'advice'], 'analysis');
+        self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'models', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'triage', 'advice'], 'analysis');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
         foreach (self::STEPS as $step) {
@@ -731,10 +736,10 @@ final class WatchConfig implements \JsonSerializable
 
         // The transport is chosen per provider now; the key is accepted (every existing config has `http`) and ignored.
         if (array_key_exists('client', $a) && $a['client'] !== 'http') {
-            throw new InvalidConfig('analysis.client is no longer a transport choice; the Anthropic transport is the official SDK. Delete the key.');
+            throw new InvalidConfig('analysis.client is no longer a transport choice; every provider uses the package HTTP client. Delete the key.');
         }
         $client = 'http';
-        [$provider, $stepProviders, $apiKeys, $options] = self::providers($a, $models);
+        [$provider, $stepProviders, $apiKeys, $options] = self::providers($a);
 
         return array_merge($a, $limits, [
             'provider' => $provider,
@@ -749,10 +754,9 @@ final class WatchConfig implements \JsonSerializable
     }
 
     /** Model-provider names this release knows. Adding one needs its adapter (specs/016-model-providers). */
-    private const PROVIDERS = ['anthropic', 'openai', 'gemini'];
+    private const PROVIDERS = ['openai', 'gemini'];
 
     private const PROVIDER_BASE_URLS = [
-        'anthropic' => 'https://api.anthropic.com',
         'openai' => 'https://api.openai.com',
         'gemini' => 'https://generativelanguage.googleapis.com',
     ];
@@ -761,13 +765,15 @@ final class WatchConfig implements \JsonSerializable
      * The provider of each step, the key of each provider in use, and the options of each provider (every provider listed).
      *
      * @param array<string, mixed> $a
-     * @param array<string, mixed> $models
      *
      * @return array{0: string, 1: array<string, string>, 2: array<string, string>, 3: array<string, array{base_url: string, retries: int}>}
      */
-    private static function providers(array $a, array $models): array
+    private static function providers(array $a): array
     {
-        $provider = self::optStr($a, 'provider', 'anthropic', 'analysis.provider');
+        $provider = self::optStr($a, 'provider', 'gemini', 'analysis.provider');
+        if ($provider === 'anthropic') {
+            throw new InvalidConfig('analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+        }
         if (!in_array($provider, self::PROVIDERS, true)) {
             throw new InvalidConfig('analysis.provider must be one of: ' . implode(', ', self::PROVIDERS));
         }
@@ -777,6 +783,9 @@ final class WatchConfig implements \JsonSerializable
         $steps = [];
         foreach (self::STEPS as $step) {
             $name = $perStep[$step] ?? $provider;
+            if ($name === 'anthropic') {
+                throw new InvalidConfig('analysis.providers.' . $step . ' = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+            }
             if (!is_string($name) || !in_array($name, self::PROVIDERS, true)) {
                 throw new InvalidConfig('analysis.providers.' . $step . ' must be one of: ' . implode(', ', self::PROVIDERS));
             }
@@ -787,16 +796,14 @@ final class WatchConfig implements \JsonSerializable
         self::only($keys, self::PROVIDERS, 'analysis.api_keys');
         $apiKeys = [];
         foreach (self::PROVIDERS as $name) {
-            $key = $keys[$name] ?? ($name === 'anthropic' ? ($a['api_key'] ?? null) : null);
+            $key = $keys[$name] ?? null;
             if (is_string($key) && $key !== '') {
                 $apiKeys[$name] = $key;
             }
         }
         foreach (array_unique(array_values($steps)) as $name) {
             if (!isset($apiKeys[$name])) {
-                throw new InvalidConfig($name === 'anthropic'
-                    ? 'analysis.api_key (or analysis.api_keys.anthropic) is required for the anthropic provider'
-                    : 'analysis.api_keys.' . $name . ' is required for the provider in use');
+                throw new InvalidConfig('analysis.api_keys.' . $name . ' is required for the provider in use');
             }
         }
 
@@ -814,7 +821,7 @@ final class WatchConfig implements \JsonSerializable
             if (!is_int($retries) || $retries < 0 || $retries > 3) {
                 throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0 to 3');
             }
-            if ($name !== 'anthropic' && $retries !== 0) {
+            if ($retries !== 0) {
                 throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0: this adapter does not retry (the analyzer makes its second attempt)');
             }
             $options[$name] = ['base_url' => $url, 'retries' => $retries];

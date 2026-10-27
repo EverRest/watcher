@@ -11,7 +11,6 @@ use GuzzleHttp\Psr7\Response;
 use Psr\Http\Message\RequestInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\AnthropicSdkProvider;
 use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\ModelProvider;
 use Watcher\Analyze\OpenAiProvider;
@@ -29,7 +28,7 @@ final class ProviderOutgoingBodyPrivacyTest extends TestCase
     /** @return array<string, array{0: string}> */
     public static function providers(): array
     {
-        return ['anthropic' => ['anthropic'], 'openai' => ['openai'], 'gemini' => ['gemini']];
+        return ['openai' => ['openai'], 'gemini' => ['gemini']];
     }
 
     /** @return list<string> */
@@ -85,7 +84,6 @@ final class ProviderOutgoingBodyPrivacyTest extends TestCase
     private function provider(string $name, Client $http): ModelProvider
     {
         return match ($name) {
-            'anthropic' => new AnthropicSdkProvider($http, 'sk-test', 'https://provider.example.test', 60, 0),
             'openai' => new OpenAiProvider($http, 'sk-test', 'https://provider.example.test', 60, 0),
             'gemini' => new GeminiProvider($http, 'sk-test', 'https://provider.example.test', 60, 0),
             default => throw new \LogicException("no adapter for $name"),

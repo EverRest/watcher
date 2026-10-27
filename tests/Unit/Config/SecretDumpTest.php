@@ -47,7 +47,7 @@ final class SecretDumpTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid', 'auth' => ['type' => 'bearer', 'token' => $own('source.loki.auth.token')]]],
-            'analysis' => ['api_key' => $own('analysis.api_key'), 'api_keys' => ['anthropic' => $own('analysis.api_keys.anthropic'), 'openai' => $own('analysis.api_keys.openai'), 'gemini' => $own('analysis.api_keys.gemini')], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
+            'analysis' => ['api_keys' => ['openai' => $own('analysis.api_keys.openai'), 'gemini' => $own('analysis.api_keys.gemini')], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => sys_get_temp_dir() . '/watcher-secret-dump']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/' . $own('notify.digest.webhook')]],
         ];

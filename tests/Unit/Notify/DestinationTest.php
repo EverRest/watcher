@@ -175,7 +175,7 @@ final class DestinationTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid'], 'stream_tags' => ['app' => 'svc']],
-            'analysis' => ['api_key' => 'k', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
+            'analysis' => ['api_keys' => ['gemini' => 'k'], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/digest']] + $extra,
         ];
