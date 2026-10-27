@@ -31,7 +31,7 @@ final class EndpointContext
         return new self(unavailable: $token, cache: 'failed');
     }
 
-    /** The `ep` fields went over the token budget and were dropped; the digest lines stay. */
+    /** The `ep` fields went over the input limit and were dropped; the digest lines stay. */
     public function withoutModelField(): self
     {
         return new self($this->lines, [], $this->skipped, $this->droppedOps, $this->unavailable, $this->model !== [], $this->cache);

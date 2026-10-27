@@ -14,7 +14,7 @@ use Watcher\Operate\RunOptions;
 
 final class FleetCommand extends Command
 {
-    protected $signature = 'watcher:fleet {--now= : ISO-8601 instant to run as (default: now)} {--only= : Comma-separated services to run (default: all)} {--dry-run : Preview: nothing is posted or recorded} {--estimate : With --dry-run, estimate tokens and cost without model calls} {--json : One JSON summary line on stdout, human text on stderr}';
+    protected $signature = 'watcher:fleet {--now= : ISO-8601 instant to run as (default: now)} {--only= : Comma-separated services to run (default: all)} {--dry-run : Preview: nothing is posted or recorded} {--estimate : With --dry-run, estimate tokens without model calls} {--json : One JSON summary line on stdout, human text on stderr}';
 
     protected $description = 'Run every service of the configured fleet (watcher.fleet), each in isolation';
 
@@ -29,12 +29,12 @@ final class FleetCommand extends Command
         $raw = $this->option('now');
         $now = null;
         if (is_string($raw) && $raw !== '' && ($now = Application::parseNow($raw)) === null) {
-            $this->error('invalid --now: expected ISO-8601, e.g. 2026-10-23T06:00:00Z');
+            $this->error('invalid --now: expected ISO-8601, e.g. 2026-10-23T06:00:00Z', \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         }
         if ($this->option('estimate') && !$this->option('dry-run')) {
-            $this->error('--estimate requires --dry-run');
+            $this->error('--estimate requires --dry-run', \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         }
@@ -52,7 +52,7 @@ final class FleetCommand extends Command
         } catch (InvalidConfig $e) {
             $human->writeln('invalid fleet: ' . $e->getMessage());
             if ($json) {
-                $this->line(FleetResult::invalidJson());
+                $this->line(FleetResult::invalidJson(), null, \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
             }
 
             return 2;
@@ -62,7 +62,7 @@ final class FleetCommand extends Command
             $human->writeln($line);
         }
         if ($json) {
-            $this->line($result->toJson());
+            $this->line($result->toJson(), null, \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
         }
 
         return $result->exitCode();

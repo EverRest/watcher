@@ -14,9 +14,6 @@ final class Keys
     public const REPORTED = 'reported';
     public const RUN = 'run';
     public const LOCK = 'lock';
-    public const SPEND = 'spend';
-    public const ALERT = 'alert';
-    public const EXHAUSTED = 'exhausted';
     public const HEARTBEAT = 'hb';
     public const TRIGGER = 'trig';
     public const WEEK = 'hbweek';
@@ -31,14 +28,12 @@ final class Keys
     public const OBSSEEN = 'obsseen';
     public const API = 'api';
     public const HYGIENE = 'hyg';
-    public const LEDGER = 'ledger';
     public const HIGH_WATER = 'hw';
     public const KNOWN = 'known';
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
-    public const RUNS = 'runs';
 
-    private const SPEND_TTL = 172800;
+    private const NOTICE_TTL = 172800;
     private const WEEK_TTL = 1209600;
     private const HEARTBEAT_TTL_FACTOR = 3;
 
@@ -94,36 +89,7 @@ final class Keys
     public static function lock(string $service, string $windowEnd): string
     {
         return self::join(self::LOCK, $service, $windowEnd);
-    }
-
-    public static function spend(string $service, string $day): string
-    {
-        return self::join(self::SPEND, $service, $day);
-    }
-
-    public static function spendUsd(string $service, string $day): string
-    {
-        return self::join(self::SPEND, $service, $day, 'usd');
-    }
-
-    public static function spendTokens(string $service, string $day): string
-    {
-        return self::join(self::SPEND, $service, $day, 'tokens');
-    }
-
-    /** @param string $counter 'cost' or 'tokens' */
-    public static function alert(string $service, string $day, string $counter, int $percent): string
-    {
-        return self::join(self::ALERT, $service, $day, $counter, (string) $percent);
-    }
-
-    /** Marks that today's "budget exhausted" notice went out. */
-    public static function exhausted(string $service, string $day): string
-    {
-        return self::join(self::EXHAUSTED, $service, $day);
-    }
-
-    public static function heartbeat(string $service): string
+    }    public static function heartbeat(string $service): string
     {
         return self::join(self::HEARTBEAT, $service);
     }
@@ -177,7 +143,7 @@ final class Keys
         return self::join(self::FAILNOTICE, $service, $windowEnd);
     }
 
-    /** @param string $counter an outcome name or 'cost' */
+    /** @param string $counter an outcome name */
     public static function week(string $service, string $isoWeek, string $counter): string
     {
         return self::join(self::WEEK, $service, $isoWeek, $counter);
@@ -250,26 +216,7 @@ final class Keys
     public static function hygieneSent(string $service): string
     {
         return self::join(self::HYGIENE, 'sent', $service);
-    }
-
-    /** Model calls and tokens of one service-local date, by step and family (written only when hygiene is enabled). */
-    public static function ledger(string $service, string $date): string
-    {
-        return self::join(self::LEDGER, $service, $date);
-    }
-
-    /** Number of billed calls whose ledger write failed on a service-local date (so the cost report can say it is understated). */
-    public static function ledgerUnbooked(string $service, string $date): string
-    {
-        return self::join(self::LEDGER, 'unbooked', $service, $date);
-    }
-
-    public static function runsToday(string $service, string $localDay): string
-    {
-        return self::join(self::RUNS, $service, $localDay);
-    }
-
-    public static function highWater(string $service): string
+    }    public static function highWater(string $service): string
     {
         return self::join(self::HIGH_WATER, $service);
     }
@@ -278,7 +225,7 @@ final class Keys
     public static function ttl(string $kind, int $retention, int $lockTtl): int
     {
         return match ($kind) {
-            self::SPEND, self::ALERT, self::EXHAUSTED, self::RUNS => self::SPEND_TTL,
+            self::FAILNOTICE => self::NOTICE_TTL,
             self::LOCK => $lockTtl,
             self::HEARTBEAT, self::TRIGGER, self::HIGH_WATER => self::HEARTBEAT_TTL_FACTOR * $retention,
             self::WEEK, self::WEEKSENT, self::REPORTSENT => self::WEEK_TTL,

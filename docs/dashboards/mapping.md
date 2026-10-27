@@ -1,6 +1,6 @@
 # Mapping the watcher event stream to other tools
 
-The stream is `watcher.event.v1` (see [observability.md](../observability.md) and `docs/schema/watcher.event.v1.schema.json`). One JSON object per line; parse it under a namespace (`watcher`) so `service` does not collide with ECS or Datadog reserved attributes. Inside `v1` fields are never renamed, removed or retyped; ignore fields you do not know. Delivery is at-least-once: de-duplicate on `event_id`.
+The stream is `watcher.event.v2` (see [observability.md](../observability.md) and `docs/schema/watcher.event.v2.schema.json`). One JSON object per line; parse it under a namespace (`watcher`) so `service` does not collide with ECS or Datadog reserved attributes. Inside `v2` fields are never renamed, removed or retyped; ignore fields you do not know. Delivery is at-least-once: de-duplicate on `event_id`.
 
 ## Fields
 
@@ -8,7 +8,7 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 
 | Field | Event types | Elasticsearch / OpenSearch | Datadog | Meaning |
 |---|---|---|---|---|
-| `schema` | all | keyword | facet | always `watcher.event.v1` |
+| `schema` | all | keyword | facet | always `watcher.event.v2` |
 | `event_type` | all | keyword | facet | one of the seven types |
 | `event_id` | all | keyword | facet | `<run_id>-<n>`; de-duplicate on it |
 | `ts` | all | date | date remapper | when the batch was built (UTC) |
@@ -30,10 +30,6 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 | `findings_by_severity` | run | object | facet |  |
 | `groups_by_trend` | run | object | facet |  |
 | `calls` | run | object | facet |  |
-| `tokens_in` | run | long | measure |  |
-| `tokens_out` | run | long | measure |  |
-| `tokens_cached` | run | long | measure |  |
-| `cost_usd` | run | double | measure |  |
 | `escalations` | run | long | measure |  |
 | `reused` | run | long | measure |  |
 | `not_analysed` | run | long | measure |  |
@@ -66,16 +62,7 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 | `has_finding` | group | boolean | facet |  |
 | `watch_rules` | group | keyword (array) | facet |  |
 | `error_type` | group | text | facet | text, only with `include_text` |
-| `state` | budget, heartbeat | keyword | facet |  |
-| `run_cost_usd` | budget | double | measure |  |
-| `spent_today_usd` | budget | double | measure |  |
-| `daily_budget_usd` | budget | double | measure |  |
-| `usd_ratio` | budget | double | measure |  |
-| `tokens_today` | budget | long | measure |  |
-| `daily_token_limit` | budget | long | measure |  |
-| `token_ratio` | budget | double | measure |  |
-| `threshold_pct` | budget | long | measure |  |
-| `triage_only` | budget | boolean | facet |  |
+| `state` | heartbeat | keyword | facet |  |
 | `last_outcome` | heartbeat | keyword | facet |  |
 | `last_ok_at` | heartbeat | date | facet |  |
 | `age_seconds` | heartbeat | long | measure |  |
@@ -89,7 +76,7 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 
 ## Collecting
 
-- **Alloy / Promtail (Loki):** read the container stderr or the `file` sink's file, keep lines containing `"schema":"watcher.event.v1"`, set a stable `app="watcher"` label. Do not promote `fingerprint`, `run_id`, `event_id` or `title` to labels.
+- **Alloy / Promtail (Loki):** read the container stderr or the `file` sink's file, keep lines containing `"schema":"watcher.event.v2"`, set a stable `app="watcher"` label. Do not promote `fingerprint`, `run_id`, `event_id` or `title` to labels.
 - **Filebeat:** `decode_json_fields` with `target: watcher` and `process_array: false`, and a `timestamp` processor on `watcher.ts` (layout `2006-01-02T15:04:05Z`).
 - **Vector:** a `file` or `docker_logs` source, a `remap` transform with `. = parse_json!(.message)`, `.timestamp = parse_timestamp!(.ts, "%+")`.
 - **Datadog Agent:** a logs source with `source: watcher`, a date remapper on `ts`, a service remapper on `service` and an attribute remapper `environment` to `env`.
@@ -101,12 +88,11 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 |---|---|---|
 | Failed runs | `watcher.event_type : "run" and watcher.outcome : "failed"` | `@event_type:run @outcome:failed` |
 | New critical findings | `watcher.event_type : "finding" and watcher.severity : "critical" and watcher.group_trend : "new"` | `@event_type:finding @severity:critical @group_trend:new` |
-| Cost by service | Lens: sum of `watcher.cost_usd` where `event_type : "run"` by `watcher.service` | measure `@cost_usd`, filter `@event_type:run`, group by `service` |
 | No run in 36 h | log threshold rule on `watcher.event_type : "run"`, alert on no data | monitor: count of `@event_type:run -@outcome:skipped*` below 1 over 36 h, notify on no data |
 
 ## Metabase, Superset and other SQL tools
 
-Load the JSONL file (the `file` sink) or an Elasticsearch/Postgres import of the stream. The field table above is the column list. `run` is the fact table; `finding` and `group` join on `run_id`; `budget` and `heartbeat` join on `run_id` too. Finding text exists only for sinks with `include_text`.
+Load the JSONL file (the `file` sink) or an Elasticsearch/Postgres import of the stream. The field table above is the column list. `run` is the fact table; `finding` and `group` join on `run_id`; `heartbeat` joins on `run_id` too. Finding text exists only for sinks with `include_text`.
 
 ## Prometheus
 

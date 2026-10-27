@@ -115,9 +115,9 @@ final class ObserveTest extends TestCase
         self::assertSame([['analysis_partial', 37]], array_map(static fn (array $e): array => [$e['code'], $e['count']], $warnings));
         $events = array_values(array_filter($all, static fn (array $e): bool => $e['event_type'] !== 'config_warning'));
         self::assertSame(RunOutcome::Reported, $r->outcome);
-        self::assertSame(['run' => 1, 'finding' => 3, 'group' => 20, 'budget' => 1, 'heartbeat' => 1], self::byType($events));
-        self::assertCount(26, $events);
-        self::assertSame(range(1, 27), array_map(static fn (array $e): int => (int) substr((string) strrchr($e['event_id'], '-'), 1), $all));
+        self::assertSame(['run' => 1, 'finding' => 3, 'group' => 20, 'heartbeat' => 1], self::byType($events));
+        self::assertCount(25, $events);
+        self::assertSame(range(1, 26), array_map(static fn (array $e): int => (int) substr((string) strrchr($e['event_id'], '-'), 1), $all));
         self::assertCount(1, array_unique(array_column($events, 'run_id')));
         self::assertSame(40, $events[0]['groups_total']);
     }
@@ -215,7 +215,7 @@ final class ObserveTest extends TestCase
         })->run();
 
         self::assertSame([], $sink->received);
-        self::assertStringContainsString("== DRY RUN events ==\n{\"schema\":\"watcher.event.v1\"", $printed);
+        self::assertStringContainsString("== DRY RUN events ==\n{\"schema\":\"watcher.event.v2\"", $printed);
         self::assertSame($before, self::keys($h));
     }
 

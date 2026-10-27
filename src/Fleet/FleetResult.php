@@ -13,7 +13,6 @@ final class FleetResult
      * @param list<CorrelatedFinding> $correlated
      * @param bool|null $correlatedPosted null = nothing to post
      * @param bool|null $combinedPosted null = not in combined mode, or nothing to post
-     * @param float|null $fleetCostTodayUsd fleet counter after the run (counted even without a fleet cap; 0 in a dry run)
      */
     public function __construct(
         public readonly string $fleet,
@@ -21,7 +20,6 @@ final class FleetResult
         public readonly array $correlated = [],
         public readonly ?bool $correlatedPosted = null,
         public readonly ?bool $combinedPosted = null,
-        public readonly ?float $fleetCostTodayUsd = null,
     ) {
     }
 
@@ -59,16 +57,12 @@ final class FleetResult
     public function toJson(): string
     {
         $services = [];
-        $cost = 0.0;
         foreach ($this->services as $s) {
             $stats = $s->result?->summaryData?->stats;
-            $spent = $stats->costUsd ?? $s->result?->usage->costUsd ?? 0.0;
-            $cost += $spent;
             $services[] = [
                 'service' => $s->service,
                 'outcome' => $s->outcome,
                 'reason' => JsonSummary::reason($s->reason),
-                'cost_usd' => $spent,
                 'findings' => $stats->findings ?? 0,
             ];
         }
@@ -79,8 +73,6 @@ final class FleetResult
             'services' => $services,
             'correlated' => count($this->correlated),
             'correlated_posted' => $this->correlatedPosted,
-            'cost_usd' => $cost,
-            'fleet_cost_today_usd' => $this->fleetCostTodayUsd,
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
     }
 

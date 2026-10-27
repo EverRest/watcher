@@ -1,0 +1,14 @@
+{
+    "anthropic": [
+        "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.\n✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.",
+        "🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n1 findings\n🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n🟠 *error* (1)\n• Payment gateway timeouts — 5×  `3ba2fceef742`\n  Evidence: &lt;ID&gt; rose from 3 to 41 occurrences\n  Hypothesis: Possibly an upstream slowdown (hypothesis)  Next: Check the gateway latency dashboard\n— tokens in 1.2k \/ out 150 \/ cached 400 · analyze m-a · ≈ $0.01 · today $0.01 of $0.50 (2%)"
+    ],
+    "openai": [
+        "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.\n✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.",
+        "🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n1 findings\n🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n🟠 *error* (1)\n• Payment gateway timeouts — 5×  `3ba2fceef742`\n  Evidence: &lt;ID&gt; rose from 3 to 41 occurrences\n  Hypothesis: Possibly an upstream slowdown (hypothesis)  Next: Check the gateway latency dashboard\n— tokens in 800 \/ out 150 \/ cached 400 · analyze m-a · ≈ $0.00 · today $0.00 of $0.50 (1%)"
+    ],
+    "gemini": [
+        "✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.\n✅ watcher · svc · stg — baseline recorded: 1 groups, 5 events. Analysis starts next run.",
+        "🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n1 findings\n🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n🟠 *error* (1)\n• Payment gateway timeouts — 5×  `3ba2fceef742`\n  Evidence: &lt;ID&gt; rose from 3 to 41 occurrences\n  Hypothesis: Possibly an upstream slowdown (hypothesis)  Next: Check the gateway latency dashboard\n— tokens in 800 \/ out 150 \/ cached 400 · analyze m-a · ≈ $0.00 · today $0.00 of $0.50 (1%)"
+    ]
+}

@@ -95,9 +95,6 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         $r = $this->analyzer([self::json('message-triage-valid.json')])->triage(self::request());
 
         self::assertSame(['fp-aaa' => 'interesting'], $r->verdicts);
-        self::assertSame('triage-model-from-request', $r->usage->model, 'priced by the requested id');
-        self::assertSame('claude-fixture-triage-1', $r->usage->returnedModel);
-        self::assertSame([300, 20, 50, 100], [$r->usage->inputTokens, $r->usage->outputTokens, $r->usage->cacheReadTokens, $r->usage->cacheWriteTokens]);
     }
 
     public function testBadOutputRetriesOnceThenFails(): void
@@ -105,7 +102,6 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         $a = $this->analyzer([self::json('message-not-json.json'), self::json('message-triage-valid.json')]);
         $r = $a->triage(self::request());
         self::assertCount(2, $this->history);
-        self::assertSame(400, $r->usage->inputTokens, 'usage of both attempts is summed');
 
         $this->history = [];
         $this->expectException(AnalyzerFailed::class);
@@ -173,28 +169,6 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         self::assertSame(['fp-aaa' => 'interesting'], $r->verdicts);
     }
 
-    public function testAProviderFailureOnTheSecondAttemptStillCarriesTheFirstAttemptsUsage(): void
-    {
-        try {
-            $this->analyzer([self::json('message-not-json.json'), self::json('error-401.json', 401)])->triage(self::request());
-            self::fail('expected AnalyzerFailed');
-        } catch (AnalyzerFailed $e) {
-            self::assertSame('authentication failed', $e->getMessage());
-            self::assertNotNull($e->usage, 'attempt 1 was billed');
-            self::assertGreaterThan(0, $e->usage->inputTokens);
-        }
-    }
-
-    public function testAProviderFailureOnTheFirstAttemptCarriesNoUsage(): void
-    {
-        try {
-            $this->analyzer([self::json('error-401.json', 401)])->triage(self::request());
-            self::fail('expected AnalyzerFailed');
-        } catch (AnalyzerFailed $e) {
-            self::assertNull($e->usage);
-        }
-    }
-
     public function testDoubledCapIsBoundedBy8192(): void
     {
         $a = $this->analyzer([self::json('message-triage-truncated.json'), self::json('message-triage-valid.json')]);
@@ -204,15 +178,4 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         self::assertSame(8192, $second['max_tokens']);
     }
 
-    public function testFailedAfterTwoPaidAttemptsCarriesTheSummedUsage(): void
-    {
-        try {
-            $this->analyzer([self::json('message-not-json.json'), self::json('message-not-json.json')])->triage(self::request());
-            self::fail('expected AnalyzerFailed');
-        } catch (AnalyzerFailed $e) {
-            self::assertNotNull($e->usage);
-            self::assertSame('triage-model-from-request', $e->usage->model);
-            self::assertSame(200, $e->usage->inputTokens);
-        }
-    }
 }

@@ -10,7 +10,7 @@ use Watcher\Privacy\GroupStatusLabel;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Select\Tier;
 
-/** Cost routing: reuse verdicts, one cheap triage, one analysis of the top-M, capped escalation (FR-016..FR-020). */
+/** Routing: reuse verdicts, one cheap triage, one analysis of the top-M, capped escalation (FR-016..FR-020). */
 final class ModelRouter
 {
     public function __construct(
@@ -22,16 +22,13 @@ final class ModelRouter
     }
 
     /**
-     * With a reservation, every billable step runs only if its worst case fits the daily cap; a spent budget at the start
-     * ($triageOnly) is the documented triage-only mode and is not reserved against.
-     *
      * @param list<RedactedGroup>     $groups
      * @param list<DependencyContext> $dependencyContext indexes refer to positions in $groups; goes to analysis and escalation, never triage
      * @param array<string, string>   $endpoints fingerprint => `ep` (spec 010); analysis and escalation only, never triage
      *
      * @throws AnalyzerFailed
      */
-    public function route(array $groups, bool $triageOnly, array $dependencyContext = [], ?BudgetReservation $reservation = null, array $endpoints = []): RouterResult
+    public function route(array $groups, array $dependencyContext = [], array $endpoints = []): RouterResult
     {
         $fresh = [];
         $reused = 0;
@@ -43,29 +40,22 @@ final class ModelRouter
             }
         }
         if ($fresh === []) {
-            return new RouterResult([], [], 0, $reused, 0, 0);
+            return new RouterResult([], 0, $reused, 0, 0);
         }
 
-        $usage = [];
         // Triage paid for by an earlier attempt of this window whose analysis failed (R5).
         $verdicts = $this->s->triageEnabled ? ($this->checkpoint?->load($fresh) ?? []) : [];
         $pending = array_values(array_filter($fresh, static fn (RedactedGroup $g): bool => !isset($verdicts[$g->fingerprint])));
         if (!$this->s->triageEnabled) {
-            // Triage off: no call, no checkpoint; every fresh group goes to analysis (top-M and the budget still apply).
+            // Triage off: no call, no checkpoint; every fresh group goes to analysis (top-M still applies).
             $verdicts = array_fill_keys(array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $fresh), 'interesting');
             $pending = [];
         }
-        $notTriaged = 0;
         $sent = [];
         if ($pending !== []) {
-            if (!$triageOnly && $reservation !== null && !self::fits($reservation, $this->s->triageModel, $this->inputTokens('triage', $pending, [], $this->s->metrics?->forTriage($pending)), AnthropicAnalyzer::triageOutputCap($this->s->triageMaxTokens, count($pending)))) {
-                $notTriaged = count($pending);
-            } else {
-                $tri = $this->analyzer->triage(new TriageRequest($pending, $this->s->serviceContext, $this->s->triageModel, $this->s->triageMaxTokens, $this->s->metrics?->forTriage($pending)));
-                $usage['triage'] = $tri->usage;
-                $verdicts += $tri->verdicts;
-                $sent = array_flip(array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $pending));
-            }
+            $tri = $this->analyzer->triage(new TriageRequest($pending, $this->s->serviceContext, $this->s->triageModel, $this->s->triageMaxTokens, $this->s->metrics?->forTriage($pending)));
+            $verdicts += $tri->verdicts;
+            $sent = array_flip(array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $pending));
         }
         // Fail closed: the cheap filter saves money on low-level groups, it does not get to veto an error or a watch rule.
         // A noise/known verdict becomes "interesting" for those; a group that was sent and got no verdict at all does for every group.
@@ -82,7 +72,7 @@ final class ModelRouter
         foreach ($fresh as $g) {
             $v = $verdicts[$g->fingerprint] ?? null;
             if ($v === null) {
-                continue; // triage did not fit the budget: nothing is stored, it is triaged again next run
+                continue; // triage gave no verdict: nothing is stored, it is triaged again next run
             }
             if ($v === 'interesting') {
                 // Stored only after it was really analysed (below): a triage-only day or a top-M cut must not
@@ -97,12 +87,11 @@ final class ModelRouter
         $findings = [];
         $dropped = 0;
         $escalations = 0;
-        $skippedBudget = 0;
         $skippedSize = 0;
-        $notAnalysed = $triageOnly ? count($interesting) : 0;
+        $notAnalysed = 0;
         $unreported = 0;
         $newOverflow = 0;
-        if (!$triageOnly && $interesting !== []) {
+        if ($interesting !== []) {
             usort($interesting, $this->byPriority(...));
             [$top, $newOverflow] = $this->pickTop($interesting);
             $dropped = $notAnalysed = count($interesting) - count($top);
@@ -110,103 +99,83 @@ final class ModelRouter
             $topEndpoints = self::only($endpoints, $top);
             $analyzeCap = AnthropicAnalyzer::analysisOutputCap($this->s->analyzeMaxTokens, count($top), $this->s->advice);
 
-            // `ep` is context, not evidence: a budget that fits without it still gets the analysis
-            if ($reservation !== null && $topEndpoints !== [] && !self::fits($reservation, $this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext, $this->s->metrics, $topEndpoints), $analyzeCap)) {
-                $topEndpoints = [];
+            try {
+                $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext, $this->s->metrics, $topEndpoints));
+            } catch (AnalyzerFailed $e) {
+                // Triage was paid for: keep its verdicts for the retry of this window.
+                if ($this->s->triageEnabled) {
+                    $this->checkpoint?->save($verdicts, $fresh);
+                }
+
+                throw $e;
             }
-            if ($reservation !== null && !self::fits($reservation, $this->s->analyzeModel, $this->inputTokens('analyze', $top, $topContext, $this->s->metrics, $topEndpoints), $analyzeCap)) {
-                $notAnalysed = count($interesting);
-                $newOverflow = 0;
-            } else {
-                try {
-                    $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext, $this->s->metrics, $topEndpoints));
-                } catch (AnalyzerFailed $e) {
-                    // Triage was paid for: keep its verdicts for the retry of this window.
-                    if ($this->s->triageEnabled) {
-                        $this->checkpoint?->save($verdicts, $fresh);
+            $byFp = [];
+            foreach ($top as $g) {
+                $byFp[$g->fingerprint] = $g;
+            }
+            $detached = [];
+            $out = [];
+            foreach ($this->vet($res->findings, $byFp, $detached) as [$f, $weak]) {
+                if ($escalations < $this->s->escalationCap && $this->needsEscalation($f, $byFp)) {
+                    $sub = array_values(array_filter(array_map(static fn (string $fp): ?RedactedGroup => $byFp[$fp] ?? null, $f->fingerprints)));
+                    $fit = $this->fitEscalation($sub, self::remap($dependencyContext, $groups, $sub));
+                    if ($fit === null) {
+                        ++$skippedSize;
+                        $out[] = [$f, $weak];
+                        continue;
                     }
+                    [$sub, $subContext] = $fit;
+                    $subEndpoints = self::only($endpoints, $sub);
+                    if ($this->inputTokens('analyze', $sub, $subContext, $this->s->metrics, $subEndpoints) > $this->s->escalateMaxInputTokens) {
+                        $subEndpoints = []; // context, not evidence: it goes before anything else is cut
+                    }
+                    $escalateCap = AnthropicAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
+                    ++$escalations;
+                    $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext, $this->s->metrics, $subEndpoints, 'escalate'));
+                    if ($again->findings !== []) {
+                        foreach ($this->vet($again->findings, $byFp, $detached) as [$e, $w]) {
+                            $out[] = [$e->escalated(), $w];
+                        }
+                        continue;
+                    }
+                }
+                $out[] = [$f, $weak];
+            }
+            $findings = array_map(static fn (array $p): Finding => $p[0], $out);
 
-                    throw $e;
-                }
-                $usage['analyze'] = $res->usage;
-
-                $byFp = [];
-                foreach ($top as $g) {
-                    $byFp[$g->fingerprint] = $g;
-                }
-                $detached = [];
-                $out = [];
-                foreach ($this->vet($res->findings, $byFp, $detached) as [$f, $weak]) {
-                    if ($escalations < $this->s->escalationCap && $this->needsEscalation($f, $byFp)) {
-                        $sub = array_values(array_filter(array_map(static fn (string $fp): ?RedactedGroup => $byFp[$fp] ?? null, $f->fingerprints)));
-                        $fit = $this->fitEscalation($sub, self::remap($dependencyContext, $groups, $sub));
-                        if ($fit === null) {
-                            ++$skippedSize;
-                            $out[] = [$f, $weak];
-                            continue;
-                        }
-                        [$sub, $subContext] = $fit;
-                        $subEndpoints = self::only($endpoints, $sub);
-                        if ($this->inputTokens('analyze', $sub, $subContext, $this->s->metrics, $subEndpoints) > $this->s->escalateMaxInputTokens) {
-                            $subEndpoints = []; // context, not evidence: it goes before anything else is cut
-                        }
-                        $escalateCap = AnthropicAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
-                        if ($reservation !== null && $subEndpoints !== [] && !self::fits($reservation, $this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext, $this->s->metrics, $subEndpoints), $escalateCap)) {
-                            $subEndpoints = [];
-                        }
-                        if ($reservation !== null && !self::fits($reservation, $this->s->escalateModel, $this->inputTokens('analyze', $sub, $subContext, $this->s->metrics, $subEndpoints), $escalateCap)) {
-                            ++$skippedBudget;
-                            $out[] = [$f, $weak];
-                            continue;
-                        }
-                        ++$escalations;
-                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext, $this->s->metrics, $subEndpoints, 'escalate'));
-                        $usage['escalate'] = isset($usage['escalate']) ? $usage['escalate']->plus($again->usage) : $again->usage;
-                        if ($again->findings !== []) {
-                            foreach ($this->vet($again->findings, $byFp, $detached) as [$e, $w]) {
-                                $out[] = [$e->escalated(), $w];
-                            }
-                            continue;
-                        }
+            // What is remembered (and so not paid for again until it grows) is decided here, not by the model:
+            // an error-or-higher / watch-rule group is remembered only with a substantive finding; "nothing to report"
+            // or only noise/info for it is shown or counted, then analysed again next window.
+            $strong = $weakOnly = [];
+            foreach ($out as [$f, $weak]) {
+                foreach ($f->fingerprints as $fp) {
+                    if (!isset($byFp[$fp])) {
+                        continue;
                     }
-                    $out[] = [$f, $weak];
-                }
-                $findings = array_map(static fn (array $p): Finding => $p[0], $out);
-
-                // What is remembered (and so not paid for again until it grows) is decided here, not by the model:
-                // an error-or-higher / watch-rule group is remembered only with a substantive finding; "nothing to report"
-                // or only noise/info for it is shown or counted, then analysed again next window.
-                $strong = $weakOnly = [];
-                foreach ($out as [$f, $weak]) {
-                    foreach ($f->fingerprints as $fp) {
-                        if (!isset($byFp[$fp])) {
-                            continue;
-                        }
-                        if ($weak) {
-                            $weakOnly[$fp] ??= $f;
-                        } else {
-                            $strong[$fp] ??= $f;
-                        }
+                    if ($weak) {
+                        $weakOnly[$fp] ??= $f;
+                    } else {
+                        $strong[$fp] ??= $f;
                     }
                 }
-                foreach ($byFp as $fp => $g) {
-                    $fp = (string) $fp; // all-digit keys come back as int
-                    if (isset($strong[$fp])) {
-                        $this->verdicts->put($fp, 'interesting', $g->count, $strong[$fp]);
-                    } elseif (isset($weakOnly[$fp])) {
-                        if (!VerdictCache::mustNotBeSilenced($g)) {
-                            $this->verdicts->put($fp, 'interesting', $g->count, $weakOnly[$fp]);
-                        }
-                    } elseif (VerdictCache::mustNotBeSilenced($g)) {
-                        ++$unreported;
-                    } elseif (!isset($detached[$fp])) {
-                        $this->verdicts->put($fp, 'interesting', $g->count, null);
+            }
+            foreach ($byFp as $fp => $g) {
+                $fp = (string) $fp; // all-digit keys come back as int
+                if (isset($strong[$fp])) {
+                    $this->verdicts->put($fp, 'interesting', $g->count, $strong[$fp]);
+                } elseif (isset($weakOnly[$fp])) {
+                    if (!VerdictCache::mustNotBeSilenced($g)) {
+                        $this->verdicts->put($fp, 'interesting', $g->count, $weakOnly[$fp]);
                     }
+                } elseif (VerdictCache::mustNotBeSilenced($g)) {
+                    ++$unreported;
+                } elseif (!isset($detached[$fp])) {
+                    $this->verdicts->put($fp, 'interesting', $g->count, null);
                 }
             }
         }
 
-        return new RouterResult($findings, $usage, $escalations, $reused, count($fresh) - $notTriaged, $dropped, $notAnalysed, $notTriaged, $skippedBudget, $skippedSize, $unreported, $triageDropped, $coerced, $newOverflow);
+        return new RouterResult($findings, $escalations, $reused, count($fresh), $dropped, $notAnalysed, $skippedSize, $unreported, $triageDropped, $coerced, $newOverflow);
     }
 
     /**
@@ -231,12 +200,6 @@ final class ModelRouter
     private static function only(array $endpoints, array $groups): array
     {
         return array_intersect_key($endpoints, array_flip(array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $groups)));
-    }
-
-    /** A step can take two calls (a retry on invalid output, with up to twice the output cap): reserve for both. */
-    private static function fits(BudgetReservation $reservation, string $model, int $inputTokens, int $maxOutputTokens): bool
-    {
-        return $reservation->allows($model, 2 * $inputTokens, $maxOutputTokens + AnthropicAnalyzer::retryOutputCap($maxOutputTokens));
     }
 
     /**

@@ -27,7 +27,7 @@ final class DoctorMetricsSentryTest extends TestCase
             'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test'], 'stream_tags' => ['app' => 'orders']],
-            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'], 'prices' => ['m-small' => [1, 5, 0.1, 1.25], 'm-mid' => [3, 15, 0.3, 3.75], 'm-big' => [5, 25, 0.5, 6.25]]],
+            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],
             'notify' => ['digest' => ['webhook' => 'https://hooks.slack.test/services/T0/B0/X']],
         ]);
@@ -48,7 +48,7 @@ final class DoctorMetricsSentryTest extends TestCase
 
     public function testNoRowsWithoutTheSources(): void
     {
-        self::assertSame(['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'], array_keys($this->by($this->doctor(null, null))));
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_keys($this->by($this->doctor(null, null))));
     }
 
     public function testBothPassOnAnswersAndRunNoConfiguredQuery(): void

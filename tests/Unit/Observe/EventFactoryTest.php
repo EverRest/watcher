@@ -7,7 +7,6 @@ namespace Watcher\Tests\Unit\Observe;
 use DateTimeImmutable;
 use DateTimeZone;
 use Opis\JsonSchema\Validator;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\FindingKind;
@@ -37,7 +36,7 @@ final class EventFactoryTest extends TestCase
 
         $types = array_map(static fn (Event $e): string => $e->type, $events);
         self::assertSame(
-            ['run', 'finding', 'finding', 'finding', ...array_fill(0, 20, 'group'), 'budget', 'heartbeat', 'delivery_failure', 'delivery_failure'],
+            ['run', 'finding', 'finding', 'finding', ...array_fill(0, 20, 'group'), 'heartbeat', 'delivery_failure', 'delivery_failure'],
             $types,
         );
         $this->assertAllValid($events);
@@ -100,56 +99,9 @@ final class EventFactoryTest extends TestCase
 
     public function testEnvironmentIsUnsetWhenNull(): void
     {
-        $summary = new RunSummaryData(RunOutcome::Quiet, 'bff-a', null, new DateTimeImmutable('2026-10-23T06:00:00Z'), new DateTimeImmutable('2026-10-24T06:00:00Z'), new RunStats(), null, null, false, null);
+        $summary = new RunSummaryData(RunOutcome::Quiet, 'bff-a', null, new DateTimeImmutable('2026-10-23T06:00:00Z'), new DateTimeImmutable('2026-10-24T06:00:00Z'), new RunStats(), null, false, null);
 
         self::assertSame('unset', $this->factory()->build(new RunObservation(), $summary, null)[0]->toArray(false)['environment']);
-    }
-
-    #[DataProvider('budgetStates')]
-    public function testBudgetState(?float $spent, ?float $limit, bool $triageOnly, string $state, ?float $ratio): void
-    {
-        $obs = new RunObservation();
-        $obs->spentTodayUsd = $spent;
-        $obs->dailyBudgetUsd = $limit;
-        $obs->triageOnly = $triageOnly;
-
-        $budget = $this->only($this->factory()->build($obs, $this->summary(), null), 'budget')->toArray(false);
-
-        self::assertSame($state, $budget['state']);
-        self::assertSame($ratio, $budget['usd_ratio']);
-    }
-
-    /** @return array<string, array{?float, ?float, bool, string, ?float}> */
-    public static function budgetStates(): array
-    {
-        return [
-            '0.89 is ok' => [0.89, 1.0, false, 'ok', 0.89],
-            '0.9 is high' => [0.9, 1.0, false, 'high', 0.9],
-            '1.0 is exhausted' => [1.0, 1.0, false, 'exhausted', 1.0],
-            'triage-only is exhausted' => [0.1, 1.0, true, 'exhausted', 0.1],
-            'no cap is ok with a null ratio' => [3.0, null, false, 'ok', null],
-        ];
-    }
-
-    public function testNoBudgetEventWithoutSpendData(): void
-    {
-        $types = array_map(static fn (Event $e): string => $e->type, $this->factory()->build(new RunObservation(), $this->summary(), null));
-        self::assertNotContains('budget', $types);
-        self::assertNotContains('heartbeat', $types);
-    }
-
-    public function testTokenRatioCountsForTheState(): void
-    {
-        $obs = new RunObservation();
-        $obs->spentTodayUsd = 0.1;
-        $obs->dailyBudgetUsd = 1.0;
-        $obs->tokensToday = 95;
-        $obs->dailyTokenLimit = 100;
-
-        $budget = $this->only($this->factory()->build($obs, $this->summary(), null), 'budget')->toArray(false);
-
-        self::assertSame('high', $budget['state']);
-        self::assertSame(0.95, $budget['token_ratio']);
     }
 
     public function testDeliveryFailuresUseOnlyTheCode(): void
@@ -256,12 +208,9 @@ final class EventFactoryTest extends TestCase
         $stats->candidates = 6;
         $stats->findings = 3;
         $stats->calls = ['triage' => 1, 'analyze' => 1, 'escalate' => 0];
-        $stats->tokensIn = 9000;
-        $stats->tokensOut = 800;
-        $stats->costUsd = 0.0412;
         $stats->durationMs = 4200;
 
-        return new RunSummaryData(RunOutcome::Reported, 'bff-a', null, new DateTimeImmutable('2026-10-23T06:00:00Z'), new DateTimeImmutable('2026-10-24T06:00:00Z'), $stats, 0.2, '1.4.2', false, 'production');
+        return new RunSummaryData(RunOutcome::Reported, 'bff-a', null, new DateTimeImmutable('2026-10-23T06:00:00Z'), new DateTimeImmutable('2026-10-24T06:00:00Z'), $stats, '1.4.2', false, 'production');
     }
 
     private function heartbeat(string $state = 'ok'): HeartbeatStatus
@@ -287,10 +236,8 @@ final class EventFactoryTest extends TestCase
             $obs->findings[] = new Finding([sprintf('%012x', $i)], FindingKind::Bug, $s, "Title $i", "evidence $i", "cause $i", "act $i", 0.8, $i === 0, "check $i", ['rel']);
         }
         $obs->newAfterRelease = ['000000000000'];
-        $obs->router = new RouterResult($obs->findings, [], 1, 0, 6, 0);
+        $obs->router = new RouterResult($obs->findings, 1, 0, 6, 0);
         $obs->muted = 2;
-        $obs->spentTodayUsd = 0.2;
-        $obs->dailyBudgetUsd = 1.0;
         $obs->deliveryFailed('slack', 'digest', new DeliveryFailed('x', 429));
         $obs->deliveryFailed('slack', 'notice', new DeliveryFailed('x', RunObservation::NETWORK));
 
@@ -309,7 +256,7 @@ final class EventFactoryTest extends TestCase
     /** @param list<Event> $events */
     private function assertAllValid(array $events): void
     {
-        $schema = json_decode((string) file_get_contents(__DIR__ . '/../../../docs/schema/watcher.event.v1.schema.json'), false, 512, JSON_THROW_ON_ERROR);
+        $schema = json_decode((string) file_get_contents(__DIR__ . '/../../../docs/schema/watcher.event.v2.schema.json'), false, 512, JSON_THROW_ON_ERROR);
         foreach ($events as $event) {
             foreach ([false, true] as $withText) {
                 $result = (new Validator())->validate(json_decode((string) json_encode($event->toArray($withText))), $schema);

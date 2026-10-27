@@ -205,7 +205,6 @@ final class AnthropicAnalyzerTest extends TestCase
             self::assertTrue($e->refused);
             self::assertStringContainsString('analysis', $e->getMessage());
             self::assertStringContainsString('refused', $e->getMessage());
-            self::assertSame(700, $e->usage?->inputTokens, 'the refused call was billed');
         }
         self::assertCount(1, $this->history, 'a refusal is not retried');
     }
@@ -220,14 +219,6 @@ final class AnthropicAnalyzerTest extends TestCase
         self::assertSame(Severity::Error, $result->findings[0]->severity);
         self::assertSame(0.7, $result->findings[0]->confidence);
 
-        $u = $result->usage;
-        self::assertSame('model-from-request', $u->model, 'priced by the requested id, not the returned one');
-        self::assertSame('claude-fixture-model-1', $u->returnedModel);
-        self::assertSame(1200, $u->inputTokens);
-        self::assertSame(150, $u->outputTokens);
-        self::assertSame(400, $u->cacheReadTokens);
-        self::assertSame(800, $u->cacheWriteTokens);
-        self::assertSame(0.0, $u->costUsd);
     }
 
     public function testInvalidJsonThenValidRetriesOnceAndSucceeds(): void
@@ -237,8 +228,6 @@ final class AnthropicAnalyzerTest extends TestCase
         self::assertCount(2, $this->history);
         self::assertCount(1, $result->findings);
         // usage of both attempts is accounted for
-        self::assertSame(1300, $result->usage->inputTokens);
-        self::assertSame(160, $result->usage->outputTokens);
     }
 
     public function testInvalidTwiceFailsAfterExactlyTwoRequests(): void
@@ -251,7 +240,6 @@ final class AnthropicAnalyzerTest extends TestCase
         } catch (AnalyzerFailed $e) {
             self::assertSame('invalid model output', $e->getMessage());
             self::assertStringNotContainsString('prose', $e->getMessage());
-            self::assertSame(200, $e->usage?->inputTokens, 'both billed attempts are carried');
         }
         self::assertCount(2, $this->history);
     }
@@ -278,7 +266,6 @@ final class AnthropicAnalyzerTest extends TestCase
             self::fail('expected AnalyzerFailed');
         } catch (AnalyzerFailed $e) {
             self::assertSame('authentication failed', $e->getMessage());
-            self::assertNull($e->usage, 'nothing was billed');
             self::assertStringNotContainsString(self::KEY, $e->getMessage());
             self::assertCount(1, $this->history, '401 is not retried');
             self::assertNull($e->getPrevious());
@@ -296,7 +283,6 @@ final class AnthropicAnalyzerTest extends TestCase
             self::fail('expected AnalyzerFailed');
         } catch (AnalyzerFailed $e) {
             self::assertSame("provider unavailable (HTTP $status)", $e->getMessage());
-            self::assertNull($e->usage);
             self::assertStringNotContainsString(self::KEY, $e->getMessage());
             self::assertCount(1, $this->history, 'no client-level retry');
         }

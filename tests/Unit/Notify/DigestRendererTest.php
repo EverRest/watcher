@@ -9,7 +9,6 @@ use PHPUnit\Framework\TestCase;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
-use Watcher\Analyze\Usage;
 use Watcher\Level;
 use Watcher\Notify\DigestData;
 use Watcher\Notify\DigestRenderer;
@@ -268,27 +267,6 @@ final class DigestRendererTest extends TestCase
         self::assertSame('23 more groups, 1,840 events · 2 muted', $this->text($m, 'minor'));
     }
 
-    public function testNoticesAndFooter(): void
-    {
-        $d = $this->data([], [], [
-            'levelAnomalyLine' => 'info ×6 vs previous window',
-            'eventsReadTruncated' => 5000,
-            'droppedGroups' => 5,
-            'usage' => new Usage('mixed', 18200, 1900, 6100, 50, 0.04),
-            'models' => ['triage' => 'haiku-x', 'analyze' => 'sonnet-x'],
-            'costUsd' => 0.04,
-        ]);
-        $m = (new DigestRenderer())->render($d, 0.5);
-
-        $n = $this->text($m, 'notice');
-        self::assertStringContainsString('info ×6 vs previous window', $n);
-        self::assertStringContainsString('truncated: 5,000 events read', $n);
-        self::assertStringContainsString('truncated: 5 groups dropped (budget)', $n);
-        $last = array_slice($m->sections, -1)[0];
-        self::assertSame('footer', $last['kind']);
-        self::assertSame('— tokens in 18.2k / out 1.9k / cached 6.1k · triage haiku-x · analyze sonnet-x · ≈ $0.04', $last['text']);
-    }
-
     public function testClusterCapNoticeNamesCountsOnly(): void
     {
         $m = (new DigestRenderer())->render($this->data([], [], ['overflowedEvents' => 1234, 'groupCap' => 5000]), 0.5);
@@ -301,7 +279,7 @@ final class DigestRendererTest extends TestCase
     {
         $text = $this->text((new DigestRenderer())->render($this->data([], [], ['notAnalysed' => 12, 'patternFailures' => 3]), 0.5), 'notice');
 
-        self::assertStringContainsString('12 group(s) flagged interesting were not analysed (budget exhausted, triage only or top_m cut)', $text);
+        self::assertStringContainsString('12 group(s) flagged interesting were not analysed (top_m cut)', $text);
         self::assertStringContainsString('3 pattern evaluation failures: rules may have been skipped', $text);
         $quiet = $this->text((new DigestRenderer())->render($this->data([]), 0.5));
         self::assertStringNotContainsString('not analysed', $quiet);
@@ -387,28 +365,6 @@ final class DigestRendererTest extends TestCase
         $m = (new DigestRenderer())->render($this->data([$this->finding(1), $this->finding(2, Severity::Warn, 0.1)]), 0.5);
 
         self::assertSame("🔎 svc · stg · 2026-10-22 06:00 → 2026-10-23 06:00 (Europe/Kyiv)\n1 findings, 1 minor", $m->text);
-    }
-
-    public function testFooterShowsTodaysSpendAgainstTheCostLimit(): void
-    {
-        $m = (new DigestRenderer())->render($this->data([], [], ['costUsd' => 0.04, 'todayUsd' => 0.21, 'dailyBudgetUsd' => 0.5]), 0.5);
-
-        self::assertStringContainsString('≈ $0.04 · today $0.21 of $0.50 (42%)', $this->text($m, 'footer'));
-        self::assertStringNotContainsString('tokens today', $this->text($m, 'footer'));
-    }
-
-    public function testFooterAddsTheTokenCounterOnlyWhenALimitIsConfigured(): void
-    {
-        $m = (new DigestRenderer())->render($this->data([], [], ['todayUsd' => 0.1, 'dailyBudgetUsd' => 0.5, 'todayTokens' => 12500, 'dailyTokenLimit' => 50000]), 0.5);
-
-        self::assertStringContainsString('today $0.10 of $0.50 (20%) · tokens today 12.5k of 50k (25%)', $this->text($m, 'footer'));
-    }
-
-    public function testFooterWithoutTodaysSpendIsUnchanged(): void
-    {
-        $m = (new DigestRenderer())->render($this->data([]), 0.5);
-
-        self::assertStringNotContainsString('today', $this->text($m, 'footer'));
     }
 
     public function testBaselineNotice(): void
@@ -557,7 +513,7 @@ final class DigestRendererTest extends TestCase
         self::assertSame($none, $null, 'an empty context prints nothing');
         self::assertStringContainsString('ℹ️ 3 endpoint line(s) skipped (api_context.max_endpoints)', $loud);
         self::assertStringContainsString('ℹ️ 12 operation(s) not kept (cache limit)', $loud);
-        self::assertStringContainsString('ℹ️ endpoint documentation not sent to the model (token budget)', $loud);
+        self::assertStringContainsString('ℹ️ endpoint documentation not sent to the model (input limit)', $loud);
         self::assertStringContainsString('⚠️ API context unavailable (too_large)', $down);
     }
 }

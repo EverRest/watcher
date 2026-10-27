@@ -46,7 +46,7 @@ final class EventSanitizerTest extends TestCase
 
         self::assertSame(['info' => 1, 'warn' => 0, 'error' => 0, 'critical' => 0], $out['findings_by_severity']);
         self::assertNull($out['calls']);
-        self::assertNull($out['cost_usd']);
+        self::assertArrayNotHasKey('cost_usd', $out);
     }
 
     public function testTextIsRemovedWhenIncludeTextIsFalse(): void
@@ -126,7 +126,7 @@ final class EventSanitizerTest extends TestCase
     private function envelope(string $type): array
     {
         return [
-            'schema' => 'watcher.event.v1', 'event_type' => $type, 'event_id' => '0123456789abcdef-1', 'ts' => '2026-10-24T06:05:00Z',
+            'schema' => 'watcher.event.v2', 'event_type' => $type, 'event_id' => '0123456789abcdef-1', 'ts' => '2026-10-24T06:05:00Z',
             'service' => 'bff-a', 'environment' => 'production', 'run_id' => '0123456789abcdef', 'version' => '0.1.70',
             'window_start' => null, 'window_end' => null,
         ];

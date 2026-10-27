@@ -2,7 +2,7 @@
   "id": null,
   "uid": null,
   "title": "Watcher metrics (Prometheus)",
-  "description": "Runs, findings, cost and budget from the watcher textfile metrics. Datasource is a variable.",
+  "description": "Runs and findings from the watcher textfile metrics. Datasource is a variable.",
   "tags": [
     "watcher"
   ],
@@ -171,93 +171,6 @@
       "options": {}
     },
     {
-      "id": 4,
-      "type": "stat",
-      "title": "Last run cost",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "max(watcher_last_run_cost_usd{service=~\"$service\",environment=~\"$environment\"})",
-          "refId": "A",
-          "legendFormat": "",
-          "instant": true
-        }
-      ],
-      "gridPos": {
-        "x": 14,
-        "y": 1,
-        "w": 6,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD"
-        },
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
-      "id": 5,
-      "type": "stat",
-      "title": "Budget used today",
-      "description": "Metrics path. The larger of the USD and token ratios.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "max(watcher_budget_ratio{service=~\"$service\",environment=~\"$environment\"})",
-          "refId": "A",
-          "legendFormat": "",
-          "instant": true
-        }
-      ],
-      "gridPos": {
-        "x": 0,
-        "y": 8,
-        "w": 6,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.75
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
       "id": 6,
       "type": "row",
       "title": "Metrics",
@@ -377,97 +290,6 @@
       "gridPos": {
         "x": 16,
         "y": 13,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Cost and tokens (last run)",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "watcher_last_run_cost_usd{service=~\"$service\",environment=~\"$environment\"}",
-          "refId": "A",
-          "legendFormat": "cost {{service}}"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum by (direction) (watcher_last_run_tokens{service=~\"$service\",environment=~\"$environment\"})",
-          "refId": "B",
-          "legendFormat": "tokens {{direction}}"
-        }
-      ],
-      "gridPos": {
-        "x": 0,
-        "y": 20,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "Budget",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "watcher_budget_ratio{service=~\"$service\",environment=~\"$environment\"}",
-          "refId": "A",
-          "legendFormat": "ratio {{service}}"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "watcher_budget_spent_usd{service=~\"$service\",environment=~\"$environment\"}",
-          "refId": "B",
-          "legendFormat": "spent {{service}}"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "watcher_budget_limit_usd{service=~\"$service\",environment=~\"$environment\"}",
-          "refId": "C",
-          "legendFormat": "limit {{service}}"
-        }
-      ],
-      "gridPos": {
-        "x": 8,
-        "y": 20,
         "w": 8,
         "h": 7
       },

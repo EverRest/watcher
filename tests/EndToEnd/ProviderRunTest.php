@@ -114,20 +114,4 @@ final class ProviderRunTest extends TestCase
         self::assertStringContainsString('analysis failed', $texts[count($texts) - 1]);
     }
 
-    public function testTheBudgetDecisionIsTheSameForEveryProvider(): void
-    {
-        // A daily budget too small to reserve even triage: the decision is taken before any provider is called.
-        $patch = ['analysis' => ['daily_budget_usd' => 0.000001]];
-        $seen = [];
-        foreach (['anthropic', 'openai', 'gemini'] as $provider) {
-            [$h, , $calls] = $this->runWith($provider, [new Response(200, [], '{}')], $patch);
-            $seen[$provider] = ['calls' => $calls, 'texts' => $h->sentTexts()];
-        }
-
-        self::assertSame(0, $seen['anthropic']['calls'], 'no provider is called once the budget cannot cover it');
-        self::assertNotEmpty($seen['anthropic']['texts'], 'the decision is visible to the operator, not silent');
-        self::assertStringContainsString('budget', implode(' ', $seen['anthropic']['texts']));
-        self::assertSame($seen['anthropic'], $seen['openai']);
-        self::assertSame($seen['anthropic'], $seen['gemini']);
-    }
 }

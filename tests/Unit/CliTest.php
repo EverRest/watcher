@@ -180,7 +180,7 @@ final class CliTest extends TestCase
 
     public function testJsonPrintsExactlyOneLineOnStdoutAndTheSummaryOnStderr(): void
     {
-        $r = new RunResult(RunOutcome::Quiet, null, null, new RunSummaryData(RunOutcome::Quiet, 'svc'));
+        $r = new RunResult(RunOutcome::Quiet, null, new RunSummaryData(RunOutcome::Quiet, 'svc'));
         [$code, $err] = $this->exec(['run', '--config=' . $this->cfg, '--json'], $r);
 
         self::assertSame(0, $code);
@@ -195,7 +195,7 @@ final class CliTest extends TestCase
 
     public function testJsonLineIsPrintedAlsoForFailureWithTheSameExitCode(): void
     {
-        $r = new RunResult(RunOutcome::Failed, 'source failed', null, new RunSummaryData(RunOutcome::Failed, 'svc', 'source_failed'));
+        $r = new RunResult(RunOutcome::Failed, 'source failed', new RunSummaryData(RunOutcome::Failed, 'svc', 'source_failed'));
         [$code] = $this->exec(['run', '--config=' . $this->cfg, '--json'], $r);
 
         self::assertSame(1, $code);

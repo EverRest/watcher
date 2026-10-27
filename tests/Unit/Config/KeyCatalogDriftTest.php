@@ -105,7 +105,6 @@ final class KeyCatalogDriftTest extends TestCase
         self::assertSame('float', KeyCatalog::find('selection.growth_factor')['type'] ?? null);
         self::assertSame('map', KeyCatalog::find('source.stream_tags.app')['type'] ?? null);
         self::assertTrue(KeyCatalog::find('analysis.api_key')['secret'] ?? false);
-        self::assertFalse(KeyCatalog::find('analysis.daily_token_limit')['secret'] ?? true);
         self::assertNull(KeyCatalog::find('selection.min_levl'));
         $s = KeyCatalog::suggest('selection.min_levl');
         self::assertContains('selection.min_level', $s);

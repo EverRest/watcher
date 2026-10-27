@@ -2,7 +2,7 @@
   "id": null,
   "uid": null,
   "title": "Watcher events (Loki)",
-  "description": "Runs, findings, groups, cost and budget from the watcher.event.v1 stream in Loki. Datasource and stream selector are variables.",
+  "description": "Runs, findings and groups from the watcher.event.v2 stream in Loki. Datasource and stream selector are variables.",
   "tags": [
     "watcher"
   ],
@@ -199,93 +199,6 @@
       "options": {}
     },
     {
-      "id": 4,
-      "type": "stat",
-      "title": "Last run cost",
-      "description": "Events path.",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum(last_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap cost_usd [$__range]))",
-          "refId": "A",
-          "legendFormat": "",
-          "queryType": "instant"
-        }
-      ],
-      "gridPos": {
-        "x": 12,
-        "y": 1,
-        "w": 6,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD"
-        },
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
-      "id": 5,
-      "type": "stat",
-      "title": "Budget ratio (today)",
-      "description": "",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "max(max_over_time({$stream} | json | event_type=\"budget\" | service=~\"$service\" | environment=~\"$environment\" | unwrap usd_ratio [$__range]))",
-          "refId": "A",
-          "legendFormat": "",
-          "queryType": "instant"
-        }
-      ],
-      "gridPos": {
-        "x": 18,
-        "y": 1,
-        "w": 6,
-        "h": 4
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.75
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
       "id": 6,
       "type": "row",
       "title": "Events",
@@ -377,129 +290,6 @@
               "group": "A"
             }
           }
-        },
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Cost per run (USD)",
-      "description": "",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum by (service) (sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap cost_usd [$__interval]))",
-          "refId": "A",
-          "legendFormat": "{{service}}",
-          "queryType": "range"
-        }
-      ],
-      "gridPos": {
-        "x": 0,
-        "y": 13,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD"
-        },
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Tokens",
-      "description": "",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum(sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap tokens_in [$__interval]))",
-          "refId": "A",
-          "legendFormat": "in",
-          "queryType": "range"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum(sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap tokens_out [$__interval]))",
-          "refId": "B",
-          "legendFormat": "out",
-          "queryType": "range"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum(sum_over_time({$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | unwrap tokens_cached [$__interval]))",
-          "refId": "C",
-          "legendFormat": "cached",
-          "queryType": "range"
-        }
-      ],
-      "gridPos": {
-        "x": 8,
-        "y": 13,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {}
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "Budget ratio",
-      "description": "Needs a daily budget; thresholds are at 0.9 and 1.",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "max by (service) (max_over_time({$stream} | json | event_type=\"budget\" | service=~\"$service\" | environment=~\"$environment\" | unwrap usd_ratio [$__interval]))",
-          "refId": "A",
-          "legendFormat": "{{service}}",
-          "queryType": "range"
-        }
-      ],
-      "gridPos": {
-        "x": 16,
-        "y": 13,
-        "w": 8,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -680,43 +470,6 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 36,
-        "w": 12,
-        "h": 7
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "showTime": true,
-        "wrapLogMessage": true,
-        "sortOrder": "Descending"
-      }
-    },
-    {
-      "id": 17,
-      "type": "logs",
-      "title": "Run log",
-      "description": "",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "{$stream} | json | event_type=\"run\" | service=~\"$service\" | environment=~\"$environment\" | line_format \"{{.service}} {{.outcome}} {{.reason}} findings={{.findings_total}} cost={{.cost_usd}}\"",
-          "refId": "A",
-          "legendFormat": "",
-          "queryType": "range"
-        }
-      ],
-      "gridPos": {
-        "x": 12,
         "y": 36,
         "w": 12,
         "h": 7

@@ -14,7 +14,6 @@ use Watcher\Analyze\Severity;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\CompactPayload;
-use Watcher\Analyze\Usage;
 use Watcher\Config\WatchConfig;
 use Watcher\RunOutcome;
 use Watcher\Source\LineParser;
@@ -306,7 +305,7 @@ final class LeakyAnalyzer implements Analyzer
 {
     public function triage(TriageRequest $req): TriageResult
     {
-        return new TriageResult(array_fill_keys(array_map(static fn ($g): string => $g->fingerprint, $req->groups), 'interesting'), new Usage($req->model, 10, 10));
+        return new TriageResult(array_fill_keys(array_map(static fn ($g): string => $g->fingerprint, $req->groups), 'interesting'));
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -322,6 +321,6 @@ final class LeakyAnalyzer implements Analyzer
             0.9,
         ), $req->groups);
 
-        return new AnalysisResult($findings, new Usage($req->model, 10, 10, 0, 0, 0.01));
+        return new AnalysisResult($findings);
     }
 }

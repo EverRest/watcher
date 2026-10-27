@@ -5,15 +5,12 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit\Analyze;
 
 use DateTimeImmutable;
-use DateTimeZone;
 use PHPUnit\Framework\TestCase;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\Budget;
-use Watcher\Analyze\BudgetReservation;
-use Watcher\Analyze\CostCalculator;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\ModelRouter;
@@ -21,11 +18,9 @@ use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\RouterResult;
 use Watcher\Analyze\RouterSettings;
 use Watcher\Analyze\Severity;
-use Watcher\Analyze\Spend;
 use Watcher\Analyze\TriageCheckpoint;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\Usage;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Context\DependencyContext;
 use Watcher\Level;
@@ -55,17 +50,6 @@ final class ModelRouterTest extends TestCase
         return new ModelRouter($analyzer ?? $this->fake, $this->cache, new RouterSettings('m-triage', 'm-analyze', 'm-escalate', 111, 222, 333, $topM, $cap, 0.6, 2.0, 'ctx', $escalateMaxInput, true, false), $checkpoint);
     }
 
-    /** $100 per million tokens for triage, $200 for analysis, $100,000 for escalation: here triage costs about $0.23 and analysis about $0.61 at worst (two attempts each). */
-    private function reservation(float $spent, float $budget = 0.50, ?int $tokenLimit = null): BudgetReservation
-    {
-        $clock = new FrozenClock(new DateTimeImmutable('2026-10-23T06:00:00+00:00'));
-        $spend = new Spend($this->store, $clock, new DateTimeZone('UTC'), 'svc');
-        $spend->add(new Usage('m-triage', 1, 1), $spent);
-        $prices = ['m-triage' => [100, 100, 0, 0], 'm-analyze' => [200, 200, 0, 0], 'm-escalate' => [100000, 100000, 0, 0]];
-
-        return new BudgetReservation($spend, new CostCalculator($prices), $budget, $tokenLimit);
-    }
-
     private static function group(string $fp, int $n = 10, Level $lvl = Level::Error, GroupStatusLabel $st = GroupStatusLabel::New): RedactedGroup
     {
         return new RedactedGroup($fp, 'tpl ' . $fp, $lvl, null, [], $n, null, $st, [], new DateTimeImmutable(), new DateTimeImmutable());
@@ -74,7 +58,7 @@ final class ModelRouterTest extends TestCase
     /** @param array<array-key,string> $v all-digit fingerprints become int keys */
     private static function triage(array $v, string $model = 'tm'): TriageResult
     {
-        return new TriageResult($v, new Usage($model, 10, 1));
+        return new TriageResult($v);
     }
 
     private static function finding(string $fp, Severity $sev = Severity::Error, float $conf = 0.9): Finding
@@ -85,16 +69,15 @@ final class ModelRouterTest extends TestCase
     /** @param list<Finding> $f */
     private static function analysis(array $f, string $model = 'am'): AnalysisResult
     {
-        return new AnalysisResult($f, new Usage($model, 100, 10));
+        return new AnalysisResult($f);
     }
 
     public function testEmptyInputMakesNoCalls(): void
     {
-        $r = $this->router()->route([], false);
+        $r = $this->router()->route([]);
 
         self::assertSame(0, $this->fake->triageCalls + $this->fake->analyzeCalls);
         self::assertSame([], $r->findings);
-        self::assertSame([], $r->usageByStep);
         self::assertSame([0, 0, 0, 0], [$r->triaged, $r->reused, $r->escalations, $r->droppedByTopM]);
     }
 
@@ -104,7 +87,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->analysis = self::analysis([self::finding('c')]);
         $router = new ModelRouter($this->fake, $this->cache, new RouterSettings('m-triage', 'm-analyze', 'm-escalate', 111, 222, 333, 10, 2, 0.6, 2.0, 'ctx'), null);
 
-        $router->route([self::group('c')], false);
+        $router->route([self::group('c')]);
 
         $an = $this->fake->requests[1];
         self::assertInstanceOf(AnalysisRequest::class, $an);
@@ -116,7 +99,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'noise']); // 'b' (a warning) was sent but got no verdict
         $this->fake->analysis = self::analysis([self::finding('b')]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning)], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning)]);
 
         $an = $this->fake->requests[1];
         self::assertInstanceOf(AnalysisRequest::class, $an);
@@ -129,7 +112,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'noise', 'b' => 'known', 'c' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding('c')]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning), self::group('c')], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning), self::group('c')]);
 
         self::assertSame(1, $this->fake->triageCalls);
         self::assertSame(1, $this->fake->analyzeCalls);
@@ -143,7 +126,6 @@ final class ModelRouterTest extends TestCase
         self::assertSame(['m-analyze', 222], [$an->model, $an->maxOutputTokens]);
         self::assertCount(1, $r->findings);
         self::assertSame(3, $r->triaged);
-        self::assertSame(['triage', 'analyze'], array_keys($r->usageByStep));
         // verdicts were stored
         self::assertSame('noise', $this->cache->get('a')['triage'] ?? null);
         self::assertSame('interesting', $this->cache->get('c')['triage'] ?? null);
@@ -156,7 +138,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage([$fp => 'interesting']);
         $this->fake->analysis = self::analysis([]);
 
-        $r = $this->router()->route([self::group($fp, 10, Level::Warning)], false); // an error group with no finding is no longer remembered (F1)
+        $r = $this->router()->route([self::group($fp, 10, Level::Warning)]); // an error group with no finding is no longer remembered (F1)
 
         self::assertSame([], $r->findings);
         self::assertSame('interesting', $this->cache->get($fp)['triage'] ?? null);
@@ -173,7 +155,7 @@ final class ModelRouterTest extends TestCase
             self::group('big', 99, Level::Error, GroupStatusLabel::Grown),
         ];
 
-        $r = $this->router(topM: 3)->route($groups, false);
+        $r = $this->router(topM: 3)->route($groups);
 
         $an = $this->fake->requests[1];
         self::assertInstanceOf(AnalysisRequest::class, $an);
@@ -182,22 +164,11 @@ final class ModelRouterTest extends TestCase
         self::assertSame(1, $r->droppedByTopM);
     }
 
-    public function testTriageOnlyMakesNoAnalyzeCall(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-
-        $r = $this->router()->route([self::group('a')], true);
-
-        self::assertSame(0, $this->fake->analyzeCalls);
-        self::assertSame([], $r->findings);
-        self::assertSame(['triage'], array_keys($r->usageByStep));
-    }
-
     public function testNoInterestingGroupsMeansNoAnalyzeCall(): void
     {
         $this->fake->triage = self::triage(['a' => 'noise']);
 
-        $this->router()->route([self::group('a', 10, Level::Warning)], false); // an error group can no longer be triaged away (security review 5, F2)
+        $this->router()->route([self::group('a', 10, Level::Warning)]); // an error group can no longer be triaged away (security review 5, F2)
 
         self::assertSame(0, $this->fake->analyzeCalls);
     }
@@ -207,7 +178,7 @@ final class ModelRouterTest extends TestCase
         $this->cache->put('old', 'known', 10, null);
         $this->fake->triage = self::triage(['new' => 'noise']);
 
-        $r = $this->router()->route([self::group('old', 19, Level::Warning), self::group('new', 10, Level::Warning)], false);
+        $r = $this->router()->route([self::group('old', 19, Level::Warning), self::group('new', 10, Level::Warning)]);
 
         self::assertSame(1, $r->reused);
         self::assertSame(1, $r->triaged);
@@ -218,7 +189,7 @@ final class ModelRouterTest extends TestCase
     {
         $this->cache->put('old', 'known', 10, null);
 
-        $r = $this->router()->route([self::group('old', 12, Level::Warning)], false);
+        $r = $this->router()->route([self::group('old', 12, Level::Warning)]);
 
         self::assertSame(0, $this->fake->triageCalls + $this->fake->analyzeCalls);
         self::assertSame(1, $r->reused);
@@ -229,7 +200,7 @@ final class ModelRouterTest extends TestCase
         $this->cache->put('old', 'known', 10, null);
         $this->fake->triage = self::triage(['old' => 'noise']);
 
-        $r = $this->router()->route([self::group('old', 20, Level::Warning)], false);
+        $r = $this->router()->route([self::group('old', 20, Level::Warning)]);
 
         self::assertSame(0, $r->reused);
         self::assertSame(1, $this->fake->triageCalls);
@@ -245,7 +216,7 @@ final class ModelRouterTest extends TestCase
         ]);
         $this->fake->analysisScript = [$this->fake->analysis, self::analysis([self::finding('a', Severity::Critical, 0.95)], 'em')];
 
-        $r = $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning), self::group('c')], false); // b is not protected: a warn stays mild
+        $r = $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning), self::group('c')]); // b is not protected: a warn stays mild
 
         self::assertSame(2, $this->fake->analyzeCalls);
         $esc = $this->fake->requests[2];
@@ -263,8 +234,6 @@ final class ModelRouterTest extends TestCase
         self::assertSame(Severity::Critical, $byFp['a']->severity);
         self::assertFalse($byFp['b']->escalated);
         self::assertFalse($byFp['c']->escalated);
-        self::assertSame(['triage', 'analyze', 'escalate'], array_keys($r->usageByStep));
-        self::assertSame('em', $r->usageByStep['escalate']->model);
     }
 
     public function testEscalationIsCappedPerRun(): void
@@ -273,7 +242,7 @@ final class ModelRouterTest extends TestCase
         $first = self::analysis([self::finding('a', Severity::Error, 0.1), self::finding('b', Severity::Error, 0.1), self::finding('c', Severity::Error, 0.1)]);
         $this->fake->analysisScript = [$first, self::analysis([self::finding('a')]), self::analysis([self::finding('b')]), self::analysis([self::finding('c')])];
 
-        $r = $this->router(cap: 2)->route([self::group('a'), self::group('b'), self::group('c')], false);
+        $r = $this->router(cap: 2)->route([self::group('a'), self::group('b'), self::group('c')]);
 
         self::assertSame(3, $this->fake->analyzeCalls, '1 analyze + 2 escalations');
         self::assertSame(2, $r->escalations);
@@ -286,7 +255,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([])];
 
-        $r = $this->router()->route([self::group('a')], false);
+        $r = $this->router()->route([self::group('a')]);
 
         self::assertCount(1, $r->findings);
         self::assertFalse($r->findings[0]->escalated);
@@ -298,7 +267,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->failure = new AnalyzerFailed('boom');
 
         $this->expectException(AnalyzerFailed::class);
-        $this->router()->route([self::group('a')], false);
+        $this->router()->route([self::group('a')]);
     }
 
     public function testIsDeterministic(): void
@@ -307,7 +276,7 @@ final class ModelRouterTest extends TestCase
             $this->setUp();
             $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
             $this->fake->analysis = self::analysis([self::finding('a'), self::finding('b')]);
-            $r = $this->router(topM: 1)->route([self::group('a', 3), self::group('b', 3)], false);
+            $r = $this->router(topM: 1)->route([self::group('a', 3), self::group('b', 3)]);
 
             return json_encode([$r->droppedByTopM, array_map(static fn ($g) => $g->fingerprint, $this->fake->requests[1]->groups)], JSON_THROW_ON_ERROR);
         };
@@ -315,30 +284,12 @@ final class ModelRouterTest extends TestCase
         self::assertSame($run(), $run());
     }
 
-    public function testInterestingWithoutAnalysisIsNotStoredAsAVerdict(): void
-    {
-        // Triage-only day: the group was judged interesting but never analysed.
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-        $this->router()->route([self::group('a')], true);
-
-        self::assertNull($this->cache->get('a'), 'a verdict that was never acted on must not be reusable');
-
-        // The next day, with budget, the same group is triaged and analysed again.
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-        $this->fake->analysis = self::analysis([self::finding('a')]);
-        $r = $this->router()->route([self::group('a', 11)], false);
-
-        self::assertSame(0, $r->reused);
-        self::assertSame(1, $this->fake->analyzeCalls);
-        self::assertCount(1, $r->findings);
-    }
-
     public function testInterestingDroppedByTopMIsNotStoredAsAVerdict(): void
     {
         $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding('a')]);
 
-        $r = $this->router(1)->route([self::group('a', 50), self::group('b', 5)], false);
+        $r = $this->router(1)->route([self::group('a', 50), self::group('b', 5)]);
 
         self::assertSame(1, $r->droppedByTopM);
         self::assertNotNull($this->cache->get('a'));
@@ -350,7 +301,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysis = self::analysis([]); // the analysis model found nothing worth reporting
 
-        $this->router()->route([self::group('a', 10, Level::Warning)], false); // error and above: see ModelRouterFailClosedTest
+        $this->router()->route([self::group('a', 10, Level::Warning)]); // error and above: see ModelRouterFailClosedTest
 
         self::assertNotNull($this->cache->get('a'));
         self::assertTrue($this->cache->isReusable(self::group('a', 11, Level::Warning), 2.0));
@@ -361,77 +312,9 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'noise']);
         $this->fake->analysis = self::analysis([]); // F2: the verdict is overruled, so the group is analysed
 
-        $this->router()->route([self::group('a', 10, Level::Error)], false);
+        $this->router()->route([self::group('a', 10, Level::Error)]);
 
         self::assertNull($this->cache->get('a'));
-    }
-
-    public function testTriageIsSkippedWhenItsWorstCaseDoesNotFitTheRemainingBudget(): void
-    {
-        $r = $this->router()->route([self::group('a'), self::group('b')], false, [], $this->reservation(0.49));
-
-        self::assertSame(0, $this->fake->triageCalls + $this->fake->analyzeCalls, 'a run starting at $0.49 of $0.50 pays for nothing it cannot afford');
-        self::assertSame(2, $r->notTriaged);
-        self::assertSame([], $r->usageByStep);
-    }
-
-    public function testAnalysisIsSkippedWhenOnlyTriageFits(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'noise', 'b' => 'interesting']);
-
-        // analysis and escalation reserve both attempts of a step (F5): triage fits an empty $0.50 day, the analysis (about $0.61) does not
-        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b')], false, [], $this->reservation(0.0));
-
-        self::assertSame(1, $this->fake->triageCalls);
-        self::assertSame(0, $this->fake->analyzeCalls);
-        self::assertSame(1, $r->notAnalysed, 'the interesting group is counted, not lost');
-        self::assertSame(0, $r->notTriaged);
-        self::assertNull($this->cache->get('b'), 'never analysed, so never a reusable verdict');
-    }
-
-    public function testEverythingRunsWhenTheWorstCaseFits(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-        $this->fake->analysis = self::analysis([self::finding('a')]);
-
-        $r = $this->router()->route([self::group('a')], false, [], $this->reservation(0.0, 10.0));
-
-        self::assertSame([1, 1], [$this->fake->triageCalls, $this->fake->analyzeCalls]);
-        self::assertSame([0, 0], [$r->notTriaged, $r->notAnalysed]);
-    }
-
-    public function testTokenLimitIsReservedTheSameWay(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'noise']);
-
-        $this->router()->route([self::group('a', 10, Level::Warning)], false, [], $this->reservation(0.0, 10.0, 500));
-        self::assertSame(0, $this->fake->triageCalls, 'the triage prompt alone is more than 500 tokens');
-
-        $this->router()->route([self::group('a', 10, Level::Warning)], false, [], $this->reservation(0.0, 10.0, 100000));
-        self::assertSame(1, $this->fake->triageCalls);
-    }
-
-    public function testTriageOnlyDayStillTriagesWithoutAReservation(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-
-        $r = $this->router()->route([self::group('a')], true, [], $this->reservation(0.60));
-
-        self::assertSame(1, $this->fake->triageCalls, 'a spent budget is the documented triage-only mode, unchanged');
-        self::assertSame(1, $r->notAnalysed);
-    }
-
-    public function testEscalationsAreReservedOneByOne(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
-        $this->fake->analysis = self::analysis([self::finding('a', Severity::Error, 0.1), self::finding('b', Severity::Error, 0.1)]);
-
-        $r = $this->router()->route([self::group('a'), self::group('b')], false, [], $this->reservation(0.0, 10.0)); // escalation: ~$100+
-
-        self::assertSame(1, $this->fake->analyzeCalls, 'no escalation call');
-        self::assertSame([0, 2], [$r->escalations, $r->escalationsSkippedBudget]);
-        self::assertCount(2, $r->findings);
-        self::assertFalse($r->findings[0]->escalated);
     }
 
     private static function wide(string $fp): RedactedGroup
@@ -454,7 +337,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
 
-        return $this->router(escalateMaxInput: $maxInput)->route([self::wide('a')], false, self::dependency());
+        return $this->router(escalateMaxInput: $maxInput)->route([self::wide('a')], self::dependency());
     }
 
     /** @param list<DependencyContext> $deps */
@@ -493,7 +376,7 @@ final class ModelRouterTest extends TestCase
         $r = $this->escalate(Budget::fixedTokens('analyze', 'ctx', false));
 
         self::assertSame(1, $this->fake->analyzeCalls, 'no escalation call');
-        self::assertSame([0, 1, 0], [$r->escalations, $r->escalationsSkippedSize, $r->escalationsSkippedBudget]);
+        self::assertSame([0, 1], [$r->escalations, $r->escalationsSkippedSize]);
         self::assertCount(1, $r->findings);
         self::assertFalse($r->findings[0]->escalated, 'the first-pass finding is reported as it is');
     }
@@ -542,19 +425,18 @@ final class ModelRouterTest extends TestCase
         $failing = $this->failingAfterTriage();
 
         try {
-            $this->router(analyzer: $failing, checkpoint: $checkpoint)->route($groups, false);
+            $this->router(analyzer: $failing, checkpoint: $checkpoint)->route($groups);
             self::fail('analysis must fail');
         } catch (AnalyzerFailed) {
         }
         self::assertSame(1, $this->fake->triageCalls);
 
         $this->fake->analysis = self::analysis([self::finding('i')]);
-        $r = $this->router(checkpoint: $checkpoint)->route($groups, false);
+        $r = $this->router(checkpoint: $checkpoint)->route($groups);
 
         self::assertSame(1, $this->fake->triageCalls, 'the retry paid nothing for triage');
         self::assertCount(1, $r->findings);
         self::assertSame('noise', $this->cache->get('n')['triage'] ?? null, 'a reused noise verdict is stored like a fresh one');
-        self::assertArrayNotHasKey('triage', $r->usageByStep);
     }
 
     public function testOnlyTheGroupsTheCheckpointDoesNotCoverAreTriagedOnRetry(): void
@@ -563,7 +445,7 @@ final class ModelRouterTest extends TestCase
         $checkpoint->save(['a' => 'noise'], [self::group('a', 10, Level::Warning)]);
         $this->fake->triage = self::triage(['b' => 'noise']);
 
-        $this->router(checkpoint: $checkpoint)->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning)], false);
+        $this->router(checkpoint: $checkpoint)->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Warning)]);
 
         self::assertSame(['b'], array_map(static fn ($g) => $g->fingerprint, $this->fake->requests[0]->groups));
     }
@@ -573,7 +455,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding('a')]);
 
-        $this->router(checkpoint: new TriageCheckpoint($this->store, 'svc', 'w'))->route([self::group('a')], false);
+        $this->router(checkpoint: new TriageCheckpoint($this->store, 'svc', 'w'))->route([self::group('a')]);
 
         self::assertNull($this->store->get(\Watcher\State\Keys::triage('svc', 'w')));
     }
@@ -584,7 +466,7 @@ final class ModelRouterTest extends TestCase
         $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
         $ep = ['a' => 'GET /a — Do a', 'b' => 'GET /b — Do b'];
 
-        $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning)], false, [], null, $ep);
+        $this->router()->route([self::group('a'), self::group('b', 10, Level::Warning)], [], $ep);
 
         [$tri, $an, $esc] = $this->fake->requests;
         self::assertInstanceOf(TriageRequest::class, $tri);
@@ -602,7 +484,7 @@ final class ModelRouterTest extends TestCase
         $g = self::group('a');
         $bare = Budget::fixedTokens('analyze', 'ctx', false) + Budget::estimateTokens(CompactPayload::encode([$g]));
 
-        $this->router(escalateMaxInput: $bare)->route([$g], false, [], null, ['a' => 'GET /a — ' . str_repeat('s', 50)]);
+        $this->router(escalateMaxInput: $bare)->route([$g], [], ['a' => 'GET /a — ' . str_repeat('s', 50)]);
 
         $esc = $this->fake->requests[2];
         self::assertInstanceOf(AnalysisRequest::class, $esc);
@@ -610,48 +492,4 @@ final class ModelRouterTest extends TestCase
         self::assertCount(3, $this->fake->requests);
     }
 
-    public function testATightBudgetThatFitsWithoutEpStillAnalysesWithoutIt(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-        $this->fake->analysis = self::analysis([self::finding('a')]);
-        $ep = ['a' => 'GET /a — ' . str_repeat('s', 6000)];
-
-        // $1.00 day: the analysis alone (about $0.61 worst case) fits, with 6 KB of ep (about $1.4) it would not
-        $r = $this->router()->route([self::group('a')], false, [], $this->reservation(0.0, 1.0), $ep);
-
-        self::assertSame(1, $this->fake->analyzeCalls);
-        self::assertSame(0, $r->notAnalysed);
-        $an = $this->fake->requests[1];
-        self::assertInstanceOf(AnalysisRequest::class, $an);
-        self::assertSame([], $an->endpoints, 'ep went, the analysis stayed');
-        self::assertSame([$an->groups[0]->fingerprint], $r->findings[0]->fingerprints, 'ep never changes which group a finding belongs to');
-        self::assertSame(Severity::Error, $r->findings[0]->severity);
-    }
-
-    public function testATightBudgetStillEscalatesWithoutEp(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-        $this->fake->analysisScript = [self::analysis([self::finding('a', Severity::Error, 0.1)]), self::analysis([self::finding('a', Severity::Critical, 0.95)])];
-        $ep = ['a' => 'GET /a — ' . str_repeat('s', 6000)];
-
-        // escalation at $0.10 a token: without ep it fits $600 at worst (it does not fit $400), 6 KB of ep (about 3000 tokens over two attempts) adds about $300
-        $r = $this->router()->route([self::group('a')], false, [], $this->reservation(0.0, 600.0), $ep);
-
-        self::assertSame(0, $r->escalationsSkippedBudget);
-        $esc = $this->fake->requests[2] ?? null;
-        self::assertInstanceOf(AnalysisRequest::class, $esc);
-        self::assertSame([], $esc->endpoints, 'ep went, the escalation stayed');
-    }
-
-    public function testEpIsKeptWhenTheBudgetFitsWithIt(): void
-    {
-        $this->fake->triage = self::triage(['a' => 'interesting']);
-        $this->fake->analysis = self::analysis([self::finding('a')]);
-
-        $this->router()->route([self::group('a')], false, [], $this->reservation(0.0, 10.0), ['a' => 'GET /a — x']);
-
-        $an = $this->fake->requests[1];
-        self::assertInstanceOf(AnalysisRequest::class, $an);
-        self::assertSame(['a' => 'GET /a — x'], $an->endpoints);
-    }
 }

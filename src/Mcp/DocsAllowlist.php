@@ -21,7 +21,7 @@ final class DocsAllowlist
         'docs/examples/orders-api.loki.config.php' => 'text/x-php',
         'docs/examples/smoke.config.php' => 'text/x-php',
         'docs/examples/watcher-fleet.php' => 'text/x-php',
-        'docs/schema/watcher.event.v1.schema.json' => 'application/json',
+        'docs/schema/watcher.event.v2.schema.json' => 'application/json',
         'config/watcher.example.php' => 'text/x-php',
         'config/watcher.php' => 'text/x-php',
     ];

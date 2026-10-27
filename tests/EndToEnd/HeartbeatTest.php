@@ -51,12 +51,10 @@ final class HeartbeatTest extends TestCase
         $h->watcher(self::source(9))->run();
         self::assertSame('reported', self::hb($h)['outcome']);
         self::assertSame($h->clock->now()->format(DATE_ATOM), self::hb($h)['finishedAt']);
-        self::assertGreaterThan(0.0, self::hb($h)['costUsd']);
 
         $h->nextWindow();
         $h->watcher(self::quietSource())->run();
         self::assertSame('quiet', self::hb($h)['outcome']);
-        self::assertSame(0.0, (float) self::hb($h)['costUsd']);
     }
 
     public function testFailedRunKeepsTheLastOkInstantAndStoresAShortCode(): void

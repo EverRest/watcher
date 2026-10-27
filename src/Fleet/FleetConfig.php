@@ -14,11 +14,10 @@ use Watcher\Config\WatchConfig;
  */
 final class FleetConfig
 {
-    private const KEYS = ['fleet', 'enabled', 'digest', 'timezone', 'time_budget', 'service_time_budget', 'budget', 'notify', 'correlation', 'observe', 'defaults', 'services'];
+    private const KEYS = ['fleet', 'enabled', 'digest', 'timezone', 'time_budget', 'service_time_budget', 'notify', 'correlation', 'observe', 'defaults', 'services'];
 
     /**
      * @param list<ServiceEntry> $services in configuration order (FleetOrder decides the run order)
-     * @param array{daily_budget_usd: ?float, daily_token_limit: ?int, alert_percents: list<int>} $budget
      * @param array<string, mixed> $notify fleet default destinations
      * @param list<string> $offServices the service names of a switched-off fleet (no entry is built)
      */
@@ -28,7 +27,6 @@ final class FleetConfig
         public readonly string $digest,
         public readonly string $timezone,
         public readonly ?int $timeBudgetSeconds,
-        public readonly array $budget,
         public readonly array $notify,
         public readonly bool $correlationEnabled,
         public readonly int $correlationToleranceSeconds,
@@ -39,7 +37,7 @@ final class FleetConfig
     }
 
     /**
-     * A4-12: wall-clock seconds one service may spend: `service_time_budget`, else the fleet budget shared equally; null = none.
+     * A4-12: wall-clock seconds one service may use: `service_time_budget`, else the fleet time budget shared equally; null = none.
      * The equal share is floored at half the smallest `lock_ttl` (R-3): a big fleet must not give every service a deadline it cannot finish in.
      */
     public function serviceTimeBudgetSeconds(): ?int
@@ -78,6 +76,9 @@ final class FleetConfig
     {
         if (($config['enabled'] ?? true) === false) {
             return self::switchedOff($config); // the fleet switch comes first: a broken entry does not stop a switched-off fleet
+        }
+        if (array_key_exists('budget', $config)) {
+            throw new InvalidConfig((require dirname(__DIR__, 2) . '/resources/removed-config-keys.php')['budget']);
         }
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::KEYS, true)) {
@@ -136,7 +137,6 @@ final class FleetConfig
             $digest,
             $timezone,
             $timeBudget,
-            self::budget(self::map($config['budget'] ?? [], 'budget')),
             WatchConfig::hide($notify, 'digest.webhook', 'digest.bot_token', 'notice.webhook', 'notice.bot_token'),
             $corr['enabled'] ?? true,
             isset($corr['tolerance']) ? self::seconds($corr['tolerance'], 'correlation.tolerance') : 0,
@@ -199,7 +199,6 @@ final class FleetConfig
             'per_service',
             'UTC',
             null,
-            ['daily_budget_usd' => null, 'daily_token_limit' => null, 'alert_percents' => []],
             [],
             false,
             0,
@@ -352,39 +351,6 @@ final class FleetConfig
         if ($keys($first) !== $keys($entry)) {
             throw new InvalidConfig("$label: analysis.api_keys must be identical in all services $of");
         }
-    }
-
-    /**
-     * @param array<string, mixed> $b
-     * @return array{daily_budget_usd: ?float, daily_token_limit: ?int, alert_percents: list<int>}
-     */
-    private static function budget(array $b): array
-    {
-        self::only($b, ['daily_budget_usd', 'daily_token_limit', 'alert_percents'], 'budget');
-        $usd = $b['daily_budget_usd'] ?? null;
-        if ($usd !== null && (!is_numeric($usd) || is_string($usd) || (float) $usd <= 0)) {
-            throw new InvalidConfig('budget.daily_budget_usd must be a number greater than zero');
-        }
-        $tokens = $b['daily_token_limit'] ?? null;
-        if ($tokens !== null && (!is_int($tokens) || $tokens <= 0)) {
-            throw new InvalidConfig('budget.daily_token_limit must be null or a positive integer');
-        }
-        $percents = $b['alert_percents'] ?? [25, 50, 75, 90];
-        $ok = is_array($percents) && array_is_list($percents) && $percents !== [];
-        $prev = 0;
-        foreach ($ok ? $percents : [] as $p) {
-            if (!is_int($p) || $p <= $prev || $p > 99) {
-                $ok = false;
-                break;
-            }
-            $prev = $p;
-        }
-        if (!$ok) {
-            throw new InvalidConfig('budget.alert_percents must be ascending integers from 1 to 99');
-        }
-
-        /** @var list<int> $percents */
-        return ['daily_budget_usd' => $usd === null ? null : (float) $usd, 'daily_token_limit' => $tokens, 'alert_percents' => $percents];
     }
 
     private static function seconds(mixed $value, string $path): int

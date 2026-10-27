@@ -28,11 +28,6 @@ final class MetricCatalogTest extends TestCase
             'watcher_last_run_groups_total' => ['gauge', null],
             'watcher_last_run_candidates' => ['gauge', null],
             'watcher_last_run_truncated' => ['gauge', null],
-            'watcher_last_run_tokens' => ['gauge', 'direction'],
-            'watcher_last_run_cost_usd' => ['gauge', null],
-            'watcher_budget_spent_usd' => ['gauge', null],
-            'watcher_budget_limit_usd' => ['gauge', null],
-            'watcher_budget_ratio' => ['gauge', null],
             'watcher_heartbeat_age_seconds' => ['gauge', null],
             'watcher_sink_failures_total' => ['counter', 'sink'],
             'watcher_delivery_failures_total' => ['counter', 'channel'],
@@ -48,13 +43,8 @@ final class MetricCatalogTest extends TestCase
         self::assertSame($o, MetricCatalog::METRICS['watcher_last_run_outcome']['values']);
         self::assertSame($sev, MetricCatalog::METRICS['watcher_last_run_findings']['values']);
         self::assertSame(['new', 'grown', 'unchanged', 'expected'], MetricCatalog::METRICS['watcher_last_run_groups']['values']);
-        self::assertSame(['in', 'out', 'cached'], MetricCatalog::METRICS['watcher_last_run_tokens']['values']);
         self::assertSame(['log', 'file', 'http', 'prometheus'], MetricCatalog::METRICS['watcher_sink_failures_total']['values']);
         self::assertSame(['slack', 'telegram', 'discord'], MetricCatalog::METRICS['watcher_delivery_failures_total']['values']);
     }
 
-    public function testTheSeriesBudgetIs48(): void
-    {
-        self::assertSame(48, MetricCatalog::seriesCount());
-    }
 }

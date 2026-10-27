@@ -22,7 +22,7 @@ final class AnthropicAnalyzer implements Analyzer
     {
         $allowed = array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $req->groups);
 
-        [$out, $usage] = $this->attempt(
+        $out = $this->attempt(
             'triage',
             $req->step,
             $req->groups,
@@ -34,7 +34,7 @@ final class AnthropicAnalyzer implements Analyzer
             $req->extras,
         );
 
-        return new TriageResult($out['verdicts'], $usage);
+        return new TriageResult($out['verdicts']);
     }
 
     /** The verdict list grows with the groups: never below the configured cap, ~30 tokens per verdict (id plus verdict) plus slack. */
@@ -63,7 +63,7 @@ final class AnthropicAnalyzer implements Analyzer
     {
         $allowed = array_map(static fn (RedactedGroup $g): string => $g->fingerprint, $req->groups);
 
-        [$findings, $usage] = $this->attempt(
+        $findings = $this->attempt(
             'analysis',
             $req->step,
             $req->groups,
@@ -76,12 +76,11 @@ final class AnthropicAnalyzer implements Analyzer
             $req->endpoints,
         );
 
-        return new AnalysisResult($findings, $usage);
+        return new AnalysisResult($findings);
     }
 
     /**
-     * One call, validated in code, one retry on bad output (usage of both attempts is summed and
-     * carried by the AnalyzerFailed when both are bad, because both were billed).
+     * One call, validated in code, one retry on bad output.
      * A reply cut off by max_tokens is retried with the cap doubled (at most 8192), not with the same cap.
      *
      * @template T
@@ -91,27 +90,19 @@ final class AnthropicAnalyzer implements Analyzer
      * @param list<DependencyContext>      $dependencyContext
      * @param array<string, string>        $endpoints
      *
-     * @return array{0: T, 1: Usage}
+     * @return T
      */
-    private function attempt(string $kind, string $step, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): array
+    private function attempt(string $kind, string $step, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): mixed
     {
-        $usage = null;
-
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
-            try {
-                $message = $this->call($kind, $step, $groups, $context, $model, $maxTokens, $dependencyContext, $extras, $endpoints);
-            } catch (AnalyzerFailed $e) {
-                throw $usage === null ? $e : new AnalyzerFailed($e->getMessage(), $usage); // attempt 1 was billed even though attempt 2 failed
-            }
-            $u = $this->usage($message, $model);
-            $usage = $usage === null ? $u : $usage->plus($u);
+            $message = $this->call($kind, $step, $groups, $context, $model, $maxTokens, $dependencyContext, $extras, $endpoints);
             if ($message->stopReason === 'refusal') {
-                // Billed, not retried (a second identical request is refused again and billed again), and loud: the window is not re-run.
-                throw new AnalyzerFailed($kind . ': the model refused the request (not retried)', $usage, true);
+                // Not retried (a second identical request is refused again), and loud: the window is not re-run.
+                throw new AnalyzerFailed($kind . ': the model refused the request (not retried)', true);
             }
 
             try {
-                return [$validate($this->decode($message)), $usage];
+                return $validate($this->decode($message));
             } catch (InvalidModelOutput|JsonException) {
                 // retried once, then fails below
             }
@@ -120,7 +111,7 @@ final class AnthropicAnalyzer implements Analyzer
             }
         }
 
-        throw new AnalyzerFailed('invalid model output', $usage);
+        throw new AnalyzerFailed('invalid model output');
     }
 
     /**
@@ -146,11 +137,5 @@ final class AnthropicAnalyzer implements Analyzer
         $data = json_decode($reply->text ?? throw new JsonException('no text block'), true, 512, JSON_THROW_ON_ERROR);
 
         return is_array($data) ? $data : throw new JsonException('not an object');
-    }
-
-    /** Priced by the id that was requested (the key of `analysis.prices`); the echoed id may be a dated form of an alias. */
-    private function usage(ModelReply $reply, string $requestedModel): Usage
-    {
-        return new Usage($requestedModel, $reply->inputTokens, $reply->outputTokens, $reply->cacheReadTokens, $reply->cacheWriteTokens, returnedModel: $reply->model);
     }
 }

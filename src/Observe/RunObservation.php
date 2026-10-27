@@ -31,19 +31,6 @@ final class RunObservation
 
     public ?RouterResult $router = null;
 
-    public ?float $spentTodayUsd = null;
-
-    public ?float $dailyBudgetUsd = null;
-
-    public ?int $tokensToday = null;
-
-    public ?int $dailyTokenLimit = null;
-
-    /** @var int highest configured budget alert percent reached today, 0 if none */
-    public int $thresholdPct = 0;
-
-    public bool $triageOnly = false;
-
     public int $muted = 0;
 
     public bool $truncated = false;

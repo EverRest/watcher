@@ -11,13 +11,8 @@ use Watcher\Observe\EventSchema;
 
 final class EventSchemaTest extends TestCase
 {
-    private const SCHEMA = __DIR__ . '/../../../docs/schema/watcher.event.v1.schema.json';
+    private const SCHEMA = __DIR__ . '/../../../docs/schema/watcher.event.v2.schema.json';
     private const FIXTURE = __DIR__ . '/../../Fixtures/observe/events.json';
-
-    public function testThePublishedSchemaIsTheContractCopy(): void
-    {
-        self::assertFileEquals(__DIR__ . '/../../../specs/013-observability-sink/contracts/watcher.event.v1.schema.json', self::SCHEMA);
-    }
 
     #[DataProvider('types')]
     public function testSchemaPropertiesEqualTheCodeAllowlist(string $type): void
@@ -39,7 +34,7 @@ final class EventSchemaTest extends TestCase
         foreach (EventSchema::TYPES as $type) {
             self::assertContains($type, $defs);
         }
-        self::assertCount(7, EventSchema::TYPES);
+        self::assertCount(6, EventSchema::TYPES);
     }
 
     /** @param array<string, mixed> $event */

@@ -72,7 +72,6 @@ return [
     ],
 
     'level_anomaly' => ['enabled' => Env::bool('WATCHER_LEVEL_ANOMALY_ENABLED', true)], // second read for a level (below read_min_level) whose total jumped
-    'budget_alerts' => ['enabled' => Env::bool('WATCHER_BUDGET_ALERTS_ENABLED', true)], // threshold notices and the "budget exhausted" notice
     'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                 // expired-file purge of the file state store
 
     // What a window is compared with. Default 'previous' = the window before (no change in behaviour).
@@ -94,7 +93,7 @@ return [
 
     'analysis' => [
         'provider' => 'anthropic',                       // only anthropic is available
-        'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis (top_m, budget still apply)
+        'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis (top_m still applies)
         'advice' => ['enabled' => Env::bool('WATCHER_ADVICE_ENABLED', true)], // false: no how_to_check / related_checks (fewer output tokens)
         'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),    // required
         'models' => [                                    // required: one id per tier, no defaults in code
@@ -106,22 +105,6 @@ return [
         'max_output_tokens' => ['triage' => 1500, 'analyze' => 4000, 'escalate' => 2000],
         'confidence_threshold' => 0.6,                   // escalate below this for error+ findings; 0 < x < 1
         'escalation_cap' => 3,                           // escalations per run, default 3
-        'daily_budget_usd' => 0.50,                      // hard daily cap per service, default 0.50; each model call is reserved against it first
-        'daily_token_limit' => null,                     // optional tokens/day cap (input+output+cache)
-        'budget_alert_percents' => [25, 50, 75, 90],     // notices at these shares of the cap; ascending integers 1-99
-        // REQUIRED for every model above: model id => [input, output, cache_read, cache_write], USD per million tokens.
-        // Fill in your provider's current prices; the ids are the same values as in 'models'.
-        'prices' => [
-            (string) getenv('WATCHER_MODEL_TRIAGE') => [
-                (float) getenv('WATCHER_PRICE_TRIAGE_IN'), (float) getenv('WATCHER_PRICE_TRIAGE_OUT'), 0.0, 0.0,
-            ],
-            (string) getenv('WATCHER_MODEL_ANALYZE') => [
-                (float) getenv('WATCHER_PRICE_ANALYZE_IN'), (float) getenv('WATCHER_PRICE_ANALYZE_OUT'), 0.0, 0.0,
-            ],
-            (string) getenv('WATCHER_MODEL_ESCALATE') => [
-                (float) getenv('WATCHER_PRICE_ESCALATE_IN'), (float) getenv('WATCHER_PRICE_ESCALATE_OUT'), 0.0, 0.0,
-            ],
-        ],
     ],
 
     'redaction' => [
@@ -150,13 +133,13 @@ return [
         'digest' => ['driver' => Env::string('WATCHER_DIGEST_DRIVER', 'slack'), 'webhook' => getenv('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)], // required; enabled=false: no model call, the run ends quiet
         // Telegram: ['driver' => 'telegram', 'bot_token' => getenv('WATCHER_TG_TOKEN'), 'chat_id' => getenv('WATCHER_TG_CHAT'), 'thread_id' => 7],
         // Discord:  ['driver' => 'discord', 'webhook' => getenv('WATCHER_DISCORD_WEBHOOK')],
-        'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)], // failure and budget notices; only `enabled` = use the digest destination (null = same). false: host log and exit code only
+        'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)], // failure notices; only `enabled` = use the digest destination (null = same). false: host log and exit code only
     ],
 
     'heartbeat' => [                                     // optional
         'stale_after' => 'PT36H',                        // ISO-8601; `watcher status` is non-zero when the last ok run is older. Default 1.5 x schedule.window
         'enabled' => Env::bool('WATCHER_HEARTBEAT_ENABLED', true), // false: no liveness record is written; `status` reports disabled
-        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // true: one counts-and-cost line per ISO week to the notice destination, default false
+        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // true: one counts-only line per ISO week to the notice destination, default false
     ],
 
     'service_context' => [
@@ -206,7 +189,7 @@ return [
     //     'ttl' => 'PT24H',                                          // the reduced spec is cached this long, then read again
     //     'max_endpoints' => 5,                                      // 1..20 per run
     // ],
-    // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default; the cost report works regardless.
+    // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default.
     'hygiene' => [
         'enabled' => false,
     ],

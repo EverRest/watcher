@@ -19,7 +19,7 @@ The host triggers the package **at least once an hour**. On each trigger the pac
 
 The first run for a service only records a **baseline** (no model call). Analysis starts with the second window.
 
-**Several runs per day (spec 014).** Set `schedule.every` (`PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H` or `PT12H`) or a list of `schedule.run_at` times at least one hour apart (not both). Windows are contiguous. Around a clock change the boundary that does not exist is dropped and the repeated hour uses its first occurrence. A high-water mark per service stops the same window being reported twice. `schedule.catch_up` (1 to 24, needs `every`) lets one trigger work through windows missed during an outage, oldest first. `schedule.ingestion_delay` moves window ends back for logs that are indexed late. Optional caps: `analysis.max_runs_per_day` ends further runs of the day with the outcome `capped` and one notice; `analysis.run_budget_usd` limits one run's spend. The trigger must still fire at least as often as the period.
+**Several runs per day (spec 014).** Set `schedule.every` (`PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H` or `PT12H`) or a list of `schedule.run_at` times at least one hour apart (not both). Windows are contiguous. Around a clock change the boundary that does not exist is dropped and the repeated hour uses its first occurrence. A high-water mark per service stops the same window being reported twice. `schedule.catch_up` (1 to 24, needs `every`) lets one trigger work through windows missed during an outage, oldest first. `schedule.ingestion_delay` moves window ends back for logs that are indexed late. Optional caps: The trigger must still fire at least as often as the period.
 
 **A skipped or failed day is not a new baseline.** After every successful snapshot write the run also writes
 `snap:<service>:last` (the window key, same TTL as `state.retention`). When the snapshot of the exact previous window is
@@ -46,8 +46,7 @@ text; counts, fingerprints and comparisons are unaffected. Upgrading: templates 
 
 ## Outcomes and exit codes
 
-The command prints one line to stdout, `watcher: outcome=<outcome> [reason="..."] [tokens_in=.. tokens_out=..
-tokens_cached=.. cost_usd=..]`, and failure messages to stderr as `watcher [error] ...` (messages only: no keys, URLs,
+The command prints one line to stdout, `watcher: outcome=<outcome> [reason="..."] `, and failure messages to stderr as `watcher [error] ...` (messages only: no keys, URLs,
 log text).
 
 | Outcome | Exit | Meaning | Action |
@@ -79,7 +78,7 @@ composer require everrest/watcher        # from Packagist once published; before
 ```
 
 Register the provider (Lumen: `bootstrap/app.php`), copy `vendor/everrest/watcher/config/watcher.php` to
-`config/watcher.php` (Laravel can `vendor:publish`; Lumen has no publish command), fill in `prices` and set the
+`config/watcher.php` (Laravel can `vendor:publish`; Lumen has no publish command), set the
 environment variables from [configuration.md](configuration.md):
 
 ```php
@@ -133,7 +132,7 @@ also a signal for your cluster alerting.
 #### Where to keep state (Kubernetes)
 
 Use **Redis**. It is the default driver and the only one that fits a CronJob: every run is a new pod, and what the
-next run needs (baseline snapshots, the run lock, spend counters, reported markers, the heartbeat) must outlive it.
+next run needs (baseline snapshots, the run lock, reported markers, the heartbeat) must outlive it.
 
 ```yaml
 env:
@@ -145,8 +144,7 @@ env:
 ```
 
 Why not the default `emptyDir` (or any container-local path) with `state.driver=file`: it is deleted with the pod, so
-every run starts as a first run (a baseline, no comparison, no "already reported" memory, and the daily budget counter
-restarts from zero). `watcher check` reports `pass` with a `warning:` on the state line when the driver is `file`
+every run starts as a first run (a baseline, no comparison, no "already reported" memory). `watcher check` reports `pass` with a `warning:` on the state line when the driver is `file`
 and `KUBERNETES_SERVICE_HOST` is set, so this setup is visible before the first run.
 
 A PersistentVolumeClaim keeps the history and is the fallback when there is no Redis, with these limits:
@@ -162,14 +160,13 @@ when loaded, else `predis/predis` (`composer require predis/predis`, `^2.0 || ^3
 
 **Redis requirements.**
 
-- **`maxmemory-policy noeviction`** (or a `volatile-*` policy on an instance that holds only data with TTLs you accept losing). `allkeys-*` policies can evict the spend counters, the run lock and the delivered markers, which makes the budget cap and the duplicate-digest protection fail open.
-- **One key prefix per environment.** Two environments (or two tenants) with the same `service` on one Redis database share locks, spend and markers. Give each its own `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`) or its own database.
+- **`maxmemory-policy noeviction`** (or a `volatile-*` policy on an instance that holds only data with TTLs you accept losing). `allkeys-*` policies can evict the run lock and the delivered markers, which makes the duplicate-digest protection fail open.
+- **One key prefix per environment.** Two environments (or two tenants) with the same `service` on one Redis database share locks and markers. Give each its own `state.redis.prefix` (`WATCHER_REDIS_PREFIX`, default `watcher:`) or its own database.
 - An injected `\Redis` must use no serializer and no compression (`SERIALIZER_NONE`, `COMPRESSION_NONE`); it is refused otherwise.
 - **TLS and the password.** `AUTH` sends the password (and the ACL `username` with it) in clear text on a plain TCP connection, so use a `tls://` host (`state.redis.host: tls://redis.example.com`) whenever the network between watcher and Redis is not one you trust: a shared VPC, another tenant's network, a link across clusters or regions. Both clients verify the server certificate by default and refuse a self-signed or unknown-CA certificate, so the password is not sent to an impostor. To trust a private CA, set PHP's `openssl.cafile` (in the image's `php.ini`) to its bundle; there is no watcher key for it. Never disable verification to make a connection work.
-- **Size budget.** A stored value may be at most 4 MB of JSON, 100,000 elements and 16,000 arrays/objects (`StateCodec`), so the worst accepted value decodes to about 16 MB of PHP memory. Larger values are refused at write (`StateValueTooLarge`, the run fails visibly) instead of being written and read back as missing. A snapshot passes up to roughly 90,000 groups; the default `source.group_cap` is 5,000.
+- **Size limit.** A stored value may be at most 4 MB of JSON, 100,000 elements and 16,000 arrays/objects (`StateCodec`), so the worst accepted value decodes to about 16 MB of PHP memory. Larger values are refused at write (`StateValueTooLarge`, the run fails visibly) instead of being written and read back as missing. A snapshot passes up to roughly 90,000 groups; the default `source.group_cap` is 5,000.
 - **Errors fail closed.** A failed `GET` (a phpredis `false` with an error, a Predis error reply) raises and the run fails; only a missing key reads as missing.
 - **Lost lock.** If the run lock is found expired or taken when it is renewed, the run stops at that checkpoint (reason `lock_lost`, host log and exit code 1, no digest). With asynchronous Redis replication a failover can lose a lock; the delivered marker still prevents a second digest for the same window.
-- **Budget overshoot.** On Redis the daily budget is reserved atomically: before each model step one Lua script checks both caps (USD and tokens) and adds the step's worst case to the spend counters (with the expiry set in the same script); when the call returns, the reservation is settled to the real cost, and a call that failed before anything was billed gives it back. Parallel runs of one service therefore cannot both pass the check and overshoot the cap. Two limits remain: the file and PDO stores (and `--dry-run`) still check against what is booked so far and book afterwards, so concurrent runs can overshoot by up to one step each; and the fleet cap is checked before each step but not reserved (it is exact only because a fleet runs its services one after another in one process). The reservation script touches two keys (USD and tokens) without a shared hash tag, so it is **not Redis Cluster safe** (the script would fail with CROSSSLOT and the run would fail closed); use a single Redis instance or a primary with replicas, as the rest of the package assumes. A run killed between the reservation and the settlement leaves its worst case counted until the counter expires at the end of the day's retention (48 h), which only makes the cap stricter.
 
 ### Notification channels
 
@@ -202,16 +199,16 @@ To read results in Grafana (or Kibana, Datadog, ...) instead of a chat channel, 
 | `pdo` | you have a DB and no Redis | create the table once: `PdoStateStore::createTableSql('mysql')`; tested on SQLite only |
 | `file` | one runner, one host | **never** with several replicas or pods without a shared volume and a single scheduler |
 
-**File store:** the directory must be owned by the user running watcher and must not be world-writable unless it has the sticky bit (create it `0700`; a group-writable `0775` Laravel `storage` folder owned by that user is fine, and files are still written `0600`). A refused directory fails the run (notice `config failed: state.file.path ...`) and `watcher check`, naming `state.file.path` and never its value, symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race. The daily budget check is read-then-book on this store, so concurrent runs of the same service can overshoot it by one step each (the lock prevents that for one window; the atomic reservation is Redis only).
+**File store:** the directory must be owned by the user running watcher and must not be world-writable unless it has the sticky bit (create it `0700`; a group-writable `0775` Laravel `storage` folder owned by that user is fine, and files are still written `0600`). A refused directory fails the run (notice `config failed: state.file.path ...`) and `watcher check`, naming `state.file.path` and never its value, symlinks inside it are never followed, and files are written `0600`. **PDO store:** keys longer than 191 characters are refused at write (the `k` column); the first write of a key retries once on a duplicate-key race.
 
-**Every Redis key has a TTL, by construction.** `RedisStateStore` has one `SET` (always `PX`), the counter is a single Lua script that runs `INCRBYFLOAT` and `PEXPIRE` together (a bare `INCRBYFLOAT` would leave the key immortal), and the lock renew uses `PEXPIRE`. A TTL of zero or less is refused with an `InvalidArgumentException` that names the key kind (`run`, `spend`, ...), never the key. A test runs random put / increment / acquire / renew / release sequences against the store (and a real server when `WATCHER_TEST_REDIS` is set) and fails if any key ever exists without one. Values the store itself never writes (anything your app puts under the `watcher:` prefix) are not covered.
+**Every Redis key has a TTL, by construction.** `RedisStateStore` has one `SET` (always `PX`), the counter is a single Lua script that runs `INCRBYFLOAT` and `PEXPIRE` together (a bare `INCRBYFLOAT` would leave the key immortal), and the lock renew uses `PEXPIRE`. A TTL of zero or less is refused with an `InvalidArgumentException` that names the key kind (`run`, `lock`, ...), never the key. A test runs random put / increment / acquire / renew / release sequences against the store (and a real server when `WATCHER_TEST_REDIS` is set) and fails if any key ever exists without one. Values the store itself never writes (anything your app puts under the `watcher:` prefix) are not covered.
 
-State holds counters, fingerprints, verdicts, reported markers, run records, spend counters and alert markers, each with
-`state.retention` (30 days) except: spend and alert keys 2 days, weekly heartbeat counters 14 days, `noise`/`known` verdicts
+State holds counters, fingerprints, verdicts, reported markers, run records and alert markers, each with
+`state.retention` (30 days) except: alert keys 2 days, weekly heartbeat counters 14 days, `noise`/`known` verdicts
 3 days, heartbeat and trigger records 3 x `state.retention`. It never holds raw log lines.
 
 Reset a service (forces a new baseline): change `service`, or delete its keys. Redis keys are
-`watcher:<kind>:<service>:...` (kinds: `snap` (also per dependency), `verdict`, `reported`, `run`, `lock`, `spend`, `alert`, `exhausted`); file state is
+`watcher:<kind>:<service>:...` (kinds: `snap` (also per dependency), `verdict`, `reported`, `run`, `lock`, `alert`); file state is
 a directory of hashed file names, so wipe the whole directory.
 
 ## Loki over plain http inside a private network
@@ -249,7 +246,7 @@ the same ones a run does (`--estimate` makes no model call; neither posts anythi
 `== external reads made (read-only, credentialed): metrics, sentry ==`. To avoid them, set `enabled: false` on the section.
 
 **Ranking (spec 009).** A log group at level Error or above is never displaced by a metric-anomaly or Sentry group: log groups are selected by `top_n` exactly as
-without these sources, Sentry groups get only the `top_n` volume slots the log groups leave free, and anomaly and Sentry groups rank below the lowest such log group, so the analysis budget (`top_m`, the input cut) only gives them the
+without these sources, Sentry groups get only the `top_n` volume slots the log groups leave free, and anomaly and Sentry groups rank below the lowest such log group, so the analysis cut (`top_m` and the input cut) only gives them the
 slots that remain. A Sentry Error still counts as explaining a metric move, so no anomaly is raised for it.
 
 **Metric labels in the digest.** A label value reaches the `Metrics:` line only when it is 1 to 64 characters of `A-Za-z0-9_.:-` and survives masking
@@ -264,7 +261,7 @@ change of `summary_cap`, `base_path` or the redaction rules is a cache miss). Th
 containers, counted on the text): a document with more operations than fit keeps the first ones and the digest says `N operation(s) not kept (cache limit)`;
 an entry the store still cannot hold is simply not cached and read again next run. A source that cannot be read gives one `⚠️ API context unavailable (<token>)`
 note and never fails the run. `watcher check` adds an `api_context` line (`N operations kept, M not kept`, or the failure token) that bypasses the cache,
-posts nothing and spends no tokens. Under `--dry-run` the source is read and nothing is cached. When the analysis input would exceed `analysis.max_input_tokens`,
+posts nothing and makes no model call. Under `--dry-run` the source is read and nothing is cached. When the analysis input would exceed `analysis.max_input_tokens`,
 the `ep` fields are the first context dropped (the digest lines stay, with a note).
 
 ## Availability guards
@@ -285,9 +282,7 @@ A flood of one already-reported fingerprint can still fill `event_cap` with old 
 - **Reading a finding.** The "Hypothesis" line is a model guess from masked text, not a fact. The evidence line is limited
   to counts, levels, error type, frames and timestamps. Rare problems (fewer events than
   `redaction.min_group_events_for_text`) show no message text by design: use the log link or Grafana for the detail.
-- **Cost.** The footer shows tokens, the model per step, the estimate and today's total against the cap. Alerts at
-  25/50/75/90% come as separate notices. Before each model call the run checks that its worst case (planned input + `max_output_tokens`, at the configured prices) still fits under the daily cap, and skips the step if not (the digest counts what was skipped); at 100% the run does triage only until the next day. Cost is an estimate from
-  `analysis.prices`: compare with the provider console from time to time and update prices when they change.
+- **Model calls.** The footer shows the model per step and the calls made per step (`calls` in the run record). Each step stays within `analysis.max_input_tokens`; groups that do not fit are dropped lowest-priority first and the digest says so.
 - **Quiet days.** No message means nothing qualified; to see that the job ran, look at the Job logs (the `outcome=` line).
   A weekly summary line is optional (`heartbeat.weekly_summary`); there is no daily heartbeat message.
 
@@ -306,7 +301,7 @@ Every finished run (reported, quiet, baselined, failed) stores a liveness record
 ```text
 service:        orders-api
 state:          ok
-last run:       2026-10-24T06:00:41+00:00  outcome=quiet  duration=38s  cost_usd=0.0000
+last run:       2026-10-24T06:00:41+00:00  outcome=quiet  duration=38s
 last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
 compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
 ```
@@ -348,8 +343,6 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
   fleet heartbeat as in [Heartbeat](#heartbeat-staleness-and-alerting).
 - **Dry run**: `fleet:run --dry-run` prints every service's digest, the combined digest (with `digest: combined`) and the
   correlated finding; nothing is posted, no state is written, the fleet counters are untouched.
-- **Budget**: the fleet cap is checked before each model call, like the service cap; the notice names `fleet cap` or
-  `service cap`. Services later in the order are the ones that go triage-only.
 - **Correlation limits**: a link needs a declared dependency, a `<URL:name>` / `<HOST:name>` placeholder in the consumer's
   template, an origin group that is `new` or `grown` at or above its `selection.min_level`, and overlapping group time
   ranges (plus `correlation.tolerance`). It is a hypothesis, only between services that ran in the same trigger, and
@@ -360,19 +353,19 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
 ## Before the first run: check and dry run
 
 - `watcher check --config=...` runs every check and prints PASS/FAIL/SKIP per line (config, source, provider_auth,
-  models, prices, state, notifier). It makes read-only calls and posts nothing; `--post-test` posts one labelled test
+  models, state, notifier). It makes read-only calls and posts nothing; `--post-test` posts one labelled test
   message per destination. Exit 0 means no failure; `--json` prints one machine line.
-- `watcher run --dry-run --estimate` makes no model call and prints groups, estimated tokens and cost per step.
+- `watcher run --dry-run --estimate` makes no model call and prints the groups per step.
 - `watcher run --dry-run` runs the whole pipeline for the window ending at the latest `run_at` instant (ignoring the due
   hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
-  billed**; spend is not recorded.
-- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome, counts and cost it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`, `malformed_entries`: entries the source sent that were not usable, skipped; see [review-fixes-2026-10-25.md](review-fixes-2026-10-25.md#rule-unusable-remote-data)). With `metrics` or `sentry` configured the summary also carries `metrics` (`read`, `failed`, `anomalies`) and `sentry` (`read`, `dropped`, `merged`, `failed`); counts only, absent when the section is not configured. Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
+  billed**.
+- `--json` on `run` prints one summary line on stdout (also for `failed` and `invalid_config`) and the human lines on stderr. Besides the outcome and counts it carries the health counters, always present (0 when none): `state_unreadable`, `unscannable_events`, `oversized_lines`, `overflowed_events`, `pattern_failures` and `read_quality` (an object with `unknown_levels`, `orphan_trace_lines`, `message_tails_dropped`, `truncated_lines`, `truncated_structured`, `regex_failures`, `pages_shrunk`, `malformed_entries`: entries the source sent that were not usable, skipped; see [review-fixes-2026-10-25.md](review-fixes-2026-10-25.md#rule-unusable-remote-data)). With `metrics` or `sentry` configured the summary also carries `metrics` (`read`, `failed`, `anomalies`) and `sentry` (`read`, `dropped`, `merged`, `failed`); counts only, absent when the section is not configured. Alert on any of them rising above their usual 0; `reason` names the first cut (`truncated:*`, `overflow`, `oversized_lines`, `unscannable_events`, `zero_events`).
 
 ## Log hygiene reports (spec 006)
 
 ```bash
-vendor/bin/watcher hygiene --config=config/watcher.php                 # four reports on stdout
-vendor/bin/watcher hygiene --config=config/watcher.php --report=cost --days=14 --json
+vendor/bin/watcher hygiene --config=config/watcher.php                 # three reports on stdout
+vendor/bin/watcher hygiene --config=config/watcher.php --report=proposals --json
 vendor/bin/watcher hygiene --config=config/watcher.php --notify       # weekly, from the host's cron
 vendor/bin/watcher hygiene --config=config/watcher.php --decline=<id> # quiet a proposal for hygiene.decline_days
 vendor/bin/watcher hygiene --config=config/watcher.php --dry-run       # read-only look: nothing written, no lock, nothing sent
@@ -396,7 +389,7 @@ otherwise, change `service` to start a new baseline.
 | `skipped_locked` every time | a crashed run left a lock (it expires after `lock_ttl`, 15 min) or two schedulers are running |
 | Digest says "cluster cap hit" | more distinct messages than `source.group_cap`: usually an unmasked id in a message; the overflow is counted but not analysed. Raise `group_cap` (memory grows with it) or fix the message |
 | Digest says "read quality: …" | the source's parser guessed or dropped something: events whose level word it could not read (taken as info), stack-frame lines that arrived with no open record (a page or stream starting mid-trace), multi-line JSON messages cut to their first line. Counts only; Loki and Datadog report it. A large number means the log format is not what the parser expects: check the `level` field spelling or the line shape |
-| Costs higher than expected | many fresh fingerprints (cache cannot help); raise `growth_factor`, lower `top_m`, mute noisy families, check `read_min_level` |
+| More model calls than expected | many fresh fingerprints (cache cannot help); raise `growth_factor`, lower `top_m`, mute noisy families, check `read_min_level` |
 | `analysis failed: authentication failed` with a valid key | see the Bearer note in [smoke-test.md](smoke-test.md#2-prepare-the-shell) |
 | Dependencies missing in a digest | declare them in `dependencies` (the digest shows only a count of undeclared call targets, never their names; a host is kept as `<URL:name>` only if it equals a declared name or is `name.<domain>` for a `dependency_domains` entry) |
 | Links point nowhere | `links.*` and `repo.path_map` are config only; the Grafana Explore URL shape is not verified against every Grafana version |

@@ -34,12 +34,10 @@ final class JsonSummaryPrivacyTest extends TestCase
 
         $stats = new RunStats();
         $stats->eventsRead = count($events);
-        if ($result->usage !== null) {
-            $stats->addUsage('analyze', $result->usage);
-        }
+        $stats->addCall('analyze');
         // Worst case: the failure reason is a raw message holding every seeded value.
         foreach ([null, implode(' ', $seeded)] as $reason) {
-            $line = (new JsonSummary())->render(new RunSummaryData($result->outcome, 'svc', $reason, null, null, $stats, 0.1, 'v1'));
+            $line = (new JsonSummary())->render(new RunSummaryData($result->outcome, 'svc', $reason, null, null, $stats, 'v1'));
             foreach ($seeded as $value) {
                 self::assertStringNotContainsString($value, $line);
                 self::assertStringNotContainsString(substr(json_encode($value, JSON_THROW_ON_ERROR), 1, -1), $line);

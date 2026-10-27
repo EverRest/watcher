@@ -22,7 +22,6 @@ final class PromptCatalog implements DocsEndpoint
     private const PROMPTS = [
         'onboard-new-service' => ['description' => 'Set up the watcher for a new service step by step, without ever handling a secret.', 'args' => ['host' => ['values' => self::HOSTS, 'default' => 'laravel'], 'source' => ['values' => self::SOURCES, 'default' => 'loki'], 'notifier' => ['values' => self::NOTIFIERS, 'default' => 'slack'], 'state' => ['values' => self::STATES, 'default' => 'redis']], 'tools' => ['watcher_setup_plan', 'watcher_generate_config', 'watcher_validate_config', 'watcher_rollout_check', 'watcher_first_day', 'watcher_explain_outcome']],
         'why-is-the-digest-quiet' => ['description' => 'Find out why no digest arrived today.', 'args' => [], 'tools' => ['watcher_status', 'watcher_check', 'watcher_latest_report', 'watcher_explain_outcome', 'watcher_explain_config']],
-        'cost-too-high' => ['description' => 'Find out why the model spend is high and how to lower it.', 'args' => [], 'tools' => ['watcher_status', 'watcher_explain_config', 'watcher_dry_run', 'watcher_search_docs']],
         'rotate-credentials' => ['description' => 'Rotate one credential of the watcher safely.', 'args' => ['which' => ['values' => self::WHICH, 'default' => null]], 'tools' => ['watcher_explain_config', 'watcher_check', 'watcher_status']],
     ];
 
@@ -109,9 +108,6 @@ final class PromptCatalog implements DocsEndpoint
                 . "4. Call watcher_first_day and guide me through the first-day procedure; use watcher_explain_outcome for any outcome I do not understand.",
             'why-is-the-digest-quiet' => "No digest arrived and I want to know why.\n1. Call watcher_status.\n2. Call watcher_check.\n3. Call watcher_latest_report.\n"
                 . "4. Use watcher_explain_outcome for the outcome or reason you find, and watcher_explain_config for any key involved.",
-            'cost-too-high' => "The model spend is higher than I expected.\n1. Call watcher_status for today's spend and the budget.\n2. Use watcher_explain_config on analysis.daily_budget_usd, selection.top_m and selection.growth_factor.\n"
-                . ($dry ? "3. Call watcher_dry_run with estimate_only=true to see the per-step estimate (it makes no model call).\n4. " : '3. ')
-                . 'Use watcher_search_docs for the cost drivers.',
             default => "I need to rotate the {$v['which']} credential.\n1. Call watcher_explain_config for the keys that hold it; they name the environment variable.\n2. Tell me to create the new credential and store it in the secret store under the same variable name; do not ask me to paste it.\n3. After I redeploy, call watcher_check and watcher_status. Treat the old credential as exposed and revoke it.",
         };
 

@@ -29,10 +29,6 @@ return [
     'digest' => 'per_service',             // 'combined' = one message for the whole fleet
     'timezone' => 'UTC',
     'time_budget' => 'PT50M',               // services not started in time are listed as skipped_time (exit 1)
-    'budget' => [
-        'daily_budget_usd' => 3.0,           // on top of each service's own cap
-        'daily_token_limit' => 2000000,
-    ],
     'notify' => [                           // used by entries without their own, and by the correlated finding
         'digest' => ['driver' => 'slack', 'webhook' => getenv('WATCHER_SLACK_DIGEST')],
         'notice' => ['driver' => 'telegram', 'bot_token' => getenv('WATCHER_TG_TOKEN'), 'chat_id' => getenv('WATCHER_TG_CHAT')],
@@ -57,13 +53,6 @@ return [
                 'analyze' => getenv('WATCHER_MODEL_ANALYZE'),
                 'escalate' => getenv('WATCHER_MODEL_ESCALATE'),
             ],
-            // USD per million tokens: [input, output, cache_read, cache_write]
-            'prices' => [
-                (string) getenv('WATCHER_MODEL_TRIAGE') => [0.0, 0.0, 0.0, 0.0], // USD per million tokens from your provider's pricing page,
-                (string) getenv('WATCHER_MODEL_ANALYZE') => [0.0, 0.0, 0.0, 0.0], // USD per million tokens from your provider's pricing page,
-                (string) getenv('WATCHER_MODEL_ESCALATE') => [0.0, 0.0, 0.0, 0.0], // USD per million tokens from your provider's pricing page,
-            ],
-            'daily_budget_usd' => 1.0,       // per service
         ],
         'state' => ['driver' => 'file', 'file' => ['path' => getenv('WATCHER_STATE_PATH') ?: '/var/lib/watcher']],
     ],

@@ -39,7 +39,7 @@ final class LiveObjectDumpTest extends TestCase
         return [
             'service' => 'svc', 'enabled' => true, 'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.com', 'auth' => ['type' => 'bearer', 'token' => 'CANARY-loki-token-1']]],
-            'analysis' => ['api_key' => 'CANARY-model-key-2', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], 'prices' => ['a' => [1, 1, 0, 0], 'b' => [1, 1, 0, 0], 'c' => [1, 1, 0, 0]]],
+            'analysis' => ['api_key' => 'CANARY-model-key-2', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => $this->dir]],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/CANARY-hook-3']],
             'observe' => ['http' => ['enabled' => true, 'url' => 'https://ingest.example.com/CANARY-url-4', 'auth_token' => 'CANARY-obs-token-5']],

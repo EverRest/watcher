@@ -83,13 +83,10 @@ final class PrometheusSink implements EventSink
             foreach (MetricCatalog::OUTCOMES as $o) {
                 $put('watcher_last_run_outcome', $o === $outcome ? 1 : 0, $o);
             }
-            foreach (['events_read', 'groups_total', 'candidates', 'cost_usd'] as $k) {
-                $put('cost_usd' === $k ? 'watcher_last_run_cost_usd' : 'watcher_last_run_' . $k, self::num($run[$k] ?? null));
+            foreach (['events_read', 'groups_total', 'candidates'] as $k) {
+                $put('watcher_last_run_' . $k, self::num($run[$k] ?? null));
             }
             $put('watcher_last_run_truncated', isset($run['truncated']) ? (int) (bool) $run['truncated'] : null);
-            foreach (['in' => 'tokens_in', 'out' => 'tokens_out', 'cached' => 'tokens_cached'] as $d => $k) {
-                $put('watcher_last_run_tokens', self::num($run[$k] ?? null), $d);
-            }
             foreach (MetricCatalog::SEVERITIES as $s) {
                 $put('watcher_last_run_findings', self::num($run['findings_by_severity'][$s] ?? null), $s);
             }
@@ -120,14 +117,6 @@ final class PrometheusSink implements EventSink
         $success = in_array($outcome, ['reported', 'quiet', 'baselined'], true)
             ? max($this->ts($run['ts'] ?? null) ?? 0, $hbOk ?? 0) : $hbOk;
         $put('watcher_last_success_timestamp_seconds', $success);
-
-        if (isset($by['budget'][0])) {
-            $b = $by['budget'][0];
-            $put('watcher_budget_spent_usd', self::num($b['spent_today_usd'] ?? null));
-            $put('watcher_budget_limit_usd', self::num($b['daily_budget_usd'] ?? null));
-            $ratios = array_filter([self::num($b['usd_ratio'] ?? null), self::num($b['token_ratio'] ?? null)], static fn ($r) => $r !== null);
-            $put('watcher_budget_ratio', $ratios === [] ? null : max($ratios));
-        }
 
         if ($skipped) {
             $this->carryOver($m);
@@ -181,7 +170,7 @@ final class PrometheusSink implements EventSink
                 continue;
             }
             $n = $x[1];
-            if (!str_starts_with($n, 'watcher_budget_') && !str_starts_with($n, 'watcher_last_run_') && $n !== 'watcher_heartbeat_age_seconds' && $n !== 'watcher_last_success_timestamp_seconds') {
+            if (!str_starts_with($n, 'watcher_last_run_') && $n !== 'watcher_heartbeat_age_seconds' && $n !== 'watcher_last_success_timestamp_seconds') {
                 continue;
             }
             if ($n === 'watcher_last_run_outcome' || $n === 'watcher_last_run_timestamp_seconds') {

@@ -40,22 +40,6 @@ groups:
           - refId: C
             datasourceUid: __expr__
             model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: gt, params: [0]}}]}
-      - uid: watcher-budget-high
-        title: WatcherBudgetHigh
-        condition: C
-        noDataState: OK
-        execErrState: Error
-        for: 0s
-        labels: {severity: warning, team: platform}
-        annotations: {summary: "watcher used more than 90 % of its daily budget", runbook_url: "https://runbooks.example.invalid/watcher"}
-        data:
-          - refId: A
-            relativeTimeRange: {from: 86400, to: 0}
-            datasourceUid: LOKI_DATASOURCE_UID
-            model: {refId: A, queryType: instant, expr: 'max by (service) (max_over_time({app="watcher"} | json | event_type="budget" | unwrap usd_ratio [1d]))'}
-          - refId: C
-            datasourceUid: __expr__
-            model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: gt, params: [0.9]}}]}
       - uid: watcher-new-critical
         title: WatcherNewCriticalFinding
         condition: C

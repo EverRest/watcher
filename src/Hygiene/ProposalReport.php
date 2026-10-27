@@ -45,9 +45,9 @@ final class ProposalReport implements Report
             $out[] = sprintf('  %-5s %s  %s', $p['type'], $p['id'], ReportText::safe($notice, $p['fragment']));
             $e = $p['evidence'];
             if ($p['type'] === 'mute') {
-                $out[] = sprintf('        seen %d/%d days, %d events/day, %d tokens', $e['days_seen'], $this->data['history_days'], $e['events_per_day'], $e['tokens']);
+                $out[] = sprintf('        seen %d/%d days, %d events/day', $e['days_seen'], $this->data['history_days'], $e['events_per_day']);
                 if (isset($p['replay'])) {
-                    $out[] = sprintf('        replay: %d candidates removed, %d tokens saved over %d days', $p['replay']['candidates_removed'], $p['replay']['tokens_saved'], $p['replay']['days']);
+                    $out[] = sprintf('        replay: %d occurrences removed over %d days', $p['replay']['occurrences_removed'], $p['replay']['days']);
                 }
             } else {
                 $out[] = sprintf('        precedes a severe family on %d of %d days (within %d s)', $e['days_with_precursor'], $e['days_with_severe'], $e['lead_seconds']);

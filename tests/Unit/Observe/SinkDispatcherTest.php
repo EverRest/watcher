@@ -164,7 +164,7 @@ final class SinkDispatcherTest extends TestCase
     private function event(): Event
     {
         return new Event('finding', [
-            'schema' => 'watcher.event.v1', 'event_type' => 'finding', 'event_id' => '0123456789abcdef-1', 'ts' => '2026-10-24T06:05:00Z',
+            'schema' => 'watcher.event.v2', 'event_type' => 'finding', 'event_id' => '0123456789abcdef-1', 'ts' => '2026-10-24T06:05:00Z',
             'service' => 'bff-a', 'environment' => 'production', 'run_id' => '0123456789abcdef', 'version' => '0.1.70',
             'window_start' => null, 'window_end' => null, 'finding_index' => 1, 'fingerprint' => '0123456789ab', 'fingerprints' => ['0123456789ab'],
             'kind' => 'bug', 'severity' => 'error', 'confidence' => 0.5, 'escalated' => false, 'group_trend' => null, 'group_count' => null,

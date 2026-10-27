@@ -34,7 +34,7 @@ final class HygieneCommandTest extends TestCase
         return new class () implements Report {
             public function name(): string
             {
-                return 'cost';
+                return 'proposals';
             }
 
             public function isEmpty(): bool
@@ -49,7 +49,7 @@ final class HygieneCommandTest extends TestCase
 
             public function text(bool $notice = false): string
             {
-                return 'cost: body';
+                return 'proposals: body';
             }
         };
     }
@@ -67,7 +67,7 @@ final class HygieneCommandTest extends TestCase
                 throw $outcome;
             }
 
-            return $outcome ?? new HygieneResult(['cost' => self::report()]);
+            return $outcome ?? new HygieneResult(['proposals' => self::report()]);
         };
         $cmd = new HygieneCommand(Closure::fromCallable($factory));
         $cmd->setLaravel(new class () extends Container {
@@ -85,12 +85,10 @@ final class HygieneCommandTest extends TestCase
 
     public function testItPrintsTheReportsAndPassesTheOptionsOn(): void
     {
-        [$code, $out] = $this->exec(['--report' => 'privacy,cost', '--days' => '3', '--notify' => true, '--now' => '2026-10-08T06:00:00Z', '--decline' => 'abc']);
+        [$code, $out] = $this->exec(['--report' => 'privacy,proposals', '--notify' => true, '--now' => '2026-10-08T06:00:00Z', '--decline' => 'abc']);
 
         self::assertSame(0, $code);
-        self::assertStringContainsString('cost: body', $out);
-        self::assertSame(['privacy', 'cost'], $this->seen[0]->reports);
-        self::assertSame(3, $this->seen[0]->days);
+        self::assertSame(['privacy', 'proposals'], $this->seen[0]->reports);
         self::assertTrue($this->seen[0]->notify);
         self::assertSame('abc', $this->seen[0]->decline);
     }
@@ -110,12 +108,12 @@ final class HygieneCommandTest extends TestCase
 
         self::assertSame(0, $code);
         self::assertSame(1, json_decode($out, true)['schema']);
-        self::assertStringContainsString('cost: body', $this->stderr);
+        self::assertStringContainsString('proposals: body', $this->stderr);
     }
 
     public function testBadInputIsExitTwoBeforeAnyWork(): void
     {
-        foreach ([['--report' => 'nope'], ['--days' => '99'], ['--now' => 'yesterday']] as $input) {
+        foreach ([['--report' => 'nope'], ['--now' => 'yesterday']] as $input) {
             [$code] = $this->exec($input);
             self::assertSame(2, $code);
         }
@@ -137,7 +135,7 @@ final class HygieneCommandTest extends TestCase
         $this->exec([], new HygieneResult(disabled: true));
         self::assertStringContainsString('disabled', $this->stderr);
 
-        $this->exec([], new HygieneResult(['cost' => self::report()], skipped: true));
+        $this->exec([], new HygieneResult(['proposals' => self::report()], skipped: true));
         self::assertStringContainsString('hygiene reports disabled', $this->stderr);
     }
 }

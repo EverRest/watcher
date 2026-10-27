@@ -7,7 +7,7 @@ namespace Watcher\Hygiene;
 /** One of the four reports (spec 006). The body holds identifiers, categories, levels, counts, shares and times; `Hygiene` adds the envelope. */
 interface Report
 {
-    /** `privacy`, `shape`, `proposals` or `cost`. */
+    /** `privacy`, `shape` or `proposals`. */
     public function name(): string;
 
     /** Nothing to say: it is not sent (FR-008). */

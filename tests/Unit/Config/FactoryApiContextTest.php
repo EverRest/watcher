@@ -28,7 +28,7 @@ final class FactoryApiContextTest extends TestCase
         $c = [
             'service' => 'svc', 'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.com']],
-            'analysis' => ['api_key' => 'sk', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], 'prices' => ['a' => [1, 1, 0, 0], 'b' => [1, 1, 0, 0], 'c' => [1, 1, 0, 0]]],
+            'analysis' => ['api_key' => 'sk', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/X']],
         ];

@@ -3,7 +3,7 @@ Sync Impact Report
 - Version change: 1.0.0 → 2.0.0 (MAJOR: Principle V redefined; budgets and token/cost reporting removed)
 - Principles added: none in this amendment
 - Principle V renamed "Lean Requests" and its budget, cap and reporting clauses removed (2026-10-27,
-  owner decision; no budget or token counting remains in the package)
+  owner decision; no budget, spend cap or cost reporting remains; input-size limits stay)
 - Principle III: "token-budget fixtures" removed from the mandatory suites
 - Principle VII: "budget" removed from the failure list
 - Sections added: none
@@ -49,7 +49,7 @@ cause harm.
 - Tests MUST NOT touch the network: sources, AI provider and notifiers are faked or driven by
   recorded HTTP fixtures.
 - Mandatory suites: privacy corpus (no seeded personal value reaches any outbound payload),
-  selection table tests, model-routing table tests, a shared contract suite
+  selection table tests, model-routing table tests, input-size fixtures, a shared contract suite
   run against every state store and every log source, and one end-to-end run with fakes.
 - A bug fix starts with a test that reproduces it.
 
@@ -76,8 +76,10 @@ change, not to log volume.
   is used only where a rule in the spec sends it.
 - Inputs are compact (templates sent once and referenced, no redundant formatting); outputs are
   bounded per field and per step; stable prompt prefixes are structured for provider caching.
-- The package keeps no budget, no spend cap and no token or cost report. Efficiency comes from the
-  rules above only; a change that adds model calls MUST state the expected increase in its plan.
+- Every step enforces its input size limit (`analysis.max_input_tokens`) before calling. There is no
+  budget, no spend cap, and no token or cost report anywhere in the package.
+- A change that increases tokens per run MUST state the expected increase and be covered by the
+  input-size fixtures.
 
 Rationale: the job runs in every service, every environment, every day; small waste multiplies.
 

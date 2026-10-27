@@ -150,17 +150,7 @@ final class DryRunTest extends TestCase
         self::assertSame([], $spy->writes());
         self::assertCount($sentBefore, $h->notifier->sent);
         self::assertStringContainsString('--estimate', $this->out);
-        self::assertMatchesRegularExpression('/triage\s+1\s+\d+/', $this->out);
-        self::assertStringContainsString('total', $this->out);
+        self::assertMatchesRegularExpression('/triage\s+1\n/', $this->out);
     }
 
-    public function testADryRunNeverHasTheRealStoreWrittenThroughTheNoticeOnce(): void
-    {
-        // Budget exhausted notice / alerts use acquire+increment: all swallowed by the overlay.
-        [$h, $spy] = $this->ready(['analysis' => ['daily_budget_usd' => 0.000001]]);
-
-        $this->dry($h, self::source());
-
-        self::assertSame([], $spy->writes());
-    }
 }

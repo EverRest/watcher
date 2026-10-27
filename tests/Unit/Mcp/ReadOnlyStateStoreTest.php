@@ -9,7 +9,6 @@ use Watcher\Mcp\ReadOnlyStateStore;
 use Watcher\Mcp\ReadOnlyViolation;
 use Watcher\State\Purgeable;
 use Watcher\State\RenewableLock;
-use Watcher\State\ReservableCounters;
 use Watcher\Tests\Fakes\FrozenClock;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 
@@ -40,7 +39,7 @@ final class ReadOnlyStateStoreTest extends TestCase
             }
         }
         $implemented = class_implements($s);
-        foreach ([Purgeable::class, RenewableLock::class, ReservableCounters::class] as $capability) {
+        foreach ([Purgeable::class, RenewableLock::class] as $capability) {
             self::assertArrayNotHasKey($capability, $implemented);
         }
     }

@@ -28,9 +28,6 @@ use Watcher\ApiContext\ApiContextReader;
 use Watcher\ApiContext\ApiSpecCache;
 use Watcher\ApiContext\OpenApiReducer;
 use Watcher\ApiContext\OpenApiSource;
-use Watcher\Analyze\CostCalculator;
-use Watcher\Hygiene\Cost\CostLedger;
-use Watcher\Hygiene\Cost\LedgerAnalyzer;
 use Watcher\Notify\DiscordNotifier;
 use Watcher\Observe\EventSanitizer;
 use Watcher\Observe\FileSink;
@@ -69,7 +66,6 @@ use Watcher\State\Redis\RedisClient;
 use Watcher\State\RedisStateStore;
 use Watcher\State\UnreadableCounter;
 use Watcher\State\RenewableLock;
-use Watcher\State\ReservableCounters;
 use RuntimeException;
 use Watcher\State\StateStore;
 
@@ -373,7 +369,7 @@ final class Factory
      */
     private static function lazy(Closure $make): StateStore
     {
-        return new class ($make) implements StateStore, Purgeable, RenewableLock, ReservableCounters, UnreadableCounter {
+        return new class ($make) implements StateStore, Purgeable, RenewableLock, UnreadableCounter {
             /** @var array<int, Closure(): StateStore> the factory closes over the connection settings (the Redis password): kept out of the object so no dump of it shows them */
             private static array $makers = [];
 
@@ -427,13 +423,6 @@ final class Factory
                 return $store instanceof RenewableLock && $store->renew($key, $owner, $ttlSeconds);
             }
 
-            public function reserve(string $usdKey, string $tokensKey, float $usd, float $tokens, float $usdCap, ?float $tokenCap, int $ttlSeconds): ?bool
-            {
-                $store = $this->store();
-
-                return $store instanceof ReservableCounters ? $store->reserve($usdKey, $tokensKey, $usd, $tokens, $usdCap, $tokenCap, $ttlSeconds) : null;
-            }
-
             public function unreadableEntries(): int
             {
                 return $this->store instanceof UnreadableCounter ? $this->store->unreadableEntries() : 0; // never connects just to count
@@ -453,8 +442,7 @@ final class Factory
         };
     }
 
-    /** @param bool $dryRun a billed dry run must not write into the real cost ledger (spec 006, review M3) */
-    public static function analyzer(WatchConfig $c, bool $dryRun = false): Analyzer
+    public static function analyzer(WatchConfig $c): Analyzer
     {
         $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
         $http = new Client($options);
@@ -463,9 +451,7 @@ final class Factory
         foreach (array_unique(array_values($c->analysis['step_providers'])) as $name) {
             $providers[$name] = self::modelProvider($name, $c, $http, $options['timeout']);
         }
-        $analyzer = new AnthropicAnalyzer(new ProviderRegistry($providers, $c->analysis['step_providers']), $c->on('advice'));
-
-        return $c->hygiene->enabled ? self::ledgered($c, $analyzer, $dryRun) : $analyzer;
+        return new AnthropicAnalyzer(new ProviderRegistry($providers, $c->analysis['step_providers']), $c->on('advice'));
     }
 
     /** The adapter for one provider name, with its key, base URL and retries from configuration (spec 016). */
@@ -482,36 +468,12 @@ final class Factory
         };
     }
 
-    /** The store the cost ledger writes to: the real one, or in a dry run a shadow that is read through and never written back. */
-    public static function ledgerState(WatchConfig $c, bool $dryRun, ClockInterface $clock): StateStore
-    {
-        $state = self::state($c, $clock);
-
-        return $dryRun ? new \Watcher\Operate\DryRunStateStore($state) : $state;
-    }
-
-    /** Spec 006: books every billed call per day, step and family so the cost report can explain the spend. */
-    private static function ledgered(WatchConfig $c, Analyzer $inner, bool $dryRun): Analyzer
-    {
-        $clock = new SystemClock();
-        $ledger = new CostLedger(
-            self::ledgerState($c, $dryRun, $clock),
-            $c->stateKey,
-            $c->state['retention'],
-            new \DateTimeZone($c->schedule['timezone']),
-            $clock,
-            new CostCalculator($c->analysis['prices']),
-        );
-
-        return new LedgerAnalyzer($inner, $ledger, (string) $c->analysis['models']['analyze'], (string) $c->analysis['models']['escalate']);
-    }
-
     /** $lockTtl bounds the rate-limit wait of the chat notifiers: min(60, max(1, lockTtl / 10)) seconds per message. */
     public static function notifier(Client $http, int $lockTtl = 900): Notifier
     {
-        $budget = min(60, max(1, intdiv($lockTtl, 10)));
+        $timeout = min(60, max(1, intdiv($lockTtl, 10)));
 
-        return new RoutingNotifier(new SlackWebhookNotifier($http, $budget), new TelegramNotifier($http, $budget), new DiscordNotifier($http, $budget));
+        return new RoutingNotifier(new SlackWebhookNotifier($http, $timeout), new TelegramNotifier($http, $timeout), new DiscordNotifier($http, $timeout));
     }
 
     /** Where the log sink writes; a `--json` call keeps stdout for its one summary line. */

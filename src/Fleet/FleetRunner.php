@@ -18,7 +18,6 @@ use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Notify\Notifier;
 use Watcher\Observe\ObserveCounters;
-use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\RefusedAccess;
 use Watcher\Operate\RunOptions;
@@ -39,7 +38,7 @@ final class FleetRunner
      *        builds the runnable for one entry; the third argument is the fleet seam of this run (pass it to the Watcher and
      *        take its notifier from `$seam->notifierFor()`)
      * @param StateStore $state the store shared by the fleet: fleet counters, fleet alerts and the fleet heartbeat
-     * @param Notifier|null $notifier what the fleet itself posts (budget notices, combined digest); null = posts nothing
+     * @param Notifier|null $notifier what the fleet itself posts (combined digest); null = posts nothing
      */
     public function __construct(
         private readonly FleetConfig $config,
@@ -87,7 +86,7 @@ final class FleetRunner
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
         $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share, $http): callable {
-            // Spec 009: a service's own metrics and Sentry (its own tokens, one 60 s budget per call) stop with the run deadline of its Watcher.
+            // Spec 009: a service's own metrics and Sentry (its own tokens, one 60 s limit per call) stop with the run deadline of its Watcher.
             $late = new class () {
                 public ?Watcher $watcher = null;
             };
@@ -96,7 +95,7 @@ final class FleetRunner
                 $e->config,
                 $sources[$e->name()],
                 $state,
-                Factory::analyzer($e->config, $options->dryRun), // one per service: the cost ledger books under the service's own key
+                Factory::analyzer($e->config), // one per service
                 $seam?->notifierFor($e->name(), $notifier) ?? $notifier,
                 $clock,
                 $log,
@@ -132,18 +131,15 @@ final class FleetRunner
             throw new InvalidConfig('--only names a service that is not in the fleet');
         }
         if (!$this->config->enabled) {
-            // The fleet switch: no store, budget, source or notifier is reached.
+            // The fleet switch: no store, source or notifier is reached.
             return new FleetResult($this->config->name, array_map(static fn (string $n): ServiceResult => ServiceResult::disabled($n), array_values(array_filter($names, static fn (string $n): bool => $only === [] || in_array($n, $only, true)))));
         }
         $startedAt = $this->clock->now();
         $now ??= $startedAt; // one instant for the whole trigger
         $deadline = $this->config->timeBudgetSeconds === null ? null : $startedAt->modify('+' . $this->config->timeBudgetSeconds . ' seconds');
 
-        // A dry run reads the fleet counters but never writes them, and the fleet posts nothing.
-        $b = $this->config->budget;
-        $budget = new FleetBudget($options->dryRun ? new DryRunStateStore($this->state) : $this->state, $this->clock, new DateTimeZone($this->config->timezone), $this->config->name, $b['daily_budget_usd'], $b['daily_token_limit'], $b['alert_percents']);
         $correlator = new Correlator($this->config->services, $this->config->correlationToleranceSeconds, $this->config->correlationEnabled);
-        $seam = new FleetSeam($budget, $this->config->digest === 'combined', $correlator);
+        $seam = new FleetSeam($this->config->digest === 'combined', $correlator);
 
         $results = [];
         foreach ($this->config->inOrder() as $entry) {
@@ -158,11 +154,7 @@ final class FleetRunner
                 $results[] = ServiceResult::skippedTime($entry->name());
                 continue;
             }
-            $before = $budget->today();
             $results[] = $this->runOne($entry, $now, $options, $seam);
-            if (!$options->dryRun) {
-                $this->alert($budget, $before);
-            }
         }
         $combinedPosted = $this->postCombined($seam, $results, $options->dryRun);
         $correlated = $seam->correlated($this->config->name);
@@ -171,7 +163,7 @@ final class FleetRunner
             $this->heartbeat($results, $startedAt);
         }
 
-        return new FleetResult($this->config->name, $results, $correlated, $correlatedPosted, $combinedPosted, $budget->today()['usd']);
+        return new FleetResult($this->config->name, $results, $correlated, $correlatedPosted, $combinedPosted);
     }
 
     /** Where the fleet's own messages go: its notice destination, else its digest one; null = nowhere. */
@@ -186,23 +178,6 @@ final class FleetRunner
         ($this->out ?? static function (string $s): void {
             fwrite(STDOUT, $s);
         })("== DRY RUN message to $kind ==\n" . $text . (str_ends_with($text, "\n") ? '' : "\n"));
-    }
-
-    /** @param array{usd: float, tokens: int} $before */
-    private function alert(FleetBudget $budget, array $before): void
-    {
-        $to = $this->destination();
-        $alert = $to === null ? null : $budget->alert($before, $budget->today());
-        if ($to === null || $alert === null || $this->notifier === null) {
-            return;
-        }
-        try {
-            $text = $alert->noticeText('fleet ' . $this->config->name);
-            $this->notifier->send(new Message($text, [['kind' => 'notice', 'text' => $text]]), $to);
-        } catch (Throwable $e) {
-            $budget->release($alert);
-            $this->log?->warning('fleet budget alert not delivered: ' . $this->describe($e), ['fleet' => $this->config->name]);
-        }
     }
 
     /**
@@ -309,7 +284,7 @@ final class FleetRunner
             $first->state['retention'],
             $this->log,
             $secrets,
-        ))->recordRun($outcome, $startedAt, $now, $startedAt, 0.0, $failed > 0 ? $failed . ($failed === 1 ? ' service failed' : ' services failed') : null);
+        ))->recordRun($outcome, $startedAt, $now, $startedAt, $failed > 0 ? $failed . ($failed === 1 ? ' service failed' : ' services failed') : null);
     }
 
     /** Class name and a masked message for the host log: a delivery error can echo a webhook URL or token. */

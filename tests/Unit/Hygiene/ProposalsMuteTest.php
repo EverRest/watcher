@@ -59,8 +59,8 @@ final class ProposalsMuteTest extends TestCase
         self::assertSame('open', $p['status']);
         self::assertMatchesRegularExpression('/^[0-9a-f]{10}$/', $p['id']);
         self::assertSame("['fingerprint' => 'aaaaaaaaaaaa', 'until' => null],", $p['fragment']);
-        self::assertSame(['days_seen' => 16, 'events_per_day' => 500, 'tokens' => 640], $p['evidence']);
-        self::assertSame(['tokens_per_day' => 40.0, 'events_per_day' => 500], $p['expected_saving']);
+        self::assertSame(['days_seen' => 16, 'events_per_day' => 500], $p['evidence']);
+        self::assertSame(['events_per_day' => 500], $p['expected_saving']);
     }
 
     /** @return iterable<string, array{string, string, bool}> */

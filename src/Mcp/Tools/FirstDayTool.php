@@ -25,7 +25,7 @@ final class FirstDayTool implements Tool
 
     public function description(): string
     {
-        return 'Returns the first-day procedure for a host: check, cost estimate, baseline run, second run, idempotency run and status, each with the command and the outcome code to expect.';
+        return 'Returns the first-day procedure for a host: check, estimate, baseline run, second run, idempotency run and status, each with the command and the outcome code to expect.';
     }
 
     public function inputSchema(): array

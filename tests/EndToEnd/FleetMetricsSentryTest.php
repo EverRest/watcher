@@ -21,7 +21,7 @@ final class FleetMetricsSentryTest extends TestCase
             'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'http://127.0.0.1:1', 'allow_insecure' => true], 'stream_tags' => ['app' => $name]],
-            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'], 'prices' => ['m-t' => [1, 5, 0.1, 1.25], 'm-a' => [3, 15, 0.3, 3.75], 'm-e' => [5, 25, 0.5, 6.25]]],
+            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => $dir]],
             'notify' => ['digest' => ['webhook' => 'https://hooks.example/x']],
         ];

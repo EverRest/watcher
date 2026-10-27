@@ -21,7 +21,7 @@ final class WatchConfigProvidersTest extends TestCase
             'analysis' => [
                 'api_key' => 'sk-anthropic-secret',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
-                'prices' => ['m1' => [1, 5, 0.1, 1.25], 'm2' => [3, 15, 0.3, 3.75], 'm3' => [5, 25, 0.5, 6.25]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/SECRET']],
@@ -110,13 +110,6 @@ final class WatchConfigProvidersTest extends TestCase
         $this->expectException(InvalidConfig::class);
         $this->expectExceptionMessage('analysis.providers_options.anthropic.retries');
         WatchConfig::fromArray(self::withAnalysis(['providers_options' => ['anthropic' => ['retries' => 4]]]));
-    }
-
-    public function testAStepModelMissingFromPricesFailsAtLoad(): void
-    {
-        $this->expectException(InvalidConfig::class);
-        $this->expectExceptionMessage('analysis.prices');
-        WatchConfig::fromArray(self::withAnalysis(['models' => ['escalate' => 'not-priced']]));
     }
 
     public function testOpenAiMayNotRetry(): void

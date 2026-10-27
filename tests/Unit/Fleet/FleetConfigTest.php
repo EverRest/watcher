@@ -27,7 +27,7 @@ final class FleetConfigTest extends TestCase
             'analysis' => [
                 'api_key' => self::SECRET,
                 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'],
-                'prices' => ['m-t' => [1, 5, 0.1, 1.25], 'm-a' => [3, 15, 0.3, 3.75], 'm-e' => [5, 25, 0.5, 6.25]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],
@@ -161,27 +161,6 @@ final class FleetConfigTest extends TestCase
         self::assertSame('services must be a non-empty list', self::message(self::fleet([])));
     }
 
-    public function testBudgetDigestTimeBudgetAndCorrelationAreParsed(): void
-    {
-        $f = FleetConfig::fromArray(self::fleet([self::service('a')], [
-            'digest' => 'combined',
-            'timezone' => 'Europe/Kyiv',
-            'time_budget' => 'PT50M',
-            'budget' => ['daily_budget_usd' => 3.0, 'daily_token_limit' => 2000000],
-            'notify' => ['digest' => ['webhook' => 'https://hooks.invalid/fleet']],
-            'correlation' => ['enabled' => false, 'tolerance' => 'PT5M'],
-        ]));
-
-        self::assertSame('combined', $f->digest);
-        self::assertSame('Europe/Kyiv', $f->timezone);
-        self::assertSame(3000, $f->timeBudgetSeconds);
-        self::assertSame(3.0, $f->budget['daily_budget_usd']);
-        self::assertSame(2000000, $f->budget['daily_token_limit']);
-        self::assertSame([25, 50, 75, 90], $f->budget['alert_percents']);
-        self::assertFalse($f->correlationEnabled);
-        self::assertSame(300, $f->correlationToleranceSeconds);
-    }
-
     /** @return iterable<string, array{array<string, mixed>, string}> */
     public static function invalidFleetKeys(): iterable
     {
@@ -190,10 +169,7 @@ final class FleetConfigTest extends TestCase
         yield 'time_budget zero' => [['time_budget' => 'PT0S'], 'time_budget must be longer than zero'];
         yield 'tolerance' => [['correlation' => ['tolerance' => 'x']], 'correlation.tolerance must be an ISO-8601 duration'];
         yield 'timezone' => [['timezone' => 'Mars/Base'], 'timezone must be an IANA timezone'];
-        yield 'budget usd' => [['budget' => ['daily_budget_usd' => 0]], 'budget.daily_budget_usd must be a number greater than zero'];
-        yield 'budget tokens' => [['budget' => ['daily_token_limit' => -1]], 'budget.daily_token_limit must be null or a positive integer'];
-        yield 'budget percents' => [['budget' => ['alert_percents' => [90, 50]]], 'budget.alert_percents must be ascending integers from 1 to 99'];
-        yield 'budget key' => [['budget' => ['cap' => 1]], 'Unknown configuration key: fleet.budget.cap'];
+        yield 'budget removed' => [['budget' => ['daily_budget_usd' => 1]], 'budget was removed in 0.5.0; there is no replacement. Delete this section.'];
         yield 'correlation key' => [['correlation' => ['x' => 1]], 'Unknown configuration key: fleet.correlation.x'];
         yield 'combined needs a destination' => [['digest' => 'combined'], 'digest combined needs notify.digest'];
     }

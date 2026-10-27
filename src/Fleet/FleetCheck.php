@@ -13,7 +13,7 @@ use Watcher\Operate\Doctor;
 use Watcher\Schedule\SystemClock;
 
 /**
- * `watcher fleet:check`: the single-service check for every service (no spend), one shared state check, the resolved
+ * `watcher fleet:check`: the single-service check for every service (no model call), one shared state check, the resolved
  * order, and a warning for a declared dependency that no fleet service provides.
  */
 final class FleetCheck

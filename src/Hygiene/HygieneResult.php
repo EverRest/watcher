@@ -11,7 +11,7 @@ namespace Watcher\Hygiene;
 final class HygieneResult
 {
     /**
-     * @param array<string, Report> $reports in the order privacy, shape, proposals, cost
+     * @param array<string, Report> $reports in the order privacy, shape, proposals
      * @param list<string> $notes lines printed after the reports
      * @param array<string, mixed> $envelope service, environment, generated_at, window, events_read, sampled
      */

@@ -19,7 +19,7 @@ use Watcher\State\Redis\RedisClient;
  * (write()) takes a positive TTL, the counter script sets PEXPIRE in the same script as INCRBYFLOAT, and a TTL
  * of zero or less is refused (the key kind is named in the message, never the key).
  */
-final class RedisStateStore implements StateStore, RenewableLock, ReservableCounters, UnreadableCounter
+final class RedisStateStore implements StateStore, RenewableLock, UnreadableCounter
 {
     public const RELEASE = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0";
 
@@ -30,14 +30,6 @@ final class RedisStateStore implements StateStore, RenewableLock, ReservableCoun
     public const INCREMENT = "local v = redis.call('INCRBYFLOAT', KEYS[1], ARGV[1]) "
         . "if redis.call('PTTL', KEYS[1]) < 0 then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return v";
 
-    // M2: check both caps and add to both counters in one script, so parallel runs cannot all pass the check. Expiry is set
-    // in the same script (PEXPIRE when PTTL < 0), like INCREMENT. ARGV: usd, tokens, usd cap, token cap (< 0 = none), ttl ms.
-    public const RESERVE = "local usd = tonumber(redis.call('GET', KEYS[1]) or '0') "
-        . "local tok = tonumber(redis.call('GET', KEYS[2]) or '0') "
-        . "if usd + tonumber(ARGV[1]) > tonumber(ARGV[3]) then return 0 end "
-        . "if tonumber(ARGV[4]) >= 0 and tok + tonumber(ARGV[2]) > tonumber(ARGV[4]) then return 0 end "
-        . "for i = 1, 2 do redis.call('INCRBYFLOAT', KEYS[i], ARGV[i]) "
-        . "if redis.call('PTTL', KEYS[i]) < 0 then redis.call('PEXPIRE', KEYS[i], ARGV[5]) end end return 1";
 
     /** Entries that were present but could not be decoded (corrupt, over the size cap, or compressed without ext-zlib), read as missing. */
     public int $unreadable = 0;
@@ -114,26 +106,6 @@ final class RedisStateStore implements StateStore, RenewableLock, ReservableCoun
         return (float) $result;
     }
 
-    public function reserve(string $usdKey, string $tokensKey, float $usd, float $tokens, float $usdCap, ?float $tokenCap, int $ttlSeconds): bool
-    {
-        $ms = $this->ttlMs($usdKey, $ttlSeconds);
-        $result = $this->client->eval(
-            self::RESERVE,
-            [$this->prefix . $usdKey, $this->prefix . $tokensKey],
-            [self::decimal($usd), self::decimal($tokens), self::decimal($usdCap), $tokenCap === null ? '-1' : self::decimal($tokenCap), (string) $ms],
-        );
-        if ($result !== 0 && $result !== 1) {
-            throw new RuntimeException('Redis reserve failed');
-        }
-
-        return $result === 1;
-    }
-
-    private static function decimal(float $v): string
-    {
-        return sprintf('%.10F', $v);
-    }
-
     /** The only place a value is stored: it cannot be reached without a positive TTL. */
     private function write(string $key, string $payload, int $ttlSeconds, bool $onlyIfAbsent): bool
     {
@@ -149,7 +121,7 @@ final class RedisStateStore implements StateStore, RenewableLock, ReservableCoun
         return $ttlSeconds * 1000;
     }
 
-    /** The leading `kind` of a logical key (`run`, `spend`, ...): safe to log, unlike the key, which carries a service name. */
+    /** The leading `kind` of a logical key (`run`, `lock`, ...): safe to log, unlike the key, which carries a service name. */
     private static function kind(string $key): string
     {
         $head = explode(':', $key, 2)[0];
