@@ -22,6 +22,8 @@ final class AnalysisRequest
         public readonly ?PayloadExtras $extras = null,
         /** @var array<string, string> fingerprint => `ep`, the masked one-line endpoint documentation (spec 010) */
         public readonly array $endpoints = [],
+        /** The step whose provider serves this call: 'analyze' or 'escalate' (spec 016). */
+        public readonly string $step = 'analyze',
     ) {
     }
 }

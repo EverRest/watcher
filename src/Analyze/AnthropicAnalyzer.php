@@ -13,7 +13,7 @@ final class AnthropicAnalyzer implements Analyzer
 {
     private readonly OutputValidator $validator;
 
-    public function __construct(private readonly ModelProvider $client, private readonly bool $advice = true)
+    public function __construct(private readonly ProviderRegistry $providers, private readonly bool $advice = true)
     {
         $this->validator = new OutputValidator($advice);
     }
@@ -24,6 +24,7 @@ final class AnthropicAnalyzer implements Analyzer
 
         [$out, $usage] = $this->attempt(
             'triage',
+            $req->step,
             $req->groups,
             $req->serviceContext,
             $req->model,
@@ -64,6 +65,7 @@ final class AnthropicAnalyzer implements Analyzer
 
         [$findings, $usage] = $this->attempt(
             'analysis',
+            $req->step,
             $req->groups,
             $req->serviceContext,
             $req->model,
@@ -91,13 +93,13 @@ final class AnthropicAnalyzer implements Analyzer
      *
      * @return array{0: T, 1: Usage}
      */
-    private function attempt(string $kind, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): array
+    private function attempt(string $kind, string $step, array $groups, string $context, string $model, int $maxTokens, callable $validate, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): array
     {
         $usage = null;
 
         for ($attempt = 1; $attempt <= 2; ++$attempt) {
             try {
-                $message = $this->call($kind, $groups, $context, $model, $maxTokens, $dependencyContext, $extras, $endpoints);
+                $message = $this->call($kind, $step, $groups, $context, $model, $maxTokens, $dependencyContext, $extras, $endpoints);
             } catch (AnalyzerFailed $e) {
                 throw $usage === null ? $e : new AnalyzerFailed($e->getMessage(), $usage); // attempt 1 was billed even though attempt 2 failed
             }
@@ -126,9 +128,9 @@ final class AnthropicAnalyzer implements Analyzer
      * @param list<DependencyContext> $dependencyContext
      * @param array<string, string>   $endpoints
      */
-    private function call(string $kind, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): ModelReply
+    private function call(string $kind, string $step, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): ModelReply
     {
-        return $this->client->create(
+        return $this->providers->for($step)->create(
             $model,
             $maxTokens,
             Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice, $extras !== null, $endpoints !== []),

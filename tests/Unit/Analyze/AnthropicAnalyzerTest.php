@@ -15,6 +15,7 @@ use Psr\Http\Message\RequestInterface;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\ProviderRegistry;
 use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\FindingKind;
@@ -49,7 +50,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
 
-        return new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])));
+        return new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack]))));
     }
 
     private static function request(): AnalysisRequest
@@ -111,7 +112,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $log = [];
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
-        (new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])), false))->analyze(self::request());
+        (new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack]))), false))->analyze(self::request());
         $off = $this->body();
         self::assertStringNotContainsString('how_to_check', (string) json_encode($off));
         self::assertStringNotContainsString('related_checks', (string) json_encode($off));

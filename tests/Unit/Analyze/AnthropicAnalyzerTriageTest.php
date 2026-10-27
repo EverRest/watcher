@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\ProviderRegistry;
 use Watcher\Analyze\AnthropicHttpClient;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\ProviderSchema;
@@ -42,7 +43,7 @@ final class AnthropicAnalyzerTriageTest extends TestCase
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
 
-        return new AnthropicAnalyzer(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack])));
+        return new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack]))));
     }
 
     private static function request(): TriageRequest

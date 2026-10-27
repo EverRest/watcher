@@ -1,0 +1,23 @@
+{
+  "id": "chatcmpl-fixture",
+  "object": "chat.completion",
+  "model": "gpt-fixture-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"findings\":[{\"fingerprints\":[\"fp-aaa\"],\"kind\":\"regression\",\"severity\":\"error\",\"title\":\"Payment gateway timeouts\",\"evidence\":\"fp-aaa rose from 3 to 41 occurrences\",\"suspected_cause\":\"Possibly an upstream slowdown (hypothesis)\",\"suggested_action\":\"Check the gateway latency dashboard\",\"confidence\":0.7}]}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 150,
+    "total_tokens": 1350,
+    "prompt_tokens_details": {
+      "cached_tokens": 400
+    }
+  }
+}

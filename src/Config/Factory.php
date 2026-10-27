@@ -15,7 +15,11 @@ use Redis;
 use RedisException;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnthropicAnalyzer;
-use Watcher\Analyze\AnthropicHttpClient;
+use Watcher\Analyze\AnthropicSdkProvider;
+use Watcher\Analyze\GeminiProvider;
+use Watcher\Analyze\ModelProvider;
+use Watcher\Analyze\OpenAiProvider;
+use Watcher\Analyze\ProviderRegistry;
 use Watcher\Issues\IssueSource;
 use Watcher\Issues\SentryIssueSource;
 use Watcher\Metrics\MetricSource;
@@ -452,19 +456,30 @@ final class Factory
     /** @param bool $dryRun a billed dry run must not write into the real cost ledger (spec 006, review M3) */
     public static function analyzer(WatchConfig $c, bool $dryRun = false): Analyzer
     {
-        if ($c->analysis['provider'] !== 'anthropic') {
-            throw self::unavailable('analysis.provider', (string) $c->analysis['provider']);
-        }
-
         $options = self::analyzerHttpOptions($c->schedule['lock_ttl']);
-        $key = WatchConfig::reveal($c->analysis['api_key']);
+        $http = new Client($options);
 
-        $analyzer = new AnthropicAnalyzer(
-            new AnthropicHttpClient($key, new Client($options), $options['timeout']),
-            $c->on('advice'),
-        );
+        $providers = [];
+        foreach (array_unique(array_values($c->analysis['step_providers'])) as $name) {
+            $providers[$name] = self::modelProvider($name, $c, $http, $options['timeout']);
+        }
+        $analyzer = new AnthropicAnalyzer(new ProviderRegistry($providers, $c->analysis['step_providers']), $c->on('advice'));
 
         return $c->hygiene->enabled ? self::ledgered($c, $analyzer, $dryRun) : $analyzer;
+    }
+
+    /** The adapter for one provider name, with its key, base URL and retries from configuration (spec 016). */
+    private static function modelProvider(string $name, WatchConfig $c, Client $http, int $timeout): ModelProvider
+    {
+        $key = WatchConfig::reveal($c->analysis['api_keys'][$name]);
+        $opt = $c->analysis['providers_options'][$name];
+
+        return match ($name) {
+            'anthropic' => new AnthropicSdkProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
+            'openai' => new OpenAiProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
+            'gemini' => new GeminiProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
+            default => throw new \LogicException("no adapter for provider $name"),
+        };
     }
 
     /** The store the cost ledger writes to: the real one, or in a dry run a shadow that is read through and never written back. */
@@ -663,8 +678,4 @@ final class Factory
         return $status->withWarnings(array_map(static fn (string $sink): string => 'sink_failed:' . $sink, $failed));
     }
 
-    private static function unavailable(string $key, string $value): InvalidConfig
-    {
-        return new InvalidConfig("$key '$value' is not available yet");
-    }
 }
