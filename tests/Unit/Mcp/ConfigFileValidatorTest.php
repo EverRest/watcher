@@ -59,7 +59,8 @@ final class ConfigFileValidatorTest extends TestCase
             }
         }
 
-        return $r['php_snippet'];
+        // The operator types the prices in; the generated file leaves them unset (null) until then.
+        return str_replace('[null, null, null, null]', '[1.0, 5.0, 0.1, 1.25]', $r['php_snippet']);
     }
 
     /**

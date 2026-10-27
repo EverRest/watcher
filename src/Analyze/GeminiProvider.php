@@ -9,8 +9,10 @@ use GuzzleHttp\ClientInterface;
 /**
  * Gemini generateContent over the package's HTTP client (no official PHP SDK exists, research R2). Structured output is the
  * stripped schema in `responseJsonSchema`; the analyzer still validates the reply in code. Implicit caching is reported as
- * `cachedContentTokenCount` (read tokens); no cache-write count exists, so writes are 0. Thinking is turned off with
- * `thinkingBudget` 0 for the non-thinking step; the exact field and its per-model support are still to be verified (research R3).
+ * `cachedContentTokenCount` (read tokens); no cache-write count exists, so writes are 0. Output tokens include the thinking
+ * tokens (`thoughtsTokenCount`), which the official reference counts separately from `candidatesTokenCount`. No `thinkingConfig`
+ * is sent: the reference says it errors on models without thinking, and it does not document 0 as "off" (research R3). So the
+ * triage step may think and pay for it; this is a known cost gap until a per-model setting is verified.
  * The client never retries itself: `maxRetries` must be 0 (config refuses more).
  */
 final class GeminiProvider implements ModelProvider
@@ -45,9 +47,6 @@ final class GeminiProvider implements ModelProvider
             'responseMimeType' => 'application/json',
             'responseJsonSchema' => $schema,
         ];
-        if (!$thinking) {
-            $generation['thinkingConfig'] = ['thinkingBudget' => 0];
-        }
 
         [, $data] = GuzzlePost::json(
             $this->http,
@@ -73,7 +72,8 @@ final class GeminiProvider implements ModelProvider
         $in = is_array($usage) ? ($usage['promptTokenCount'] ?? null) : null;
         $out = is_array($usage) ? ($usage['candidatesTokenCount'] ?? null) : null;
         $cached = is_array($usage) ? ($usage['cachedContentTokenCount'] ?? 0) : 0;
-        if (!is_int($in) || !is_int($out) || $in < 0 || $out < 0 || !is_int($cached) || $cached < 0 || !is_array($candidate)) {
+        $thoughts = is_array($usage) ? ($usage['thoughtsTokenCount'] ?? 0) : 0;
+        if (!is_int($in) || !is_int($out) || $in < 0 || $out < 0 || !is_int($cached) || $cached < 0 || $cached > $in || !is_int($thoughts) || $thoughts < 0 || !is_array($candidate)) {
             throw new AnalyzerFailed('provider unavailable (invalid reply)');
         }
 
@@ -87,6 +87,7 @@ final class GeminiProvider implements ModelProvider
         $finish = $candidate['finishReason'] ?? null;
         $model = is_string($data['modelVersion'] ?? null) ? $data['modelVersion'] : $requested;
 
-        return new ModelReply($text, is_string($finish) ? (self::STOPS[$finish] ?? null) : null, $model, $in, $out, $cached, 0);
+        // promptTokenCount includes the cached content (official reference): the uncached input is the rest.
+        return new ModelReply($text, is_string($finish) ? (self::STOPS[$finish] ?? null) : null, $model, $in - $cached, $out + $thoughts, $cached, 0);
     }
 }

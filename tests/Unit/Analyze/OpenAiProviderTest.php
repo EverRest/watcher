@@ -53,11 +53,20 @@ final class OpenAiProviderTest extends TestCase
         self::assertFalse($body['response_format']['json_schema']['strict'], 'stripped schema is not strict-compatible');
     }
 
+    public function testTriageAsksForNoReasoning(): void
+    {
+        [$off] = $this->call('ok.json');
+        [$on] = $this->call('ok.json', true);
+
+        self::assertSame('none', $off['reasoning_effort']);
+        self::assertArrayNotHasKey('reasoning_effort', $on);
+    }
+
     public function testCachedTokensAreReadTokensAndWritesAreZero(): void
     {
         [, $reply] = $this->call('ok.json');
 
-        self::assertSame(1200, $reply->inputTokens);
+        self::assertSame(800, $reply->inputTokens, 'prompt 1200 includes 400 cached: the uncached input is 800');
         self::assertSame(150, $reply->outputTokens);
         self::assertSame(400, $reply->cacheReadTokens);
         self::assertSame(0, $reply->cacheWriteTokens);

@@ -46,6 +46,9 @@ final class OpenAiProvider implements ModelProvider
             [
                 'model' => $model,
                 'max_completion_tokens' => $maxTokens,
+                // The official reference lists `none` for reasoning_effort; not every model accepts the parameter (a model
+                // that rejects it fails the call loudly, as a 400).
+                ...($thinking ? [] : ['reasoning_effort' => 'none']),
                 'messages' => [['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]],
                 // Not strict: the stripped schema does not set additionalProperties:false, which strict mode requires.
                 'response_format' => ['type' => 'json_schema', 'json_schema' => ['name' => 'analysis', 'schema' => $schema, 'strict' => false]],
@@ -65,13 +68,14 @@ final class OpenAiProvider implements ModelProvider
         $in = is_array($usage) ? ($usage['prompt_tokens'] ?? null) : null;
         $out = is_array($usage) ? ($usage['completion_tokens'] ?? null) : null;
         $cached = is_array($usage) ? ($usage['prompt_tokens_details']['cached_tokens'] ?? 0) : 0;
-        if (!is_int($in) || !is_int($out) || $in < 0 || $out < 0 || !is_int($cached) || $cached < 0 || !is_string($data['model'] ?? null) || !is_array($choice)) {
+        if (!is_int($in) || !is_int($out) || $in < 0 || $out < 0 || !is_int($cached) || $cached < 0 || $cached > $in || !is_string($data['model'] ?? null) || !is_array($choice)) {
             throw new AnalyzerFailed('provider unavailable (invalid reply)');
         }
 
         $text = is_array($choice['message'] ?? null) && is_string($choice['message']['content'] ?? null) ? $choice['message']['content'] : null;
         $finish = $choice['finish_reason'] ?? null;
 
-        return new ModelReply($text, is_string($finish) ? (self::STOPS[$finish] ?? null) : null, $data['model'], $in, $out, $cached, 0);
+        // prompt_tokens includes the cached ones: the uncached input is the rest, or the cached tokens would be paid twice.
+        return new ModelReply($text, is_string($finish) ? (self::STOPS[$finish] ?? null) : null, $data['model'], $in - $cached, $out, $cached, 0);
     }
 }

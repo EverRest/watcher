@@ -118,3 +118,24 @@ The privacy pipeline runs before any provider is called (unchanged). The privacy
 - Unsupported JSON Schema keywords (Interactions): minLength, maxLength, minProperties, maxProperties, uniqueItems, contains, minContains, maxContains are not enforced; minItems and maxItems are. The analyzer already validates these in code (OutputValidator), so the stripped schema stays valid.
 
 Open for T005 (blocked on the generate-content reference's GenerationConfig section, which WebFetch cannot page): the thinking-off field and value, and the exact generationConfig field names.
+
+## R3 verified against official machine-readable sources (2026-10-27)
+
+Sources: the Gemini discovery document `https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta` and the OpenAI OpenAPI spec `https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml`. These replace the earlier search-snippet and guide-page checks, which were partial.
+
+**Gemini (generateContent).**
+- `generationConfig`: `responseMimeType`, `responseJsonSchema`, `maxOutputTokens` exist with these names.
+- `thinkingConfig` (`ThinkingConfig`): `thinkingBudget` and `thinkingLevel`. The description of `thinkingConfig` says: "An error will be returned if this field is set for models that don't support thinking." The reference does NOT document `thinkingBudget: 0` as "thinking off". So the adapter sends no `thinkingConfig`. Triage on Gemini may therefore think and pay for thought tokens. Open: a per-model setting that turns thinking off, verified against the model list.
+- `usageMetadata`: `promptTokenCount` "includes the number of tokens in the cached content"; `cachedContentTokenCount` is the cached part; `candidatesTokenCount` is "across all the generated response candidates"; `thoughtsTokenCount` is separate; `totalTokenCount` = prompt + tool-use prompt + thoughts + candidates. So output tokens are `candidatesTokenCount + thoughtsTokenCount`, and input tokens are `promptTokenCount - cachedContentTokenCount`. The adapter does both.
+- `finishReason` values include `STOP`, `MAX_TOKENS`, `SAFETY`, plus many others (mapped to null when not listed in the adapter).
+
+**OpenAI (Chat Completions).**
+- `max_completion_tokens` exists.
+- `response_format` `json_schema` with `strict` (default false) exists. The adapter sends `strict: false` because the stripped schema lacks `additionalProperties: false`.
+- `reasoning_effort` accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. "Not all reasoning models support every value." The adapter sends `none` for the non-thinking step. A model that rejects the parameter fails the call loudly (400), which the operator must avoid by choosing a model.
+- `finish_reason`: `stop`, `length`, `content_filter` (plus others).
+- `usage.prompt_tokens` includes the cached part; `prompt_tokens_details.cached_tokens` is the cached part. The adapter sends uncached input = prompt − cached.
+
+**Still open.**
+- Gemini: a way to make triage non-thinking per model (see above).
+- OpenAI: whether a strict schema prevents cache writes (only a community report; OpenAI reports no cache-write count on Chat Completions, so cache writes stay 0).
