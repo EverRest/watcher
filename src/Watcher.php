@@ -903,7 +903,7 @@ final class Watcher
         }
 
         $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures, extras: $digestExtras->isEmpty() ? null : $digestExtras, payloadExtras: $payloadExtras, traces: $traces, knownResult: $knownResult, knownLine: $knownLine);
-        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started, buffer: $knownBuffer);
+        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, keys: $keys, started: $started, buffer: $knownBuffer);
 
         $routed = $analysis->routed;
         $findings = $routed->findings; // already scrubbed by the decorator, before the router cached them
@@ -968,10 +968,9 @@ final class Watcher
      *
      * @throws AnalyzerFailed after the window snapshot is kept, so the next trigger retries
      */
-    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, string $environment, WindowKeys $keys, DateTimeImmutable $started, ?BufferedStateStore $buffer = null): Analysis
+    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, WindowKeys $keys, DateTimeImmutable $started, ?BufferedStateStore $buffer = null): Analysis
     {
         $c = $this->config;
-        $service = $c->service;
         $key = $c->stateKey;
         $retention = $c->state['retention'];
         $window = $read->window;
