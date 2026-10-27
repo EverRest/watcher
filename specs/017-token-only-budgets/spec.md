@@ -10,6 +10,13 @@
 
 **Input**: User description: "Spec 017: token-only budgets and reporting. Remove USD cost everywhere the package computes it: model prices, daily_budget_usd and run_budget_usd, budget alerts in currency, the digest cost line, the hygiene cost ledger and cost report, fleet budgets, cost metrics, and the MCP setup/check tools. Budgets become token limits only. The digest reports tokens in, out and cached per step and per run instead of cost. Keep the privacy pipeline, the per-step provider routing from spec 016, and the failure rules unchanged. Old USD keys fail at config load with a message naming the replacement key. Smoke test check 6 compares tokens with the provider console instead of cost."
 
+## Clarifications
+
+### Session 2026-10-27
+
+- Q: Does a per-run token limit need a default value? → A: No. It is unset (null) unless the operator sets it; the daily token limit stays the only cap that applies without configuration.
+- Q: How are hygiene entries written before 0.5.0 that hold only cost shown? → A: As "no tokens recorded"; they are never converted from cost to tokens.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Limit spend in tokens (Priority: P1)
@@ -89,14 +96,14 @@ The first live smoke run compares the tokens the digest reports with the usage p
 - A provider reply with a usage count missing: the run fails loudly as an invalid reply (unchanged).
 - A budget already spent when the run starts: the triage-only day rule applies unchanged, counted in tokens.
 - The MCP setup and check tools no longer ask for prices, and a stored price from an older run is ignored with a notice rather than used.
-- Hygiene history written before 0.5.0 that holds cost figures: read as tokens where tokens were stored; otherwise the cost entries are reported as "pre-0.5.0, no tokens recorded" and not converted.
+- Hygiene history written before 0.5.0 that holds cost figures: read as tokens where tokens were stored; otherwise the entry is reported as "no tokens recorded" and never converted (see Clarifications).
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The package MUST NOT compute, store as a current figure, or display any monetary amount for model use.
-- **FR-002**: Budgets MUST be expressed in tokens only: a daily token limit (`analysis.daily_token_limit`) and a per-run token limit that replaces `analysis.run_budget_usd`. A limit is null (unset) or a positive integer.
+- **FR-002**: Budgets MUST be expressed in tokens only: a daily token limit (`analysis.daily_token_limit`) and a per-run token limit that replaces `analysis.run_budget_usd`. A limit is null (unset) or a positive integer. Both default to null: no per-run limit applies unless the operator sets one.
 - **FR-003**: Each billable step MUST reserve its worst case in tokens before the call (planned input tokens plus the output cap, and for a retry the doubled cap), and run only if the reservation fits the daily and per-run limits. This is the existing reservation rule, counted in tokens.
 - **FR-004**: The budget alert thresholds (`analysis.budget_alert_percents`) MUST apply to the daily token limit, and each alert MUST state the percentage and the tokens used.
 - **FR-005**: The digest MUST report, for each step and for the run, the tokens in, tokens out and tokens served from cache, plus the share of the daily token limit used when a limit is set. It MUST NOT contain a currency amount.
@@ -127,7 +134,7 @@ The first live smoke run compares the tokens the digest reports with the usage p
 ## Assumptions
 
 - Version 0.5.0 is a minor release under pre-1.0 semver; the change is breaking for configuration and is documented as such. A 1.0.0 release is a separate decision.
-- The per-run token limit has no default: the daily token limit remains the only default-off cap, as today. Per-run limits derived from the daily limit (the old USD rule) are dropped; a run that needs a per-run cap sets one explicitly.
+- The per-run token limit defaults to null (see Clarifications). Per-run limits derived from the daily limit (the old USD rule) are dropped; a run that needs a per-run cap sets one explicitly.
 - Token counts come from the providers' reported usage, as in spec 016. No token estimate is shown as a reported figure.
 - Prices are no longer read anywhere. Operators who want a dollar figure compare the token counts with the provider's own pricing; the package does not convert.
 - The hygiene cost ledger keeps its existing retention and expiry rules (Principle I, 30 days); only its units change.

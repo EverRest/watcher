@@ -31,4 +31,4 @@
 
 ## Notes
 
-- Open for `/speckit-clarify`: whether the per-run token limit needs a default; how old cost-only hygiene entries are reported (proposed: "no tokens recorded", never converted).
+- Clarified 2026-10-27 (see spec.md, Clarifications): the per-run token limit defaults to null; cost-only hygiene entries are reported as "no tokens recorded" and never converted.
