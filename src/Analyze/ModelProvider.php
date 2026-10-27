@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher\Analyze;
 
-interface MessagesClient
+interface ModelProvider
 {
     /**
      * One structured-output call, never retried here.

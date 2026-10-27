@@ -8,12 +8,12 @@ use JsonException;
 use Watcher\Context\DependencyContext;
 use Watcher\Privacy\RedactedGroup;
 
-/** One structured-output call through a MessagesClient, validated in code, one retry on bad output. */
+/** One structured-output call through a ModelProvider, validated in code, one retry on bad output. */
 final class AnthropicAnalyzer implements Analyzer
 {
     private readonly OutputValidator $validator;
 
-    public function __construct(private readonly MessagesClient $client, private readonly bool $advice = true)
+    public function __construct(private readonly ModelProvider $client, private readonly bool $advice = true)
     {
         $this->validator = new OutputValidator($advice);
     }

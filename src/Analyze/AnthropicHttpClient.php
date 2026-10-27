@@ -15,7 +15,7 @@ use Watcher\Source\SourceUnavailable;
  * the reply is size-bounded, and a call is never retried here (the next scheduled run is the retry). A failure names the
  * exception class or HTTP status and nothing else: never the URL, the key or the body.
  */
-final class AnthropicHttpClient implements MessagesClient
+final class AnthropicHttpClient implements ModelProvider
 {
     private const URL = 'https://api.anthropic.com/v1/messages';
     private const VERSION = '2023-06-01';
