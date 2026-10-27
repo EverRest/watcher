@@ -1,10 +1,12 @@
 <!--
 Sync Impact Report
-- Version change: (none) → 1.0.0 (initial ratification)
-- Principles added: I. Privacy Fails Closed; II. Read-Only by Design; III. Test-First;
-  IV. Code Decides, the Model Judges; V. Token and Cost Discipline; VI. Configuration and
-  Contracts over Hard-Coding; VII. Failures Are Loud; VIII. Simplicity
-- Sections added: Technical Constraints; Development Workflow; Governance
+- Version change: 1.0.0 → 2.0.0 (MAJOR: Principle V redefined; budgets and token/cost reporting removed)
+- Principles added: none in this amendment
+- Principle V renamed "Lean Requests" and its budget, cap and reporting clauses removed (2026-10-27,
+  owner decision; no budget or token counting remains in the package)
+- Principle III: "token-budget fixtures" removed from the mandatory suites
+- Principle VII: "budget" removed from the failure list
+- Sections added: none
 - Sections removed: none
 - Templates: none modified (they read this file at runtime)
 - Deferred TODOs: none
@@ -47,7 +49,7 @@ cause harm.
 - Tests MUST NOT touch the network: sources, AI provider and notifiers are faked or driven by
   recorded HTTP fixtures.
 - Mandatory suites: privacy corpus (no seeded personal value reaches any outbound payload),
-  selection table tests, model-routing table tests, token-budget fixtures, a shared contract suite
+  selection table tests, model-routing table tests, a shared contract suite
   run against every state store and every log source, and one end-to-end run with fakes.
 - A bug fix starts with a test that reproduces it.
 
@@ -63,10 +65,10 @@ Rationale: the package runs unattended on a schedule; tests are the only reviewe
 - Given the same input and configuration, everything except the model's wording MUST be
   reproducible.
 
-Rationale: reproducible selection makes the digest debuggable and keeps cost proportional to
+Rationale: reproducible selection makes the digest debuggable and keeps work proportional to
 change, not to log volume.
 
-### V. Token and Cost Discipline
+### V. Lean Requests
 
 - The cheapest correct path wins: no candidates → zero AI requests; first run → baseline only;
   unchanged groups reuse cached verdicts.
@@ -74,10 +76,8 @@ change, not to log volume.
   is used only where a rule in the spec sends it.
 - Inputs are compact (templates sent once and referenced, no redundant formatting); outputs are
   bounded per field and per step; stable prompt prefixes are structured for provider caching.
-- Every run enforces its token budgets and the daily spend cap before calling, and reports tokens
-  and approximate cost in the digest.
-- A change that increases tokens per run MUST state the expected increase and be covered by the
-  token-budget fixtures.
+- The package keeps no budget, no spend cap and no token or cost report. Efficiency comes from the
+  rules above only; a change that adds model calls MUST state the expected increase in its plan.
 
 Rationale: the job runs in every service, every environment, every day; small waste multiplies.
 
@@ -96,7 +96,7 @@ by configuration alone.
 
 ### VII. Failures Are Loud
 
-- Every failure (source, analysis, budget, delivery, configuration) MUST produce an explicit
+- Every failure (source, analysis, delivery, configuration) MUST produce an explicit
   notice or a non-successful exit; "nothing found" and "did not work" MUST never look the same.
 - Catch-and-continue is allowed only where the spec defines the fallback, and the fallback MUST be
   visible in the digest or notice.
@@ -148,4 +148,4 @@ everywhere.
   cannot be waived in a plan.
 - Runtime guidance for agents lives in `CLAUDE.md` and `docs/brief.md`.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-23
+**Version**: 2.0.0 | **Ratified**: 2026-10-23 | **Last Amended**: 2026-10-27
