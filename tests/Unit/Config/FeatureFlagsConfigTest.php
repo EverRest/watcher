@@ -92,7 +92,6 @@ final class FeatureFlagsConfigTest extends TestCase
             'grouping' => [['grouping' => ['enabled' => false]], 'grouping', 'grouping.enabled'],
             'notice' => [['notify' => ['notice' => ['enabled' => false]]], 'notice', 'notify.notice.enabled'],
             'digest' => [['notify' => ['digest' => ['enabled' => false]]], 'digest', 'notify.digest.enabled'],
-            'kubernetes' => [['kubernetes' => ['enabled' => false]], 'kubernetes', 'kubernetes.enabled'],
             'known_issues' => [['known_issues' => ['enabled' => false]], 'known_issues', 'known_issues.enabled'],
             'drafts' => [['drafts' => ['enabled' => false]], 'drafts', 'drafts.enabled'],
             'routes' => [['notify' => ['routes_enabled' => false]], 'routes', 'notify.routes_enabled'],
@@ -258,7 +257,7 @@ final class FeatureFlagsConfigTest extends TestCase
             }
         });
         $off = [];
-        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST', 'KNOWN_ISSUES', 'DRAFTS', 'ROUTES', 'KUBERNETES'] as $name) {
+        foreach (['HEARTBEAT', 'PURGE', 'DEPENDENCIES', 'DEPLOY', 'LINKS_LOGS', 'LINKS_CODE', 'SERVICE_CONTEXT', 'WATCH_RULES', 'MUTE', 'LEVEL_ANOMALY', 'ESCALATION', 'TRIAGE', 'ADVICE', 'BASELINE', 'GROUPING', 'BUDGET_ALERTS', 'NOTICE', 'DIGEST', 'KNOWN_ISSUES', 'DRAFTS', 'ROUTES'] as $name) {
             $off["WATCHER_{$name}_ENABLED"] = 'false';
         }
         self::withEnv($base + $off + ['WATCHER_ENABLED' => 'yes', 'WATCHER_ENVIRONMENT' => 'int'], function () use ($load): void {

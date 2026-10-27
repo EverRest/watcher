@@ -221,7 +221,7 @@ final class ModelRouter
         if ($this->inputTokens('analyze', $groups, $context, $this->s->metrics) <= $max) {
             return [$groups, $context];
         }
-        $groups = array_map(static fn (RedactedGroup $g): RedactedGroup => new RedactedGroup($g->fingerprint, $g->template, $g->level, $g->errorType, [], $g->count, $g->previousCount, $g->status, $g->watchMatches, $g->firstSeen, $g->lastSeen, origin: $g->origin, pods: $g->pods, workloadKind: $g->workloadKind), $groups);
+        $groups = array_map(static fn (RedactedGroup $g): RedactedGroup => new RedactedGroup($g->fingerprint, $g->template, $g->level, $g->errorType, [], $g->count, $g->previousCount, $g->status, $g->watchMatches, $g->firstSeen, $g->lastSeen), $groups);
 
         return $this->inputTokens('analyze', $groups, $context, $this->s->metrics) <= $max ? [$groups, $context] : null;
     }

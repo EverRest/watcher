@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Watcher\Reduce;
 
 use Watcher\Config\WatchConfig;
-use Watcher\Events\EventsRun;
 use Watcher\Level;
 use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\Window;
@@ -58,7 +57,6 @@ final class EventCollector
         private readonly ?RunGuard $guard = null,
         /** @var (\Closure(LogEvent, string): void)|null forwarded to the Reducer (spec 009 trace ids) */
         private readonly ?\Closure $onEvent = null,
-        private readonly ?EventsRun $events = null,
     ) {
         foreach ($config->mute as $i => $entry) {
             if (!isset($entry['fingerprint'])) {
@@ -195,14 +193,6 @@ final class EventCollector
             yield $this->observe($e);
         }
         $this->truncated = $this->source->lastReadTruncated() || $this->truncated;
-        if ($this->events !== null && $stop() === null) {
-            $this->filters[] = $filter = new ReadFilter($this->config->source['read_min_level'], $this->rules->backendPatterns(), $this->config->kubernetes->eventCap ?? 1);
-            $filter->stopWhen($stop);
-            foreach ($this->events->lines($window, $selector, $filter) as $e) {
-                yield $this->observe($e, false);
-            }
-            $this->truncated = $this->events->truncated() || $this->truncated;
-        }
     }
 
     /** Field VALUES are matched here and dropped: only rule names and mute indexes are kept per fingerprint. */

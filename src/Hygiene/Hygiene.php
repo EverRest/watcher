@@ -20,7 +20,6 @@ use Watcher\Reduce\Normalizer;
 use Watcher\Reduce\Reducer;
 use Watcher\Schedule\RunGuard;
 use Watcher\Schedule\Window;
-use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\ReadDiagnostics;
 use Watcher\Source\ReadFilter;
@@ -74,15 +73,6 @@ final class Hygiene
     ) {
         $this->realState = $state;
         $this->state = new GuardedState($state);
-        $this->bindSource($state);
-    }
-
-    /** A kubernetes source keeps its ledger in the store it is bound to (a dry run's store swallows those writes). */
-    private function bindSource(StateStore $state): void
-    {
-        if ($this->source instanceof KubernetesEventsSource) {
-            $this->source->bindState($state);
-        }
     }
 
     /** @param array<string, mixed> $config @throws \Watcher\Config\InvalidConfig */
@@ -130,11 +120,7 @@ final class Hygiene
         if ($o->dryRun) {
             // Read-only: every write is shadowed in memory, the lock is a no-op (a real pass keeps its lock and is not blocked), nothing is sent.
             $dry = new self($c, $this->source, new DryRunStateStore($this->realState), $this->notifier, $this->clock, $this->guard);
-            try {
-                return $dry->runDry($o, $now);
-            } finally {
-                $this->bindSource($this->realState); // the dry instance bound the shared source to its shadow store
-            }
+            return $dry->runDry($o, $now);
         }
         try {
             return $this->execute($o, $now);
