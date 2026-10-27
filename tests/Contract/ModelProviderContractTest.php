@@ -125,4 +125,14 @@ final class ModelProviderContractTest extends TestCase
             }
         }
     }
+
+    /** Rule 6 of contracts/model-provider.md: the key never appears in a dump of the adapter. */
+    #[DataProvider('providers')]
+    public function testTheKeyDoesNotAppearInADump(string $name, callable $make, string $model, string $dir): void
+    {
+        $provider = $make(new Client());
+
+        self::assertStringNotContainsString(self::KEY, var_export($provider, true), "$name dump");
+        self::assertStringNotContainsString(self::KEY, print_r($provider, true), "$name print_r");
+    }
 }

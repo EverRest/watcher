@@ -123,4 +123,50 @@ final class AnthropicSdkProviderTest extends TestCase
         self::assertNotNull($reply->text);
         self::assertCount(3, $history, 'two retries after the first 500, then success (maxRetries 2)');
     }
+
+    public function testPauseTurnIsNormalised(): void
+    {
+        $history = new \ArrayObject();
+        $provider = $this->provider([new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-pause-turn.json'))], $history);
+
+        self::assertSame('pause', $provider->create('claude-model', 800, 'system text', 'user text', self::SCHEMA, false)->stopReason);
+    }
+
+    public function testOverloadedNamesTheStatus(): void
+    {
+        $history = new \ArrayObject();
+        $provider = $this->provider([new Response(529, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/error-529.json'))], $history);
+
+        try {
+            $provider->create('claude-model', 800, 'system text', 'user text', self::SCHEMA, false);
+            self::fail('expected AnalyzerFailed');
+        } catch (AnalyzerFailed $e) {
+            self::assertSame('provider unavailable (HTTP 529)', $e->getMessage());
+        }
+    }
+
+    public function testAnOversizedReplyIsRefusedBeforeTheSdkParsesIt(): void
+    {
+        $history = new \ArrayObject();
+        $provider = $this->provider([new Response(200, ['Content-Type' => 'application/json'], str_repeat(' ', \Watcher\Source\ResponseLimit::MAX_BYTES + 1))], $history);
+
+        try {
+            $provider->create('claude-model', 800, 'system text', 'user text', self::SCHEMA, false);
+            self::fail('expected AnalyzerFailed');
+        } catch (AnalyzerFailed $e) {
+            self::assertSame('provider unavailable (invalid reply)', $e->getMessage());
+        }
+    }
+
+    public function testANegativeUsageCountIsAnInvalidReply(): void
+    {
+        $history = new \ArrayObject();
+        $body = json_decode((string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-valid.json'), true, 512, JSON_THROW_ON_ERROR);
+        $body['usage']['input_tokens'] = -5;
+        $provider = $this->provider([new Response(200, ['Content-Type' => 'application/json'], json_encode($body, JSON_THROW_ON_ERROR))], $history);
+
+        $this->expectException(AnalyzerFailed::class);
+        $this->expectExceptionMessage('provider unavailable (invalid reply)');
+        $provider->create('claude-model', 800, 'system text', 'user text', self::SCHEMA, false);
+    }
 }

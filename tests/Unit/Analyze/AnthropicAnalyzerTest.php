@@ -16,7 +16,7 @@ use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\AnthropicAnalyzer;
 use Watcher\Analyze\ProviderRegistry;
-use Watcher\Analyze\AnthropicHttpClient;
+use Watcher\Analyze\AnthropicSdkProvider;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\ProviderSchema;
@@ -50,7 +50,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
 
-        return new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack]))));
+        return new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicSdkProvider(new Client(['handler' => $stack]), self::KEY, 'https://api.anthropic.com', 60, 0)));
     }
 
     private static function request(): AnalysisRequest
@@ -88,7 +88,7 @@ final class AnthropicAnalyzerTest extends TestCase
         self::assertCount(1, $this->history);
         $req = $this->history[0]['request'];
         self::assertSame('/v1/messages', $req->getUri()->getPath());
-        self::assertSame(self::KEY, $req->getHeaderLine('x-api-key'));
+        self::assertSame('Bearer ' . self::KEY, $req->getHeaderLine('Authorization'), 'the official SDK authenticates with a Bearer header');
 
         $body = $this->body();
         self::assertSame('model-from-request', $body['model']);
@@ -112,7 +112,7 @@ final class AnthropicAnalyzerTest extends TestCase
         $log = [];
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
-        (new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicHttpClient(self::KEY, new Client(['handler' => $stack]))), false))->analyze(self::request());
+        (new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicSdkProvider(new Client(['handler' => $stack]), self::KEY, 'https://api.anthropic.com', 60, 0)), false))->analyze(self::request());
         $off = $this->body();
         self::assertStringNotContainsString('how_to_check', (string) json_encode($off));
         self::assertStringNotContainsString('related_checks', (string) json_encode($off));

@@ -11,7 +11,12 @@ use Anthropic\Core\Exceptions\APITimeoutException;
 use Anthropic\Core\Exceptions\AuthenticationException;
 use Anthropic\Messages\Message;
 use GuzzleHttp\ClientInterface;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Promise\PromiseInterface;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 use Throwable;
+use Watcher\Source\ResponseLimit;
 
 /**
  * Anthropic through the official SDK. The base URL, timeout and retries are explicit, so the SDK's environment fallbacks
@@ -27,13 +32,23 @@ final class AnthropicSdkProvider implements ModelProvider
 
     public function __construct(ClientInterface $http, #[\SensitiveParameter] string $apiKey, string $baseUrl, int $timeoutSeconds, int $maxRetries)
     {
-        if (!$http instanceof \Psr\Http\Client\ClientInterface) {
-            throw new \LogicException('the Anthropic SDK needs a PSR-18 client');
-        }
+        $stack = $http->getConfig('handler') instanceof HandlerStack ? clone $http->getConfig('handler') : HandlerStack::create();
+        // Redirects off, TLS verified and the reply size-capped on every call, whatever the caller's client was built with.
+        $stack->push(static fn (callable $next): \Closure => static fn (RequestInterface $r, array $o): PromiseInterface => $next($r, array_replace($o, ['allow_redirects' => false, 'verify' => true]))->then(
+            static function (ResponseInterface $response): ResponseInterface {
+                if (($response->getBody()->getSize() ?? 0) > ResponseLimit::MAX_BYTES) {
+                    throw new AnalyzerFailed('provider unavailable (invalid reply)'); // oversized: never handed to the SDK's parser
+                }
+
+                return $response;
+            },
+        ), 'watcher-guard');
+        $transporter = new \GuzzleHttp\Client(['handler' => $stack]);
+
         $this->client = static fn (): Client => new Client(
             apiKey: $apiKey,
             baseUrl: $baseUrl,
-            requestOptions: ['transporter' => $http, 'timeout' => (float) $timeoutSeconds, 'maxRetries' => $maxRetries],
+            requestOptions: ['transporter' => $transporter, 'timeout' => (float) $timeoutSeconds, 'maxRetries' => $maxRetries],
         );
     }
 
@@ -69,8 +84,11 @@ final class AnthropicSdkProvider implements ModelProvider
 
     private static function reply(Message $message): ModelReply
     {
-        if (!isset($message->usage)) {
-            throw new AnalyzerFailed('provider unavailable (invalid reply)'); // the SDK leaves the property unset when usage is absent
+        // The SDK leaves the usage property unset when it is absent; every count must be a non-negative integer, or the spend
+        // would be undercounted (the same rule the built-in client applied).
+        $counts = isset($message->usage) ? [$message->usage->inputTokens, $message->usage->outputTokens, $message->usage->cacheReadInputTokens ?? 0, $message->usage->cacheCreationInputTokens ?? 0] : null;
+        if ($counts === null || array_filter($counts, static fn (int $n): bool => $n < 0) !== []) {
+            throw new AnalyzerFailed('provider unavailable (invalid reply)');
         }
         $text = null;
         foreach ($message->content as $block) {
