@@ -74,7 +74,7 @@ A maintainer wants the least code possible. Anthropic uses the official SDK. Ope
 
 - **FR-001**: The analysis steps (triage, analyze, escalate) MUST each be assigned one provider from configuration. Providers are chosen independently per step.
 - **FR-002**: The supported providers in this release MUST be Anthropic, OpenAI and Gemini. Adding another provider MUST NOT require a change to core files.
-- **FR-003**: Model identifiers, prices and provider names MUST come from configuration only. No model identifier or price may appear in code.
+- **FR-003**: Model identifiers, prices and provider names MUST come from configuration only. No model identifier or price may appear in code. Prices are written in the configuration file by the operator; no price environment variables (`WATCHER_PRICE_*`) are read or documented in this release.
 - **FR-004**: Configuration MUST be validated before any external call. An unknown provider, a model that does not match its provider, or missing credentials MUST fail with a message that names the setting and never prints a secret value.
 - **FR-005**: The Anthropic adapter MUST use the official Anthropic PHP SDK for requests, with the base URL pinned, and MUST NOT read a base URL from the environment.
 - **FR-006**: Retries and timeouts for every provider MUST be set explicitly in configuration with documented defaults. SDK or client defaults MUST NOT apply silently.
@@ -93,7 +93,7 @@ A maintainer wants the least code possible. Anthropic uses the official SDK. Ope
 - **Provider**: a named external model service (Anthropic, OpenAI, Gemini). Attributes: name, credentials reference, base URL, timeout, retry count.
 - **Step assignment**: the mapping from a step (triage, analyze, escalate) to a provider and a model identifier, from configuration.
 - **Model reply**: the common result of one call: structured output, token usage, model identifier, stop reason.
-- **Price entry**: configured price per model identifier, input, output and cache rates, in USD per million tokens.
+- **Price entry**: configured price per model identifier, input, output and cache rates, in USD per million tokens. Written in the configuration file, not in environment variables.
 
 ## Success Criteria *(mandatory)*
 
@@ -102,7 +102,7 @@ A maintainer wants the least code possible. Anthropic uses the official SDK. Ope
 - **SC-001**: An operator changes the provider of any single step by editing configuration only, in under 5 minutes, with no code change.
 - **SC-002**: For a run configured as before this feature (Anthropic for all steps), the outcome, findings and digest match the previous version on the existing recorded fixtures.
 - **SC-003**: Across all three providers, zero seeded personal values appear in any outbound request body in the privacy test corpus.
-- **SC-004**: For each of the three providers, the tokens and cost shown in the digest equal the provider's reported usage priced with the configured prices, in 100% of recorded fixtures.
+- **SC-004**: For each of the three providers, the tokens and cost shown in the digest equal the provider's reported usage priced with the configured prices, in 100% of recorded fixtures. Token-only reporting without USD is out of scope here and is planned as a separate spec.
 - **SC-005**: A fourth provider can be added with one adapter and configuration, and the shared contract tests pass for it without editing any core file.
 - **SC-006**: In 100% of recorded failure cases (unreachable, unauthorised, invalid output, refusal, truncation), the run reports a visible failure and exits non-zero or posts a notice.
 
@@ -114,5 +114,6 @@ A maintainer wants the least code possible. Anthropic uses the official SDK. Ope
 - Prompt caching is applied only where the provider exposes it; the plan records which providers do.
 - The model used for each step is named explicitly in configuration; there is no automatic model selection by provider.
 - Each provider has its own price table in configuration; no cross-provider price conversion is attempted.
+- Dropping USD cost in favour of token-only reporting is a separate change (planned as a later spec): it touches fleet budgets, the hygiene cost ledger, metrics and MCP tools, and is not part of this spec.
 - Existing Anthropic deployments keep working without changing configuration where the keys still apply.
 - Single-provider behaviour and existing fixtures are the regression baseline.

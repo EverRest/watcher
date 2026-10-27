@@ -103,3 +103,18 @@ Sources (from search results, not fetched in full): https://developers.openai.co
 ## R9. Privacy
 
 The privacy pipeline runs before any provider is called (unchanged). The privacy corpus test (`tests/Fixtures/privacy`) is run against the request each provider adapter receives, not only the one the Anthropic path builds. This is the Principle I change-rule.
+
+## R3 live-doc check (2026-10-27, WebFetch)
+
+**OpenAI (developers.openai.com/api/docs/guides/prompt-caching).**
+- Minimum cacheable prompt: "1,024 tokens for GPT-5.6 and later"; for earlier models the minimum "varies by request settings" (not a fixed 1024).
+- Cached-token field on the Responses API: `usage.input_tokens_details.cached_tokens`. The Chat Completions field `usage.prompt_tokens_details.cached_tokens` (used in the plan) is not on this page: confirm on the Chat Completions reference before the adapter relies on it.
+- Cache writes are reported on the Responses API as `input_tokens_details.cache_write_tokens`, a field this plan does not map. Keep cacheWriteTokens = 0 for Chat Completions until verified.
+- The page lists `text.format` (structured output) among settings that change the cached prefix; it does not say how a schema changes hit rates. The community report stays unverified.
+
+**Gemini.**
+- `ai.google.dev/gemini-api/docs/thinking` and `.../structured-output` describe the Interactions API (`thinking_level`, `response_format` with `mime_type` and `schema`), not `generateContent`. The REST field names `thinkingConfig.thinkingBudget`, `generationConfig.responseJsonSchema` and `finishReason` values are NOT verified.
+- `usageMetadata.cachedContentTokenCount`, `candidatesTokenCount`, `thoughtsTokenCount` are documented on the generate-content reference (verified in part: `cachedContentTokenCount`, `thoughtsTokenCount` described; whether `candidatesTokenCount` includes thoughts is not stated there). The Interactions thinking page shows `total_thought_tokens` reported separately from output tokens, which suggests thoughts are not in the output count; not confirmed for generateContent.
+- Unsupported JSON Schema keywords (Interactions): minLength, maxLength, minProperties, maxProperties, uniqueItems, contains, minContains, maxContains are not enforced; minItems and maxItems are. The analyzer already validates these in code (OutputValidator), so the stripped schema stays valid.
+
+Open for T005 (blocked on the generate-content reference's GenerationConfig section, which WebFetch cannot page): the thinking-off field and value, and the exact generationConfig field names.

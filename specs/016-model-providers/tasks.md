@@ -126,6 +126,7 @@
 - [ ] T037 [P] Remove any leftover `MessagesClient` or `AnthropicHttpClient` mention from code comments and docs (`grep -rn "MessagesClient\|AnthropicHttpClient" src tests docs`).
 - [ ] T038 Run the focused checks from quickstart.md: `vendor/bin/phpunit --filter ModelProviderContract`, `vendor/bin/phpunit --filter Privacy`, `php bin/watcher check --config=tests/Fixtures/config/provider-mix.php --json`. Record each exit code.
 - [ ] T039 Run the gates and record exit codes (not the tail of output): `composer test; echo "test=$?"`, `composer stan; echo "stan=$?"`, `composer style; echo "style=$?"`. All must be 0 before the stage is committed.
+- [ ] T041 [P] Remove the `WATCHER_PRICE_*` variables from the price path: `src/Mcp/SetupCatalog.php` (ask for prices as configuration values, not env names), `docs/configuration.md` (the env table row), `docs/smoke-test.md` (the price variables and the env file block), `docs/examples/smoke.config.php` and `docs/examples/orders-api.loki.config.php` (literal prices in the file, with a comment naming the provider's pricing page). Spec amendment: FR-003 in spec.md, decision of 2026-10-27.
 - [ ] T040 Live smoke, costs money, ask-first (spec, quickstart section 5): only after T038 and T039 are green and only with the owner's go-ahead. Run `docs/smoke-test.md` once per enabled provider. Then, and only then, widen the SDK pin in `composer.json` from `1.3.0` to `~1.3.0` if the owner agrees.
 
 ---
