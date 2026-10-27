@@ -73,9 +73,9 @@ return [
             'escalate' => getenv('WATCHER_MODEL_ESCALATE'),
         ],
         'prices' => [
-            (string) getenv('WATCHER_MODEL_TRIAGE') => [(float) getenv('WATCHER_PRICE_TRIAGE_IN'), (float) getenv('WATCHER_PRICE_TRIAGE_OUT'), 0.0, 0.0],
-            (string) getenv('WATCHER_MODEL_ANALYZE') => [(float) getenv('WATCHER_PRICE_ANALYZE_IN'), (float) getenv('WATCHER_PRICE_ANALYZE_OUT'), 0.0, 0.0],
-            (string) getenv('WATCHER_MODEL_ESCALATE') => [(float) getenv('WATCHER_PRICE_ESCALATE_IN'), (float) getenv('WATCHER_PRICE_ESCALATE_OUT'), 0.0, 0.0],
+            (string) getenv('WATCHER_MODEL_TRIAGE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
+            (string) getenv('WATCHER_MODEL_ANALYZE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
+            (string) getenv('WATCHER_MODEL_ESCALATE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
         ],
         'daily_budget_usd' => 0.50,   // raise after the first days; alerts fire at 25/50/75/90%
     ],

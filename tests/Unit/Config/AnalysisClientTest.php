@@ -41,20 +41,27 @@ final class AnalysisClientTest extends TestCase
         self::assertInstanceOf(AnthropicAnalyzer::class, Factory::analyzer($c));
     }
 
-    public function testSdkIsRefusedAtConfigLoadWithAFixedMessage(): void
+    public function testSdkIsRefusedAtConfigLoadNamingTheReplacement(): void
     {
         try {
             WatchConfig::fromArray(self::config('sdk'));
             self::fail('expected InvalidConfig');
         } catch (InvalidConfig $e) {
-            self::assertSame('analysis.client: the SDK client was removed; use analysis.client=http (the default)', $e->getMessage());
+            self::assertSame('analysis.client is no longer a transport choice; the Anthropic transport is the official SDK. Delete the key.', $e->getMessage());
         }
     }
 
-    public function testAnUnknownClientIsRejected(): void
+    public function testAnyOtherValueIsRefusedWithTheSameReplacement(): void
     {
         $this->expectException(InvalidConfig::class);
-        $this->expectExceptionMessage('analysis.client must be http');
+        $this->expectExceptionMessage('analysis.client is no longer a transport choice');
         WatchConfig::fromArray(self::config('curl'));
+    }
+
+    public function testAbsentLoadsWithoutAnyNotice(): void
+    {
+        WatchConfig::fromArray(self::config());
+
+        $this->expectNotToPerformAssertions();
     }
 }

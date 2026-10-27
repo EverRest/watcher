@@ -18,12 +18,6 @@ final class SetupCatalog
         'model_triage' => ['name' => 'WATCHER_MODEL_TRIAGE', 'purpose' => 'Model id of the triage tier (the cheapest).', 'secret' => false, 'required' => true],
         'model_analyze' => ['name' => 'WATCHER_MODEL_ANALYZE', 'purpose' => 'Model id of the analysis tier.', 'secret' => false, 'required' => true],
         'model_escalate' => ['name' => 'WATCHER_MODEL_ESCALATE', 'purpose' => 'Model id of the escalation tier (the strongest).', 'secret' => false, 'required' => true],
-        'price_triage_in' => ['name' => 'WATCHER_PRICE_TRIAGE_IN', 'purpose' => 'USD per million input tokens of the triage model, from the provider\'s pricing page.', 'secret' => false, 'required' => true],
-        'price_triage_out' => ['name' => 'WATCHER_PRICE_TRIAGE_OUT', 'purpose' => 'USD per million output tokens of the triage model.', 'secret' => false, 'required' => true],
-        'price_analyze_in' => ['name' => 'WATCHER_PRICE_ANALYZE_IN', 'purpose' => 'USD per million input tokens of the analysis model.', 'secret' => false, 'required' => true],
-        'price_analyze_out' => ['name' => 'WATCHER_PRICE_ANALYZE_OUT', 'purpose' => 'USD per million output tokens of the analysis model.', 'secret' => false, 'required' => true],
-        'price_escalate_in' => ['name' => 'WATCHER_PRICE_ESCALATE_IN', 'purpose' => 'USD per million input tokens of the escalation model.', 'secret' => false, 'required' => true],
-        'price_escalate_out' => ['name' => 'WATCHER_PRICE_ESCALATE_OUT', 'purpose' => 'USD per million output tokens of the escalation model.', 'secret' => false, 'required' => true],
         'loki_url' => ['name' => 'WATCHER_LOKI_URL', 'purpose' => 'Loki base URL or the Grafana data-source proxy URL.', 'secret' => false, 'required' => true],
         'loki_token' => ['name' => 'WATCHER_LOKI_TOKEN', 'purpose' => 'Read-only Loki or Grafana token (Viewer role).', 'secret' => true, 'required' => true],
         'dd_site' => ['name' => 'WATCHER_DD_SITE', 'purpose' => 'Datadog site, for example datadoghq.eu.', 'secret' => false, 'required' => false],
@@ -49,7 +43,7 @@ final class SetupCatalog
     public const NOTIFIER_VARS = ['slack' => ['slack_webhook'], 'telegram' => ['tg_token', 'tg_chat'], 'discord' => ['discord_webhook']];
     /** @var array<string, list<string>> */
     public const STATE_VARS = ['file' => ['state_path'], 'pdo' => ['db_dsn', 'db_username', 'db_password'], 'redis' => ['redis_host', 'redis_port', 'redis_password', 'redis_database']];
-    public const COMMON_VARS = ['enabled', 'anthropic_key', 'model_triage', 'model_analyze', 'model_escalate', 'price_triage_in', 'price_triage_out', 'price_analyze_in', 'price_analyze_out', 'price_escalate_in', 'price_escalate_out'];
+    public const COMMON_VARS = ['enabled', 'anthropic_key', 'model_triage', 'model_analyze', 'model_escalate'];
 
     /** The command to run `watcher <sub>` on a host; `<config>` is a placeholder for the path of the configuration file. */
     public static function command(string $host, string $sub): string
