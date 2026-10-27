@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-27 — Multi-provider model layer (Anthropic, OpenAI, Gemini per step)
+
+Product release label **v0.4.0** (root VERSION). Read the **Changed (breaking for `analysis.client`)** section before upgrading.
 
 ### Added (spec 016, multi-provider model layer)
 - Each analysis step (triage, analyze, escalate) picks its provider: `analysis.provider` is the default, `analysis.providers.<step>` overrides it. Providers: `anthropic`, `openai`, `gemini`.
