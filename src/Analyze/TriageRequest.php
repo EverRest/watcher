@@ -15,6 +15,8 @@ final class TriageRequest
         public readonly string $model,
         public readonly int $maxOutputTokens,
         public readonly ?PayloadExtras $extras = null,
+        /** The step whose provider serves this call (spec 016). */
+        public readonly string $step = 'triage',
     ) {
     }
 }

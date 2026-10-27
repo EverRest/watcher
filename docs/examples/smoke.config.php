@@ -42,9 +42,9 @@ return [
         // USD per million tokens: [input, output, cache_read, cache_write]. Copy the current numbers from your
         // provider's pricing page; the cost line and the budget alerts are only as good as these.
         'prices' => [
-            (string) getenv('WATCHER_MODEL_TRIAGE') => [(float) getenv('WATCHER_PRICE_TRIAGE_IN'), (float) getenv('WATCHER_PRICE_TRIAGE_OUT'), 0.0, 0.0],
-            (string) getenv('WATCHER_MODEL_ANALYZE') => [(float) getenv('WATCHER_PRICE_ANALYZE_IN'), (float) getenv('WATCHER_PRICE_ANALYZE_OUT'), 0.0, 0.0],
-            (string) getenv('WATCHER_MODEL_ESCALATE') => [(float) getenv('WATCHER_PRICE_ESCALATE_IN'), (float) getenv('WATCHER_PRICE_ESCALATE_OUT'), 0.0, 0.0],
+            (string) getenv('WATCHER_MODEL_TRIAGE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
+            (string) getenv('WATCHER_MODEL_ANALYZE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
+            (string) getenv('WATCHER_MODEL_ESCALATE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
         ],
         'daily_budget_usd' => 0.10,  // hard cap for the smoke run
     ],

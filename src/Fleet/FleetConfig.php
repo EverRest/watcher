@@ -348,8 +348,9 @@ final class FleetConfig
         if (WatchConfig::plain($first->config->state) != WatchConfig::plain($entry->config->state)) {
             throw new InvalidConfig("$label: state must be identical in all services $of");
         }
-        if (WatchConfig::reveal($first->config->analysis['api_key']) !== WatchConfig::reveal($entry->config->analysis['api_key'])) {
-            throw new InvalidConfig("$label: analysis.api_key must be identical in all services $of");
+        $keys = static fn (ServiceEntry $e): array => array_map(static fn (mixed $v): string => WatchConfig::reveal($v), $e->config->analysis['api_keys']);
+        if ($keys($first) !== $keys($entry)) {
+            throw new InvalidConfig("$label: analysis.api_keys must be identical in all services $of");
         }
     }
 

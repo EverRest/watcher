@@ -1,0 +1,15 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "finishReason": "SAFETY"
+    }
+  ],
+  "modelVersion": "gemini-fixture-model",
+  "usageMetadata": {
+    "promptTokenCount": 1200,
+    "candidatesTokenCount": 150,
+    "totalTokenCount": 1350,
+    "cachedContentTokenCount": 400
+  }
+}

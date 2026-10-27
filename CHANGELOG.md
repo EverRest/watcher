@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-27 — Multi-provider model layer (Anthropic, OpenAI, Gemini per step)
+
+Product release label **v0.4.0** (root VERSION). Read the **Changed (breaking for `analysis.client`)** section before upgrading.
+
+### Added (spec 016, multi-provider model layer)
+- Each analysis step (triage, analyze, escalate) picks its provider: `analysis.provider` is the default, `analysis.providers.<step>` overrides it. Providers: `anthropic`, `openai`, `gemini`.
+- OpenAI and Gemini adapters over the package's HTTP client (no official PHP SDK exists for either; the third-party `aisdk/*` packages were checked and rejected: organisation created 2026-05, 0.x, PHP ^8.3).
+- `analysis.api_keys.{anthropic,openai,gemini}`; `analysis.api_key` keeps working as the Anthropic key. `analysis.providers_options.{anthropic,openai,gemini}` sets `base_url` (https only) and `retries` (0 to 3).
+
+### Changed (breaking for `analysis.client`)
+- `anthropic-ai/sdk` is back as the Anthropic transport, pinned `~1.3.0` (reverses the 0.3.0 removal; the reasons are in `specs/016-model-providers/research.md` R1). It adds `php-http/discovery` and its Composer plugin prompt, which is allowed in `composer.json`. The base URL is explicit; the SDK's `ANTHROPIC_BASE_URL` fallback never applies.
+- `analysis.client`: absent or `http` is accepted and ignored. Any other value, including `sdk`, is refused at config load with a message naming the replacement. Delete the key.
+- `AnthropicHttpClient` is removed. `MessagesClient` is now `ModelProvider`.
+- Prices stay in the configuration file. No price environment variables are read by the package; the examples now write literal prices.
 
 ### Changed (tooling)
 - The committed `coverage` badge (`docs/badges/coverage.svg`) is gone too: it said 96.5% while the code had grown by thousands of lines. CI still fails the build below the 92% floor and shows the number in the job summary.

@@ -78,9 +78,12 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 | Key | Default | Notes |
 |---|---|---|
-| `analysis.provider` | `anthropic` | The only one. |
-| `analysis.client` | `http` | Only `http` (the built-in Guzzle client) is accepted. `sdk` was removed and is refused at config load. |
-| `analysis.api_key` | required | |
+| `analysis.provider` | `anthropic` | `anthropic`, `openai` or `gemini`: the provider of every step unless `analysis.providers` names another. |
+| `analysis.providers.{triage,analyze,escalate}` | `analysis.provider` | Optional per-step provider. Mix freely, e.g. triage on `gemini`, the rest on `anthropic`. |
+| `analysis.api_keys.{anthropic,openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key fails at load, naming the key path. |
+| `analysis.api_key` | required | The Anthropic key, kept for compatibility; same as `analysis.api_keys.anthropic`. |
+| `analysis.providers_options.{anthropic,openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` 0 to 3 for Anthropic (the SDK retries on its own); must be 0 for OpenAI and Gemini, which do not retry (the analyzer's second attempt is their retry). |
+| `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused: the Anthropic transport is the official SDK. Delete the key. |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
 | `analysis.prices` | required | `model id => [input, output, cache_read, cache_write]`, **USD per million tokens**, for every model above. Drives the cost line, the daily cap and the alerts: keep it current. |
 | `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input budget; lowest-priority candidates are dropped first, with a note in the digest. The estimate (UTF-8 bytes / 3) includes the step's system prompt and the `service_context`, not only the groups. Enforced for `triage` (candidates), `analyze` (dependency context shrinks first) and `escalate`: an escalation sends the one finding's groups plus the dependency context that refers to them; over the limit, dependency context is trimmed first, then the groups' stack frames, and if it still does not fit the escalation is skipped (the first-pass finding is reported as it is; the digest says `N escalation(s) skipped`). |
@@ -398,7 +401,6 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_DD_SITE`, `WATCHER_DD_API_KEY*`, `WATCHER_DD_APP_KEY*` | `source.datadog.*` |
 | `WATCHER_ANTHROPIC_KEY*` | `analysis.api_key` |
 | `WATCHER_MODEL_TRIAGE*`, `WATCHER_MODEL_ANALYZE*`, `WATCHER_MODEL_ESCALATE*` | `analysis.models.*` |
-| `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}*` | `analysis.prices` (example config only) |
 | `WATCHER_STATE`, `WATCHER_STATE_PATH` | `state.driver`, `state.file.path` |
 | `WATCHER_RUN_DEADLINE` | `schedule.run_deadline` (seconds; shipped `config/watcher.php` only) |
 | `WATCHER_REDIS_{HOST,PORT,PASSWORD,DATABASE}` | `state.redis.*` |

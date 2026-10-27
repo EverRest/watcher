@@ -252,6 +252,7 @@ final class ModelRouterTest extends TestCase
         self::assertInstanceOf(AnalysisRequest::class, $esc);
         self::assertSame(['a'], array_map(static fn ($g) => $g->fingerprint, $esc->groups));
         self::assertSame(['m-escalate', 333], [$esc->model, $esc->maxOutputTokens]);
+        self::assertSame(['analyze', 'escalate'], [$this->fake->requests[1]->step, $esc->step], 'escalation is routed to its own step, not analyze');
         self::assertSame(1, $r->escalations);
         $byFp = [];
         foreach ($r->findings as $f) {

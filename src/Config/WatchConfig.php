@@ -290,7 +290,7 @@ final class WatchConfig implements \JsonSerializable
             $links,
             self::repo($config['repo'] ?? null),
             $selection,
-            self::hide($analysis, 'api_key'),
+            self::hide($analysis, 'api_key', 'api_keys.anthropic', 'api_keys.openai', 'api_keys.gemini'),
             $patterns,
             self::posInt($redaction, 'min_group_events_for_text', 3, 'redaction.min_group_events_for_text'),
             self::hide($state, 'redis.password', 'pdo.dsn', 'pdo.username', 'pdo.password'),
@@ -699,8 +699,7 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function analysis(array $a, int $runsPerDay, int $periodSeconds): array
     {
-        self::only($a, ['provider', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'max_runs_per_day', 'run_budget_usd', 'triage', 'advice'], 'analysis');
-        self::str($a, 'api_key', 'analysis.api_key');
+        self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'max_runs_per_day', 'run_budget_usd', 'triage', 'advice'], 'analysis');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
         foreach (self::STEPS as $step) {
@@ -719,13 +718,12 @@ final class WatchConfig implements \JsonSerializable
             }
         }
 
-        $client = self::optStr($a, 'client', 'http', 'analysis.client');
-        if ($client === 'sdk') {
-            throw new InvalidConfig('analysis.client: the SDK client was removed; use analysis.client=http (the default)');
+        // The transport is chosen per provider now; the key is accepted (every existing config has `http`) and ignored.
+        if (array_key_exists('client', $a) && $a['client'] !== 'http') {
+            throw new InvalidConfig('analysis.client is no longer a transport choice; the Anthropic transport is the official SDK. Delete the key.');
         }
-        if ($client !== 'http') {
-            throw new InvalidConfig('analysis.client must be http');
-        }
+        $client = 'http';
+        [$provider, $stepProviders, $apiKeys, $options] = self::providers($a, $models);
 
         $prices = self::prices(self::section($a, 'prices'), $models);
         $percents = $a['budget_alert_percents'] ?? [25, 50, 75, 90];
@@ -756,7 +754,10 @@ final class WatchConfig implements \JsonSerializable
         }
 
         return array_merge($a, $limits, [
-            'provider' => self::optStr($a, 'provider', 'anthropic', 'analysis.provider'),
+            'provider' => $provider,
+            'step_providers' => $stepProviders,
+            'api_keys' => $apiKeys,
+            'providers_options' => $options,
             'client' => $client,
             'models' => $models,
             'confidence_threshold' => $conf,
@@ -768,6 +769,81 @@ final class WatchConfig implements \JsonSerializable
             'max_runs_per_day' => $maxRuns,
             'run_budget_usd' => $runBudget,
         ]);
+    }
+
+    /** Model-provider names this release knows. Adding one needs its adapter (specs/016-model-providers). */
+    private const PROVIDERS = ['anthropic', 'openai', 'gemini'];
+
+    private const PROVIDER_BASE_URLS = [
+        'anthropic' => 'https://api.anthropic.com',
+        'openai' => 'https://api.openai.com',
+        'gemini' => 'https://generativelanguage.googleapis.com',
+    ];
+
+    /**
+     * The provider of each step, the key of each provider in use, and the options of each provider (every provider listed).
+     *
+     * @param array<string, mixed> $a
+     * @param array<string, mixed> $models
+     *
+     * @return array{0: string, 1: array<string, string>, 2: array<string, string>, 3: array<string, array{base_url: string, retries: int}>}
+     */
+    private static function providers(array $a, array $models): array
+    {
+        $provider = self::optStr($a, 'provider', 'anthropic', 'analysis.provider');
+        if (!in_array($provider, self::PROVIDERS, true)) {
+            throw new InvalidConfig('analysis.provider must be one of: ' . implode(', ', self::PROVIDERS));
+        }
+
+        $perStep = self::section($a, 'providers');
+        self::only($perStep, self::STEPS, 'analysis.providers');
+        $steps = [];
+        foreach (self::STEPS as $step) {
+            $name = $perStep[$step] ?? $provider;
+            if (!is_string($name) || !in_array($name, self::PROVIDERS, true)) {
+                throw new InvalidConfig('analysis.providers.' . $step . ' must be one of: ' . implode(', ', self::PROVIDERS));
+            }
+            $steps[$step] = $name;
+        }
+
+        $keys = self::section($a, 'api_keys');
+        self::only($keys, self::PROVIDERS, 'analysis.api_keys');
+        $apiKeys = [];
+        foreach (self::PROVIDERS as $name) {
+            $key = $keys[$name] ?? ($name === 'anthropic' ? ($a['api_key'] ?? null) : null);
+            if (is_string($key) && $key !== '') {
+                $apiKeys[$name] = $key;
+            }
+        }
+        foreach (array_unique(array_values($steps)) as $name) {
+            if (!isset($apiKeys[$name])) {
+                throw new InvalidConfig($name === 'anthropic'
+                    ? 'analysis.api_key (or analysis.api_keys.anthropic) is required for the anthropic provider'
+                    : 'analysis.api_keys.' . $name . ' is required for the provider in use');
+            }
+        }
+
+        $given = self::section($a, 'providers_options');
+        self::only($given, self::PROVIDERS, 'analysis.providers_options');
+        $options = [];
+        foreach (self::PROVIDERS as $name) {
+            $opt = self::section($given, $name);
+            self::only($opt, ['base_url', 'retries'], 'analysis.providers_options.' . $name);
+            $url = self::optStr($opt, 'base_url', self::PROVIDER_BASE_URLS[$name], 'analysis.providers_options.' . $name . '.base_url');
+            if (!str_starts_with($url, 'https://')) {
+                throw new InvalidConfig('analysis.providers_options.' . $name . '.base_url must be https');
+            }
+            $retries = $opt['retries'] ?? 0;
+            if (!is_int($retries) || $retries < 0 || $retries > 3) {
+                throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0 to 3');
+            }
+            if ($name !== 'anthropic' && $retries !== 0) {
+                throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0: this adapter does not retry (the analyzer makes its second attempt)');
+            }
+            $options[$name] = ['base_url' => $url, 'retries' => $retries];
+        }
+
+        return [$provider, $steps, $apiKeys, $options];
     }
 
     /**
@@ -1026,7 +1102,7 @@ final class WatchConfig implements \JsonSerializable
     public function secrets(): array
     {
         $candidates = [
-            $this->analysis['api_key'],
+            ...array_values($this->analysis['api_keys'] ?? []),
             ...$this->notifySecrets(),
             $this->source['loki']['auth']['token'] ?? null,
             $this->source['loki']['auth']['password'] ?? null,

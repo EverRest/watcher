@@ -67,7 +67,9 @@ final class ConfigGenerator
         $L[] = "        'models' => ['triage' => " . $str('model_triage') . ", 'analyze' => " . $str('model_analyze') . ", 'escalate' => " . $str('model_escalate') . '],';
         $L[] = "        'prices' => [";
         foreach (['triage', 'analyze', 'escalate'] as $t) {
-            $L[] = '            (string) ' . $str('model_' . $t) . ' => [' . $float('price_' . $t . '_in') . ', ' . $float('price_' . $t . '_out') . ', 0.0, 0.0],';
+            // Prices are typed into this file from the provider's pricing page, never read from the environment. The nulls fail
+            // the config check until they are numbers, so an unpriced model cannot run and report $0.
+            $L[] = '            (string) ' . $str('model_' . $t) . ' => [null, null, null, null], // input, output, cache read, cache write: USD per million tokens';
         }
         $L[] = '        ],';
         $L[] = "        'daily_budget_usd' => " . var_export((float) ($a['daily_budget_usd'] ?? 0.5), true) . ',';

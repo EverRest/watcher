@@ -116,7 +116,7 @@ final class SetupToolsTest extends TestCase
 
         $dir = sys_get_temp_dir() . '/mcp-gen-' . bin2hex(random_bytes(4));
         mkdir($dir);
-        file_put_contents($dir . '/c.php', $r['php_snippet']);
+        file_put_contents($dir . '/c.php', str_replace('[null, null, null, null]', '[1.0, 5.0, 0.1, 1.25]', $r['php_snippet']));
         $dummy = ['@channel', 'x', '1.5', 'https://hooks.example.test/t'];
         $set = [];
         foreach ($r['env_vars'] as $v) {
@@ -155,7 +155,7 @@ final class SetupToolsTest extends TestCase
     public function testSnippetRules(): void
     {
         $r = (new ConfigGenerator())->generate($this->answers('plain_php', 'loki', 'slack', 'redis')); // @phpstan-ignore argument.type
-        $code = $r['php_snippet'];
+        $code = $r['php_snippet']; // prices stay unset here: the rule is that the snippet holds no price literal
         self::assertStringContainsString("Env::bool('WATCHER_ENABLED', false)", $code);
         self::assertStringContainsString("Env::string('WATCHER_LOKI_TOKEN')", $code);
         self::assertStringNotContainsString('claude-', $code);
