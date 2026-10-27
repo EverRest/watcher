@@ -1,10 +1,12 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 2.0.0 (remove budgets, the daily spend cap, and token and cost reporting; MAJOR)
-- Principles added: I. Privacy Fails Closed; II. Read-Only by Design; III. Test-First;
-  IV. Code Decides, the Model Judges; V. Lean Requests (as of 2.0.0; was Token and Cost Discipline); VI. Configuration and
-  Contracts over Hard-Coding; VII. Failures Are Loud; VIII. Simplicity
-- Sections added: Technical Constraints; Development Workflow; Governance
+- Version change: 1.0.0 → 2.0.0 (MAJOR: Principle V redefined; budgets and token/cost reporting removed)
+- Principles added: none in this amendment
+- Principle V renamed "Lean Requests" and its budget, cap and reporting clauses removed (2026-10-27,
+  owner decision; no budget, spend cap or cost reporting remains; input-size limits stay)
+- Principle III: "token-budget fixtures" removed from the mandatory suites
+- Principle VII: "budget" removed from the failure list
+- Sections added: none
 - Sections removed: none
 - Templates: none modified (they read this file at runtime)
 - Deferred TODOs: none
@@ -63,7 +65,7 @@ Rationale: the package runs unattended on a schedule; tests are the only reviewe
 - Given the same input and configuration, everything except the model's wording MUST be
   reproducible.
 
-Rationale: reproducible selection makes the digest debuggable and keeps cost proportional to
+Rationale: reproducible selection makes the digest debuggable and keeps work proportional to
 change, not to log volume.
 
 ### V. Lean Requests

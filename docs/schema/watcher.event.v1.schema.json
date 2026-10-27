@@ -9,7 +9,6 @@
     { "$ref": "#/$defs/run" },
     { "$ref": "#/$defs/finding" },
     { "$ref": "#/$defs/group" },
-    { "$ref": "#/$defs/budget" },
     { "$ref": "#/$defs/heartbeat" },
     { "$ref": "#/$defs/delivery_failure" },
     { "$ref": "#/$defs/config_warning" }
@@ -20,8 +19,6 @@
     "fp": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
     "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$" },
     "count": { "type": "integer", "minimum": 0 },
-    "usd": { "type": "number", "minimum": 0 },
-    "ratio": { "type": ["number", "null"], "minimum": 0 },
     "severity": { "enum": ["info", "warn", "error", "critical"] },
     "trend": { "enum": ["new", "grown", "unchanged", "expected"] },
     "envelope": {
@@ -42,7 +39,7 @@
     "run": {
       "allOf": [{ "$ref": "#/$defs/envelope" }],
       "type": "object",
-      "required": ["event_type", "outcome", "reason", "dry_run", "release", "duration_ms", "events_read", "groups_total", "candidates", "findings_total", "findings_by_severity", "groups_by_trend", "calls", "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "escalations", "reused", "not_analysed", "muted", "truncated"],
+      "required": ["event_type", "outcome", "reason", "dry_run", "release", "duration_ms", "events_read", "groups_total", "candidates", "findings_total", "findings_by_severity", "groups_by_trend", "calls", "tokens_in", "tokens_out", "tokens_cached", "escalations", "reused", "not_analysed", "muted", "truncated"],
       "properties": {
         "event_type": { "const": "run" },
         "outcome": { "enum": ["reported", "quiet", "baselined", "failed", "skipped_done", "skipped_locked"] },
@@ -75,7 +72,6 @@
         "tokens_in": { "$ref": "#/$defs/count" },
         "tokens_out": { "$ref": "#/$defs/count" },
         "tokens_cached": { "$ref": "#/$defs/count" },
-        "cost_usd": { "$ref": "#/$defs/usd" },
         "escalations": { "$ref": "#/$defs/count" },
         "reused": { "$ref": "#/$defs/count" },
         "not_analysed": { "$ref": "#/$defs/count" },
@@ -127,25 +123,6 @@
         "has_finding": { "type": "boolean" },
         "watch_rules": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/name" } },
         "error_type": { "type": ["string", "null"], "maxLength": 120 }
-      },
-      "unevaluatedProperties": false
-    },
-    "budget": {
-      "allOf": [{ "$ref": "#/$defs/envelope" }],
-      "type": "object",
-      "required": ["event_type", "state", "run_cost_usd", "spent_today_usd", "daily_budget_usd", "usd_ratio", "tokens_today", "daily_token_limit", "token_ratio", "threshold_pct", "triage_only"],
-      "properties": {
-        "event_type": { "const": "budget" },
-        "state": { "enum": ["ok", "high", "exhausted"] },
-        "run_cost_usd": { "$ref": "#/$defs/usd" },
-        "spent_today_usd": { "type": ["number", "null"], "minimum": 0 },
-        "daily_budget_usd": { "type": ["number", "null"], "minimum": 0 },
-        "usd_ratio": { "$ref": "#/$defs/ratio" },
-        "tokens_today": { "type": ["integer", "null"], "minimum": 0 },
-        "daily_token_limit": { "type": ["integer", "null"], "minimum": 0 },
-        "token_ratio": { "$ref": "#/$defs/ratio" },
-        "threshold_pct": { "enum": [0, 25, 50, 75, 90, 100] },
-        "triage_only": { "type": "boolean" }
       },
       "unevaluatedProperties": false
     },

@@ -1,8 +1,7 @@
 # First live smoke run (T114)
 
 Everything in the test suite runs against fakes and recorded fixtures. This guide is the first time `watcher` talks to
-real systems: your log backend, the Anthropic API and Slack. It takes about 45 minutes and costs a few cents of model calls in
-model usage. It is read-only for your logs and posts only to a Slack channel you choose.
+real systems: your log backend, the Anthropic API and Slack. It takes about 45 minutes and makes a few model calls. It is read-only for your logs and posts only to a Slack channel you choose.
 
 ## Other channels (spec 011)
 
@@ -86,7 +85,7 @@ curl -s -o /dev/null -w "bearer: %{http_code}\n" https://api.anthropic.com/v1/mo
 ## 3. Config
 
 Start from [`docs/examples/smoke.config.php`](examples/smoke.config.php): Loki, file state in `/tmp/watcher-smoke`, a
-US$0.10 daily cap, one Slack channel. Copy it next to your env file and change only:
+one Slack channel. Copy it next to your env file and change only:
 
 - `source.stream_tags`: the labels that select your service in Loki (default `['app' => $WATCHER_SERVICE]`);
 - `schedule.timezone` if you want `run_at` in local time (default UTC; `run_at` is `06:00`).

@@ -14,7 +14,7 @@ use Watcher\Operate\RunOptions;
 
 final class FleetCommand extends Command
 {
-    protected $signature = 'watcher:fleet {--now= : ISO-8601 instant to run as (default: now)} {--only= : Comma-separated services to run (default: all)} {--dry-run : Preview: nothing is posted or recorded} {--estimate : With --dry-run, estimate tokens and cost without model calls} {--json : One JSON summary line on stdout, human text on stderr}';
+    protected $signature = 'watcher:fleet {--now= : ISO-8601 instant to run as (default: now)} {--only= : Comma-separated services to run (default: all)} {--dry-run : Preview: nothing is posted or recorded} {--estimate : With --dry-run, estimate tokens without model calls} {--json : One JSON summary line on stdout, human text on stderr}';
 
     protected $description = 'Run every service of the configured fleet (watcher.fleet), each in isolation';
 

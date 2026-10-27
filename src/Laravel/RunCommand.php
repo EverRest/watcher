@@ -17,7 +17,7 @@ use Watcher\RunResult;
 
 final class RunCommand extends Command
 {
-    protected $signature = 'watcher:run {--now= : ISO-8601 instant to run as (default: now)} {--dry-run : Preview: nothing is posted or recorded} {--estimate : With --dry-run, estimate tokens and cost without model calls} {--json : One JSON summary line on stdout, human text on stderr}';
+    protected $signature = 'watcher:run {--now= : ISO-8601 instant to run as (default: now)} {--dry-run : Preview: nothing is posted or recorded} {--estimate : With --dry-run, estimate tokens without model calls} {--json : One JSON summary line on stdout, human text on stderr}';
 
     protected $description = 'Run the log watcher (the package decides whether a run is due)';
 

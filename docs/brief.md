@@ -37,8 +37,7 @@ behind an interface and chosen by config.
 ## Decisions
 
 1. **Embedded per service** (each service runs its own scheduled job), not a central runner.
-   Consequence: Anthropic key and read-only log token live in each service's env; cost cap is per
-   service.
+   Consequence: Anthropic key and read-only log token live in each service's env.
 2. **Host provides the scheduler** (k8s CronJob or framework scheduler); package exposes a runnable
    entry point plus an Lumen/Laravel adapter command (`watcher:run`). **Run hour and lookback window
    are configurable** (default lookback 24h).
