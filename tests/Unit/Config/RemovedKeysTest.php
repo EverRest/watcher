@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Watcher\Config\InvalidConfig;
 use Watcher\Config\WatchConfig;
 
-/** 0.5.0 removes the budget and price keys, 0.6.1 removes Anthropic: each fails at load with its exact message (contracts/config-migration.md). */
+/** 0.5.0 removes the budget and price keys, 0.7.0 removes Anthropic: each fails at load with its exact message (contracts/config-migration.md). */
 final class RemovedKeysTest extends TestCase
 {
     /** @return array<string, mixed> */
@@ -96,7 +96,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['api_key'] = 'k';
 
-        self::expectFailure($c, 'analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
+        self::expectFailure($c, 'analysis.api_key was removed in 0.7.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
     }
 
     public function testAnthropicApiKeyFailsAndNamesTheReplacement(): void
@@ -104,7 +104,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['api_keys']['anthropic'] = 'k';
 
-        self::expectFailure($c, 'analysis.api_keys.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai.');
+        self::expectFailure($c, 'analysis.api_keys.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai.');
     }
 
     public function testAnthropicProvidersOptionsFailsAndSaysToDeleteIt(): void
@@ -112,7 +112,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['providers_options'] = ['anthropic' => ['retries' => 0]];
 
-        self::expectFailure($c, 'analysis.providers_options.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Delete this section.');
+        self::expectFailure($c, 'analysis.providers_options.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Delete this section.');
     }
 
     public function testAnthropicAsTheProviderFails(): void
@@ -120,7 +120,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['provider'] = 'anthropic';
 
-        self::expectFailure($c, 'analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+        self::expectFailure($c, 'analysis.provider = anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use gemini or openai.');
     }
 
     public function testAnthropicAsAStepProviderFails(): void
@@ -128,7 +128,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['analysis']['providers'] = ['triage' => 'anthropic'];
 
-        self::expectFailure($c, 'analysis.providers.triage = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai.');
+        self::expectFailure($c, 'analysis.providers.triage = anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use gemini or openai.');
     }
 
     public function testTheRemovedApiKeyFailsEvenBesideAValidGeminiConfig(): void
@@ -138,7 +138,7 @@ final class RemovedKeysTest extends TestCase
         $c['analysis']['api_keys'] = ['gemini' => 'gm-secret'];
         $c['analysis']['api_key'] = 'sk-old-secret';
 
-        self::expectFailure($c, 'analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
+        self::expectFailure($c, 'analysis.api_key was removed in 0.7.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use).');
     }
 
     public function testEveryRemovedKeyIsNamedInTableOrder(): void
@@ -155,7 +155,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['kubernetes'] = ['enabled' => false];
 
-        self::expectFailure($c, 'kubernetes section was removed in 0.6.0; there is no replacement. Delete this section.');
+        self::expectFailure($c, 'kubernetes section was removed in 0.7.0; there is no replacement. Delete this section.');
     }
 
     public function testEventsSectionFails(): void
@@ -163,7 +163,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['events'] = ['driver' => 'kubernetes'];
 
-        self::expectFailure($c, 'events section was removed in 0.6.0; there is no replacement. Delete this section.');
+        self::expectFailure($c, 'events section was removed in 0.7.0; there is no replacement. Delete this section.');
     }
 
     public function testSourceDriverKubernetesFails(): void
@@ -171,7 +171,7 @@ final class RemovedKeysTest extends TestCase
         $c = self::base();
         $c['source'] = ['driver' => 'kubernetes'];
 
-        self::expectFailure($c, 'source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
+        self::expectFailure($c, 'source.driver kubernetes was removed in 0.7.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
     }
 
     public function testSourceDriverLokiStillLoads(): void
@@ -189,6 +189,6 @@ final class RemovedKeysTest extends TestCase
         $c['events'] = ['driver' => 'kubernetes'];
         $c['analysis']['prices'] = ['a' => [1, 5, 0.1, 1.25]];
 
-        self::expectFailure($c, 'analysis.prices was removed in 0.5.0; there is no replacement. Delete this key.; kubernetes section was removed in 0.6.0; there is no replacement. Delete this section.; events section was removed in 0.6.0; there is no replacement. Delete this section.; source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
+        self::expectFailure($c, 'analysis.prices was removed in 0.5.0; there is no replacement. Delete this key.; kubernetes section was removed in 0.7.0; there is no replacement. Delete this section.; events section was removed in 0.7.0; there is no replacement. Delete this section.; source.driver kubernetes was removed in 0.7.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
     }
 }

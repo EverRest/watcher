@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.1 — 2026-10-28 — Remove Anthropic
+## 0.7.0 — 2026-10-28 — Remove the Kubernetes event source and Anthropic
 
 Breaking: Anthropic is no longer a provider. The providers are OpenAI and Gemini, and the default is Gemini. A configuration
 that still names Anthropic **fails at load**; nothing is converted.
@@ -9,11 +9,11 @@ that still names Anthropic **fails at load**; nothing is converted.
 
 | Key | Message |
 |---|---|
-| `analysis.api_key` | analysis.api_key was removed in 0.6.1; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use). |
-| `analysis.api_keys.anthropic` | analysis.api_keys.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai. |
-| `analysis.providers_options.anthropic` | analysis.providers_options.anthropic was removed in 0.6.1; Anthropic is no longer a provider. Delete this section. |
-| `analysis.provider = anthropic` | analysis.provider = anthropic was removed in 0.6.1; Anthropic is no longer a provider. Use gemini or openai. |
-| `analysis.providers.<step> = anthropic` | the same, naming the step (`analysis.providers.triage = anthropic was removed in 0.6.1; ...`). |
+| `analysis.api_key` | analysis.api_key was removed in 0.7.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use). |
+| `analysis.api_keys.anthropic` | analysis.api_keys.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai. |
+| `analysis.providers_options.anthropic` | analysis.providers_options.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Delete this section. |
+| `analysis.provider = anthropic` | analysis.provider = anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use gemini or openai. |
+| `analysis.providers.<step> = anthropic` | the same, naming the step (`analysis.providers.triage = anthropic was removed in 0.7.0; ...`). |
 
 `WATCHER_ANTHROPIC_KEY` is no longer read by the setup catalog (MCP) and is replaced by `WATCHER_GEMINI_KEY`. The package reads no environment variables itself; the message is not repeated for it.
 
@@ -37,7 +37,7 @@ that still names Anthropic **fails at load**; nothing is converted.
 5. In Kubernetes or your environment, replace `WATCHER_ANTHROPIC_KEY` with `WATCHER_GEMINI_KEY`.
 6. Run `watcher check`: `provider_auth` and `models` are SKIP, so check the key and the model ids on the first run.
 
-## 0.6.0 — 2026-10-28 — Remove the Kubernetes event source
+### Kubernetes event source removed
 
 Breaking: a configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.
 The Kubernetes event source (spec 008) is gone. Pod-level problems are not read from the cluster any more; see "What to do instead".
@@ -46,9 +46,9 @@ The Kubernetes event source (spec 008) is gone. Pod-level problems are not read 
 
 | Key | Message |
 |---|---|
-| `kubernetes` (whole section, including `kubernetes.enabled`) | kubernetes section was removed in 0.6.0; there is no replacement. Delete this section. |
-| `events` (whole section) | events section was removed in 0.6.0; there is no replacement. Delete this section. |
-| `source.driver: kubernetes` | source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings. |
+| `kubernetes` (whole section, including `kubernetes.enabled`) | kubernetes section was removed in 0.7.0; there is no replacement. Delete this section. |
+| `events` (whole section) | events section was removed in 0.7.0; there is no replacement. Delete this section. |
+| `source.driver: kubernetes` | source.driver kubernetes was removed in 0.7.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings. |
 
 `source.driver` values are now `loki` or `datadog` only. The feature flag `kubernetes` is gone with the section.
 `WATCHER_KUBERNETES_ENABLED` is no longer read; it produces no message.

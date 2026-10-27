@@ -298,7 +298,7 @@ last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
 compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
 ```
 
-`state` is `ok`, `degraded` (not set by any source in 0.6.0), `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
+`state` is `ok`, `degraded` (not set by any source in 0.7.0), `stale` (last good run older than `heartbeat.stale_after`, default 1.5 x window), `failed` (last run
 failed) or `unknown` (no record, expired or unreadable store; never reported as ok). Exit codes: 0 ok, 1 degraded, stale or
 failed, 3 unknown, 2 bad config. A wrong host clock shows in the `compared:` line, which prints both instants.
 

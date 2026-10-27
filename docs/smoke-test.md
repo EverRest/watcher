@@ -214,7 +214,7 @@ If you keep a hand-made backlog for the same window (for example `docs/context/l
 | ... | High/Med | yes/no | yes/no |
 
 Pod-level items (CrashLoopBackOff, HPA errors, probes) are **not in application logs**; mark them "no" in the third
-column and exclude them from the score: the Kubernetes-events source they would need was removed in 0.6.0. Coverage =
+column and exclude them from the score: the Kubernetes-events source they would need was removed in 0.7.0. Coverage =
 (digest hits) / (items visible in app logs). Target: **80% or more** of High/Medium.
 
 ## 11. Results to send back

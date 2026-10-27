@@ -124,7 +124,7 @@ A key of another driver (`webhook` on a Telegram entry) is an error that names t
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
 key), and `digest: combined` needs a fleet `notify.digest` of any driver.
 
-### Removed in 0.6.0: `kubernetes`, `events` and `source.driver: kubernetes`
+### Removed in 0.7.0: `kubernetes`, `events` and `source.driver: kubernetes`
 
 The Kubernetes event source (spec 008) is gone. A configuration that still has the top-level `kubernetes` section, the
 top-level `events` section or `source.driver: kubernetes` fails at load, and the message says to delete it. Read the events

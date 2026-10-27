@@ -5,7 +5,7 @@ Status: brainstorm approved by the owner (the owner) section by section on 2026-
 
 ## Goal
 
-> Superseded: Anthropic was removed in 0.6.1; the package uses OpenAI and Gemini (spec 016).
+> Superseded: Anthropic was removed in 0.7.0; the package uses OpenAI and Gemini (spec 016).
 
 A general-purpose PHP package that, on a schedule, pulls a window of logs for one service from a log
 backend, finds errors and suspicious behaviour, and reports to Slack. An Anthropic model does the
