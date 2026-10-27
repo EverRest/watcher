@@ -109,7 +109,7 @@ final class FeatureFlagsTest extends TestCase
         self::assertSame(RunOutcome::Reported, $r->outcome);
         foreach ($rec->calls as [, $key]) {
             self::assertStringNotContainsString('@', $key);
-            self::assertMatchesRegularExpression('/^(' . implode('|', [Keys::SNAP, Keys::LOCK, Keys::RUN, Keys::SPEND, Keys::ALERT, Keys::VERDICT, Keys::TRIAGE, Keys::REPORTED, Keys::HEARTBEAT, Keys::HIGH_WATER, Keys::WEEK, Keys::DELIVERED, Keys::ZERO, Keys::FAILNOTICE]) . '):/', $key);
+            self::assertMatchesRegularExpression('/^(' . implode('|', [Keys::SNAP, Keys::LOCK, Keys::RUN, Keys::VERDICT, Keys::TRIAGE, Keys::REPORTED, Keys::HEARTBEAT, Keys::HIGH_WATER, Keys::WEEK, Keys::DELIVERED, Keys::ZERO, Keys::FAILNOTICE]) . '):/', $key);
         }
         self::assertStringContainsString('Beta', self::digest($h) . json_encode($h->analyzer->requests, JSON_PARTIAL_OUTPUT_ON_ERROR));
     }
@@ -292,29 +292,6 @@ final class FeatureFlagsTest extends TestCase
         }
 
         self::assertNotSame($texts[1], $texts[0]);
-    }
-
-    public function testBudgetAlertsOffPostsNoThresholdAlertAndTouchesNoAlertKey(): void
-    {
-        $patch = ['analysis' => ['daily_budget_usd' => 1.0]];
-        foreach ([true, false] as $alertsOn) {
-            $h = new Harness($patch + ['budget_alerts' => ['enabled' => $alertsOn]]);
-            $h->state = $rec = new RecordingStateStore($h->state);
-            $h->watcher(self::src(self::alpha()))->run();
-            $h->nextWindow();
-            $h->analyzer->inputTokens = 100000;
-            $rec->calls = [];
-            $h->notifier->forget();
-            $h->watcher(self::src([...self::alpha(), ...self::beta()]))->run();
-            $alerts = array_filter($h->notifier->sent, static fn (array $s): bool => str_contains($s['message']->text, 'budget'));
-            $alertKeys = array_filter($rec->calls, static fn (array $c): bool => str_starts_with($c[1], Keys::ALERT . ':'));
-            if ($alertsOn) {
-                self::assertNotEmpty($alerts);
-            } else {
-                self::assertSame([], $alerts);
-                self::assertSame([], $alertKeys);
-            }
-        }
     }
 
     public function testNoticeOffStillFailsLoudlyInTheHostLogAndExitCode(): void

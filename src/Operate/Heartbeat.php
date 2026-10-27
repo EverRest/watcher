@@ -22,7 +22,7 @@ use Watcher\State\StateStore;
  *
  * Integration from Watcher::run():
  *  - after a run that finished as Reported|Quiet|Baselined|Failed:
- *      $hb->recordRun($outcome, $windowStart, $windowEnd, $startedAt, $costUsd, $failureReason);
+ *      $hb->recordRun($outcome, $windowStart, $windowEnd, $startedAt, $failureReason);
  *  - on SkippedDone|SkippedLocked: $hb->recordSkip($outcome);  (SkippedNotDue and InvalidConfig: call nothing,
  *    or call anyway: both are ignored and touch no state)
  *  - if heartbeat.weekly_summary and the run is due: $hb->sendWeeklySummary($notifier, $noticeDestination, $notices, $env);
@@ -56,7 +56,6 @@ final class Heartbeat
         DateTimeImmutable $windowStart,
         DateTimeImmutable $windowEnd,
         DateTimeImmutable $startedAt,
-        float $costUsd = 0.0,
         ?string $reason = null,
         ?string $eventsStatus = null,
     ): void {
@@ -64,7 +63,7 @@ final class Heartbeat
             return;
         }
         $now = $this->clock->now();
-        $this->guard('heartbeat write', function () use ($outcome, $windowStart, $windowEnd, $startedAt, $costUsd, $reason, $now, $eventsStatus): void {
+        $this->guard('heartbeat write', function () use ($outcome, $windowStart, $windowEnd, $startedAt, $reason, $now, $eventsStatus): void {
             $ok = $outcome !== RunOutcome::Failed;
             $previous = $this->store->get(Keys::heartbeat($this->service));
             $lastOk = $ok ? $now->format(DATE_ATOM) : ($previous['lastOkAt'] ?? null);
@@ -77,17 +76,11 @@ final class Heartbeat
                 'windowStart' => $windowStart->format(DATE_ATOM),
                 'windowEnd' => $windowEnd->format(DATE_ATOM),
                 'durationSeconds' => max(0, $now->getTimestamp() - $startedAt->getTimestamp()),
-                'costUsd' => $costUsd,
                 'lastOkAt' => is_string($lastOk) ? $lastOk : null,
                 ...($eventsStatus === null ? [] : ['events' => $eventsStatus]), // spec 008: only when pod events are configured
             ], Keys::ttl(Keys::HEARTBEAT, $this->retention, 0));
         });
-        $this->guard('weekly counter', function () use ($outcome, $costUsd): void {
-            $this->count($outcome->value, 1.0);
-            if ($costUsd > 0) {
-                $this->count('cost', $costUsd);
-            }
-        });
+        $this->guard('weekly counter', fn () => $this->count($outcome->value, 1.0));
     }
 
     /** Only a due trigger that did not run (done, locked) writes anything; a not-due trigger touches no state. */
@@ -135,7 +128,7 @@ final class Heartbeat
         $owner = null;
         try {
             $counts = [];
-            foreach ([...self::OK_OUTCOMES, 'failed', ...self::SKIPPED, 'cost'] as $name) {
+            foreach ([...self::OK_OUTCOMES, 'failed', ...self::SKIPPED] as $name) {
                 $counts[$name] = $this->total($week, $name);
             }
             if ($counts['reported'] + $counts['quiet'] + $counts['baselined'] + $counts['failed'] <= 0) {
@@ -151,7 +144,7 @@ final class Heartbeat
                 'baselined' => (int) $counts['baselined'],
                 'failed' => (int) $counts['failed'],
                 'skipped' => (int) ($counts['skipped_done'] + $counts['skipped_locked']),
-            ], $counts['cost']), $to);
+            ]), $to);
 
             return true;
         } catch (Throwable $e) {

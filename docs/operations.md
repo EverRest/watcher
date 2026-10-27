@@ -19,7 +19,7 @@ The host triggers the package **at least once an hour**. On each trigger the pac
 
 The first run for a service only records a **baseline** (no model call). Analysis starts with the second window.
 
-**Several runs per day (spec 014).** Set `schedule.every` (`PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H` or `PT12H`) or a list of `schedule.run_at` times at least one hour apart (not both). Windows are contiguous. Around a clock change the boundary that does not exist is dropped and the repeated hour uses its first occurrence. A high-water mark per service stops the same window being reported twice. `schedule.catch_up` (1 to 24, needs `every`) lets one trigger work through windows missed during an outage, oldest first. `schedule.ingestion_delay` moves window ends back for logs that are indexed late. Optional caps: `analysis.max_runs_per_day` ends further runs of the day with the outcome `capped` and one notice; `analysis.run_budget_usd` limits one run's spend. The trigger must still fire at least as often as the period.
+**Several runs per day (spec 014).** Set `schedule.every` (`PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H` or `PT12H`) or a list of `schedule.run_at` times at least one hour apart (not both). Windows are contiguous. Around a clock change the boundary that does not exist is dropped and the repeated hour uses its first occurrence. A high-water mark per service stops the same window being reported twice. `schedule.catch_up` (1 to 24, needs `every`) lets one trigger work through windows missed during an outage, oldest first. `schedule.ingestion_delay` moves window ends back for logs that are indexed late. Optional caps: The trigger must still fire at least as often as the period.
 
 **A skipped or failed day is not a new baseline.** After every successful snapshot write the run also writes
 `snap:<service>:last` (the window key, same TTL as `state.retention`). When the snapshot of the exact previous window is
@@ -46,8 +46,7 @@ text; counts, fingerprints and comparisons are unaffected. Upgrading: templates 
 
 ## Outcomes and exit codes
 
-The command prints one line to stdout, `watcher: outcome=<outcome> [reason="..."] [tokens_in=.. tokens_out=..
-tokens_cached=.. cost_usd=..]`, and failure messages to stderr as `watcher [error] ...` (messages only: no keys, URLs,
+The command prints one line to stdout, `watcher: outcome=<outcome> [reason="..."] `, and failure messages to stderr as `watcher [error] ...` (messages only: no keys, URLs,
 log text).
 
 | Outcome | Exit | Meaning | Action |
@@ -79,7 +78,7 @@ composer require everrest/watcher        # from Packagist once published; before
 ```
 
 Register the provider (Lumen: `bootstrap/app.php`), copy `vendor/everrest/watcher/config/watcher.php` to
-`config/watcher.php` (Laravel can `vendor:publish`; Lumen has no publish command), fill in `prices` and set the
+`config/watcher.php` (Laravel can `vendor:publish`; Lumen has no publish command), set the
 environment variables from [configuration.md](configuration.md):
 
 ```php
@@ -169,7 +168,6 @@ when loaded, else `predis/predis` (`composer require predis/predis`, `^2.0 || ^3
 - **Size budget.** A stored value may be at most 4 MB of JSON, 100,000 elements and 16,000 arrays/objects (`StateCodec`), so the worst accepted value decodes to about 16 MB of PHP memory. Larger values are refused at write (`StateValueTooLarge`, the run fails visibly) instead of being written and read back as missing. A snapshot passes up to roughly 90,000 groups; the default `source.group_cap` is 5,000.
 - **Errors fail closed.** A failed `GET` (a phpredis `false` with an error, a Predis error reply) raises and the run fails; only a missing key reads as missing.
 - **Lost lock.** If the run lock is found expired or taken when it is renewed, the run stops at that checkpoint (reason `lock_lost`, host log and exit code 1, no digest). With asynchronous Redis replication a failover can lose a lock; the delivered marker still prevents a second digest for the same window.
-- **Budget overshoot.** On Redis the daily budget is reserved atomically: before each model step one Lua script checks both caps (USD and tokens) and adds the step's worst case to the spend counters (with the expiry set in the same script); when the call returns, the reservation is settled to the real cost, and a call that failed before anything was billed gives it back. Parallel runs of one service therefore cannot both pass the check and overshoot the cap. Two limits remain: the file and PDO stores (and `--dry-run`) still check against what is booked so far and book afterwards, so concurrent runs can overshoot by up to one step each; and the fleet cap is checked before each step but not reserved (it is exact only because a fleet runs its services one after another in one process). The reservation script touches two keys (USD and tokens) without a shared hash tag, so it is **not Redis Cluster safe** (the script would fail with CROSSSLOT and the run would fail closed); use a single Redis instance or a primary with replicas, as the rest of the package assumes. A run killed between the reservation and the settlement leaves its worst case counted until the counter expires at the end of the day's retention (48 h), which only makes the cap stricter.
 
 ### Notification channels
 
@@ -306,7 +304,7 @@ Every finished run (reported, quiet, baselined, failed) stores a liveness record
 ```text
 service:        orders-api
 state:          ok
-last run:       2026-10-24T06:00:41+00:00  outcome=quiet  duration=38s  cost_usd=0.0000
+last run:       2026-10-24T06:00:41+00:00  outcome=quiet  duration=38s
 last ok:        2026-10-24T06:00:41+00:00  age=3h12m  limit=36h
 compared:       now=2026-10-24T09:12:55+00:00 against last ok 2026-10-24T06:00:41+00:00
 ```
@@ -362,7 +360,7 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
 - `watcher check --config=...` runs every check and prints PASS/FAIL/SKIP per line (config, source, provider_auth,
   models, prices, state, notifier). It makes read-only calls and posts nothing; `--post-test` posts one labelled test
   message per destination. Exit 0 means no failure; `--json` prints one machine line.
-- `watcher run --dry-run --estimate` makes no model call and prints groups, estimated tokens and cost per step.
+- `watcher run --dry-run --estimate` makes no model call and prints the groups per step.
 - `watcher run --dry-run` runs the whole pipeline for the window ending at the latest `run_at` instant (ignoring the due
   hour and the run record), prints the digest and notices, and posts and records nothing. **Model calls are real and
   billed**; spend is not recorded.
@@ -371,8 +369,8 @@ in [examples/watcher-fleet.php](examples/watcher-fleet.php)).
 ## Log hygiene reports (spec 006)
 
 ```bash
-vendor/bin/watcher hygiene --config=config/watcher.php                 # four reports on stdout
-vendor/bin/watcher hygiene --config=config/watcher.php --report=cost --days=14 --json
+vendor/bin/watcher hygiene --config=config/watcher.php                 # three reports on stdout
+vendor/bin/watcher hygiene --config=config/watcher.php --report=proposals --json
 vendor/bin/watcher hygiene --config=config/watcher.php --notify       # weekly, from the host's cron
 vendor/bin/watcher hygiene --config=config/watcher.php --decline=<id> # quiet a proposal for hygiene.decline_days
 vendor/bin/watcher hygiene --config=config/watcher.php --dry-run       # read-only look: nothing written, no lock, nothing sent

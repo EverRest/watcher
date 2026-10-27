@@ -26,9 +26,7 @@ final class OutcomeRegistry
     public const FAILED = 'failed';
     public const INVALID_CONFIG = 'invalid_config';
     public const DISABLED = 'disabled';
-    public const CAPPED = 'capped';
     // run reasons
-    public const BUDGET_EXHAUSTED = 'budget_exhausted';
     public const SOURCE_UNAVAILABLE = 'source_unavailable';
     public const ANALYSIS_REFUSED = 'analysis_refused';
     public const ANALYSIS_FAILED = 'analysis_failed';
@@ -57,9 +55,6 @@ final class OutcomeRegistry
     public const K8S_INGEST_FAILED = 'k8s_ingest_failed';
     // MCP errors
     public const STATE_UNAVAILABLE = 'state_unavailable';
-    public const COST_NOT_CONFIRMED = 'cost_not_confirmed';
-    public const DAILY_LIMIT_REACHED = 'daily_limit_reached';
-    public const WOULD_EXCEED_DAILY_LIMIT = 'would_exceed_daily_limit';
     public const BUSY = 'busy';
     public const SECRET_REFUSED = 'secret_refused';
     public const PATH_NOT_ALLOWED = 'path_not_allowed';
@@ -88,8 +83,6 @@ final class OutcomeRegistry
         self::add($e, self::FAILED, 'outcome', 'error', 1, 'The run failed: source, analysis, delivery or state.', 'See the reason code on the same line and the notice in the channel.', ['Read `reason=` on the outcome line.', '`watcher check` isolates the failing part.'], ['Fix the failing part named by the reason code.'], [self::SOURCE_UNAVAILABLE, self::ANALYSIS_FAILED, self::DELIVERY_FAILED, self::INTERNAL_ERROR], $outcomes);
         self::add($e, self::INVALID_CONFIG, 'outcome', 'error', 2, 'The configuration was rejected before any external call.', 'A key is missing, mistyped or has a wrong value; the message names the key, never the value.', ['Read the key path in the message.', '`watcher_validate_config` checks a file without any network.'], ['Fix the named key; `watcher_explain_config` describes it.'], [self::FAILED], $c('configuration-reference'));
         self::add($e, self::DISABLED, 'outcome', 'info', 0, 'The master switch `enabled` is false: nothing was read, called or written.', '`enabled` defaults to false; it is set per environment.', ['Look at `WATCHER_ENABLED` in the environment that runs the schedule.'], ['Set `enabled` / `WATCHER_ENABLED=1` where the watcher should run.'], [self::INVALID_CONFIG], $o('enabling-and-disabling-per-environment'));
-        self::add($e, self::CAPPED, 'outcome', 'info', 0, 'The run was skipped because `analysis.max_runs_per_day` was reached for the local day; no model call was made.', 'More triggers than the daily cap allows (a catch-up or a frequent `schedule.every`).', ['`watcher status` shows the runs counted today.'], ['Raise `analysis.max_runs_per_day`, or wait for the next local day.'], [self::SKIPPED_DONE], $o('service-schedule'));
-        self::add($e, self::BUDGET_EXHAUSTED, 'reason', 'warn', 1, 'The daily budget or token limit was already used up.', 'Many fresh fingerprints, or a low `analysis.daily_budget_usd`.', ['`watcher_status` shows today\'s spend and the remaining budget.'], ['Raise the budget, or lower `selection.top_m`; cost drivers are in operations.md.'], [self::FAILED], $o('availability-guards'));
         self::add($e, self::SOURCE_UNAVAILABLE, 'reason', 'error', 1, 'The log source could not be read.', 'Backend down, credential rejected, proxy URL wrong, or the response was too large.', ['`watcher check` source line.', 'The Loki URL form and the Viewer role (smoke-test.md section 1).'], ['Fix the URL or credential; allow `source.max_response_mb` if replies are large.'], [self::FAILED], $o('troubleshooting'));
         self::add($e, self::ANALYSIS_FAILED, 'reason', 'error', 1, 'The model analysis failed; the window is retried by the next trigger in the due hour.', 'Provider outage, timeout or an invalid reply.', ['`watcher check` provider lines.'], ['Wait for the retry; a second failure of the same window is recorded as final.'], [self::ANALYSIS_REFUSED], $outcomes);
         self::add($e, self::ANALYSIS_REFUSED, 'reason', 'error', 1, 'The model refused the request; the window is recorded as failed and not retried.', 'The provider declined the content of the request.', ['The notice in the channel names the window.'], ['Nothing to retry; the next window starts clean.'], [self::ANALYSIS_FAILED], $outcomes);
@@ -108,16 +101,13 @@ final class OutcomeRegistry
         self::add($e, self::EVENT_CAP_HIT, 'event_code', 'warn', null, '`source.event_cap` was reached.', 'More events than the cap in the window.', ['The read-quality line.'], ['Raise the cap or narrow the selector.'], [self::TRUNCATED], $c('source'));
         self::add($e, self::GROUP_CAP_HIT, 'event_code', 'warn', null, '`source.group_cap` was reached.', 'Too many distinct messages.', ['The "cluster cap hit" notice.'], ['Fix unmasked ids or raise the cap.'], [self::OVERFLOW], $c('source'));
         self::add($e, self::COMPARISON_GAP, 'event_code', 'info', null, 'The previous window had no snapshot; the comparison used an older run.', 'A skipped or failed day.', ['The "compared with the run of" notice.'], ['None.'], [], $o('baseline-modes'));
-        self::add($e, self::ANALYSIS_PARTIAL, 'event_code', 'warn', null, 'Some flagged groups were not analysed (budget, `top_m` or an input limit).', 'The daily budget or the per-step input limit was reached.', ['The digest notice.'], ['Raise the budget or limits if needed.'], [self::BUDGET_EXHAUSTED], $c('digest-notices-counts-only-never-raw-content'));
+        self::add($e, self::ANALYSIS_PARTIAL, 'event_code', 'warn', null, 'Some flagged groups were not analysed (`top_m` or an input limit).', 'More groups than `selection.top_m`, or the per-step input limit was reached.', ['The digest notice.'], ['Raise `selection.top_m` or the input limits if needed.'], [], $c('digest-notices-counts-only-never-raw-content'));
         self::add($e, self::CHECK_TEST, 'event_code', 'info', null, 'A test event sent by `watcher check --post-test`.', 'A deliberate test.', [], ['None.'], [], self::doc('docs/observability.md', '6-sinks-that-never-break-the-run'));
         self::add($e, self::STATE_UNREADABLE, 'counter', 'warn', null, 'The count of stored entries the run could not read in the JSON summary.', 'A shared store holds a value of the wrong shape, or the store was unreachable.', ['`watcher state:get` for the key.'], ['Repair or clear the offending entries.'], [self::STATE_UNAVAILABLE], self::doc('docs/observability.md', '8-the-run-summary-line-zero-dependencies'));
         self::add($e, self::K8S_INGEST_FAILED, 'reason', 'error', 1, 'Reserved: Kubernetes ingest failed (`k8s_ingest_failed:<reason>`). Not emitted by this version.', 'Specified by spec 008; the code is registered so the documentation of that spec is already explainable.', [], ['See the documentation of spec 008 when it ships.'], [], self::doc('docs/operations.md', 'kubernetes-cronjob-any-language-of-host-app'), 'spec-008', true);
         $mcp = static fn (string $meaning, string $cause, string $fix, array $related = []): array => [$meaning, $cause, $fix, $related];
         foreach ([
             self::STATE_UNAVAILABLE => $mcp('The state store could not be read by the MCP server.', 'Store down, wrong credentials, or an unreadable file state directory.', 'Run `watcher check` and repair the state store.', [self::STATE_UNREADABLE]),
-            self::COST_NOT_CONFIRMED => $mcp('A dry run that calls a model needs `confirm_cost=true`.', 'The call omitted the confirmation.', 'Pass `confirm_cost=true` or `estimate_only=true`.', [self::DAILY_LIMIT_REACHED]),
-            self::DAILY_LIMIT_REACHED => $mcp('The daily budget or token limit is already used up.', 'Spend of the day reached the cap.', 'Wait for the next day or raise the budget.', [self::BUDGET_EXHAUSTED]),
-            self::WOULD_EXCEED_DAILY_LIMIT => $mcp('The estimated cost would exceed what is left of the daily limit.', 'The estimate plus the escalation allowance is larger than the remainder.', 'Run `estimate_only` and lower `selection.top_m` or raise the budget.', [self::DAILY_LIMIT_REACHED]),
             self::BUSY => $mcp('A dry run is already in progress.', 'Two calls overlapped.', 'Wait for the first call to finish.'),
             self::SECRET_REFUSED => $mcp('A value that looks like a secret was refused; it was not stored, logged or echoed.', 'A credential was pasted where only a name is accepted.', 'Give the name of the environment variable, not its value; treat a pasted secret as exposed and rotate it.'),
             self::PATH_NOT_ALLOWED => $mcp('The path is outside the allowed root or not a trusted regular `.php` file.', 'The file is a symlink, group/world-writable, hard-linked, foreign-owned or elsewhere.', 'Place the file next to the server\'s configuration (or in the working directory in setup mode) with mode 0600 or 0644 owned by the same user.'),

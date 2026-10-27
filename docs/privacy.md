@@ -227,14 +227,11 @@ Limits: card-like (`<PAN>`, any 13-19 digit run, so epoch milliseconds count) an
 ## Residual risk: log text steers the model (security review F8)
 
 Log text is written by whoever can write logs, and it reaches the model. The protections above (no ping, link or
-markup in any channel; error-or-higher groups keep their level; `daily_budget_usd` and `group_cap` bound the work) are
-pinned by `tests/EndToEnd/PromptInjectionTest.php`, `tests/EndToEnd/ErrorGroupLevelTest.php` and
-`tests/EndToEnd/HostileVolumeBudgetTest.php` over the hostile corpus in `tests/Fixtures/prompt-injection/`. What remains:
+markup in any channel; error-or-higher groups keep their level; `group_cap` and the input limits bound the work) are
+pinned by `tests/EndToEnd/PromptInjectionTest.php` and
+`tests/EndToEnd/ErrorGroupLevelTest.php` over the hostile corpus in `tests/Fixtures/prompt-injection/`. What remains:
 
-- **Spend.** Someone who can write logs can raise model spend up to `analysis.daily_budget_usd` for the day, and
-  `analysis.run_budget_usd` per run. The cap is the bound, not a floor: spend goes to the cap and then triage and analysis stop
-  (the digest says so). Thousands of distinct groups do not change this; `source.group_cap` and the token bound
-  truncate what a single request carries.
+- **Input size.** Someone who can write logs can make each request carry the largest allowed input (`max_input_tokens`); the input limits and `group_cap` bound it.
 - **Wording.** The same person can influence what a summary, a title, the evidence or a suggested check says, within the
   limits above. The text is a hypothesis for the on-call engineer to verify, not a fact the service has established.
 - **Not possible.** Such a person cannot ping a channel (`<!channel>`, `<!here>`, `<@U…>`), add a link or a clickable domain,

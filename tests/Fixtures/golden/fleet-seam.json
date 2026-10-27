@@ -14,17 +14,6 @@
                                 "@Watcher\\RunResult": {
                                     "outcome": "reported",
                                     "failureReason": null,
-                                    "usage": {
-                                        "@Watcher\\Analyze\\Usage": {
-                                            "model": "mixed",
-                                            "inputTokens": 2400,
-                                            "outputTokens": 600,
-                                            "cacheReadTokens": 0,
-                                            "cacheWriteTokens": 0,
-                                            "costUsd": 0.0108,
-                                            "returnedModel": null
-                                        }
-                                    },
                                     "summaryData": {
                                         "@Watcher\\Operate\\RunSummaryData": {
                                             "outcome": "reported",
@@ -49,16 +38,11 @@
                                                         "analyze": 1,
                                                         "escalate": 0
                                                     },
-                                                    "tokensIn": 2400,
-                                                    "tokensOut": 600,
-                                                    "tokensCached": 0,
-                                                    "costUsd": 0.0108,
                                                     "durationMs": 0,
                                                     "events": null,
                                                     "pages": null
                                                 }
                                             },
-                                            "todayUsd": 0.0108,
                                             "release": null,
                                             "dryRun": false,
                                             "environment": null
@@ -71,8 +55,7 @@
                 ],
                 "correlated": [],
                 "correlatedPosted": null,
-                "combinedPosted": null,
-                "fleetCostTodayUsd": 0.0108
+                "combinedPosted": null
             }
         }
     },
@@ -108,10 +91,6 @@
                 {
                     "kind": "finding",
                     "text": "• Problem &lt;ID&gt; — 3× (new)  `ed1c1517d685`\n  Evidence: seen repeatedly\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
-                },
-                {
-                    "kind": "footer",
-                    "text": "— tokens in 2.4k / out 600 / cached 0 · triage m-t · analyze m-a · ≈ $0.01 · today $0.01 of $0.50 (2%)"
                 }
             ],
             "to": {
@@ -142,7 +121,6 @@
         },
         "run:api:2026-10-08T06%3A00%3A00Z": {
             "outcome": "baselined",
-            "usage": null,
             "startedAt": "2026-10-08T06:00:00+00:00",
             "finishedAt": "2026-10-08T06:00:00+00:00"
         },
@@ -160,7 +138,6 @@
             "windowStart": "2026-10-08T06:00:00+00:00",
             "windowEnd": "2026-10-09T06:00:00+00:00",
             "durationSeconds": 0,
-            "costUsd": 0.0108,
             "lastOkAt": "2026-10-09T06:00:00+00:00"
         },
         "hbweek:api:2026-W41:baselined": {
@@ -175,23 +152,10 @@
             "windowStart": "2026-10-09T06:00:00+00:00",
             "windowEnd": "2026-10-09T06:00:00+00:00",
             "durationSeconds": 0,
-            "costUsd": 0,
             "lastOkAt": "2026-10-09T06:00:00+00:00"
         },
         "hbweek:fleet%2Fplatform:2026-W41:quiet": {
             "total": 1
-        },
-        "spend:api:2026-10-09:usd": {
-            "total": 0.0108
-        },
-        "spend:api:2026-10-09:tokens": {
-            "total": 3000
-        },
-        "spend:fleet%2Fplatform:2026-10-09:usd": {
-            "total": 0.0108
-        },
-        "spend:fleet%2Fplatform:2026-10-09:tokens": {
-            "total": 3000
         },
         "sent:api:2026-10-09T06%3A00%3A00Z": {
             "at": "2026-10-09T06:00:00+00:00"
@@ -259,23 +223,11 @@
         },
         "run:api:2026-10-09T06%3A00%3A00Z": {
             "outcome": "reported",
-            "usage": {
-                "model": "mixed",
-                "inputTokens": 2400,
-                "outputTokens": 600,
-                "cacheReadTokens": 0,
-                "cacheWriteTokens": 0,
-                "costUsd": 0.0108,
-                "returnedModel": null
-            },
             "startedAt": "2026-10-09T06:00:00+00:00",
             "finishedAt": "2026-10-09T06:00:00+00:00"
         },
         "hbweek:api:2026-W41:reported": {
             "total": 1
-        },
-        "hbweek:api:2026-W41:cost": {
-            "total": 0.0108
         },
         "hbweek:fleet%2Fplatform:2026-W41:reported": {
             "total": 1
@@ -290,10 +242,6 @@
         "hbweek:api:2026-W41:baselined": 1123200,
         "hb:fleet%2Fplatform": 7776000,
         "hbweek:fleet%2Fplatform:2026-W41:quiet": 1123200,
-        "spend:api:2026-10-09:usd": 172800,
-        "spend:api:2026-10-09:tokens": 172800,
-        "spend:fleet%2Fplatform:2026-10-09:usd": 172800,
-        "spend:fleet%2Fplatform:2026-10-09:tokens": 172800,
         "sent:api:2026-10-09T06%3A00%3A00Z": 21600,
         "verdict:api:3ba2fceef742": 2592000,
         "verdict:api:ed1c1517d685": 2592000,
@@ -302,7 +250,6 @@
         "snap:api:2026-10-09T06%3A00%3A00Z": 2592000,
         "run:api:2026-10-09T06%3A00%3A00Z": 2592000,
         "hbweek:api:2026-W41:reported": 1209600,
-        "hbweek:api:2026-W41:cost": 1209600,
         "hbweek:fleet%2Fplatform:2026-W41:reported": 1209600
     }
 }

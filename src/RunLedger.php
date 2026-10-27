@@ -8,7 +8,6 @@ use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
-use Watcher\Analyze\Usage;
 use Watcher\Config\WatchConfig;
 use Watcher\Context\DeployInfo;
 use Watcher\Notify\NoticeRenderer;
@@ -46,7 +45,6 @@ final class RunLedger
     /** Short reason code for the JSON summary. */
     private ?string $code = null;
 
-    private ?float $todayUsd = null;
 
     /** True once the trigger passed the run_at gate: only then does a heartbeat get written. */
     private bool $due = false;
@@ -77,7 +75,6 @@ final class RunLedger
         $this->observation = new RunObservation();
         $this->window = null;
         $this->code = null;
-        $this->todayUsd = null;
         $this->due = false;
         $this->deployInfo = null;
         $this->startedAt = $this->clock->now();
@@ -129,8 +126,8 @@ final class RunLedger
         }
     }
 
-    /** The model run's findings and spend, for the finding, group and budget events. */
-    public function observeAnalysis(Analysis $a, bool $triageOnly): void
+    /** The model run's findings and the groups they came from, for the finding and group events. */
+    public function observeAnalysis(Analysis $a): void
     {
         if ($this->publisher === null) {
             return;
@@ -141,22 +138,7 @@ final class RunLedger
         foreach ($a->byFingerprint as $fp => $group) {
             $o->groups[$fp] = $group;
         }
-        $cfg = $this->config->analysis;
-        $o->spentTodayUsd = $a->after['usd'];
-        $o->tokensToday = $a->after['tokens'];
-        $o->dailyBudgetUsd = is_numeric($cfg['daily_budget_usd'] ?? null) ? (float) $cfg['daily_budget_usd'] : null;
-        $o->dailyTokenLimit = is_numeric($cfg['daily_token_limit'] ?? null) ? (int) $cfg['daily_token_limit'] : null;
-        $o->triageOnly = $triageOnly;
-        $ratio = max(
-            $o->dailyBudgetUsd > 0 ? $o->spentTodayUsd / $o->dailyBudgetUsd : 0.0,
-            $o->dailyTokenLimit > 0 ? $o->tokensToday / $o->dailyTokenLimit : 0.0,
-        );
-        foreach ($cfg['budget_alert_percents'] ?? [] as $percent) {
-            if (is_int($percent) && $ratio * 100 >= $percent) {
-                $o->thresholdPct = max($o->thresholdPct, $percent);
-            }
-        }
-        $notDone = $a->routed->notAnalysed + $a->routed->notTriaged;
+        $notDone = $a->routed->notAnalysed;
         if ($notDone > 0) {
             $o->warn('analysis_partial', null, $notDone);
         }
@@ -192,11 +174,6 @@ final class RunLedger
     public function setCode(?string $code): void
     {
         $this->code = $code;
-    }
-
-    public function setTodayUsd(float $usd): void
-    {
-        $this->todayUsd = $usd;
     }
 
     public function setDeployInfo(DeployInfo $deploy): void
@@ -237,12 +214,11 @@ final class RunLedger
     }
 
     /** The run record: its presence is what makes the next trigger for the same window a "skipped_done". */
-    public function runRecord(string $key, RunOutcome $outcome, ?Usage $usage, DateTimeImmutable $started, ?string $code = null): void
+    public function runRecord(string $key, RunOutcome $outcome, DateTimeImmutable $started, ?string $code = null): void
     {
         $this->state->put($key, [
             'outcome' => $outcome->value,
             ...($code === null ? [] : ['code' => $code]),
-            'usage' => $usage === null ? null : get_object_vars($usage),
             'startedAt' => $started->format(DATE_ATOM),
             'finishedAt' => $this->clock->now()->format(DATE_ATOM),
         ], $this->config->state['retention']);
@@ -262,7 +238,7 @@ final class RunLedger
         }
         try {
             if ($this->window !== null && in_array($outcome, [RunOutcome::Reported, RunOutcome::Quiet, RunOutcome::Baselined, RunOutcome::Failed], true)) {
-                $this->heartbeat->recordRun($outcome, $this->window->start, $this->window->end, $this->startedAt, $this->stats->costUsd, $this->code, $this->stats->events['status'] ?? null);
+                $this->heartbeat->recordRun($outcome, $this->window->start, $this->window->end, $this->startedAt, $this->code, $this->stats->events['status'] ?? null);
             } else {
                 $this->heartbeat->recordSkip($outcome);
             }
@@ -286,7 +262,6 @@ final class RunLedger
             $this->window?->start,
             $this->window?->end,
             $skipped ? null : $this->stats,
-            $this->todayUsd,
             $this->deployInfo?->release,
             $dryRun,
             $this->config->environment,

@@ -16,5 +16,4 @@ enum RunOutcome: string
     case InvalidConfig = 'invalid_config';
     /** `enabled` is false: the run touched nothing (spec 012). */
     case Disabled = 'disabled';
-    case Capped = 'capped';
 }

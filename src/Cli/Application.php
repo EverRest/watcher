@@ -30,7 +30,7 @@ final class Application
           watcher check --config=<file> [--post-test] [--json]
           watcher status --config=<file> [--json]
           watcher state:get <heartbeat|last-snapshot|snapshot:<window end>|run:<window end>> --config=<file>
-          watcher hygiene --config=<file> [--report=privacy,shape,proposals,cost] [--days=<1-30>] [--now=<ISO-8601>] [--notify] [--decline=<proposal id>] [--json]
+          watcher hygiene --config=<file> [--report=privacy,shape,proposals] [--now=<ISO-8601>] [--notify] [--decline=<proposal id>] [--json]
           watcher fleet:run --config=<fleet file or directory> [--now=<ISO-8601>] [--only=<service>[,<service>...]] [--dry-run [--estimate]] [--json]
           watcher fleet:check --config=<fleet file or directory> [--post-test] [--json]
           watcher fleet:status --config=<fleet file or directory> [--json]
@@ -100,7 +100,7 @@ final class Application
         $nowRaw = null;
         $only = null;
         $key = null;
-        $hygieneArgs = ['report' => null, 'days' => null, 'decline' => null];
+        $hygieneArgs = ['report' => null, 'decline' => null];
         $flags = [];
         foreach (array_slice($args, 1) as $a) {
             if (str_starts_with($a, '--config=')) {
@@ -109,7 +109,7 @@ final class Application
                 $key = $a;
             } elseif (in_array($command, ['run', 'fleet:run', 'hygiene'], true) && str_starts_with($a, '--now=')) {
                 $nowRaw = substr($a, 6);
-            } elseif ($command === 'hygiene' && preg_match('/^--(report|days|decline)=(.*)$/s', $a, $m) === 1) {
+            } elseif ($command === 'hygiene' && preg_match('/^--(report|decline)=(.*)$/s', $a, $m) === 1) {
                 $hygieneArgs[$m[1]] = $m[2];
             } elseif ($command === 'fleet:run' && str_starts_with($a, '--only=')) {
                 $only = self::parseOnly(substr($a, 7));
@@ -215,7 +215,7 @@ final class Application
         return 0;
     }
 
-    /** @param array{report: ?string, days: ?string, decline: ?string} $args */
+    /** @param array{report: ?string, decline: ?string} $args */
     private function hygiene(string $config, array $args, ?string $nowRaw, bool $notify, bool $json, bool $dryRun = false): int
     {
         if ($this->hygieneFactory === null) {
@@ -228,7 +228,7 @@ final class Application
             return 2;
         }
         try {
-            $options = HygieneOptions::fromInput($args['report'], $args['days'], $args['decline'], $now, $notify, $dryRun);
+            $options = HygieneOptions::fromInput($args['report'], $args['decline'], $now, $notify, $dryRun);
         } catch (\InvalidArgumentException $e) {
             fwrite($this->err, $e->getMessage() . "\n");
 
@@ -246,7 +246,7 @@ final class Application
             fwrite($this->err, self::DISABLED_HINT . "\n");
         }
         if ($result->skipped) {
-            fwrite($this->err, "watcher: hygiene reports disabled (set hygiene.enabled=true); only the cost report was produced\n");
+            fwrite($this->err, "watcher: hygiene reports disabled (set hygiene.enabled=true); no hygiene report was produced\n");
         }
         if (($text = $result->text()) !== '') {
             $this->line($json, $text, true);

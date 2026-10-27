@@ -173,7 +173,6 @@ final class FleetCorrelationTest extends TestCase
         foreach ($h->notifiers as $n) {
             self::assertSame([], $n->sent);
         }
-        self::assertGreaterThan(0.0, $r->fleetCostTodayUsd); // the dry run's own spend, in memory only
     }
 
     public function testDryRunPrintsTheCombinedDigestOnce(): void

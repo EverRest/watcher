@@ -36,7 +36,7 @@ final class ToolSchemaDriftTest extends TestCase
     private function listed(): array
     {
         $p = $this->dir . '/c.php';
-        file_put_contents($p, "<?php\nuse Watcher\\Config\\Env;\nreturn [\n 'enabled' => true,\n 'service' => 'orders-api',\n 'schedule' => ['run_at' => '06:00'],\n 'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.test', 'auth' => ['type' => 'bearer', 'token' => Env::string('T_TOK')]], 'stream_tags' => ['app' => 'a']],\n 'analysis' => ['api_key' => Env::string('T_K'), 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], 'prices' => ['m1' => [1.0, 2.0, 0.0, 0.0], 'm2' => [1.0, 2.0, 0.0, 0.0], 'm3' => [1.0, 2.0, 0.0, 0.0]]],\n 'state' => ['driver' => 'file', 'file' => ['path' => '" . $this->dir . "/state']],\n 'notify' => ['digest' => ['driver' => 'slack', 'webhook' => Env::string('T_HOOK')]],\n 'mcp' => ['allow_dry_run' => true],\n];\n");
+        file_put_contents($p, "<?php\nuse Watcher\\Config\\Env;\nreturn [\n 'enabled' => true,\n 'service' => 'orders-api',\n 'schedule' => ['run_at' => '06:00'],\n 'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.test', 'auth' => ['type' => 'bearer', 'token' => Env::string('T_TOK')]], 'stream_tags' => ['app' => 'a']],\n 'analysis' => ['api_key' => Env::string('T_K'), 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],\n 'state' => ['driver' => 'file', 'file' => ['path' => '" . $this->dir . "/state']],\n 'notify' => ['digest' => ['driver' => 'slack', 'webhook' => Env::string('T_HOOK')]],\n 'mcp' => ['allow_dry_run' => true],\n];\n");
         chmod($p, 0644);
         $in = McpHarness::mem();
         $out = McpHarness::mem();

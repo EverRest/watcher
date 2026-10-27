@@ -15,7 +15,6 @@ final class TriageResult
      */
     public function __construct(
         public readonly array $verdicts,
-        public readonly Usage $usage,
     ) {
         foreach ($verdicts as $v) {
             if (!in_array($v, self::VERDICTS, true)) {

@@ -2,7 +2,6 @@
     "result": {
         "outcome": "failed",
         "failureReason": "provider unavailable",
-        "usage": null,
         "summary": {
             "@Watcher\\Operate\\RunSummaryData": {
                 "outcome": "failed",
@@ -27,16 +26,11 @@
                             "analyze": 0,
                             "escalate": 0
                         },
-                        "tokensIn": 1200,
-                        "tokensOut": 300,
-                        "tokensCached": 0,
-                        "costUsd": 0.0027,
                         "durationMs": 0,
                         "events": null,
                         "pages": null
                     }
                 },
-                "todayUsd": null,
                 "release": null,
                 "dryRun": false,
                 "environment": null
@@ -81,14 +75,6 @@
             "lock:svc:2026-10-09T06%3A00%3A00Z"
         ],
         [
-            "increment",
-            "spend:svc:2026-10-09:usd"
-        ],
-        [
-            "increment",
-            "spend:svc:2026-10-09:tokens"
-        ],
-        [
             "put",
             "triage:svc:2026-10-09T06%3A00%3A00Z"
         ],
@@ -119,10 +105,6 @@
         [
             "increment",
             "hbweek:svc:2026-W41:failed"
-        ],
-        [
-            "increment",
-            "hbweek:svc:2026-W41:cost"
         ]
     ],
     "state": {
@@ -145,7 +127,6 @@
         },
         "run:svc:2026-10-08T06%3A00%3A00Z": {
             "outcome": "baselined",
-            "usage": null,
             "startedAt": "2026-10-08T06:00:00+00:00",
             "finishedAt": "2026-10-08T06:00:00+00:00"
         },
@@ -163,17 +144,10 @@
             "windowStart": "2026-10-08T06:00:00+00:00",
             "windowEnd": "2026-10-09T06:00:00+00:00",
             "durationSeconds": 0,
-            "costUsd": 0.0027,
             "lastOkAt": "2026-10-08T06:00:00+00:00"
         },
         "hbweek:svc:2026-W41:baselined": {
             "total": 1
-        },
-        "spend:svc:2026-10-09:usd": {
-            "total": 0.0027
-        },
-        "spend:svc:2026-10-09:tokens": {
-            "total": 1500
         },
         "triage:svc:2026-10-09T06%3A00%3A00Z": {
             "3ba2fceef742": "interesting",
@@ -202,9 +176,6 @@
         },
         "hbweek:svc:2026-W41:failed": {
             "total": 1
-        },
-        "hbweek:svc:2026-W41:cost": {
-            "total": 0.0027
         }
     },
     "ttls": {
@@ -214,13 +185,10 @@
         "hw:svc": 7689600,
         "hb:svc": 7776000,
         "hbweek:svc:2026-W41:baselined": 1123200,
-        "spend:svc:2026-10-09:usd": 172800,
-        "spend:svc:2026-10-09:tokens": 172800,
         "triage:svc:2026-10-09T06%3A00%3A00Z": 21600,
         "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
         "run:svc:2026-10-09T06%3A00%3A00Z:failures": 2592000,
         "failn:svc:2026-10-09T06%3A00%3A00Z": 172800,
-        "hbweek:svc:2026-W41:failed": 1209600,
-        "hbweek:svc:2026-W41:cost": 1209600
+        "hbweek:svc:2026-W41:failed": 1209600
     }
 }

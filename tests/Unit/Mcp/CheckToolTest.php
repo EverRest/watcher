@@ -20,19 +20,19 @@ final class CheckToolTest extends TestCase
         ]);
         $d = (new CheckTool(static fn (): CheckReport => $report))->call([]);
         self::assertFalse($d['ok']);
-        self::assertSame(['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'], array_column($d['checks'], 'name'));
-        self::assertSame('read-only probe', $d['checks'][5]['reason']);
-        self::assertSame('unavailable', $d['checks'][6]['reason']);
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_column($d['checks'], 'name'));
+        self::assertSame('read-only probe', $d['checks'][4]['reason']);
+        self::assertSame('unavailable', $d['checks'][5]['reason']);
         self::assertNull($d['checks'][0]['reason']);
         self::assertStringNotContainsString('hooks.example', json_encode($d) ?: '');
     }
 
     public function testConfigFailureSkipsTheRest(): void
     {
-        $report = \Watcher\Operate\Doctor::configFailure('invalid: analysis.prices (no price for models.triage)');
+        $report = \Watcher\Operate\Doctor::configFailure('invalid: analysis.models.triage');
         $d = (new CheckTool(static fn (): CheckReport => $report))->call([]);
         self::assertSame('fail', $d['checks'][0]['status']);
-        self::assertSame('invalid: analysis.prices (no price for models.triage)', $d['checks'][0]['reason']);
+        self::assertSame('invalid: analysis.models.triage', $d['checks'][0]['reason']);
         self::assertSame(['skip'], array_values(array_unique(array_column(array_slice($d['checks'], 1), 'status'))));
     }
 

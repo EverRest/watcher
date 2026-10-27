@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\Usage;
 use Watcher\RunOutcome;
 use Watcher\RunResult;
 
@@ -38,19 +37,10 @@ final class RunResultTest extends TestCase
         self::assertSame(2, $result->exitCode());
     }
 
-    public function testUsageIsNullUnlessAModelWasCalled(): void
-    {
-        $usage = new Usage('m', 10, 5, 0, 0, 0.01);
-
-        self::assertNull((new RunResult(RunOutcome::Quiet))->usage);
-        self::assertSame($usage, (new RunResult(RunOutcome::Reported, null, $usage))->usage);
-        self::assertNull(RunResult::invalidConfig('x')->usage);
-    }
-
     public function testOutcomeValues(): void
     {
         self::assertSame(
-            ['skipped_not_due', 'skipped_locked', 'skipped_done', 'baselined', 'quiet', 'reported', 'failed', 'invalid_config', 'disabled', 'capped'],
+            ['skipped_not_due', 'skipped_locked', 'skipped_done', 'baselined', 'quiet', 'reported', 'failed', 'invalid_config', 'disabled'],
             array_map(static fn (RunOutcome $o): string => $o->value, RunOutcome::cases()),
         );
     }
@@ -62,12 +52,7 @@ final class RunResultTest extends TestCase
             'outcome=failed reason="source failed: loki 401 Unauthorized"',
             (new RunResult(RunOutcome::Failed, 'source failed: loki 401 Unauthorized'))->summary(),
         );
-
-        $usage = new \Watcher\Analyze\Usage('m', 1200, 340, 100, 0, 0.0412);
-        self::assertSame(
-            'outcome=reported tokens_in=1200 tokens_out=340 tokens_cached=100 cost_usd=0.0412',
-            (new RunResult(RunOutcome::Reported, null, $usage))->summary(),
-        );
+        self::assertSame('outcome=reported', (new RunResult(RunOutcome::Reported))->summary());
     }
 
     public function testSummaryNeverContainsLineBreaksOrQuotesFromTheReason(): void

@@ -39,7 +39,7 @@ final class HygieneHistoryTest extends TestCase
             0,
             [['key' => 'k1', 'id' => 'app/A.php:1', 'kind' => 'frame', 'label' => null, 'level' => 'info', 'lines' => 3, 'any_hit' => 2,
                 'cats' => ['email' => 2], 'long' => 0, 'trace' => 0, 'mismatch' => 0, 'first' => '2026-10-07T10:00:00+00:00', 'last' => '2026-10-07T11:00:00+00:00']],
-            [['fp' => 'a1b2c3d4e5f6', 'tpl' => 'Hello <N>', 'level' => 'info', 'n' => 3, 'first' => '2026-10-07T10:00:00+00:00', 'last' => '2026-10-07T11:00:00+00:00', 'tokens' => 0]],
+            [['fp' => 'a1b2c3d4e5f6', 'tpl' => 'Hello <N>', 'level' => 'info', 'n' => 3, 'first' => '2026-10-07T10:00:00+00:00', 'last' => '2026-10-07T11:00:00+00:00']],
             ['access' => 0, 'json' => 1, 'text' => 2],
             [['tpl' => 'Declined for <*>', 'positions' => 1, 'distinct_messages' => 30]],
         );
@@ -64,7 +64,7 @@ final class HygieneHistoryTest extends TestCase
             ['events' => 'many'] + $good,
             ['sites' => 'x'] + $good,
             ['families' => [['fp' => 1]]] + $good,
-            ['families' => [['fp' => 'a1b2c3d4e5f6', 'tpl' => null, 'level' => 'info', 'n' => 1, 'first' => 'garbage', 'last' => '2026-10-07T10:00:00+00:00', 'tokens' => 0]]] + $good,
+            ['families' => [['fp' => 'a1b2c3d4e5f6', 'tpl' => null, 'level' => 'info', 'n' => 1, 'first' => 'garbage', 'last' => '2026-10-07T10:00:00+00:00']]] + $good,
             [],
         ] as $bad) {
             $this->store->put($key, $bad, 60);

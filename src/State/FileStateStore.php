@@ -364,7 +364,7 @@ final class FileStateStore implements StateStore, Purgeable, RenewableLock
     }
 
     /**
-     * The directory holds locks and spend counters. Refused: one another user owns (it could forge them) and a
+     * The directory holds locks and counters. Refused: one another user owns (it could forge them) and a
      * world-writable one without the sticky bit. Group-writable and owned by us is allowed (a Laravel `storage` folder);
      * the files themselves are always 0600. The message names the setting, never its value.
      *

@@ -26,7 +26,7 @@ final class StatusCommand extends Command
         try {
             $status = ($this->factory)();
         } catch (InvalidConfig $e) {
-            $this->error('invalid config: ' . $e->getMessage());
+            $this->error('invalid config: ' . $e->getMessage(), \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         }
@@ -35,9 +35,9 @@ final class StatusCommand extends Command
         $text = rtrim($status->text($service), "\n");
         if ($this->option('json')) {
             $this->output->getErrorStyle()->writeln($text);
-            $this->line(json_encode($status->toArray($service), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION));
+            $this->line(json_encode($status->toArray($service), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION), null, \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
         } else {
-            $this->line($text);
+            $this->line($text, null, \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
         }
 
         return $status->exitCode();

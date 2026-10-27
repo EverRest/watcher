@@ -23,7 +23,7 @@ final class ScheduleConfigTest extends TestCase
             'analysis' => [
                 'api_key' => 'sk',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
-                'prices' => ['m1' => [1, 5, 0.1, 1.25], 'm2' => [3, 15, 0.3, 3.75], 'm3' => [5, 25, 0.5, 6.25]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/h']],
@@ -54,15 +54,6 @@ final class ScheduleConfigTest extends TestCase
             'schedule' => ['every' => 'PT1H', 'timezone' => 'UTC', 'run_at' => null],
         ]));
         self::assertSame(24, $c->schedule['runs_per_day']);
-        self::assertSame(48, $c->analysis['max_runs_per_day']);
-        self::assertGreaterThan(0, $c->analysis['run_budget_usd']);
-    }
-
-    public function testDailyRunHasNoRunGuards(): void
-    {
-        $c = WatchConfig::fromArray(self::base());
-        self::assertNull($c->analysis['max_runs_per_day']);
-        self::assertNull($c->analysis['run_budget_usd']);
     }
 
     public function testRunAtListGap(): void

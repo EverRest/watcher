@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.5.0 — 2026-10-27 — Remove budgets and token and cost accounting
+
+Breaking: a 0.4.x configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.
+The package no longer caps spend, reserves model calls, counts tokens for cost, or reports cost. Constitution 2.0.0.
+
+### Removed configuration (each fails at load with its message; `watcher check` lists them all)
+
+| Key | Message |
+|---|---|
+| `analysis.daily_budget_usd` | analysis.daily_budget_usd was removed in 0.5.0; there is no replacement. Delete this key. |
+| `analysis.run_budget_usd` | analysis.run_budget_usd was removed in 0.5.0; there is no replacement. Delete this key. |
+| `analysis.prices` | analysis.prices was removed in 0.5.0; there is no replacement. Delete this key. |
+| `analysis.daily_token_limit` | analysis.daily_token_limit was removed in 0.5.0; there is no replacement. Delete this key. |
+| `analysis.budget_alert_percents` | analysis.budget_alert_percents was removed in 0.5.0; there is no replacement. Delete this key. |
+| `analysis.max_runs_per_day` | analysis.max_runs_per_day was removed in 0.5.0; there is no replacement. Delete this key. |
+| `budget` (whole section, also in the fleet file) | budget was removed in 0.5.0; there is no replacement. Delete this section. |
+| `budget_alerts` (top-level flag) | now an unknown key: `Unknown configuration key: budget_alerts` |
+
+Environment variables `WATCHER_PRICE_*` are no longer read. They produce no message.
+
+### Removed output and metrics
+- Event stream: `watcher.event.v2` replaces `watcher.event.v1`. Run records lose `tokens_in`, `tokens_out`, `tokens_cached` and `cost_usd`; the `budget` record is gone. Schema: `docs/schema/watcher.event.v2.schema.json`. The v1 schema is retired (`retired: 0.5.0`); its file is no longer published under `docs/schema/`.
+- Metrics removed: `watcher_last_run_cost_usd`, `watcher_last_run_tokens`, `watcher_budget_spent_usd`, `watcher_budget_limit_usd`, `watcher_budget_ratio`. Run, finding and outcome metrics stay.
+- Digest: no cost line, no budget line, no token footer, no "budget exhausted" or run-cap notice. Notices name no currency or token figure.
+- Weekly heartbeat line: counts only (no cost).
+- `watcher status`, `watcher check` and the MCP tools: no `cost_usd`, `spend_today`, `today_usd` or `prices` fields or checks. `watcher_dry_run` takes `confirm_model_calls` (was `confirm_cost`); its estimate lists steps and groups only; it refuses a retry after a failed run until the server restarts.
+- `watcher hygiene`: the `cost` report and `--days` are gone. `--report` takes `privacy`, `shape` or `proposals`. Proposal evidence and replay carry no token figures.
+- `watcher fleet`: no fleet budget, no budget notices and no cost in its JSON line.
+- Run summary (`--json` and the `outcome=` line): no `tokens_*`, `cost_usd` or `today_usd`.
+- Outcomes `capped` (run cap), `budget_exhausted` and the cost-related MCP codes are gone. A run that used to stop at a budget now runs to completion.
+
+### Nothing is converted
+- A stored spend counter (`spend:...` keys in the state store) is neither read nor deleted. The package stops writing them. Delete them when you no longer need them.
+- Findings are the same as 0.4.x for the same window (`tests/EndToEnd/SameFindingsTest.php`). The per-step call count in the run record counts analyzer replies that came back.
+
+### Upgrade steps
+1. Delete every removed key and the `budget` section from the service configuration and from the fleet file (see the table above). Delete `WATCHER_PRICE_*` and any budget variables from the environment.
+2. Run `watcher check` until it passes. It lists every removed key at once.
+3. Point any consumer of `watcher.event.v1` at `watcher.event.v2` (select on `schema`). Remove dashboards and alert rules that read the removed metrics; keep the run and finding panels.
+4. Optionally clear the stored `spend:` keys in the state store.
+5. Upgrade the package. Tag and release are the owner's decision.
+
 ## 0.4.0 — 2026-10-27 — Multi-provider model layer (Anthropic, OpenAI, Gemini per step)
 
 Product release label **v0.4.0** (root VERSION). Read the **Changed (breaking for `analysis.client`)** section before upgrading.

@@ -6,7 +6,7 @@ use Watcher\Config\Env;
 
 /*
  * Minimal config for the first live smoke run (docs/smoke-test.md): Loki as the log source, file state in a
- * throwaway directory, a private Slack channel, a tiny daily budget. Copy it, set the environment variables
+ * throwaway directory, a private Slack channel, a tiny run size. Copy it, set the environment variables
  * listed in the guide, adjust `service` and `stream_tags`, and run:
  *
  *   php bin/watcher run --config=smoke.config.php --now=<ISO-8601>
@@ -39,14 +39,6 @@ return [
             'analyze' => getenv('WATCHER_MODEL_ANALYZE'),
             'escalate' => getenv('WATCHER_MODEL_ESCALATE'),
         ],
-        // USD per million tokens: [input, output, cache_read, cache_write]. Copy the current numbers from your
-        // provider's pricing page; the cost line and the budget alerts are only as good as these.
-        'prices' => [
-            (string) getenv('WATCHER_MODEL_TRIAGE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
-            (string) getenv('WATCHER_MODEL_ANALYZE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
-            (string) getenv('WATCHER_MODEL_ESCALATE') => [0.0, 0.0, 0.0, 0.0], // set the input, output, cache-read and cache-write USD per million tokens from your provider's pricing page,
-        ],
-        'daily_budget_usd' => 0.10,  // hard cap for the smoke run
     ],
 
     'state' => [

@@ -16,9 +16,8 @@ final class Envelope
     /** The closed set of error codes with their fixed sentences. */
     public const MESSAGES = [
         'state_unavailable' => 'The state store could not be read.',
-        'cost_not_confirmed' => 'This run calls a model and costs money; pass confirm_cost=true to confirm.',
-        'daily_limit_reached' => 'The daily budget or token limit is already used up.',
-        'would_exceed_daily_limit' => 'The estimated cost would exceed what is left of the daily limit.',
+        'model_calls_not_confirmed' => 'This run calls a model; pass confirm_model_calls=true to confirm.',
+        'previous_run_failed' => 'A dry run failed earlier in this server process and may have made model calls; restart the server to run again.',
         'busy' => 'A dry run is already in progress.',
         'internal_error' => 'The server could not complete the request.',
         'secret_refused' => SecretRefused::MESSAGE,

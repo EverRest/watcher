@@ -47,7 +47,7 @@ final class ObserveFactoryTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.com']],
-            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], 'prices' => ['m1' => [1, 5, 0.1, 1.25], 'm2' => [3, 15, 0.3, 3.75], 'm3' => [5, 25, 0.5, 6.25]]],
+            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => $driver === 'none' ? ['driver' => 'none'] : ['driver' => 'slack', 'webhook' => 'https://hooks.example/x']],
             'observe' => $observe,
@@ -66,7 +66,7 @@ final class ObserveFactoryTest extends TestCase
 
     private function event(): Event
     {
-        return new Event('run', ['schema' => 'watcher.event.v1', 'event_type' => 'run', 'event_id' => 'a-1', 'service' => 'svc'], []);
+        return new Event('run', ['schema' => 'watcher.event.v2', 'event_type' => 'run', 'event_id' => 'a-1', 'service' => 'svc'], []);
     }
 
     public function testNoSinkEnabledBuildsNothing(): void

@@ -38,7 +38,6 @@ final class GenerateConfigTool implements Tool
             'host' => SchemaDefs::host(), 'source' => SchemaDefs::source(), 'notifier' => SchemaDefs::notifier(), 'state' => SchemaDefs::state(),
             'stream_tags' => ['type' => 'object', 'maxProperties' => 8, 'propertyNames' => ['pattern' => '^[a-zA-Z_][a-zA-Z0-9_]{0,62}$'], 'additionalProperties' => ['type' => 'string', 'pattern' => '^[A-Za-z0-9._-]{1,63}$']],
             'level_mode' => ['enum' => ['text', 'label', 'all'], 'default' => 'text'],
-            'daily_budget_usd' => ['type' => 'number', 'minimum' => 0, 'maximum' => 100, 'default' => 0.5],
             'env_names' => ['type' => 'object', 'maxProperties' => 24, 'propertyNames' => ['pattern' => '^[a-z_]{2,32}$'], 'additionalProperties' => ['type' => 'string', 'pattern' => '^WATCHER_[A-Z0-9_]{1,56}$']],
         ]];
     }
@@ -50,7 +49,7 @@ final class GenerateConfigTool implements Tool
 
     public function call(array $args): array
     {
-        /** @var array{service: string, environment?: string, run_at: string, timezone?: string, host: string, source: string, notifier: string, state: string, stream_tags?: array<string, string>, level_mode?: string, daily_budget_usd?: int|float, env_names?: array<string, string>} $args */
+        /** @var array{service: string, environment?: string, run_at: string, timezone?: string, host: string, source: string, notifier: string, state: string, stream_tags?: array<string, string>, level_mode?: string, env_names?: array<string, string>} $args */
         return $this->generator->generate($args);
     }
 }

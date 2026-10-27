@@ -6,7 +6,6 @@ namespace Watcher\Notify;
 
 use DateTimeImmutable;
 use Watcher\Analyze\Finding;
-use Watcher\Analyze\Usage;
 use Watcher\ApiContext\EndpointContext;
 use Watcher\Baseline\Comparison;
 use Watcher\Privacy\RedactedGroup;
@@ -18,7 +17,6 @@ final class DigestData
     /**
      * @param list<Finding>                $findings
      * @param array<string, RedactedGroup> $groups  by fingerprint (count and trend)
-     * @param array<string, string>        $models  step => model id, for the footer
      * @param array<string, string>        $afterReleaseFingerprints fingerprint => release a NEW group was first seen after
      * @param int                          $undeclaredHostCount      call targets in templates that no declared dependency covers (never named)
      * @param list<string>                 $failedDependencies       declared dependencies whose source was unavailable
@@ -36,19 +34,12 @@ final class DigestData
         public readonly array $findings,
         public readonly array $groups,
         public readonly ?string $release = null,
-        public readonly ?Usage $usage = null,
-        public readonly array $models = [],
-        public readonly float $costUsd = 0.0,
         public readonly ?string $levelAnomalyLine = null,
         public readonly ?int $eventsReadTruncated = null,
         public readonly int $droppedGroups = 0,
         public readonly int $otherGroups = 0,
         public readonly int $otherEvents = 0,
         public readonly int $muted = 0,
-        public readonly ?float $todayUsd = null,
-        public readonly ?float $dailyBudgetUsd = null,
-        public readonly ?int $todayTokens = null,
-        public readonly ?int $dailyTokenLimit = null,
         public readonly array $afterReleaseFingerprints = [],
         public readonly int $undeclaredHostCount = 0,
         public readonly array $failedDependencies = [],
@@ -59,9 +50,7 @@ final class DigestData
         public readonly array $mutePartial = [],
         public readonly int $notAnalysed = 0,
         public readonly int $patternFailures = 0,
-        /** @var int groups never sent to triage because it would not have fit the daily budget */
-        public readonly int $notTriaged = 0,
-        /** @var int escalations skipped (daily budget or analysis.max_input_tokens.escalate); the first-pass finding is shown as it is */
+        /** @var int escalations skipped (analysis.max_input_tokens.escalate); the first-pass finding is shown as it is */
         public readonly int $escalationsSkipped = 0,
         /** @var DateTimeImmutable|null window end of the older snapshot used because the previous window's was missing (H6) */
         public readonly ?DateTimeImmutable $comparedWith = null,

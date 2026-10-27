@@ -39,7 +39,7 @@ final class DoctorApiContextTest extends TestCase
         $c = WatchConfig::fromArray(array_filter([
             'service' => 'orders', 'enabled' => true, 'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test'], 'stream_tags' => ['app' => 'orders']],
-            'analysis' => ['api_key' => 'sk', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], 'prices' => ['a' => [1, 5, 0.1, 1.25], 'b' => [3, 15, 0.3, 3.75], 'c' => [5, 25, 0.5, 6.25]]],
+            'analysis' => ['api_key' => 'sk', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],
             'notify' => ['digest' => ['webhook' => 'https://hooks.slack.test/services/T0/B0/SECRETHOOK']],
             'api_context' => $api,
@@ -103,7 +103,7 @@ final class DoctorApiContextTest extends TestCase
         $c = WatchConfig::fromArray([
             'service' => 'orders', 'enabled' => true, 'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test'], 'stream_tags' => ['app' => 'orders']],
-            'analysis' => ['api_key' => 'sk', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], 'prices' => ['a' => [1, 5, 0.1, 1.25], 'b' => [3, 15, 0.3, 3.75], 'c' => [5, 25, 0.5, 6.25]]],
+            'analysis' => ['api_key' => 'sk', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],
             'notify' => ['digest' => ['webhook' => 'https://hooks.slack.test/services/T0/B0/SECRETHOOK']],
         ]);

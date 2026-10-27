@@ -2,7 +2,6 @@
     "result": {
         "outcome": "failed",
         "failureReason": "internal error (RuntimeException)",
-        "usage": null,
         "summary": {
             "@Watcher\\Operate\\RunSummaryData": {
                 "outcome": "failed",
@@ -27,16 +26,11 @@
                             "analyze": 1,
                             "escalate": 0
                         },
-                        "tokensIn": 2400,
-                        "tokensOut": 600,
-                        "tokensCached": 0,
-                        "costUsd": 0.0108,
                         "durationMs": 0,
                         "events": null,
                         "pages": null
                     }
                 },
-                "todayUsd": 0.0108,
                 "release": null,
                 "dryRun": false,
                 "environment": null
@@ -77,10 +71,6 @@
                 {
                     "kind": "finding",
                     "text": "• Problem &lt;ID&gt; — 3× (new)  `ed1c1517d685`\n  Evidence: seen repeatedly\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
-                },
-                {
-                    "kind": "footer",
-                    "text": "— tokens in 2.4k / out 600 / cached 0 · triage m-t · analyze m-a · ≈ $0.01 · today $0.01 of $0.50 (2%)"
                 }
             ],
             "to": {
@@ -108,22 +98,6 @@
         [
             "acquire",
             "lock:svc:2026-10-09T06%3A00%3A00Z"
-        ],
-        [
-            "increment",
-            "spend:svc:2026-10-09:usd"
-        ],
-        [
-            "increment",
-            "spend:svc:2026-10-09:tokens"
-        ],
-        [
-            "increment",
-            "spend:svc:2026-10-09:usd"
-        ],
-        [
-            "increment",
-            "spend:svc:2026-10-09:tokens"
         ],
         [
             "put",
@@ -172,10 +146,6 @@
         [
             "increment",
             "hbweek:svc:2026-W41:failed"
-        ],
-        [
-            "increment",
-            "hbweek:svc:2026-W41:cost"
         ]
     ],
     "state": {
@@ -198,7 +168,6 @@
         },
         "run:svc:2026-10-08T06%3A00%3A00Z": {
             "outcome": "baselined",
-            "usage": null,
             "startedAt": "2026-10-08T06:00:00+00:00",
             "finishedAt": "2026-10-08T06:00:00+00:00"
         },
@@ -216,17 +185,10 @@
             "windowStart": "2026-10-08T06:00:00+00:00",
             "windowEnd": "2026-10-09T06:00:00+00:00",
             "durationSeconds": 0,
-            "costUsd": 0.0108,
             "lastOkAt": "2026-10-08T06:00:00+00:00"
         },
         "hbweek:svc:2026-W41:baselined": {
             "total": 1
-        },
-        "spend:svc:2026-10-09:usd": {
-            "total": 0.0108
-        },
-        "spend:svc:2026-10-09:tokens": {
-            "total": 3000
         },
         "sent:svc:2026-10-09T06%3A00%3A00Z": {
             "at": "2026-10-09T06:00:00+00:00"
@@ -297,9 +259,6 @@
         },
         "hbweek:svc:2026-W41:failed": {
             "total": 1
-        },
-        "hbweek:svc:2026-W41:cost": {
-            "total": 0.0108
         }
     },
     "ttls": {
@@ -309,8 +268,6 @@
         "hw:svc": 7689600,
         "hb:svc": 7776000,
         "hbweek:svc:2026-W41:baselined": 1123200,
-        "spend:svc:2026-10-09:usd": 172800,
-        "spend:svc:2026-10-09:tokens": 172800,
         "sent:svc:2026-10-09T06%3A00%3A00Z": 21600,
         "verdict:svc:3ba2fceef742": 2592000,
         "verdict:svc:ed1c1517d685": 2592000,
@@ -318,7 +275,6 @@
         "reported:svc:ed1c1517d685": 2592000,
         "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
         "failn:svc:2026-10-09T06%3A00%3A00Z": 172800,
-        "hbweek:svc:2026-W41:failed": 1209600,
-        "hbweek:svc:2026-W41:cost": 1209600
+        "hbweek:svc:2026-W41:failed": 1209600
     }
 }

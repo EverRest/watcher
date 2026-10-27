@@ -58,9 +58,6 @@ final class EventFactory
         foreach ($this->top($obs) as $i => $group) {
             $events[] = $this->group($env, $obs, $group, $i + 1);
         }
-        if ($obs->spentTodayUsd !== null) {
-            $events[] = $this->event('budget', $env, $this->budget($obs, $d));
-        }
         if ($heartbeat !== null) {
             $events[] = $this->event('heartbeat', $env, $this->heartbeat($obs, $heartbeat));
         }
@@ -140,10 +137,6 @@ final class EventFactory
             'findings_by_severity' => $severity,
             'groups_by_trend' => $trend,
             'calls' => $s->calls ?? ['triage' => 0, 'analyze' => 0, 'escalate' => 0],
-            'tokens_in' => $s->tokensIn ?? 0,
-            'tokens_out' => $s->tokensOut ?? 0,
-            'tokens_cached' => $s->tokensCached ?? 0,
-            'cost_usd' => $s->costUsd ?? 0.0,
             'escalations' => $r->escalations ?? 0,
             'reused' => $r->reused ?? 0,
             'not_analysed' => $r->notAnalysed ?? 0,
@@ -208,28 +201,6 @@ final class EventFactory
             'has_finding' => $hasFinding,
             'watch_rules' => array_slice($g->watchMatches, 0, self::MAX_WATCH_RULES),
         ], ['error_type' => $g->errorType]);
-    }
-
-    /** @return array<string, mixed> */
-    private function budget(RunObservation $obs, RunSummaryData $d): array
-    {
-        $usd = $obs->dailyBudgetUsd !== null && $obs->dailyBudgetUsd > 0 ? (float) $obs->spentTodayUsd / $obs->dailyBudgetUsd : null;
-        $tokens = $obs->dailyTokenLimit !== null && $obs->dailyTokenLimit > 0 ? (float) $obs->tokensToday / $obs->dailyTokenLimit : null;
-        $worst = max($usd ?? 0.0, $tokens ?? 0.0);
-        $state = $obs->triageOnly || $worst >= 1.0 ? 'exhausted' : ($worst >= 0.9 ? 'high' : 'ok');
-
-        return [
-            'state' => $state,
-            'run_cost_usd' => $d->stats->costUsd ?? 0.0,
-            'spent_today_usd' => $obs->spentTodayUsd,
-            'daily_budget_usd' => $obs->dailyBudgetUsd,
-            'usd_ratio' => $usd,
-            'tokens_today' => $obs->tokensToday,
-            'daily_token_limit' => $obs->dailyTokenLimit,
-            'token_ratio' => $tokens,
-            'threshold_pct' => $state === 'exhausted' ? 100 : $obs->thresholdPct,
-            'triage_only' => $obs->triageOnly,
-        ];
     }
 
     /** @return array<string, mixed> */

@@ -34,7 +34,7 @@ final class HygieneCliTest extends TestCase
         return new class () implements Report {
             public function name(): string
             {
-                return 'cost';
+                return 'proposals';
             }
 
             public function isEmpty(): bool
@@ -49,7 +49,7 @@ final class HygieneCliTest extends TestCase
 
             public function text(bool $notice = false): string
             {
-                return 'cost: body';
+                return 'proposals: body';
             }
         };
     }
@@ -67,7 +67,7 @@ final class HygieneCliTest extends TestCase
                 throw $outcome;
             }
 
-            return $outcome ?? new HygieneResult(['cost' => self::report()]);
+            return $outcome ?? new HygieneResult(['proposals' => self::report()]);
         } : null;
         $err = fopen('php://memory', 'w+');
         $out = fopen('php://memory', 'w+');
@@ -94,17 +94,16 @@ final class HygieneCliTest extends TestCase
         [$code, $out] = $this->exec(['hygiene', '--config=' . $this->cfg]);
 
         self::assertSame(0, $code);
-        self::assertSame("cost: body\n", $out);
+        self::assertSame("proposals: body\n", $out);
         self::assertEquals(new HygieneOptions(), $this->options[0]);
     }
 
     public function testOptionsReachTheFactory(): void
     {
-        $this->exec(['hygiene', '--config=' . $this->cfg, '--report=privacy,cost', '--days=3', '--notify', '--now=2026-10-08T06:00:00Z']);
+        $this->exec(['hygiene', '--config=' . $this->cfg, '--report=privacy,proposals', '--notify', '--now=2026-10-08T06:00:00Z']);
 
         $o = $this->options[0];
-        self::assertSame(['privacy', 'cost'], $o->reports);
-        self::assertSame(3, $o->days);
+        self::assertSame(['privacy', 'proposals'], $o->reports);
         self::assertTrue($o->notify);
         self::assertSame('2026-10-08T06:00:00+00:00', $o->now?->format(DATE_ATOM));
     }
@@ -130,7 +129,7 @@ final class HygieneCliTest extends TestCase
         [$code, $out, $err] = $this->exec(['hygiene', '--config=' . $this->cfg, '--json']);
 
         self::assertSame(0, $code);
-        self::assertStringContainsString('cost: body', $err);
+        self::assertStringContainsString('proposals: body', $err);
         self::assertSame(1, substr_count($out, "\n"));
         self::assertSame(1, json_decode($out, true)['schema']);
     }
@@ -140,9 +139,6 @@ final class HygieneCliTest extends TestCase
     {
         yield 'unknown report' => [['--report=privacy,nope'], 'unknown report'];
         yield 'empty report' => [['--report='], 'unknown report'];
-        yield 'days zero' => [['--days=0'], '--days'];
-        yield 'days too many' => [['--days=31'], '--days'];
-        yield 'days text' => [['--days=abc'], '--days'];
         yield 'bad now' => [['--now=yesterday'], 'invalid --now'];
     }
 
@@ -180,7 +176,7 @@ final class HygieneCliTest extends TestCase
         self::assertSame(0, $code);
         self::assertStringContainsString(Application::DISABLED_HINT, $err);
 
-        [$code, , $err] = $this->exec(['hygiene', '--config=' . $this->cfg], new HygieneResult(['cost' => self::report()], skipped: true));
+        [$code, , $err] = $this->exec(['hygiene', '--config=' . $this->cfg], new HygieneResult(['proposals' => self::report()], skipped: true));
         self::assertSame(0, $code);
         self::assertStringContainsString('hygiene reports disabled (set hygiene.enabled=true)', $err);
     }

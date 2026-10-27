@@ -26,14 +26,14 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'budget_alerts', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
         'known_issues', 'drafts', 'report',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
-        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'budget_alerts', 'notice', 'digest', 'kubernetes',
+        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'notice', 'digest', 'kubernetes',
         'known_issues', 'drafts', 'routes',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
@@ -150,6 +150,12 @@ final class WatchConfig implements \JsonSerializable
     /** @param array<string, mixed> $config */
     public static function fromArray(#[\SensitiveParameter] array $config): self
     {
+        foreach (require dirname(__DIR__, 2) . '/resources/removed-config-keys.php' as $path => $message) {
+            [$section, $key] = str_contains($path, '.') ? explode('.', $path, 2) : [$path, null];
+            if (array_key_exists($section, $config) && ($key === null || (is_array($config[$section]) && array_key_exists($key, $config[$section])))) {
+                throw new InvalidConfig($message); // the first removed key found is named (contracts/config-migration.md rule 2)
+            }
+        }
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::TOP_LEVEL, true)) {
                 throw new InvalidConfig('Unknown configuration key: ' . $key);
@@ -226,7 +232,7 @@ final class WatchConfig implements \JsonSerializable
         $groupingSec = self::section($config, 'grouping');
         $flags['grouping'] = self::flag($groupingSec, 'enabled', 'grouping.enabled');
         unset($groupingSec['enabled']);
-        foreach (['purge', 'level_anomaly', 'budget_alerts'] as $name) {
+        foreach (['purge', 'level_anomaly'] as $name) {
             $sec = self::section($config, $name);
             self::only($sec, ['enabled'], $name);
             $flags[$name] = self::flag($sec, 'enabled', $name . '.enabled');
@@ -241,7 +247,7 @@ final class WatchConfig implements \JsonSerializable
         $links = self::links(self::section($config, 'links'));
         $flags['links.logs'] = self::subFlag($links, 'logs', 'links.logs');
         $flags['links.code'] = self::subFlag($links, 'code', 'links.code');
-        $analysis = self::analysis(self::section($config, 'analysis'), $schedule['runs_per_day'], $schedule['period_seconds']);
+        $analysis = self::analysis(self::section($config, 'analysis'));
         $flags['triage'] = self::subFlag($analysis, 'triage', 'analysis.triage');
         $flags['advice'] = self::subFlag($analysis, 'advice', 'analysis.advice');
         $heartbeat = self::heartbeat(self::section($config, 'heartbeat'), $interval);
@@ -697,9 +703,9 @@ final class WatchConfig implements \JsonSerializable
      * @param array<string, mixed> $a
      * @return array<string, mixed>
      */
-    private static function analysis(array $a, int $runsPerDay, int $periodSeconds): array
+    private static function analysis(array $a): array
     {
-        self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'max_runs_per_day', 'run_budget_usd', 'triage', 'advice'], 'analysis');
+        self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'api_key', 'models', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'triage', 'advice'], 'analysis');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
         foreach (self::STEPS as $step) {
@@ -725,34 +731,6 @@ final class WatchConfig implements \JsonSerializable
         $client = 'http';
         [$provider, $stepProviders, $apiKeys, $options] = self::providers($a, $models);
 
-        $prices = self::prices(self::section($a, 'prices'), $models);
-        $percents = $a['budget_alert_percents'] ?? [25, 50, 75, 90];
-        $tokenLimit = $a['daily_token_limit'] ?? null;
-        if ($tokenLimit !== null && (!is_int($tokenLimit) || $tokenLimit < 1)) {
-            throw new InvalidConfig('analysis.daily_token_limit must be null or a positive integer');
-        }
-        if (!is_array($percents) || !array_is_list($percents) || $percents === [] || !self::ascendingPercents($percents)) {
-            throw new InvalidConfig('analysis.budget_alert_percents must be ascending integers from 1 to 99');
-        }
-
-        $dailyBudget = self::num($a, 'daily_budget_usd', 0.50, 'analysis.daily_budget_usd', 0.0);
-        $maxRuns = $a['max_runs_per_day'] ?? null;
-        $runBudget = $a['run_budget_usd'] ?? null;
-        if ($runsPerDay > 1) {
-            if ($maxRuns === null) {
-                $maxRuns = 2 * $runsPerDay;
-            }
-            if ($runBudget === null) {
-                $runBudget = $dailyBudget / $runsPerDay * 2;
-            }
-        }
-        if ($maxRuns !== null && (!is_int($maxRuns) || $maxRuns < 1)) {
-            throw new InvalidConfig('analysis.max_runs_per_day must be an integer >= 1');
-        }
-        if ($runBudget !== null && ((!is_int($runBudget) && !is_float($runBudget)) || $runBudget <= 0)) {
-            throw new InvalidConfig('analysis.run_budget_usd must be greater than zero');
-        }
-
         return array_merge($a, $limits, [
             'provider' => $provider,
             'step_providers' => $stepProviders,
@@ -762,12 +740,6 @@ final class WatchConfig implements \JsonSerializable
             'models' => $models,
             'confidence_threshold' => $conf,
             'escalation_cap' => self::posInt($a, 'escalation_cap', 3, 'analysis.escalation_cap'),
-            'daily_budget_usd' => $dailyBudget,
-            'prices' => $prices,
-            'daily_token_limit' => $tokenLimit,
-            'budget_alert_percents' => $percents,
-            'max_runs_per_day' => $maxRuns,
-            'run_budget_usd' => $runBudget,
         ]);
     }
 
@@ -844,49 +816,6 @@ final class WatchConfig implements \JsonSerializable
         }
 
         return [$provider, $steps, $apiKeys, $options];
-    }
-
-    /**
-     * @param array<string, mixed> $prices
-     * @param array<string, mixed> $models
-     * @return array<string, array{float, float, float, float}>
-     */
-    private static function prices(array $prices, array $models): array
-    {
-        foreach (self::STEPS as $step) {
-            if (!isset($prices[$models[$step]])) {
-                throw new InvalidConfig('analysis.prices (no price for models.' . $step . ')');
-            }
-        }
-        $out = [];
-        foreach ($prices as $model => $p) {
-            $path = 'analysis.prices.' . $model;
-            if (!is_array($p) || !array_is_list($p) || count($p) !== 4) {
-                throw new InvalidConfig($path . ' must be 4 non-negative numbers: input, output, cache_read, cache_write');
-            }
-            foreach ($p as $n) {
-                if ((!is_int($n) && !is_float($n)) || $n < 0) {
-                    throw new InvalidConfig($path . ' must be 4 non-negative numbers: input, output, cache_read, cache_write');
-                }
-            }
-            $out[(string) $model] = [(float) $p[0], (float) $p[1], (float) $p[2], (float) $p[3]];
-        }
-
-        return $out;
-    }
-
-    /** @param array<mixed> $percents */
-    private static function ascendingPercents(array $percents): bool
-    {
-        $last = 0;
-        foreach ($percents as $p) {
-            if (!is_int($p) || $p <= $last || $p > 99) {
-                return false;
-            }
-            $last = $p;
-        }
-
-        return true;
     }
 
     /**

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit\Fleet;
 
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\Usage;
 use Watcher\Fleet\FleetResult;
 use Watcher\Fleet\ServiceResult;
 use Watcher\Operate\RunStats;
@@ -17,7 +16,7 @@ final class FleetResultTest extends TestCase
 {
     private static function ran(string $service, RunOutcome $o, ?string $reason = null, ?RunSummaryData $data = null): ServiceResult
     {
-        return ServiceResult::ran($service, new RunResult($o, $reason, null, $data));
+        return ServiceResult::ran($service, new RunResult($o, $reason, $data));
     }
 
     /** @param list<ServiceResult> $services */
@@ -51,7 +50,7 @@ final class FleetResultTest extends TestCase
     public function testJsonLineHasTheContractFieldsAndNoGroupContent(): void
     {
         $stats = new RunStats();
-        $stats->addUsage('analyze', new Usage('m', 100, 10, 0, 0, 0.0412));
+        $stats->addCall('analyze');
         $stats->findings = 2;
         $data = new RunSummaryData(RunOutcome::Reported, 'api', null, null, null, $stats);
         $r = self::fleet([self::ran('api', RunOutcome::Reported, null, $data), self::ran('bff-a', RunOutcome::Quiet), ServiceResult::skippedTime('bff-b')]);
@@ -61,14 +60,12 @@ final class FleetResultTest extends TestCase
         $j = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('platform', $j['fleet']);
         self::assertSame(1, $j['exit']);
-        self::assertSame(['service' => 'api', 'outcome' => 'reported', 'reason' => null, 'cost_usd' => 0.0412, 'findings' => 2], $j['services'][0]);
-        self::assertSame(['service' => 'bff-a', 'outcome' => 'quiet', 'reason' => null, 'cost_usd' => 0.0, 'findings' => 0], $j['services'][1]);
+        self::assertSame(['service' => 'api', 'outcome' => 'reported', 'reason' => null, 'findings' => 2], $j['services'][0]);
+        self::assertSame(['service' => 'bff-a', 'outcome' => 'quiet', 'reason' => null, 'findings' => 0], $j['services'][1]);
         self::assertSame('skipped_time', $j['services'][2]['outcome']);
         self::assertSame(0, $j['correlated']);
         self::assertNull($j['correlated_posted']);
-        self::assertSame(0.0412, $j['cost_usd']);
-        self::assertArrayHasKey('fleet_cost_today_usd', $j);
-        self::assertSame(['fleet', 'exit', 'services', 'correlated', 'correlated_posted', 'cost_usd', 'fleet_cost_today_usd'], array_keys($j));
+        self::assertSame(['fleet', 'exit', 'services', 'correlated', 'correlated_posted'], array_keys($j));
     }
 
     public function testReasonIsSanitisedLikeTheSingleRunSummary(): void

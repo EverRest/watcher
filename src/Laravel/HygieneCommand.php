@@ -13,9 +13,9 @@ use Watcher\Hygiene\HygieneResult;
 
 final class HygieneCommand extends Command
 {
-    protected $signature = 'watcher:hygiene {--report= : privacy,shape,proposals,cost (default: all)} {--days=7 : Days shown by the cost report (1-30)} {--now= : ISO-8601 instant to report as} {--notify : Post each non-empty report to the notice destination} {--dry-run : Read-only: write nothing, take no lock, send nothing} {--decline= : Decline a rule proposal by id} {--json : One JSON line on stdout, human text on stderr}';
+    protected $signature = 'watcher:hygiene {--report= : privacy,shape,proposals (default: all)} {--now= : ISO-8601 instant to report as} {--notify : Post each non-empty report to the notice destination} {--dry-run : Read-only: write nothing, take no lock, send nothing} {--decline= : Decline a rule proposal by id} {--json : One JSON line on stdout, human text on stderr}';
 
-    protected $description = 'Log hygiene reports: personal data in logs, log shape, mute/watch proposals, model cost per day';
+    protected $description = 'Log hygiene reports: personal data in logs, log shape, mute/watch proposals';
 
     /** @param Closure(HygieneOptions): HygieneResult $factory throws InvalidConfig before any external call */
     public function __construct(private readonly Closure $factory)
@@ -28,14 +28,13 @@ final class HygieneCommand extends Command
         $raw = $this->option('now');
         $now = null;
         if (is_string($raw) && $raw !== '' && ($now = Application::parseNow($raw)) === null) {
-            $this->error('invalid --now: expected ISO-8601, e.g. 2026-10-23T06:00:00Z');
+            $this->error('invalid --now: expected ISO-8601, e.g. 2026-10-23T06:00:00Z', \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         }
         try {
             $options = HygieneOptions::fromInput(
                 $this->string('report'),
-                $this->string('days'),
                 $this->string('decline'),
                 $now,
                 (bool) $this->option('notify'),
@@ -43,11 +42,11 @@ final class HygieneCommand extends Command
             );
             $result = ($this->factory)($options);
         } catch (InvalidConfig $e) { // before InvalidArgumentException, which it extends
-            $this->error('invalid config: ' . $e->getMessage());
+            $this->error('invalid config: ' . $e->getMessage(), \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         } catch (\InvalidArgumentException $e) {
-            $this->error($e->getMessage());
+            $this->error($e->getMessage(), \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         }
@@ -58,13 +57,13 @@ final class HygieneCommand extends Command
             $this->output->getErrorStyle()->writeln(Application::DISABLED_HINT);
         }
         if ($result->skipped) {
-            $this->output->getErrorStyle()->writeln('watcher: hygiene reports disabled (set hygiene.enabled=true); only the cost report was produced');
+            $this->output->getErrorStyle()->writeln('watcher: hygiene reports disabled (set hygiene.enabled=true); no hygiene report was produced');
         }
         if (($text = $result->text()) !== '') {
             $human->writeln($text);
         }
         if ($json) {
-            $this->line($result->toJson());
+            $this->line($result->toJson(), null, \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
         }
 
         return $result->exitCode();
@@ -76,4 +75,5 @@ final class HygieneCommand extends Command
 
         return is_string($v) && $v !== '' ? $v : null;
     }
+
 }

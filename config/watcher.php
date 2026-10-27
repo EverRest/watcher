@@ -66,7 +66,6 @@ return [
     ],
 
     'level_anomaly' => ['enabled' => Env::bool('WATCHER_LEVEL_ANOMALY_ENABLED', true)],  // second pass on a level whose total grew
-    'budget_alerts' => ['enabled' => Env::bool('WATCHER_BUDGET_ALERTS_ENABLED', true)],  // 25/50/75/90 % notices and the exhausted notice
     'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                  // expired-file purge (file state store only)
     'baseline' => ['enabled' => Env::bool('WATCHER_BASELINE_ENABLED', true)],            // false: previous-window comparison only
     'grouping' => ['enabled' => Env::bool('WATCHER_GROUPING_ENABLED', true)],            // false: exact token-count clusters
@@ -86,11 +85,6 @@ return [
         'max_output_tokens' => ['triage' => 1500, 'analyze' => 4000, 'escalate' => 2000],
         'confidence_threshold' => 0.6,
         'escalation_cap' => 3,
-        'daily_budget_usd' => 0.50,
-        'daily_token_limit' => null,
-        'budget_alert_percents' => [25, 50, 75, 90],
-        // Required for every model above: 'model-id' => [input, output, cache_read, cache_write], USD per million tokens.
-        'prices' => [],
     ],
 
     'redaction' => [
@@ -117,7 +111,7 @@ return [
 
     'notify' => [
         'digest' => ['driver' => env('WATCHER_DIGEST_DRIVER', 'slack'), 'webhook' => env('WATCHER_SLACK_WEBHOOK'), 'enabled' => Env::bool('WATCHER_DIGEST_ENABLED', true)],
-        // Failure and budget notices. Only `enabled`: use the digest destination. Add driver + webhook for a channel of its own.
+        // Failure notices. Only `enabled`: use the digest destination. Add driver + webhook for a channel of its own.
         'notice' => ['enabled' => Env::bool('WATCHER_NOTICE_ENABLED', true)],
         'routes_enabled' => Env::bool('WATCHER_ROUTES_ENABLED', true),
         'routes' => [],

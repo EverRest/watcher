@@ -1,6 +1,6 @@
 # Observability: see what watcher found without the chat
 
-Watcher can emit a small, versioned stream of **events** (`watcher.event.v1`) and a Prometheus **textfile**. You choose where they go; the package never talks to a dashboard product. Grafana is one way to read them, not the only one: the same events work in Kibana/OpenSearch, Datadog, Metabase, Superset or a script of your own.
+Watcher can emit a small, versioned stream of **events** (`watcher.event.v2`) and a Prometheus **textfile**. You choose where they go; the package never talks to a dashboard product. Grafana is one way to read them, not the only one: the same events work in Kibana/OpenSearch, Datadog, Metabase, Superset or a script of your own.
 
 | Sink | Writes | Typical reader |
 |---|---|---|
@@ -21,20 +21,18 @@ Every sink is **off** until you switch it on. With none on, watcher behaves exac
 
 Environment variables (plain-PHP configs read them through `Watcher\Config\Env`): `WATCHER_DIGEST_DRIVER=none`, `WATCHER_OBSERVE_LOG_ENABLED=1`. `driver: none` needs at least one enabled sink, so a configuration that would be mute and invisible is refused at start.
 
-Everything else is unchanged: the same logs are read, the same models are called, the same budget applies. Only the delivery differs.
+Everything else is unchanged: the same logs are read, the same models are called, the same input limits apply. Only the delivery differs.
 
 ## 2. What is in an event (and what never is)
 
 Events carry **counts, outcome codes, severities, timestamps and fingerprints** (12 hex characters of a hash). They never carry log lines, message templates, field values, stack frames or filesystem paths. Free text of a finding (title, evidence, hypothesis, next step, check) exists only when a sink has `include_text` on, after the same scrub the chat message gets; it is **off by default for every sink**, `log` included (stderr is often forwarded by a shipper to someone you have not approved); switching it on is an explicit choice and the text stays redacted. An `http` sink with text on emits a `config_warning` event (`include_text_external`) so a dashboard shows that text leaves the host. There is no setting that turns the scrubbing off.
 
-The contract is the JSON Schema in `docs/schema/watcher.event.v1.schema.json`. Inside `v1` fields are never removed, renamed or retyped; new optional fields may appear, so a consumer ignores fields it does not know. Delivery is at-least-once: de-duplicate on `event_id`.
+The contract is the JSON Schema in `docs/schema/watcher.event.v2.schema.json`. Inside `v1` fields are never removed, renamed or retyped; new optional fields may appear, so a consumer ignores fields it does not know. Delivery is at-least-once: de-duplicate on `event_id`.
 
 | Event type | One per | Main fields |
 |---|---|---|
-| `run` | run | `outcome`, `reason`, `duration_ms`, `events_read`, `groups_total`, `candidates`, `findings_total`, `findings_by_severity`, `calls`, `tokens_in`, `tokens_out`, `cost_usd`, `truncated` |
 | `finding` | finding | `fingerprint`, `kind`, `severity`, `confidence`, `group_trend`, `group_count`, `group_previous_count` (+ text with `include_text`) |
 | `group` | top group (`observe.top_groups`, default 20) | `rank`, `fingerprint`, `level`, `trend`, `count`, `previous_count`, `has_finding` |
-| `budget` | run that read spend | `state`, `spent_today_usd`, `usd_ratio`, `token_ratio`, `triage_only` |
 | `heartbeat` | run | `state` (`ok`, `degraded`, `stale`, `failed`, `unknown`; `degraded` = the last run worked but the pod events could not be read), `last_ok_at`, `age_seconds`, `warnings` |
 | `delivery_failure` | failed chat delivery | `channel`, `kind`, `status_class`, `http_status` (never the message or URL) |
 | `config_warning` | warning | `code` (`analysis_partial`, `event_cap_hit`, `group_cap_hit`, `comparison_gap`, `include_text_external`, ...) |
@@ -50,28 +48,24 @@ Ship the container's stderr (or the `file` sink's file) to Loki with any collect
 - Successful runs in 36 h (alert on `< 1`): `sum by (service) (count_over_time({app="watcher"} | json | event_type="run" | outcome=~"reported|quiet|baselined" [36h]))`
 - Findings by severity: `sum by (severity) (count_over_time({app="watcher"} | json | event_type="finding" [1d]))`
 - New critical findings: `sum(count_over_time({app="watcher"} | json | event_type="finding" | severity="critical" | group_trend="new" [1d]))`
-- Cost per day: `sum(sum_over_time({app="watcher"} | json | event_type="run" | unwrap cost_usd [1d]))`
-- Tokens: `sum(sum_over_time({app="watcher"} | json | event_type="run" | unwrap tokens_in [1d]))`
-- Budget ratio: `max by (service) (max_over_time({app="watcher"} | json | event_type="budget" | unwrap usd_ratio [1d]))`
 - Top groups: `{app="watcher"} | json | event_type="group" | rank <= 10`
 - Findings table (needs `include_text` on the sink): `{app="watcher"} | json | event_type="finding" | line_format "{{.severity}} {{.title}} ({{.group_count}}x, {{.group_trend}})"`
 - Warnings and failed deliveries: `{app="watcher"} | json | event_type=~"config_warning|delivery_failure"`
 
 Loki's `json` parser flattens nested objects with `_`: `findings_by_severity_critical`, `calls_triage`.
 
-Minimal Alloy / Promtail idea: read the container's stderr, keep lines containing `"schema":"watcher.event.v1"`, set the `app` label, and leave the rest in the line. Vector (`parse_json`), Filebeat (`decode_json_fields`) and the Datadog Agent (a log source with a date remapper on `ts`) do the same; in Elasticsearch parse under a namespace such as `watcher` so `service` does not collide with ECS.
+Minimal Alloy / Promtail idea: read the container's stderr, keep lines containing `"schema":"watcher.event.v2"`, set the `app` label, and leave the rest in the line. Vector (`parse_json`), Filebeat (`decode_json_fields`) and the Datadog Agent (a log source with a date remapper on `ts`) do the same; in Elasticsearch parse under a namespace such as `watcher` so `service` does not collide with ECS.
 
 ## 4. Prometheus
 
 `observe.prometheus` writes `<dir>/watcher_<service>[_<environment>].prom` (text format 0.0.4) once per run, replaced atomically. Point node_exporter's `--collector.textfile.directory` at the directory (on Kubernetes use a shared volume or a sidecar). The label set is closed (service, environment, and a few enumerations), so the series count is fixed whatever the findings: no fingerprint, title or release is ever a label.
 
-Metrics you will use: `watcher_last_success_timestamp_seconds`, `watcher_last_run_outcome`, `watcher_runs_total`, `watcher_last_run_findings`, `watcher_last_run_new_findings`, `watcher_last_run_cost_usd`, `watcher_budget_ratio`, `watcher_heartbeat_age_seconds`, `watcher_sink_failures_total`, `watcher_delivery_failures_total`.
+Metrics you will use: `watcher_last_success_timestamp_seconds`, `watcher_last_run_outcome`, `watcher_runs_total`, `watcher_last_run_findings`, `watcher_last_run_new_findings`, `watcher_heartbeat_age_seconds`, `watcher_sink_failures_total`, `watcher_delivery_failures_total`.
 
 Alert examples (thresholds are examples; 36 h assumes a daily run):
 
 - No successful run: `time() - watcher_last_success_timestamp_seconds > 129600`
 - A run failed: `watcher_last_run_outcome{outcome="failed"} == 1`
-- Budget above 90 %: `watcher_budget_ratio > 0.9`
 - A new critical finding: `watcher_last_run_new_findings{severity="critical"} > 0`
 - Delivery or sink trouble: `increase(watcher_delivery_failures_total[1d]) > 0 or increase(watcher_sink_failures_total[1d]) > 0`
 
@@ -106,8 +100,5 @@ The field table above is the column list for Metabase or Superset reading the JS
 If you cannot add a sink yet, `watcher run --config=<config> --json` already prints one JSON line on stdout (human text goes to stderr) for every run, failed ones included, with counts and codes only. Ship the job's stdout to Loki with a stable label such as `app="watcher"` and use:
 
 - Runs by outcome: `sum by (outcome) (count_over_time({app="watcher"} | json | __error__="" [1d]))`
-- Cost per day: `sum(sum_over_time({app="watcher"} | json | unwrap cost_usd [1d]))`
-- Tokens: `sum(sum_over_time({app="watcher"} | json | unwrap tokens_in [1d]))`
-- Findings per run: `{app="watcher"} | json | line_format "{{.service}} {{.outcome}} findings={{.findings}} cost={{.cost_usd}}"`
 
 Alert on: no line with outcome in reported, quiet or baselined for 36 h; any line with outcome `failed`. The summary holds only counts, outcome codes and numbers. When a sink is enabled the same line also carries `run_id` and `sink_failures`, so a line can be matched to its events.

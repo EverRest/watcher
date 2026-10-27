@@ -36,7 +36,7 @@ use Watcher\State\StateStore;
 final class Doctor
 {
     private const STEPS = ['triage', 'analyze', 'escalate'];
-    private const NAMES = ['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'];
+    private const NAMES = ['config', 'source', 'provider_auth', 'models', 'state', 'notifier'];
     private const SCRATCH_TTL = 60;
 
     /** The master switch was read off the raw config before validation (see switchedOff()). */
@@ -99,7 +99,6 @@ final class Doctor
         [$auth, $models] = $this->provider();
         $results[] = $auth;
         $results[] = $models;
-        $results[] = $this->guard('prices', fn (): CheckResult => $this->prices());
         $results[] = $this->guard('state', fn (): CheckResult => $this->state());
         $results[] = $this->guard('notifier', fn (): CheckResult => $this->notifier());
         if ($this->metrics !== null) {
@@ -253,13 +252,6 @@ final class Doctor
         }
 
         return $bad === [] ? CheckResult::pass('models') : CheckResult::fail('models', 'unknown model for ' . implode(', ', $bad));
-    }
-
-    private function prices(): CheckResult
-    {
-        $bad = array_filter(self::STEPS, fn (string $step): bool => !isset($this->config->analysis['prices'][$this->config->analysis['models'][$step]]));
-
-        return $bad === [] ? CheckResult::pass('prices') : CheckResult::fail('prices', 'no price for ' . implode(', ', $bad));
     }
 
     private function state(): CheckResult

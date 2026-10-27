@@ -19,7 +19,7 @@ LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) 
 (per env)    fingerprint  allowlist  anomaly     cheap     mid        strong       StateStore  Slack
              + counters   + normalise rules(code) model     model      model, once
              + vs yesterday
-   all steps share: StateStore (fingerprints, verdicts, run records, heartbeat) and the daily budget (spend per call)
+   all steps share: StateStore (fingerprints, verdicts, run records, heartbeat)
 ```
 
 Every feature has an on/off flag in the config and a `WATCHER_*` environment variable, so one package can run in int, prod and dev with different settings; the master switch `enabled` (`WATCHER_ENABLED`) defaults to off and `environment` (`WATCHER_ENVIRONMENT`) prefixes the state keys (see [docs/configuration.md](docs/configuration.md#feature-flags-spec-012) and [docs/operations.md](docs/operations.md#enabling-and-disabling-per-environment)). Redaction has no switch.
@@ -63,8 +63,8 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
 2. Check the setup (read-only; posts nothing), preview a run, then run it:
 
    ```bash
-   vendor/bin/watcher check --config=path/to/watcher.php        # source, provider auth, models, prices, state, webhooks
-   vendor/bin/watcher run --config=path/to/watcher.php --dry-run --estimate   # no model call: groups, tokens, cost
+   vendor/bin/watcher check --config=path/to/watcher.php        # source, provider auth, models, state, webhooks
+   vendor/bin/watcher run --config=path/to/watcher.php --dry-run --estimate   # no model call: groups per step
    vendor/bin/watcher run --config=path/to/watcher.php --dry-run              # real model calls, digest printed, nothing posted
    vendor/bin/watcher run --config=path/to/watcher.php          # add --now=2026-10-23T06:00:00Z to run "as of" an instant
    vendor/bin/watcher status --config=path/to/watcher.php       # is the job alive? exit 0 only when ok
@@ -78,7 +78,7 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
    | `watcher state:get <key>` | `--config=<file>`; read-only debug view, `<key>` is `heartbeat`, `last-snapshot`, `snapshot:<window end>` or `run:<window end>` (strings redacted, cut to 200 characters; exit 1 when nothing is stored) |
 
    With `--json`, stdout is exactly one JSON line and every human line goes to stderr. A dry run never posts, writes
-   state or records spend. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
+   state. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
    {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`.
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
@@ -149,7 +149,7 @@ The contract is `specs/001-scheduled-log-watch/contracts/configuration.md`.
 Configuration is validated once, before any network call. A bad value throws `InvalidConfig` naming the key
 (never the value), and the process exits with code 2. Unknown top-level keys are rejected.
 Required: `service`, `schedule.run_at`, a source driver with its credentials, `analysis.api_key`, all three
-`analysis.models`, a price for each of those models, a state driver with its settings, `notify.digest.webhook`.
+`analysis.models`, a state driver with its settings, `notify.digest.webhook`.
 
 ## Log sources
 
@@ -165,8 +165,8 @@ are read as events; lower levels are counted in totals only.
 
 ## State
 
-State holds fingerprints, counters, cached verdicts, spend and run records. Every item has an expiry
-(`state.retention`, default 30 days; spend and alert markers 2 days, `noise`/`known` verdicts 3 days, heartbeat records 3x retention; see `docs/privacy.md`).
+State holds fingerprints, counters, cached verdicts and run records. Every item has an expiry
+(`state.retention`, default 30 days; notice markers 2 days, `noise`/`known` verdicts 3 days, heartbeat records 3x retention; see `docs/privacy.md`).
 
 | Driver | Notes |
 |--------|-------|
@@ -197,11 +197,11 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 
 What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,
 written by you); (2) to the notification channel (Slack, Telegram or Discord), the digest (titles, evidence, hypotheses, counts, short fingerprints, cost line) and
-failure/budget notices; (3) queries to your log backend. Nothing else is sent anywhere.
+failure notices; (3) queries to your log backend. Nothing else is sent anywhere.
 
-## Cost model
+## Model calls
 
-Work is routed by tier and each tier has its own model id, token limits and price (no ids in code):
+Work is routed by tier and each tier has its own model id and input limit (no ids in code):
 
 1. **triage** (cheap model): one batched call over the selected candidates; verdict per fingerprint.
 2. **analyze** (mid model): only groups triage marked interesting, at most `selection.top_m`.
@@ -211,12 +211,7 @@ Work is routed by tier and each tier has its own model id, token limits and pric
 Selection is deterministic: new fingerprints, groups that grew by `selection.growth_factor`, level at or above
 `selection.min_level`, watch-rule matches, plus the top `selection.top_n`; the rest collapse to one summary line.
 No candidates means zero model calls; unchanged groups reuse cached verdicts. Inputs over `max_input_tokens` drop
-the lowest-priority groups and the digest says so.
-
-`analysis.prices` is required for every model (`[input, output, cache_read, cache_write]`, USD per million tokens).
-Spend is metered per call. At `daily_budget_usd` (and optional `daily_token_limit`) the run falls back to triage only
-and posts a "budget exhausted" notice. Alerts post at `budget_alert_percents` (default 25/50/75/90), once each per day.
-Every digest ends with a cost line: tokens in/out/cached, model per step, approximate cost, spend today.
+the lowest-priority groups and the digest says so. There is no spend cap and no cost report.
 
 ## Noise control
 
@@ -244,7 +239,7 @@ Failures are never silent: a source, analysis or internal failure posts a short 
 
 One message per service per run: a header (service, environment, window), findings grouped by severity
 (critical, error, warn, info), then a line for minor/low-confidence findings, remaining groups, muted count, truncation
-notices and a cost footer. A finding shows title, event count and trend (`new` or `up from N`), a 12-character
+notices. A finding shows title, event count and trend (`new` or `up from N`), a 12-character
 fingerprint, evidence, a hypothesis (always labelled as such), a suggested next step, a `Check:` line saying what to look at to confirm or refute the hypothesis (never reproduction steps) and, when useful, a `Related:` line naming other groups or declared dependencies to look at next. `analysis.advice.enabled=false` turns the last two off and saves their output tokens.
 
 ## Several services (fleet)
@@ -252,7 +247,7 @@ fingerprint, evidence, a hypothesis (always labelled as such), a suggested next 
 One job can watch several services, including ones that cannot host the package (no CLI, no scheduler): list them in a
 fleet file and run `watcher fleet:run --config=<file|dir>`. Each service keeps its own window, run record, lock and
 digest and runs in isolation (one failing service never stops another; the exit code is the worst). A fleet can add a
-shared daily cap (`budget`), one combined digest (`digest: combined`), and **correlation**: when a consumer's findings
+one combined digest (`digest: combined`), and **correlation**: when a consumer's findings
 reference a service that has a new or grown finding in the same window, the consumer's own finding is annotated
 `likely caused by the <origin> finding <fingerprint> (hypothesis)` and one additional message names the origin. It is
 decided in code from names, placeholders and times; it makes no model call and withholds nothing. See
@@ -273,7 +268,7 @@ decided in code from names, placeholders and times; it makes no model call and w
 - Dependencies are read with the service's own log source: `dependencies.<name>.source` (a different backend per
   dependency) is rejected as not available yet. A dependency's lines are read before triage, so a day on which triage
   marks everything noise can still have spent the dependency reads (totals are always one query per dependency).
-- A failed alert notice releases its claim, but an alert is only announced again when later spend crosses that
+
   threshold again or on the next day.
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.

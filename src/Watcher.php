@@ -14,19 +14,13 @@ use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\Budget;
-use Watcher\Analyze\BudgetAlerts;
-use Watcher\Analyze\BudgetReservation;
 use Watcher\Analyze\CompactPayload;
-use Watcher\Analyze\CostCalculator;
 use Watcher\Analyze\ModelRouter;
 use Watcher\Analyze\PayloadExtras;
 use Watcher\Analyze\RouterSettings;
-use Watcher\Analyze\Spend;
 use Watcher\Analyze\TriageCheckpoint;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\UnknownModelPrice;
-use Watcher\Analyze\Usage;
 use Watcher\Events\EventsRun;
 use Watcher\Fleet\FleetSeam;
 use Watcher\Issues\IssueSource;
@@ -103,7 +97,7 @@ use Watcher\State\Purgeable;
 use Watcher\State\RenewableLock;
 use Watcher\State\StateStore;
 
-/** Single entry point (FR-033). US1 pipeline: no run_at gate, triage, budgets, watch rules, dependencies or deploy info yet. */
+/** Single entry point (FR-033). */
 final class Watcher
 {
     /** A window whose analysis failed this many times is recorded as failed and not tried again (a refusal counts as the last one at once). */
@@ -250,7 +244,7 @@ final class Watcher
             config: $c,
             source: Factory::source($c, $http, $clock),
             state: $state,
-            analyzer: Factory::analyzer($c, $options === null ? false : $options->dryRun),
+            analyzer: Factory::analyzer($c),
             notifier: Factory::notifier($http, $c->schedule['lock_ttl']),
             clock: $clock,
             hostLog: $hostLog,
@@ -279,7 +273,7 @@ final class Watcher
         $name = static fn (mixed $v): ?string => is_string($v) && preg_match('/^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/D', $v) === 1 ? $v : null;
         $self = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
         (new \ReflectionProperty(self::class, 'hostLog'))->setValue($self, $hostLog); // the one readonly a caller can observe
-        $self->disabled = new RunResult(RunOutcome::Disabled, null, null, new RunSummaryData(RunOutcome::Disabled, $name($config['service'] ?? null), null, environment: $name($config['environment'] ?? null)));
+        $self->disabled = new RunResult(RunOutcome::Disabled, null, new RunSummaryData(RunOutcome::Disabled, $name($config['service'] ?? null), null, environment: $name($config['environment'] ?? null)));
 
         return $self;
     }
@@ -303,7 +297,7 @@ final class Watcher
         }
         if (!$this->config->enabled) {
             // The master switch: no source, state, model or notifier access, not even a heartbeat.
-            return new RunResult(RunOutcome::Disabled, null, null, new RunSummaryData(RunOutcome::Disabled, $this->config->service, null, environment: $this->config->environment));
+            return new RunResult(RunOutcome::Disabled, null, new RunSummaryData(RunOutcome::Disabled, $this->config->service, null, environment: $this->config->environment));
         }
         $this->ledger->reset();
         $this->guard = new RunGuard($this->clock, min($this->config->schedule['run_deadline'], $this->fleetDeadline ?? PHP_INT_MAX));
@@ -385,9 +379,6 @@ final class Watcher
 
         try {
             if ($this->options->dryRun) {
-                if (!$this->options->estimate && $this->dailyCapReached()) {
-                    return $this->fail('daily budget already reached; a dry run would bill model calls beyond the cap', 'budget_exhausted');
-                }
                 $this->announceDryRun($keys);
             }
             if (!$this->state->acquire($lockKey, $owner, $keys->lockTtl())) {
@@ -396,9 +387,6 @@ final class Watcher
             $this->lockKey = $lockKey;
             $this->lockOwner = $owner;
             $this->lockRenewedAt = $this->clock->now()->getTimestamp();
-            if (!$this->options->dryRun && $this->runsCapExceeded()) {
-                return $this->cappedRun($lockKey, $owner);
-            }
             $fatal = new FatalGuard(fn () => $this->state->release($lockKey, $owner), $this->hostLog, $c->service);
             $fatal->arm();
 
@@ -500,50 +488,6 @@ final class Watcher
         ];
     }
 
-    private function runsCapExceeded(): bool
-    {
-        $max = $this->config->analysis['max_runs_per_day'];
-        if ($max === null) {
-            return false;
-        }
-        $tz = new \DateTimeZone($this->config->schedule['timezone']);
-        $day = $this->clock->now()->setTimezone($tz)->format('Y-m-d');
-        $ttl = Keys::ttl(Keys::RUNS, $this->config->state['retention'], $this->config->schedule['lock_ttl']);
-
-        return (int) $this->state->increment(Keys::runsToday($this->config->stateKey, $day), 1, $ttl) > $max;
-    }
-
-    private function cappedRun(string $lockKey, string $owner): RunResult
-    {
-        $c = $this->config;
-        $max = (int) $c->analysis['max_runs_per_day'];
-        $tz = new \DateTimeZone($c->schedule['timezone']);
-        $until = $this->clock->now()->setTimezone($tz)->modify('tomorrow')->setTime(0, 0)->format('Y-m-d H:i');
-        if ($c->on('notice')) {
-            try {
-                $day = (new Spend($this->state, $this->clock, $tz, $c->stateKey))->day();
-                $this->noticeOnce(
-                    'capped:' . rawurlencode($c->stateKey) . ':' . $day,
-                    $this->notices()->runCapReached($c->service, $this->environment(), $max, $until, $c->schedule['timezone']),
-                    $this->noticeDestination(),
-                );
-            } catch (Throwable $e) {
-                $this->hostLog?->warning('run cap notice not delivered: ' . $this->notices()->describe($e), ['service' => $c->service]);
-            }
-        }
-        $this->state->release($lockKey, $owner);
-
-        return new RunResult(RunOutcome::Capped);
-    }
-
-    private function dailyCapReached(): bool
-    {
-        $c = $this->config;
-
-        return (new Spend($this->realState, $this->clock, new \DateTimeZone($c->schedule['timezone']), $c->stateKey))
-            ->exhausted($c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']);
-    }
-
     /**
      * Extends the run lock when less than half of its lifetime is left (A4-05), between pipeline steps and before each model call.
      * A store without renew keeps the old behaviour (the deadline stays below lock_ttl anyway).
@@ -588,7 +532,7 @@ final class Watcher
     {
         $this->emit($this->options->estimate
             ? "== DRY RUN --estimate: no model calls made ==\n"
-            : "== DRY RUN: nothing posted, no state written. Model calls were real and billed; spend not recorded. ==\n");
+            : "== DRY RUN: nothing posted, no state written. Model calls were real. ==\n");
         // Spec 009: the optional sources are read-only but real and credentialed; a dry run and an estimate make the same reads as a run.
         $reads = array_filter([$this->metrics !== null ? 'metrics' : null, $this->issues !== null ? 'sentry' : null]);
         if ($reads !== []) {
@@ -624,36 +568,20 @@ final class Watcher
         // Spec 013: the events leave once, after the heartbeat is written; bounded by what is left of the run deadline.
         $summary = $this->ledger->publish($this->ledger->summary($outcome, $this->options->dryRun), $this->guard?->remainingSeconds(), $this->options->dryRun, $this->emit(...));
 
-        return new RunResult($outcome, $r->failureReason, $r->usage, $summary);
+        return new RunResult($outcome, $r->failureReason, $summary);
     }
 
     private function printEstimate(EstimatingAnalyzer $e): void
     {
-        $a = $this->config->analysis;
-        $calculator = new CostCalculator($a['prices']);
-        /** @var array<string, array{groups: int, in: int, out: int, cost: float}> $rows */
-        $rows = [];
+        $groups = [];
         foreach ($e->steps() as $step) {
-            try {
-                $cost = $calculator->cost(new Usage($step['model'], $step['tokensIn'], $step['maxTokensOut']));
-            } catch (UnknownModelPrice) {
-                $cost = 0.0;
-            }
-            $r = $rows[$step['step']] ?? ['groups' => 0, 'in' => 0, 'out' => 0, 'cost' => 0.0];
-            $rows[$step['step']] = ['groups' => $r['groups'] + $step['groups'], 'in' => $r['in'] + $step['tokensIn'], 'out' => $r['out'] + $step['maxTokensOut'], 'cost' => $r['cost'] + $cost];
+            $groups[$step['step']] = ($groups[$step['step']] ?? 0) + $step['groups'];
         }
-        $line = static fn (string $a, string $b, string $c, string $d, string $e, string $note = ''): string => rtrim(sprintf('%-9s %7s %15s %16s %14s   %s', $a, $b, $c, $d, $e, $note)) . "\n";
-        $text = $line('step', 'groups', 'tokens_in(est)', 'tokens_out(max)', 'cost_usd(est)');
-        $total = 0.0;
-        foreach (['triage' => '', 'analyze' => '(upper bound: all top-M)'] as $name => $note) {
-            $r = $rows[$name] ?? null;
-            $total += $r['cost'] ?? 0.0;
-            $text .= $r === null
-                ? $line($name, '-', '-', '-', '-')
-                : $line($name, (string) $r['groups'], (string) $r['in'], (string) $r['out'], number_format($r['cost'], 4, '.', ''), $note);
+        $text = '';
+        foreach (['triage', 'analyze'] as $name) {
+            $text .= sprintf("%-9s %7s\n", $name, (string) ($groups[$name] ?? '-'));
         }
-        $text .= $line('escalate', '-', '-', '-', '-', sprintf('(up to %d groups, not estimated)', $a['escalation_cap']));
-        $text .= $line('total', '', '', '', number_format($total, 4, '.', ''));
+        $text .= sprintf("%-9s %7s   (up to %d groups, not estimated)\n", 'escalate', '-', $this->config->analysis['escalation_cap']);
         $this->emit($text);
     }
 
@@ -679,7 +607,7 @@ final class Watcher
         }
         if ($this->keys !== null) {
             try {
-                $n = $this->state->increment($this->keys->failNotices(), 1.0, Keys::ttl(Keys::SPEND, 0, 0));
+                $n = $this->state->increment($this->keys->failNotices(), 1.0, Keys::ttl(Keys::FAILNOTICE, 0, 0));
                 if ($n > self::MAX_FAIL_NOTICES) {
                     return $result; // already told three times for this window
                 }
@@ -920,7 +848,7 @@ final class Watcher
                 $this->notifier->send($notice, $c->destination('notice'));
             }
             $this->blindNotice($blind(false), $key, $endKey); // a baseline run only records: cap and overflow are not news yet
-            $this->ledger->runRecord($runKey, RunOutcome::Baselined, null, $started, $this->blindCode);
+            $this->ledger->runRecord($runKey, RunOutcome::Baselined, $started, $this->blindCode);
             $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Baselined);
@@ -968,7 +896,7 @@ final class Watcher
                 return new RunResult(RunOutcome::Quiet); // no done record: the next trigger reads this window again (R-3)
             }
             $this->blindNotice($line, $key, $endKey);
-            $this->ledger->runRecord($runKey, RunOutcome::Quiet, null, $started, $this->blindCode);
+            $this->ledger->runRecord($runKey, RunOutcome::Quiet, $started, $this->blindCode);
             $this->advanceHighWater($window, $keys);
 
             return new RunResult(RunOutcome::Quiet);
@@ -978,20 +906,19 @@ final class Watcher
         $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, environment: $environment, keys: $keys, started: $started, buffer: $knownBuffer);
 
         $routed = $analysis->routed;
-        $usage = $analysis->usage;
         $findings = $routed->findings; // already scrubbed by the decorator, before the router cached them
         $dropped = $analysis->truncation->droppedCount + $routed->droppedByTopM;
 
-        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->notTriaged === 0 && $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize === 0 && $patternFailures === 0 && $routed->unreported === 0 && $routed->triageCoerced === 0) {
+        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->escalationsSkippedSize === 0 && $patternFailures === 0 && $routed->unreported === 0 && $routed->triageCoerced === 0) {
             $analysis->checkpoint->clear();
             $analysis->buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->ledger->snapshot($window, $allGroups, $totals);
             $this->announceEventsProblem($key, $window);
             $this->blindNotice($blind(true), $key, $endKey);
-            $this->ledger->runRecord($runKey, RunOutcome::Quiet, $usage, $started, $this->blindCode);
+            $this->ledger->runRecord($runKey, RunOutcome::Quiet, $started, $this->blindCode);
             $this->advanceHighWater($window, $keys);
 
-            return new RunResult(RunOutcome::Quiet, null, $usage);
+            return new RunResult(RunOutcome::Quiet);
         }
 
         Delivery::run(
@@ -1028,14 +955,14 @@ final class Watcher
         $analysis->checkpoint->clear();
         $analysis->buffer->flush();
         $this->ledger->snapshot($window, $allGroups, $totals);
-        $this->ledger->runRecord($runKey, RunOutcome::Reported, $usage, $started);
+        $this->ledger->runRecord($runKey, RunOutcome::Reported, $started);
         $this->advanceHighWater($window, $keys);
 
-        return new RunResult(RunOutcome::Reported, null, $usage);
+        return new RunResult(RunOutcome::Reported);
     }
 
     /**
-     * Redacts and truncates the candidates, reads the dependencies, runs the models under the budget and books the cost.
+     * Redacts and truncates the candidates, reads the dependencies, runs the models.
      *
      * @param list<Candidate> $candidates
      *
@@ -1072,27 +999,13 @@ final class Watcher
         $endpoints = $this->apiEndpoints($redacted, $dependencies, $serviceContext, $redactor);
 
         $metrics = Budget::fitMetrics($redacted, $read->payloadExtras, $c->analysis['max_input_tokens']['analyze'], $serviceContext, $c->on('advice'), $dependencies);
-        $tz = new \DateTimeZone($c->schedule['timezone']);
-        $spend = new Spend($this->state, $this->clock, $tz, $key);
-        $notice = $this->noticeDestination();
-        // Which cap stopped the analysis; only named in a fleet, where there are two of them.
-        $cap = $spend->exhausted($c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit']) ? 'service' : $this->fleet?->exhaustedCap();
-        $triageOnly = $cap !== null;
 
         $this->renewLock();
         $buffer = $buffer ?? new BufferedStateStore($this->state); // verdicts, reported markers, known refs: kept only once the digest is delivered
-        $before = $spend->today();
-        $calculator = new CostCalculator($c->analysis['prices']);
         $checkpoint = new TriageCheckpoint($this->state, $key, $keys->end());
-        $runBudget = $c->analysis['run_budget_usd'];
-        $reservation = new BudgetReservation($spend, $calculator, $c->analysis['daily_budget_usd'], $c->analysis['daily_token_limit'], $this->fleet, is_numeric($runBudget) ? (float) $runBudget : null);
-        $router = new ModelRouter(self::metered(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $spend, $calculator, $this->hostLog, $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models'], $this->fleet, $reservation), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext, $metrics), $checkpoint);
+        $router = new ModelRouter(self::counted(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models']), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext, $metrics), $checkpoint);
         try {
-            try {
-                $routed = $router->route($redacted, $triageOnly, $dependencies, $reservation, $endpoints->model);
-            } finally {
-                $spend->release(); // a step reserved but never called (or a non-analyzer error) must not hold budget
-            }
+            $routed = $router->route($redacted, $dependencies, $endpoints->model);
         } catch (AnalyzerFailed $e) {
             // The window was read: keep it as the next window's comparison base. Normally no RunRecord, so the next trigger retries;
             // but a refusal, or a second failure of this window, is recorded as failed so hourly triggers do not re-bill it endlessly.
@@ -1106,63 +1019,23 @@ final class Watcher
                 // A state fault must not replace the analysis failure the run will report.
             }
             if ($e->refused || $failures >= self::MAX_ANALYSIS_FAILURES) {
-                $this->ledger->runRecord($keys->run(), RunOutcome::Failed, null, $started, $e->refused ? 'analysis_refused' : 'analysis_failed');
+                $this->ledger->runRecord($keys->run(), RunOutcome::Failed, $started, $e->refused ? 'analysis_refused' : 'analysis_failed');
 
-                throw new AnalyzerFailed($e->getMessage() . ' (no further attempts for this window)', $e->usage, $e->refused);
+                throw new AnalyzerFailed($e->getMessage() . ' (no further attempts for this window)', $e->refused);
             }
 
             throw $e;
         }
 
-        $usage = null;
-        $costUsd = 0.0;
-        $models = [];
-        foreach ($routed->usageByStep as $step => $u) {
-            try {
-                $cost = $calculator->cost($u); // already added to Spend per call, see metered()
-            } catch (UnknownModelPrice) {
-                $cost = 0.0; // booked at 0 and warned about in metered()
-            }
-            $costUsd += $cost;
-            $models[$step] = $c->analysis['models'][$step];
-            $priced = new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost);
-            $usage = $usage === null ? $priced : $usage->plus($priced);
-        }
-        $after = $spend->today();
-        $this->ledger->setTodayUsd($after['usd']);
         $this->ledger->stats()->findings = count($routed->findings);
-
-        if ($triageOnly && $routed->triaged > 0 && $c->on('budget_alerts') && $c->on('notice')) {
-            try {
-                $this->noticeOnce(Keys::exhausted($key, $spend->day()), $this->notices()->budgetExhausted($service, $environment, $this->fleet === null ? null : $cap), $notice);
-            } catch (Throwable $e) {
-                $this->hostLog?->warning('budget notice not delivered: ' . $this->notices()->describe($e), ['service' => $service]);
-            }
-        }
-        $alerts = new BudgetAlerts($this->state, $this->clock, $tz, $key);
-        $alert = !$c->on('budget_alerts') || !$c->on('notice') ? null : $alerts->check(
-            $before,
-            $after,
-            $c->analysis['daily_budget_usd'],
-            $c->analysis['daily_token_limit'],
-            $c->analysis['budget_alert_percents'],
-        );
-        if ($alert !== null) {
-            try {
-                $this->notifier->send(self::plainNotice($alert->noticeText($service)), $notice);
-            } catch (Throwable $e) {
-                $alerts->release($alert);
-                $this->hostLog?->warning('budget alert not delivered: ' . $this->notices()->describe($e), ['service' => $service]);
-            }
-        }
 
         $byFingerprint = [];
         foreach ($redacted as $g) {
             $byFingerprint[$g->fingerprint] = $g;
         }
 
-        $analysis = new Analysis(routed: $routed, usage: $usage, costUsd: $costUsd, models: $models, after: $after, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint, endpoints: $endpoints);
-        $this->ledger->observeAnalysis($analysis, $triageOnly);
+        $analysis = new Analysis(routed: $routed, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint, endpoints: $endpoints);
+        $this->ledger->observeAnalysis($analysis);
 
         return $analysis;
     }
@@ -1199,7 +1072,7 @@ final class Watcher
         }
     }
 
-    /** The digest message: findings, what was left out and why, cost, links. */
+    /** The digest message: findings, what was left out and why, links. */
     /**
      * @param list<\Watcher\Analyze\Finding>|null $findingsOverride
      */
@@ -1219,10 +1092,6 @@ final class Watcher
         $routed = $analysis->routed;
         $findings = $findingsOverride ?? $routed->findings;
         $redacted = $analysis->redacted;
-        $usage = $analysis->usage;
-        $models = $analysis->models;
-        $costUsd = $analysis->costUsd;
-        $after = $analysis->after;
         $truncation = $analysis->truncation;
         $undeclared = $analysis->undeclared;
         $failedDependencies = $analysis->failedDependencies;
@@ -1253,19 +1122,12 @@ final class Watcher
             findings: $findings,
             groups: $analysis->byFingerprint,
             release: $deploy->release,
-            usage: $usage,
-            models: $models,
-            costUsd: $costUsd,
             levelAnomalyLine: $this->anomalyLine($anomalies, $read->previousTotals, $totals),
             eventsReadTruncated: $collector->truncated() ? $collector->eventsRead() : null,
             droppedGroups: $truncation->droppedCount,
             otherGroups: $selection->otherGroups,
             otherEvents: $selection->otherEvents,
             muted: $muteResult->mutedCount,
-            todayUsd: $after['usd'],
-            dailyBudgetUsd: $c->analysis['daily_budget_usd'],
-            todayTokens: $after['tokens'],
-            dailyTokenLimit: $c->analysis['daily_token_limit'],
             afterReleaseFingerprints: $afterRelease,
             undeclaredHostCount: $undeclared,
             failedDependencies: $failedDependencies,
@@ -1275,8 +1137,7 @@ final class Watcher
             mutePartial: $muteResult->partial,
             notAnalysed: $routed->notAnalysed,
             patternFailures: $patternFailures,
-            notTriaged: $routed->notTriaged,
-            escalationsSkipped: $routed->escalationsSkippedBudget + $routed->escalationsSkippedSize,
+            escalationsSkipped: $routed->escalationsSkippedSize,
             comparedWith: $comparison->usedMode === 'previous' ? $comparedWith : null,
             annotations: $annotations,
             comparison: $comparison,
@@ -1404,7 +1265,7 @@ final class Watcher
 
     /**
      * A window cut by the deadline or the memory guard has unread or unanalysed groups, so it is not done: the first cut
-     * leaves a marker and no run record (the next trigger in the due period reads the window again with a full budget).
+     * leaves a marker and no run record (the next trigger in the due period reads the window again with a fresh budget).
      * A second cut is final: true means "retry", false means record it, after a loud notice (counts only).
      */
     private function retryCutWindow(WindowKeys $keys, int $retention, int $unanalysed, ?string $line): bool
@@ -1468,47 +1329,36 @@ final class Watcher
             {
                 $r = $this->inner->analyze($req);
 
-                return new AnalysisResult(array_map($this->redactor->redactFinding(...), $r->findings), $r->usage);
+                return new AnalysisResult(array_map($this->redactor->redactFinding(...), $r->findings));
             }
         };
     }
 
     /**
-     * Each call is priced and added to Spend as it returns, so a later failure in the same run cannot lose what was already paid for.
-     * A call that failed after billed attempts (AnalyzerFailed::$usage) is booked too; a paid call whose model has no price is booked at 0 with one warning.
+     * Counts each analyzer call that returned a reply into the run's call counts (the event stream and the summary).
+     *
+     * @param array<string, string> $models configured model per step, to tell an escalation from the main analysis
      */
-    /** @param array<string, string> $models */
-    private static function metered(Analyzer $inner, Spend $spend, CostCalculator $calculator, ?LoggerInterface $log, ?RunStats $stats = null, array $models = [], ?FleetSeam $fleet = null, ?BudgetReservation $reservation = null): Analyzer
+    private static function counted(Analyzer $inner, ?RunStats $stats, array $models): Analyzer
     {
-        return new class ($inner, $spend, $calculator, $log, $stats, $models, $fleet, $reservation) implements Analyzer {
-            /** @var array<string, true> */
-            private array $warned = [];
-
-            /** @param array<string, string> $models configured model per step, to tell an escalation from the main analysis */
-            public function __construct(private readonly Analyzer $inner, private readonly Spend $spend, private readonly CostCalculator $calculator, private readonly ?LoggerInterface $log, private readonly ?RunStats $stats, private readonly array $models, private readonly ?FleetSeam $fleet = null, private readonly ?BudgetReservation $reservation = null)
+        return new class ($inner, $stats, $models) implements Analyzer {
+            /** @param array<string, string> $models */
+            public function __construct(private readonly Analyzer $inner, private readonly ?RunStats $stats, private readonly array $models)
             {
             }
 
             public function triage(TriageRequest $req): TriageResult
             {
-                try {
-                    $r = $this->inner->triage($req);
-                } catch (AnalyzerFailed $e) {
-                    throw $this->bookFailed($e, 'triage');
-                }
-                $this->book($r->usage, 'triage');
+                $r = $this->inner->triage($req);
+                $this->stats?->addCall('triage');
 
                 return $r;
             }
 
             public function analyze(AnalysisRequest $req): AnalysisResult
             {
-                try {
-                    $r = $this->inner->analyze($req);
-                } catch (AnalyzerFailed $e) {
-                    throw $this->bookFailed($e, $this->analyzeStep($req));
-                }
-                $this->book($r->usage, $this->analyzeStep($req));
+                $r = $this->inner->analyze($req);
+                $this->stats?->addCall($this->analyzeStep($req));
 
                 return $r;
             }
@@ -1519,38 +1369,6 @@ final class Watcher
                 $escalate = $this->models['escalate'] ?? null;
 
                 return $escalate !== null && $req->model === $escalate && $escalate !== ($this->models['analyze'] ?? null) ? 'escalate' : 'analyze';
-            }
-
-            /** @param 'triage'|'analyze'|'escalate' $step */
-            private function bookFailed(AnalyzerFailed $e, string $step): AnalyzerFailed
-            {
-                if ($e->usage !== null) {
-                    $this->book($e->usage, $step);
-                } else {
-                    $this->spend->release(); // nothing was billed: give the reserved worst case back (M2)
-                }
-
-                return $e;
-            }
-
-            /** A paid call whose model has no price is booked at cost 0 (warned once per model); its result is never discarded. */
-            /** @param 'triage'|'analyze'|'escalate' $step */
-            private function book(Usage $u, string $step): void
-            {
-                $cost = 0.0;
-                try {
-                    $this->spend->add($u, $cost = $this->calculator->cost($u));
-                    $this->fleet?->book($u, $cost);
-                } catch (UnknownModelPrice) {
-                    $this->spend->add($u, 0.0);
-                    $this->fleet?->book($u, 0.0);
-                    if (!isset($this->warned[$u->model])) {
-                        $this->warned[$u->model] = true;
-                        $this->log?->warning('paid analyzer call has no price configured; recorded at cost 0', ['model' => $u->model]);
-                    }
-                }
-                $this->stats?->addUsage($step, new Usage($u->model, $u->inputTokens, $u->outputTokens, $u->cacheReadTokens, $u->cacheWriteTokens, $cost));
-                $this->reservation?->addRunSpend($cost);
             }
         };
     }
@@ -1674,7 +1492,7 @@ final class Watcher
     private function noticeOnce(string $key, Message $message, Destination $to): void
     {
         $owner = bin2hex(random_bytes(8));
-        if (!$this->state->acquire($key, $owner, Keys::ttl(Keys::EXHAUSTED, 0, 0))) {
+        if (!$this->state->acquire($key, $owner, Keys::ttl(Keys::FAILNOTICE, 0, 0))) {
             return;
         }
         try {

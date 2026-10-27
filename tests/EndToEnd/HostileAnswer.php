@@ -12,7 +12,6 @@ use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\Usage;
 
 /**
  * A model that answers every group with the same text as its title, evidence, cause and fix, with the verdict, severity,
@@ -20,9 +19,6 @@ use Watcher\Analyze\Usage;
  */
 final class HostileAnswer implements Analyzer
 {
-    /** @var list<Usage> what each call was billed for, in order */
-    public array $billed = [];
-
     /** @var list<int> the number of groups in each triage request */
     public array $triageGroups = [];
 
@@ -32,8 +28,6 @@ final class HostileAnswer implements Analyzer
         private readonly Severity $severity = Severity::Error,
         private readonly FindingKind $kind = FindingKind::Bug,
         private readonly float $confidence = 0.9,
-        private readonly int $inputTokens = 10,
-        private readonly int $outputTokens = 1,
     ) {
     }
 
@@ -42,9 +36,8 @@ final class HostileAnswer implements Analyzer
         $verdicts = array_fill_keys(array_map(static fn ($g): string => $g->fingerprint, $req->groups), $this->verdict);
 
         $this->triageGroups[] = count($req->groups);
-        $this->billed[] = new Usage($req->model, $this->inputTokens, $this->outputTokens);
 
-        return new TriageResult($verdicts, end($this->billed));
+        return new TriageResult($verdicts);
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -54,8 +47,7 @@ final class HostileAnswer implements Analyzer
             $req->groups,
         );
 
-        $this->billed[] = new Usage($req->model, $this->inputTokens, $this->outputTokens);
 
-        return new AnalysisResult($findings, end($this->billed));
+        return new AnalysisResult($findings);
     }
 }

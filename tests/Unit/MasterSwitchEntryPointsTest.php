@@ -49,7 +49,7 @@ final class MasterSwitchEntryPointsTest extends TestCase
             'analysis' => [
                 'api_key' => 'k',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
-                'prices' => ['m1' => [1, 5, 0, 0], 'm2' => [3, 15, 0, 0], 'm3' => [5, 25, 0, 0]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent/watcher-killswitch-state']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],

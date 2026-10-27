@@ -27,7 +27,7 @@ final class WatchConfigTest extends TestCase
             'analysis' => [
                 'api_key' => 'sk-secret-key',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
-                'prices' => ['m1' => [1, 5, 0.1, 1.25], 'm2' => [3, 15, 0.3, 3.75], 'm3' => [5, 25, 0.5, 6.25]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/SECRET']],
@@ -41,18 +41,6 @@ final class WatchConfigTest extends TestCase
     private static function with(array $patch): array
     {
         return array_replace_recursive(self::valid(), $patch);
-    }
-
-    /**
-     * @param array<mixed> $price
-     * @return array<string, mixed>
-     */
-    private static function withPrice(string $model, array $price): array
-    {
-        $c = self::valid();
-        $c['analysis']['prices'][$model] = $price;
-
-        return $c;
     }
 
     public function testMinimalConfigGetsDefaults(): void
@@ -76,9 +64,6 @@ final class WatchConfigTest extends TestCase
         self::assertSame(5000, $c->source['group_cap']);
         self::assertSame(0.6, $c->analysis['confidence_threshold']);
         self::assertSame(3, $c->analysis['escalation_cap']);
-        self::assertNull($c->analysis['daily_token_limit']);
-        self::assertSame([25, 50, 75, 90], $c->analysis['budget_alert_percents']);
-        self::assertSame([3.0, 15.0, 0.3, 3.75], $c->analysis['prices']['m2']);
         self::assertSame(2592000, $c->state['retention']);
         self::assertSame(5000, $c->dependencyReadCap);
         self::assertSame(['svc.cluster.local'], $c->dependencyDomains);
@@ -92,15 +77,6 @@ final class WatchConfigTest extends TestCase
         foreach (['label', 'text', 'all'] as $mode) {
             self::assertSame($mode, WatchConfig::fromArray(self::with(['source' => ['level_mode' => $mode]]))->source['level_mode']);
         }
-        self::assertSame(0.0, WatchConfig::fromArray(self::with(['analysis' => ['daily_budget_usd' => 0]]))->analysis['daily_budget_usd']);
-    }
-
-    public function testBudgetAlertOverridesAreAccepted(): void
-    {
-        $c = WatchConfig::fromArray(self::with(['analysis' => ['daily_token_limit' => 100000, 'budget_alert_percents' => [10, 99]]]));
-
-        self::assertSame(100000, $c->analysis['daily_token_limit']);
-        self::assertSame([10, 99], $c->analysis['budget_alert_percents']);
     }
 
     public function testExplicitValuesOverrideDefaults(): void
@@ -160,17 +136,6 @@ final class WatchConfigTest extends TestCase
             'missing analyze model' => [$unset(['analysis', 'models', 'analyze']), 'analysis.models.analyze'],
             'missing escalate model' => [$unset(['analysis', 'models', 'escalate']), 'analysis.models.escalate'],
             'null model (unset env)' => [self::with(['analysis' => ['models' => ['triage' => null]]]), 'analysis.models.triage'],
-            'missing price for triage model' => [self::with(['analysis' => ['models' => ['triage' => 'unpriced']]]), 'analysis.prices (no price for models.triage)'],
-            'price with 3 numbers' => [self::withPrice('m1', [1, 2, 3]), 'analysis.prices.m1'],
-            'negative price' => [self::withPrice('m1', [1, -2, 3, 4]), 'analysis.prices.m1'],
-            'non-numeric price' => [self::withPrice('m1', [1, 'x', 3, 4]), 'analysis.prices.m1'],
-            'zero token limit' => [self::with(['analysis' => ['daily_token_limit' => 0]]), 'analysis.daily_token_limit'],
-            'float token limit' => [self::with(['analysis' => ['daily_token_limit' => 1.5]]), 'analysis.daily_token_limit'],
-            'percent 0' => [self::with(['analysis' => ['budget_alert_percents' => [0, 50]]]), 'analysis.budget_alert_percents'],
-            'percent 100' => [self::with(['analysis' => ['budget_alert_percents' => [50, 100]]]), 'analysis.budget_alert_percents'],
-            'percents not ascending' => [self::with(['analysis' => ['budget_alert_percents' => [50, 25]]]), 'analysis.budget_alert_percents'],
-            'percents duplicate' => [self::with(['analysis' => ['budget_alert_percents' => [25, 25]]]), 'analysis.budget_alert_percents'],
-            'percents not ints' => [self::with(['analysis' => ['budget_alert_percents' => [25.5]]]), 'analysis.budget_alert_percents'],
             'missing state driver' => [$unset(['state', 'driver']), 'state.driver'],
             'missing file path' => [$unset(['state', 'file', 'path']), 'state.file.path'],
             'pdo without dsn' => [self::with(['state' => ['driver' => 'pdo']]), 'state.pdo.dsn'],
@@ -240,7 +205,6 @@ final class WatchConfigTest extends TestCase
             'unknown dependency key' => [self::with(['dependencies' => ['core-api' => ['stream_tags' => ['app' => 'x'], 'stream_tag' => []]]]), 'dependencies.core-api.stream_tag'],
             'unknown watch rule key' => [self::with(['watch_rules' => ['q' => ['template' => '/a/', 'equal' => 'x']]]), 'watch_rules.q.equal'],
             'unknown mute key' => [self::with(['mute' => [['fingerprint' => 'abc', 'unti' => null]]]), 'mute.0.unti'],
-            'negative daily budget' => [self::with(['analysis' => ['daily_budget_usd' => -1]]), 'analysis.daily_budget_usd'],
             'non-bool newest_first' => [self::with(['source' => ['driver' => 'datadog', 'datadog' => ['api_key' => 'a', 'app_key' => 'b', 'newest_first' => 'yes']]]), 'source.datadog.newest_first'],
             'bad level_mode' => [self::with(['source' => ['level_mode' => 'all-of-it']]), 'source.level_mode'],
             'non-string level_mode' => [self::with(['source' => ['level_mode' => true]]), 'source.level_mode'],
@@ -332,23 +296,13 @@ final class WatchConfigTest extends TestCase
         return $out;
     }
 
-    /** A model name or Datadog site that is not a plain string must be refused as InvalidConfig, never a TypeError or a warning. */
-    #[DataProvider('hostileModelNames')]
-    public function testHostileModelNameIsInvalidConfig(string $step, mixed $value): void
-    {
-        $c = self::valid();
-        $c['analysis']['models'][$step] = $value;
-
-        $this->expectException(InvalidConfig::class);
-
-        WatchConfig::fromArray($c);
-    }
-
     /** @return array<string, array{mixed}> */
     public static function hostileSites(): array
     {
         return ['array' => [['x']], 'number' => [5], 'path' => ['evil.example/x'], 'userinfo' => ['evil.example@x'], 'space' => ['datadoghq eu']];
     }
+
+    /** A model name or Datadog site that is not a plain string must be refused as InvalidConfig, never a TypeError or a warning. */
 
     #[DataProvider('hostileSites')]
     public function testDatadogSiteIsAHostNameOrInvalidConfig(mixed $site): void

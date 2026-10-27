@@ -70,10 +70,7 @@ final class RunSummaryTest extends TestCase
         self::assertSame(1, $s->findings);
         self::assertSame(1, $s->calls['triage']);
         self::assertGreaterThanOrEqual(1, $s->calls['analyze']);
-        self::assertSame($r->usage?->inputTokens, $s->tokensIn);
-        self::assertEqualsWithDelta($r->usage?->costUsd, $s->costUsd, 1e-9);
         self::assertNotNull($s->durationMs);
-        self::assertGreaterThan(0.0, $d->todayUsd);
         self::assertFalse($d->dryRun);
         self::assertNull($d->reason);
         self::assertStringContainsString('"outcome":"reported"', (new JsonSummary())->render($d));

@@ -46,10 +46,6 @@ final class ModelProviderContractTest extends TestCase
         self::assertNotNull($reply->text);
         self::assertSame('end', $reply->stopReason);
         // Anthropic reports input_tokens without the cached part; OpenAI and Gemini count the cached part inside the prompt.
-        self::assertSame($name === 'anthropic' ? 1200 : 800, $reply->inputTokens);
-        self::assertSame(150, $reply->outputTokens);
-        self::assertSame(400, $reply->cacheReadTokens);
-        self::assertSame($name === 'anthropic' ? 800 : 0, $reply->cacheWriteTokens, 'only Anthropic reports cache writes');
         self::assertStringContainsString($model, $reply->model);
     }
 

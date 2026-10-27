@@ -7,11 +7,8 @@ namespace Watcher\Operate;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
-use Watcher\Analyze\Budget;
-use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\Usage;
 
 /**
  * `--estimate`: no model call (it holds no HTTP client). Every group is "interesting" so the router reaches
@@ -19,7 +16,7 @@ use Watcher\Analyze\Usage;
  */
 final class EstimatingAnalyzer implements Analyzer
 {
-    /** @var list<array{step: string, model: string, groups: int, tokensIn: int, maxTokensOut: int}> */
+    /** @var list<array{step: string, model: string, groups: int}> */
     private array $steps = [];
 
     public function triage(TriageRequest $req): TriageResult
@@ -28,15 +25,13 @@ final class EstimatingAnalyzer implements Analyzer
             'step' => 'triage',
             'model' => $req->model,
             'groups' => count($req->groups),
-            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups, [], $req->extras) . $req->serviceContext),
-            'maxTokensOut' => $req->maxOutputTokens,
         ];
         $verdicts = [];
         foreach ($req->groups as $g) {
             $verdicts[$g->fingerprint] = 'interesting';
         }
 
-        return new TriageResult($verdicts, new Usage($req->model, 0, 0));
+        return new TriageResult($verdicts);
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -45,14 +40,12 @@ final class EstimatingAnalyzer implements Analyzer
             'step' => 'analyze',
             'model' => $req->model,
             'groups' => count($req->groups),
-            'tokensIn' => Budget::estimateTokens(CompactPayload::encode($req->groups, $req->dependencyContext, $req->extras, $req->endpoints) . $req->serviceContext),
-            'maxTokensOut' => $req->maxOutputTokens,
         ];
 
-        return new AnalysisResult([], new Usage($req->model, 0, 0));
+        return new AnalysisResult([]);
     }
 
-    /** @return list<array{step: string, model: string, groups: int, tokensIn: int, maxTokensOut: int}> */
+    /** @return list<array{step: string, model: string, groups: int}> */
     public function steps(): array
     {
         return $this->steps;

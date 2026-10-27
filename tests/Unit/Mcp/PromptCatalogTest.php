@@ -22,8 +22,7 @@ final class PromptCatalogTest extends TestCase
 
     public function testFourPromptsWhenTheirToolsAreEnabledAndFilteringOtherwise(): void
     {
-        self::assertSame(['onboard-new-service', 'why-is-the-digest-quiet', 'cost-too-high', 'rotate-credentials'], array_column($this->catalog()->prompts(), 'name'));
-        self::assertSame(['cost-too-high'], array_column($this->catalog(['watcher_status', 'watcher_explain_config', 'watcher_search_docs'])->prompts(), 'name'));
+        self::assertSame(['onboard-new-service', 'why-is-the-digest-quiet', 'rotate-credentials'], array_column($this->catalog()->prompts(), 'name'));
         self::assertSame([], $this->catalog(['watcher_search_docs'])->prompts());
         $this->expectException(InvalidParams::class);
         $this->catalog(['watcher_search_docs'])->prompt('onboard-new-service', []);
@@ -32,7 +31,7 @@ final class PromptCatalogTest extends TestCase
     public function testEveryTextHasTheStandingSentenceAndNamesOnlyEnabledTools(): void
     {
         $c = $this->catalog();
-        foreach ([['onboard-new-service', []], ['onboard-new-service', ['host' => 'plain_php', 'source' => 'datadog', 'notifier' => 'telegram', 'state' => 'file']], ['why-is-the-digest-quiet', []], ['cost-too-high', []], ['rotate-credentials', ['which' => 'loki']]] as [$name, $args]) {
+        foreach ([['onboard-new-service', []], ['onboard-new-service', ['host' => 'plain_php', 'source' => 'datadog', 'notifier' => 'telegram', 'state' => 'file']], ['why-is-the-digest-quiet', []], ['rotate-credentials', ['which' => 'loki']]] as [$name, $args]) {
             $r = $c->prompt($name, $args);
             $text = $r['messages'][0]['content']['text'];
             self::assertSame('user', $r['messages'][0]['role']);
@@ -42,12 +41,6 @@ final class PromptCatalogTest extends TestCase
                 self::assertContains($tool, self::ALL, "$name names $tool");
             }
         }
-    }
-
-    public function testCostPromptOmitsTheDryRunStepUnlessEnabled(): void
-    {
-        self::assertStringNotContainsString('watcher_dry_run', $this->catalog()->prompt('cost-too-high', [])['messages'][0]['content']['text']);
-        self::assertStringContainsString('watcher_dry_run', $this->catalog([...self::ALL, 'watcher_dry_run'])->prompt('cost-too-high', [])['messages'][0]['content']['text']);
     }
 
     public function testDefaultsAreSubstitutedAndUnknownEnumerationsAreInvalidParams(): void

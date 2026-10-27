@@ -6,14 +6,7 @@ namespace Watcher\Tests\Unit\Analyze;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use DateTimeZone;
 use Watcher\Analyze\AnalysisRequest;
-use Watcher\Analyze\AnthropicAnalyzer;
-use Watcher\Analyze\Budget;
-use Watcher\Analyze\BudgetReservation;
-use Watcher\Analyze\CompactPayload;
-use Watcher\Analyze\CostCalculator;
-use Watcher\Analyze\Spend;
 use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\FindingKind;
@@ -21,7 +14,6 @@ use Watcher\Analyze\ModelRouter;
 use Watcher\Analyze\RouterSettings;
 use Watcher\Analyze\Severity;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\Usage;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Level;
 use Watcher\Privacy\GroupStatusLabel;
@@ -60,13 +52,13 @@ final class ModelRouterFailClosedTest extends TestCase
     /** @param array<array-key,string> $v */
     private static function triage(array $v): TriageResult
     {
-        return new TriageResult($v, new Usage('tm', 10, 1));
+        return new TriageResult($v);
     }
 
     /** @param list<Finding> $f */
     private static function analysis(array $f): AnalysisResult
     {
-        return new AnalysisResult($f, new Usage('am', 100, 10));
+        return new AnalysisResult($f);
     }
 
     /** @param list<string> $fps */
@@ -80,13 +72,13 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysis = self::analysis([]);
 
-        $first = $this->router()->route([self::group('a', 500, Level::Critical)], false);
+        $first = $this->router()->route([self::group('a', 500, Level::Critical)]);
 
         self::assertNull($this->cache->get('a'), 'not cached for 30 days');
         self::assertSame([], $this->store->ttls(), 'no verdict key at all');
         self::assertSame(1, $first->unreported);
 
-        $second = $this->router()->route([self::group('a', 600, Level::Critical)], false);
+        $second = $this->router()->route([self::group('a', 600, Level::Critical)]);
 
         self::assertSame(0, $second->reused, 'never reused silently');
         self::assertSame(2, $this->fake->analyzeCalls);
@@ -98,7 +90,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['w' => 'interesting']);
         $this->fake->analysis = self::analysis([]);
 
-        $r = $this->router()->route([self::group('w', 10, Level::Info, watch: ['payments'])], false);
+        $r = $this->router()->route([self::group('w', 10, Level::Info, watch: ['payments'])]);
 
         self::assertNull($this->cache->get('w'));
         self::assertSame(1, $r->unreported);
@@ -109,7 +101,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysis = self::analysis([]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Warning)], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning)]);
 
         self::assertSame('interesting', $this->cache->get('a')['triage'] ?? null);
         self::assertSame(0, $r->unreported);
@@ -123,7 +115,7 @@ final class ModelRouterFailClosedTest extends TestCase
             self::finding(['b'], FindingKind::Bug, Severity::Info, 0.9),
         ]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Critical), self::group('b', 10, Level::Error)], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Critical), self::group('b', 10, Level::Error)]);
 
         self::assertNull($this->cache->get('a'));
         self::assertNull($this->cache->get('b'));
@@ -138,7 +130,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding(['a'], FindingKind::Bug, Severity::Warn, 0.1)]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Error)], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Error)]);
 
         self::assertSame(Severity::Error, $r->findings[0]->severity, 'the logs show an error: a model cannot put the finding below it');
     }
@@ -149,7 +141,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->analysis = self::analysis([self::finding(['a'], FindingKind::Bug, Severity::Warn, 0.1)]);
         $this->fake->analysisScript = [$this->fake->analysis, self::analysis([self::finding(['a'], FindingKind::Bug, Severity::Error, 0.95)])];
 
-        $r = $this->router()->route([self::group('a', 10, Level::Error)], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Error)]);
 
         self::assertSame(1, $r->escalations, 'the floored error finding is severe and low-confidence: the strong model checks it');
         self::assertSame(2, $this->fake->analyzeCalls);
@@ -177,7 +169,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding(['a'])]);
 
-        $r = $this->router()->route([self::group('a')], false);
+        $r = $this->router()->route([self::group('a')]);
 
         self::assertNotNull($this->cache->get('a')['finding'] ?? null);
         self::assertSame(0, $r->unreported);
@@ -193,7 +185,7 @@ final class ModelRouterFailClosedTest extends TestCase
             self::group('k', 10, Level::Critical),
             self::group('m', 10, Level::Error),
             self::group('w', 10, Level::Info, watch: ['x']),
-        ], false);
+        ]);
 
         $an = $this->fake->requests[1];
         self::assertInstanceOf(AnalysisRequest::class, $an);
@@ -206,7 +198,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage([]);
         $this->fake->analysis = self::analysis([self::finding(['e'])]);
 
-        $r = $this->router()->route([self::group('e')], false);
+        $r = $this->router()->route([self::group('e')]);
 
         self::assertSame(1, $this->fake->analyzeCalls);
         self::assertCount(1, $r->findings);
@@ -218,7 +210,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'noise', 'b' => 'known', 'c' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding(['c'])]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Notice), self::group('c', 10, Level::Warning)], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Notice), self::group('c', 10, Level::Warning)]);
 
         self::assertSame(2, $r->triageDropped);
         self::assertSame(0, $r->triageCoerced);
@@ -233,7 +225,7 @@ final class ModelRouterFailClosedTest extends TestCase
             self::finding(['e'], FindingKind::Anomaly, Severity::Critical),
         ]);
 
-        $r = $this->router()->route([self::group('i', 10, Level::Info), self::group('w', 10, Level::Warning), self::group('e', 10, Level::Error)], false);
+        $r = $this->router()->route([self::group('i', 10, Level::Info), self::group('w', 10, Level::Warning), self::group('e', 10, Level::Error)]);
 
         $sev = [];
         foreach ($r->findings as $f) {
@@ -249,7 +241,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['w' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding(['w'], FindingKind::Bug, Severity::Critical, 0.1)]); // "confidence 0.1, critical" on a warning-level group
 
-        $r = $this->router()->route([self::group('w', 10, Level::Warning)], false);
+        $r = $this->router()->route([self::group('w', 10, Level::Warning)]);
 
         self::assertSame(0, $r->escalations);
         self::assertSame(1, $this->fake->analyzeCalls);
@@ -270,7 +262,7 @@ final class ModelRouterFailClosedTest extends TestCase
             self::group('g2', 5, Level::Error, GroupStatusLabel::Grown),
         ];
 
-        $r = $this->router(4)->route($groups, false);
+        $r = $this->router(4)->route($groups);
 
         $an = $this->fake->requests[1];
         self::assertInstanceOf(AnalysisRequest::class, $an);
@@ -287,7 +279,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['n1' => 'interesting', 'n2' => 'interesting', 'n3' => 'interesting']);
         $this->fake->analysis = self::analysis([]);
 
-        $r = $this->router(4)->route([self::group('n1'), self::group('n2'), self::group('n3')], false);
+        $r = $this->router(4)->route([self::group('n1'), self::group('n2'), self::group('n3')]);
 
         self::assertSame(0, $r->newOverflow);
         self::assertSame(0, $r->droppedByTopM);
@@ -300,7 +292,7 @@ final class ModelRouterFailClosedTest extends TestCase
             $this->fake->triage = self::triage(array_fill_keys(['a1', 'a2', 'a3', 'a4', 'a5', 'a6'], 'interesting'));
             $this->fake->analysis = self::analysis([]);
             $router = new ModelRouter($this->fake, $this->cache, new RouterSettings('t', 'a', 'e', 1, 1, 1, 1, 2, 0.6, 2.0, '', PHP_INT_MAX, true, false, $salt), null);
-            $router->route(array_map(static fn (string $fp): RedactedGroup => self::group($fp, 5, Level::Error, GroupStatusLabel::Grown), ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']), false);
+            $router->route(array_map(static fn (string $fp): RedactedGroup => self::group($fp, 5, Level::Error, GroupStatusLabel::Grown), ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']));
 
             return array_map(static fn ($g) => $g->fingerprint, $this->fake->requests[1]->groups);
         };
@@ -318,7 +310,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding(['a', 'b'], FindingKind::Noise, Severity::Info)]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Warning, err: 'AException'), self::group('b', 10, Level::Warning, err: 'BException')], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning, err: 'AException'), self::group('b', 10, Level::Warning, err: 'BException')]);
 
         self::assertNotNull($this->cache->get('a'));
         self::assertNull($this->cache->get('b'), 'b was not what the noise finding was about');
@@ -330,7 +322,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding(['a', 'b'], FindingKind::Noise, Severity::Info)]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Warning, err: 'SameException'), self::group('b', 10, Level::Warning, err: 'SameException')], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning, err: 'SameException'), self::group('b', 10, Level::Warning, err: 'SameException')]);
 
         self::assertSame(['a', 'b'], $r->findings[0]->fingerprints);
     }
@@ -340,7 +332,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
         $this->fake->analysis = self::analysis([self::finding(['a', 'b'], FindingKind::Noise, Severity::Info)]);
 
-        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Critical)], false);
+        $r = $this->router()->route([self::group('a', 10, Level::Warning), self::group('b', 10, Level::Critical)]);
 
         self::assertNull($this->cache->get('b'));
         self::assertSame(1, $r->unreported);
@@ -351,7 +343,7 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['n' => 'interesting', 'g' => 'interesting']);
         $this->fake->analysis = self::analysis([]);
 
-        $this->router(1)->route([self::group('n', 900, Level::Error, GroupStatusLabel::New), self::group('g', 5, Level::Error, GroupStatusLabel::Grown)], false);
+        $this->router(1)->route([self::group('n', 900, Level::Error, GroupStatusLabel::New), self::group('g', 5, Level::Error, GroupStatusLabel::Grown)]);
 
         self::assertSame(['g'], array_map(static fn ($g) => $g->fingerprint, $this->fake->requests[1]->groups));
     }
@@ -361,26 +353,9 @@ final class ModelRouterFailClosedTest extends TestCase
         $this->fake->triage = self::triage(['w' => 'interesting', 'c' => 'interesting']);
         $this->fake->analysis = self::analysis([]);
 
-        $this->router(1)->route([self::group('c', 900, Level::Critical, GroupStatusLabel::Grown), self::group('w', 1, Level::Warning, GroupStatusLabel::New, ['rule'])], false);
+        $this->router(1)->route([self::group('c', 900, Level::Critical, GroupStatusLabel::Grown), self::group('w', 1, Level::Warning, GroupStatusLabel::New, ['rule'])]);
 
         self::assertSame(['w'], array_map(static fn ($g) => $g->fingerprint, $this->fake->requests[1]->groups));
     }
 
-    public function testAStepIsReservedForBothAttemptsNotJustTheFirst(): void
-    {
-        $g = self::group('a', 10, Level::Warning);
-        $in = Budget::fixedTokens('triage', 'ctx', false) + Budget::estimateTokens(CompactPayload::encode([$g]));
-        $out = AnthropicAnalyzer::triageOutputCap(111, 1);
-        $oneAttempt = ($in + $out) * 1e-4; // $100 per million tokens
-        $spend = new Spend($this->store, new FrozenClock(new DateTimeImmutable('2026-10-24T06:00:00+00:00')), new DateTimeZone('UTC'), 'svc');
-        $reservation = new BudgetReservation($spend, new CostCalculator(['m-triage' => [100, 100, 0, 0], 'm-analyze' => [100, 100, 0, 0], 'm-escalate' => [100, 100, 0, 0]]), $oneAttempt + 1e-6, null);
-        $this->fake->triage = self::triage(['a' => 'noise']);
-
-        $r = $this->router()->route([$g], false, [], $reservation);
-
-        self::assertSame(0, $this->fake->triageCalls, 'one attempt would fit, a retry on invalid output would not');
-        self::assertSame(1, $r->notTriaged);
-        self::assertSame(AnthropicAnalyzer::retryOutputCap(8000), 8192);
-        self::assertSame(2000, AnthropicAnalyzer::retryOutputCap(1000));
-    }
 }

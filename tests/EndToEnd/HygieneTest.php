@@ -7,8 +7,6 @@ namespace Watcher\Tests\EndToEnd;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\CostCalculator;
-use Watcher\Hygiene\Cost\CostLedger;
 use Watcher\Hygiene\DayRecord;
 use Watcher\Hygiene\HygieneHistory;
 use Watcher\Hygiene\HygieneOptions;
@@ -20,7 +18,6 @@ use Watcher\Source\SourceUnavailable;
 use Watcher\State\Keys;
 use Watcher\Tests\Fakes\FakeLogSource;
 use Watcher\Tests\Unit\Hygiene\DayFactory;
-use Watcher\Watcher;
 
 final class HygieneTest extends TestCase
 {
@@ -170,20 +167,6 @@ final class HygieneTest extends TestCase
         self::assertSame(2592000, $h->state->ttls()[Keys::hygieneSites('svc')]);
     }
 
-    public function testWhenHygieneIsOffOnlyTheCostReportRunsAndNothingIsRead(): void
-    {
-        $h = new HygieneHarness(['hygiene' => ['enabled' => false]]);
-        $source = HygieneHarness::source(HygieneHarness::fixture('hygiene.log'));
-
-        $r = $h->hygiene($source)->run(new HygieneOptions());
-
-        self::assertSame(0, $r->exitCode());
-        self::assertSame(['cost'], array_keys($r->reports));
-        self::assertTrue($r->skipped);
-        self::assertSame([], $source->callsTo('lines'));
-        self::assertSame([], $h->state->all(), 'nothing written');
-    }
-
     public function testNotifyAndDeclineAreRefusedWhenHygieneIsOff(): void
     {
         $h = new HygieneHarness(['hygiene' => ['enabled' => false]]);
@@ -202,24 +185,6 @@ final class HygieneTest extends TestCase
         self::assertSame(0, $r->exitCode());
         self::assertTrue($r->disabled);
         self::assertSame([], $source->calls);
-    }
-
-    public function testCostOnlyDoesNotReadTheSourceAndSumsTheRunRecords(): void
-    {
-        $h = new HygieneHarness();
-        $source = new FakeLogSource();
-        $h->state->put(Keys::run('svc', Watcher::windowKey(new DateTimeImmutable('2026-10-08T06:00:00+00:00'))), [
-            'outcome' => 'reported',
-            'usage' => ['model' => 'mixed', 'inputTokens' => 1000, 'outputTokens' => 200, 'cacheReadTokens' => 0, 'cacheWriteTokens' => 0, 'costUsd' => 0.05, 'returnedModel' => null],
-            'startedAt' => '2026-10-08T06:00:00+00:00', 'finishedAt' => '2026-10-08T06:01:00+00:00',
-        ], 3600);
-
-        $r = $h->hygiene($source)->run(new HygieneOptions(reports: ['cost'], days: 3));
-
-        self::assertSame([], $source->calls);
-        self::assertSame(1200, $r->reports['cost']->toArray()['total']['tokens']);
-        $ledger = new CostLedger($h->state, 'svc', 2592000, new DateTimeZone('UTC'), $h->clock, new CostCalculator([]));
-        self::assertNull($ledger->day('2026-10-08'));
     }
 
     public function testProposalsComeFromTheStoredDaysAndADeclineSilencesThem(): void

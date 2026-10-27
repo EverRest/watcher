@@ -40,9 +40,8 @@ final class DoctorTest extends TestCase
 
     /**
      * @param array<string, mixed> $notify
-     * @param array<string, mixed> $prices
      */
-    private static function config(array $notify = [], ?array $prices = null): WatchConfig
+    private static function config(array $notify = []): WatchConfig
     {
         return WatchConfig::fromArray([
             'service' => 'orders',
@@ -52,7 +51,6 @@ final class DoctorTest extends TestCase
             'analysis' => [
                 'api_key' => self::KEY,
                 'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'],
-                'prices' => $prices ?? ['m-small' => [1, 5, 0.1, 1.25], 'm-mid' => [3, 15, 0.3, 3.75], 'm-big' => [5, 25, 0.5, 6.25]],
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],
             'notify' => $notify ?: ['digest' => ['webhook' => self::HOOK]],
@@ -127,7 +125,7 @@ final class DoctorTest extends TestCase
     {
         $r = $this->doctor()->run();
 
-        self::assertSame(['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'], array_keys(self::byName($r)));
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_keys(self::byName($r)));
         self::assertTrue($r->ok());
         self::assertSame(0, $r->exitCode());
         self::assertSame([], $this->notifier->sent);
@@ -209,14 +207,6 @@ final class DoctorTest extends TestCase
         $r = $this->doctor(catalog: self::catalog(['bearer' => 200, 'x-api-key' => 200], $ids))->run();
 
         self::assertFailsOnly('models', 'unknown model for analyze', $r);
-    }
-
-    public function testExtraPriceEntriesDoNotMatter(): void
-    {
-        // WatchConfig already rejects a missing price; the Doctor's own check is a second line.
-        $r = $this->doctor(self::config(prices: ['m-small' => [1, 5, 0, 0], 'm-mid' => [1, 5, 0, 0], 'm-big' => [1, 5, 0, 0], 'other' => [1, 1, 0, 0]]))->run();
-
-        self::assertTrue($r->ok());
     }
 
     public function testStateWriteFailure(): void
@@ -402,7 +392,7 @@ final class DoctorTest extends TestCase
     {
         $r = Doctor::configFailure('invalid: analysis.models.triage');
 
-        self::assertSame(['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'], array_keys(self::byName($r)));
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_keys(self::byName($r)));
         self::assertSame('fail', self::byName($r)['config']->status);
         self::assertSame('invalid: analysis.models.triage', self::byName($r)['config']->reason);
         self::assertSame('skip', self::byName($r)['state']->status);

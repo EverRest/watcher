@@ -29,7 +29,7 @@ final class ApiContextConfigTest extends TestCase
             'analysis' => [
                 'api_key' => 'sk-secret-key',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
-                'prices' => ['m1' => [1, 5, 0.1, 1.25], 'm2' => [3, 15, 0.3, 3.75], 'm3' => [5, 25, 0.5, 6.25]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w'], 'retention' => 604800],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/SECRET']],

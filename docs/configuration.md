@@ -7,7 +7,7 @@ One PHP array per service. Plain PHP passes it to `Watcher::fromConfig()` (or re
 [`docs/examples/smoke.config.php`](examples/smoke.config.php).
 
 The configuration is validated once, before any external call. A problem stops the run with exit code 2 and one line
-that names the key (never the value): `invalid config: analysis.prices (no price for models.triage)`. **Unknown
+that names the key (never the value): `invalid config: <key path>` (the message names the key, never the value). **Unknown
 keys are rejected at every level** (`unknown configuration key: selection.min_levl`; the message names the key path, never a value), so a typo cannot silently disable a setting. Free-form maps (`source.stream_tags`, `dependencies.<name>.stream_tags`, `analysis.prices`, `redaction.extra_patterns`, `watch_rules`, `path_map`) accept any names.
 
 Secrets and model ids are never defaults in code: they come from the environment (or your secret store).
@@ -17,7 +17,7 @@ Secrets and model ids are never defaults in code: they come from the environment
 The master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**: set it to true (per environment) or `run` reports `disabled` and does nothing. See [Feature flags](#feature-flags-spec-012).
 
 `service`, `schedule.run_at`, `source.driver` with that driver's credentials, `analysis.api_key`,
-`analysis.models.{triage,analyze,escalate}`, `analysis.prices` for each of those models, `state.driver` with its
+`analysis.models.{triage,analyze,escalate}`, `state.driver` with its
 settings, `notify.digest.webhook`.
 
 ## Keys
@@ -30,12 +30,10 @@ settings, `notify.digest.webhook`.
 | `environment` (`WATCHER_ENVIRONMENT`) | none | Optional label (`int`, `prod`, ...): state keys become `<service>@<environment>`, so two processes with the same service name do not share state. |
 | `schedule.run_at` (`WATCHER_RUN_AT`, comma-separated) | required unless `every` | `HH:MM` or a list of times at least one hour apart. Still due for one hour after each time, in `schedule.timezone`. Stored internally as a list; a single string is unchanged in config files. |
 | `schedule.every` (`WATCHER_EVERY`) | — | `PT1H`, `PT2H`, `PT3H`, `PT4H`, `PT6H`, `PT8H`, or `PT12H`. Mutually exclusive with `run_at`. Contiguous windows unless `schedule.window` is set. |
-| `schedule.timezone` (`WATCHER_TIMEZONE`) | `UTC` | IANA zone. Daily budget and alert days follow this zone. |
+| `schedule.timezone` (`WATCHER_TIMEZONE`) | `UTC` | IANA zone. Log-window and run days follow this zone. |
 | `schedule.window` | `PT24H` for one `run_at`; gap to the previous boundary otherwise | ISO-8601 lookback ending at the window boundary. |
 | `schedule.catch_up` (`WATCHER_CATCH_UP`) | `1` | `1`..`24`; values above `1` require `schedule.every`. |
 | `schedule.ingestion_delay` (`WATCHER_INGESTION_DELAY`) | `PT0S` | Shorter than the period; shifts window ends for late-indexed lines. |
-| `analysis.max_runs_per_day` (`WATCHER_MAX_RUNS_PER_DAY`) | none (one run/day); else `2 × runs_per_day` | Enforced in a later phase; parsed now. |
-| `analysis.run_budget_usd` (`WATCHER_RUN_BUDGET_USD`) | none (one run/day); else `daily_budget_usd / runs_per_day × 2` | Enforced in a later phase; parsed now. |
 | `schedule.lock_ttl` | `900` | Seconds the per-window run lock lives (released at the end of every run). With a store that supports renewal (all three) the lock is **extended** between pipeline steps and before each model call whenever less than half of it is left, so a long run keeps it. One model call (two sequential attempts, SDK retries off) is still bounded to `lock_ttl / 4`: HTTP timeout `lock_ttl / 8` s, within 10..180. A run makes at most `2 + escalation_cap` model calls. |
 | `schedule.run_deadline` (`WATCHER_RUN_DEADLINE`) | `lock_ttl` minus `max(30, lock_ttl / 10)` s (810 by default; half of `lock_ttl` when that is 60 or less) | Total wall-clock budget of one run, checked while reading and between pipeline steps. At expiry reading stops (read marked truncated, reason `deadline`), no model call starts, the window is snapshotted and a short notice is sent, but it is NOT recorded as done: the next trigger in the due period reads it again with a full budget, once. A second cut records the window final (quiet, reason `truncated:deadline`) with a second notice naming the number of unanalysed groups. Must not exceed `lock_ttl`. In a fleet it is further limited by `service_time_budget`.
 
@@ -74,7 +72,7 @@ A **matcher** has exactly one of `template` (regex on the masked template), `err
 one of `equals` / `matches` (evaluated locally on log fields: field values never leave the service). A group whose message
 text is withheld never matches a `template` matcher. Regexes need PCRE delimiters.
 
-### `analysis` (models, budget)
+### `analysis` (models)
 
 | Key | Default | Notes |
 |---|---|---|
@@ -85,14 +83,10 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `analysis.providers_options.{anthropic,openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` 0 to 3 for Anthropic (the SDK retries on its own); must be 0 for OpenAI and Gemini, which do not retry (the analyzer's second attempt is their retry). |
 | `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused: the Anthropic transport is the official SDK. Delete the key. |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
-| `analysis.prices` | required | `model id => [input, output, cache_read, cache_write]`, **USD per million tokens**, for every model above. Drives the cost line, the daily cap and the alerts: keep it current. |
 | `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input budget; lowest-priority candidates are dropped first, with a note in the digest. The estimate (UTF-8 bytes / 3) includes the step's system prompt and the `service_context`, not only the groups. Enforced for `triage` (candidates), `analyze` (dependency context shrinks first) and `escalate`: an escalation sends the one finding's groups plus the dependency context that refers to them; over the limit, dependency context is trimmed first, then the groups' stack frames, and if it still does not fit the escalation is skipped (the first-pass finding is reported as it is; the digest says `N escalation(s) skipped`). |
 | `analysis.max_output_tokens` | triage 1500, analyze 4000, escalate 2000 | A floor, not a ceiling: triage uses `max(configured, 30 * groups + 500)` because the verdict list grows with the groups; analyze and escalate use `max(configured, 450 * groups + 300)` while `analysis.advice.enabled` is on (a finding with `how_to_check` and `related_checks` is about 450 output tokens at its text limits, so a full `top_m` of long findings is not cut off and retried). The daily-budget reservation uses the same figure. With advice off the configured value is used as it is. |
 | `analysis.confidence_threshold` | `0.6` | Findings of severity error or higher below this are re-analysed once by the strong model; warn/info below it collapse into the "minor" line. `0 < x < 1`. |
 | `analysis.escalation_cap` | `3` | Escalations per run. A finding is escalated only when one of its groups is at `error` or above in the logs, the finding itself is `error`/`critical`, and its confidence is below `analysis.confidence_threshold`. |
-| `analysis.daily_budget_usd` | `0.50` | Hard daily cap per service (`>= 0`). Before every billable step (triage, analysis, each escalation) the run reserves its worst case: planned input tokens (system prompt + context + payload) at the input price, plus `max_output_tokens` at the output price (the larger of the cache-write and plain input price is used). The step runs only if today's recorded spend plus that fits under the cap; otherwise it is skipped and the digest says how many groups were `not triaged` / `not analysed` / escalations skipped. Both possible attempts of a step are reserved: twice the input tokens, and the output cap plus the cap of the retry (a reply cut off by `max_tokens` is retried with the cap doubled, at most 8192), so a step that might need its retry only starts when the retry fits too. The user message adds a data wrapper (about 70 tokens) that is part of the estimate. A budget already spent when the run starts is the **triage-only day** (unchanged): triage runs without a reservation, no analysis, one notice a day. |
-| `analysis.daily_token_limit` | null | Optional daily cap on tokens (input + output + cache), reserved the same way (planned input + `max_output_tokens`). |
-| `analysis.budget_alert_percents` | `[25, 50, 75, 90]` | One notice per threshold and counter per day (the highest newly crossed one). Integers 1-99, ascending. |
 
 ### `redaction`
 
@@ -125,7 +119,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `notify.digest.bot_token` | required for telegram | Bot API token (`123456:ABC...`). Read it from the environment. |
 | `notify.digest.chat_id` | required for telegram | Integer or `@channel` name; a supergroup id is negative. |
 | `notify.digest.thread_id` | none | Telegram forum topic id (positive integer). Discord has no equivalent. |
-| `notify.notice` | null | Separate destination (same shape, any driver) for failures, budget notices and baseline messages; null uses the digest destination. |
+| `notify.notice` | null | Separate destination (same shape, any driver) for failures and baseline messages; null uses the digest destination. |
 
 A key of another driver (`webhook` on a Telegram entry) is an error that names the key path, never the value. In a fleet
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
@@ -224,8 +218,7 @@ Validation covers the whole fleet before any call; the first error names the ent
 | `services[]` | required | Entries. `priority` (int, default 0, higher first) and `provides` (names other services use for this one, default `[service]`) are fleet-only. Order: priority, then name, then dependencies first. Names must be unique and must not contain `/`. |
 | `defaults` | `[]` | Any single-service key, merged under every entry. `state` and `analysis.api_key` must end up identical in all entries. |
 | `digest` | `per_service` | `per_service` posts each digest to the entry's `notify.digest`; `combined` posts one message to the fleet `notify.digest`. |
-| `notify` | `[]` | Fleet default destinations, merged under each entry's; also where the combined digest, the correlated finding and fleet budget notices go. |
-| `budget.daily_budget_usd`, `budget.daily_token_limit`, `budget.alert_percents` | none, none, `[25,50,75,90]` | Fleet-wide caps on top of each service's own; the day is in the fleet `timezone`. |
+| `notify` | `[]` | Fleet default destinations, merged under each entry's; also where the combined digest and the correlated finding go. |
 | `timezone` | `UTC` | Day boundary of the fleet counters. |
 | `time_budget` | none | ISO-8601 duration; services not started in time are `skipped_time` (exit 1). |
 | `service_time_budget` | `time_budget` / number of services, at least half of the smallest `schedule.lock_ttl` | ISO-8601 duration: wall-clock share of one service, enforced through its run deadline, so one slow or hostile service cannot starve the rest. |
@@ -311,7 +304,7 @@ are never followed; every call has a 60 s wall-clock budget and stops when the r
 
 ## Digest notices (counts only, never raw content)
 
-Besides findings, the digest carries short notices: `truncated: N events read` (`event_cap`), `truncated: N groups dropped (budget)`
+Besides findings, the digest carries short notices: `truncated: N events read` (`event_cap`), `truncated: N groups dropped (input limit)`
 (`max_input_tokens`), `cluster cap hit` (`group_cap`), `Grouping limit reached: N messages were not clustered` (`grouping.message_cap`), `Grouping time budget reached` (comparison budget spent; counts only), `N group(s) flagged interesting were not analysed` (triage found them but the
 daily budget was spent or a step's worst case did not fit it, or `top_m` cut them), `N group(s) not triaged: the daily budget would have been exceeded`, `N escalation(s) skipped (daily budget or max_input_tokens.escalate)`, `compared with the run of <date>, N days ago` (the previous window had no snapshot; see `docs/operations.md`), `N pattern evaluation failures: rules may have been skipped` (a watch rule, mute or
 backend-filter regex failed to evaluate, e.g. hit the PCRE backtrack limit; it fails open), `N call target(s) not declared as
@@ -349,15 +342,14 @@ environment variable NAME must be true or false`, naming the variable and never 
 | advice | `analysis.advice.enabled` | `WATCHER_ADVICE_ENABLED` | true | the analysis prompt and output schema leave out `how_to_check` and `related_checks`: no `Check:` / `Related:` lines in the digest, about 100 fewer output tokens per finding, and the prompt, schema, caps and digest are exactly those of a version without the feature |
 | baseline | `baseline.enabled` | `WATCHER_BASELINE_ENABLED` | true | previous-window comparison only, whatever `baseline.mode` says |
 | grouping | `grouping.enabled` | `WATCHER_GROUPING_ENABLED` | true | the old exact token-count clusters instead of similarity clusters (fingerprints are unchanged) |
-| budget alerts | `budget_alerts.enabled` | `WATCHER_BUDGET_ALERTS_ENABLED` | true | no 25/50/75/90 % notice and no "budget exhausted" notice (the caps themselves still apply) |
-| notices | `notify.notice.enabled` | `WATCHER_NOTICE_ENABLED` | true | no failure, baseline, budget or weekly notice is posted; failures still go to the host log and the exit code |
+| notices | `notify.notice.enabled` | `WATCHER_NOTICE_ENABLED` | true | no failure, baseline or weekly notice is posted; failures still go to the host log and the exit code |
 | digest | `notify.digest.enabled` | `WATCHER_DIGEST_ENABLED` | true | no digest is posted, so no model is paid for: the window is read and snapshotted and the run ends `quiet` (reason `digest_disabled`) |
 | known_issues | `known_issues.enabled` | `WATCHER_KNOWN_ISSUES_ENABLED` | true | inert with no `entries`; false skips known lines, state writes and suppression |
 | drafts | `drafts.enabled` | `WATCHER_DRAFTS_ENABLED` | false | paste-ready ticket text per finding after the digest (`drafts.destination` or notice) |
 | routes | `notify.routes_enabled` | `WATCHER_ROUTES_ENABLED` | true | inert without `notify.routes`; severity routing to extra destinations (spec 005) |
 
 `known_issues.entries[]`: `fingerprint` (12–64 hex, prefix match), `ticket` (opaque key), optional `status` (`open`/`resolved`), optional `until` (UTC date). `notify.routes[]`: `name`, `severity` list (omitted on the last catch-all route only), optional `to` destination (must differ from `notify.digest`). See `specs/005-incident-workflow/contracts/config.md`.
-| fleet | fleet `enabled` | `WATCHER_FLEET_ENABLED` | true | every service is reported `disabled`; no store, budget, source or notifier is reached |
+| fleet | fleet `enabled` | `WATCHER_FLEET_ENABLED` | true | every service is reported `disabled`; no store, source or notifier is reached |
 | fleet service | entry (or `defaults`) `enabled` | `WATCHER_ENABLED` | **false** (as a service) | that service is skipped with outcome `disabled` (not an error, exit 0) |
 | fleet correlation | `correlation.enabled` | `WATCHER_FLEET_CORRELATION_ENABLED` | true | no cross-service annotation or correlated message |
 
@@ -414,4 +406,4 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_DIGEST_DRIVER` | `notify.digest.driver` (`none` is dashboard-only mode; leave `WATCHER_SLACK_WEBHOOK` unset then, because a webhook under `none` is rejected) |
 | `WATCHER_REPO_URL` | `repo.web_url` |
 
-`config/watcher.php` ships `'prices' => []` and has no price variables: it fails validation (`analysis.prices (no price for models.triage)`) until you fill the array in.
+`config/watcher.php` names the models and validates without any price.

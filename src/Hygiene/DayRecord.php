@@ -9,7 +9,7 @@ namespace Watcher\Hygiene;
  * (data-model.md): there is no field a value or a line could be put in. A stored record that does not validate is ignored.
  *
  * @phpstan-type SiteRow array{key: string, id: string, kind: string, label: ?string, level: string, lines: int, any_hit: int, cats: array<string, int>, long: int, trace: int, mismatch: int, first: string, last: string}
- * @phpstan-type FamilyRow array{fp: string, tpl: ?string, th?: string, level: string, n: int, first: string, last: string, tokens: int}
+ * @phpstan-type FamilyRow array{fp: string, tpl: ?string, th?: string, level: string, n: int, first: string, last: string}
  * @phpstan-type VariableRow array{tpl: string, positions: int, distinct_messages: int}
  */
 final class DayRecord
@@ -159,11 +159,11 @@ final class DayRecord
     private static function family(mixed $r): ?array
     {
         if (!is_array($r) || !is_string($r['fp'] ?? null) || !self::nullableString($r, 'tpl') || !is_string($r['level'] ?? null)
-            || !is_int($r['n'] ?? null) || !self::time($r['first'] ?? null) || !self::time($r['last'] ?? null) || !is_int($r['tokens'] ?? null)) {
+            || !is_int($r['n'] ?? null) || !self::time($r['first'] ?? null) || !self::time($r['last'] ?? null)) {
             return null;
         }
 
-        $row = ['fp' => $r['fp'], 'tpl' => $r['tpl'], 'level' => $r['level'], 'n' => $r['n'], 'first' => $r['first'], 'last' => $r['last'], 'tokens' => $r['tokens']];
+        $row = ['fp' => $r['fp'], 'tpl' => $r['tpl'], 'level' => $r['level'], 'n' => $r['n'], 'first' => $r['first'], 'last' => $r['last']];
         if (is_string($r['th'] ?? null) && preg_match('/\A[0-9a-f]{12}\z/', $r['th']) === 1) {
             $row['th'] = $r['th'];
         }

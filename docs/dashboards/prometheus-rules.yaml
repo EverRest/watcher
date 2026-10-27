@@ -27,13 +27,6 @@ groups:
           summary: "the last watcher run failed ({{ $labels.service }}, {{ $labels.environment }})"
           description: "See the run event for the reason code."
           runbook_url: "https://runbooks.example.invalid/watcher"
-      - alert: WatcherBudgetHigh
-        expr: watcher_budget_ratio > 0.9
-        labels: {severity: warning, team: platform}
-        annotations:
-          summary: "watcher used more than 90 % of its daily budget ({{ $labels.service }})"
-          description: "At 100 % the day continues in triage-only mode."
-          runbook_url: "https://runbooks.example.invalid/watcher"
       - alert: WatcherNewCriticalFinding
         expr: watcher_last_run_new_findings{severity="critical"} > 0
         labels: {severity: warning, team: platform}
