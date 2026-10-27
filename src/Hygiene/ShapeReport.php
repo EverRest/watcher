@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Hygiene;
 
 /**
- * US2: log habits that cost reading time and tokens: one site producing most of the lines, lines over a limit, traces
+ * US2: log habits that cost reading time: one site producing most of the lines, lines over a limit, traces
  * pasted into messages, mixed formats, access-log lines at error level. Each entry carries its measure and a proposal as
  * fixed text for the owner; nothing is applied (FR-006, US2.2).
  *

@@ -17,7 +17,7 @@ use Watcher\Operate\CheckReport;
  */
 final class CheckTool implements Tool
 {
-    private const NAMES = ['config', 'source', 'provider_auth', 'models', 'prices', 'state', 'notifier'];
+    private const NAMES = ['config', 'source', 'provider_auth', 'models', 'state', 'notifier'];
 
     /** The fixed vocabulary of spec 002 (and the reasons the doctor produces today); anything else is "unavailable". */
     private const REASONS = [
@@ -25,7 +25,7 @@ final class CheckTool implements Tool
         '/^HTTP \d{3}$/D',
         '/^x-api-key (?:accepted|rejected \(HTTP \d{3}\))$/D',
         '/^invalid: [A-Za-z0-9_.<>() -]{1,120}$/D',
-        '/^(?:unknown model|no price) for (?:triage|analyze|escalate)(?:, (?:triage|analyze|escalate))*$/D',
+        '/^unknown model for (?:triage|analyze|escalate)(?:, (?:triage|analyze|escalate))*$/D',
         '/^(?:read-only probe|unreadable|write failed|read-back mismatch|lock not exclusive)$/D',
         '/^internal error \([A-Za-z0-9_]{1,80}\)$/D',
     ];
@@ -47,7 +47,7 @@ final class CheckTool implements Tool
 
     public function description(): string
     {
-        return 'Runs the read-only configuration, source, provider, price, state and notifier checks of the watcher. Posts nothing and makes no model call.';
+        return 'Runs the read-only configuration, source, provider, state and notifier checks of the watcher. Posts nothing and makes no model call.';
     }
 
     public function inputSchema(): array

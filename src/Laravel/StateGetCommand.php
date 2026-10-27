@@ -27,24 +27,24 @@ final class StateGetCommand extends Command
             $key = $this->argument('key');
             $text = ($this->factory)(is_string($key) ? $key : '');
         } catch (InvalidConfig $e) {
-            $this->error('invalid config: ' . $e->getMessage());
+            $this->error('invalid config: ' . $e->getMessage(), \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         } catch (InvalidArgumentException $e) {
-            $this->error($e->getMessage());
+            $this->error($e->getMessage(), \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 2;
         } catch (\Throwable $e) {
-            $this->error('state unavailable (' . $e::class . ')'); // class only: a driver message can carry host and credentials
+            $this->error('state unavailable (' . $e::class . ')', \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL); // class only: a driver message can carry host and credentials
 
             return 1;
         }
         if ($text === null) {
-            $this->error('state:get: no entry stored for that key');
+            $this->error('state:get: no entry stored for that key', \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
             return 1;
         }
-        $this->line($text);
+        $this->line($text, null, \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_NORMAL);
 
         return 0;
     }

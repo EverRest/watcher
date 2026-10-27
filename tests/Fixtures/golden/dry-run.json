@@ -2,17 +2,6 @@
     "result": {
         "outcome": "reported",
         "failureReason": null,
-        "usage": {
-            "@Watcher\\Analyze\\Usage": {
-                "model": "mixed",
-                "inputTokens": 2400,
-                "outputTokens": 600,
-                "cacheReadTokens": 0,
-                "cacheWriteTokens": 0,
-                "costUsd": 0.0108,
-                "returnedModel": null
-            }
-        },
         "summary": {
             "@Watcher\\Operate\\RunSummaryData": {
                 "outcome": "reported",
@@ -37,22 +26,17 @@
                             "analyze": 1,
                             "escalate": 0
                         },
-                        "tokensIn": 2400,
-                        "tokensOut": 600,
-                        "tokensCached": 0,
-                        "costUsd": 0.0108,
                         "durationMs": 0,
                         "events": null,
                         "pages": null
                     }
                 },
-                "todayUsd": 0.0108,
                 "release": null,
                 "dryRun": true,
                 "environment": null
             }
         },
-        "summaryLine": "outcome=reported tokens_in=2400 tokens_out=600 tokens_cached=0 cost_usd=0.0108",
+        "summaryLine": "outcome=reported",
         "exitCode": 0
     },
     "sent": [
@@ -71,7 +55,7 @@
         }
     ],
     "attempts": 1,
-    "printed": "== DRY RUN: nothing posted, no state written. Model calls were real and billed; spend not recorded. ==\n== DRY RUN message to digest ==\n🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n2 findings\n",
+    "printed": "== DRY RUN: nothing posted, no state written. Model calls were real. ==\n== DRY RUN message to digest ==\n🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)\n2 findings\n",
     "writes": [],
     "state": {
         "snap:svc:2026-10-08T06%3A00%3A00Z": {
@@ -93,7 +77,6 @@
         },
         "run:svc:2026-10-08T06%3A00%3A00Z": {
             "outcome": "baselined",
-            "usage": null,
             "startedAt": "2026-10-08T06:00:00+00:00",
             "finishedAt": "2026-10-08T06:00:00+00:00"
         },
@@ -111,7 +94,6 @@
             "windowStart": "2026-10-07T06:00:00+00:00",
             "windowEnd": "2026-10-08T06:00:00+00:00",
             "durationSeconds": 0,
-            "costUsd": 0,
             "lastOkAt": "2026-10-08T06:00:00+00:00"
         },
         "hbweek:svc:2026-W41:baselined": {

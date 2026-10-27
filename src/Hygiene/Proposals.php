@@ -12,7 +12,7 @@ use Watcher\Level;
  * changes the configuration. Mute: stable, high-volume and never at or above the candidate level; a family that was ever
  * severe within the history, or whose template was severe under another fingerprint, is never proposed (FR-011).
  *
- * @phpstan-type Proposal array{id: string, type: string, status: string, fragment: string, evidence: array<string, int>, expected_saving?: array<string, int|float>, replay?: array{days: int, candidates_removed: int, tokens_saved: int}}
+ * @phpstan-type Proposal array{id: string, type: string, status: string, fragment: string, evidence: array<string, int>, expected_saving?: array<string, int|float>, replay?: array{days: int, occurrences_removed: int}}
  */
 final class Proposals
 {
@@ -135,13 +135,13 @@ final class Proposals
     private function mutes(array $days, DateTimeImmutable $now): array
     {
         $h = count($days);
-        /** @var array<string, list<array{n: int, tokens: int, severe: bool, tpl: ?string}>> $rows */
+        /** @var array<string, list<array{n: int, severe: bool, tpl: ?string}>> $rows */
         $rows = [];
         $severeTemplates = [];
         foreach ($days as $day) {
             foreach ($day->families as $f) {
                 $severe = Level::parse($f['level'])->atLeast($this->severe);
-                $rows[$f['fp']][] = ['n' => $f['n'], 'tokens' => $f['tokens'], 'severe' => $severe, 'tpl' => $f['th'] ?? $f['tpl']];
+                $rows[$f['fp']][] = ['n' => $f['n'], 'severe' => $severe, 'tpl' => $f['th'] ?? $f['tpl']];
                 $templateKey = $f['th'] ?? $f['tpl']; // the hash covers a constant message whose text is withheld
                 if ($severe && $templateKey !== null) {
                     $severeTemplates[$templateKey] = true;
@@ -173,14 +173,13 @@ final class Proposals
             if ($this->history->isDeclined($id, $now)) {
                 continue;
             }
-            $tokens = array_sum(array_column($r, 'tokens'));
             $out[] = [
                 'id' => $id,
                 'type' => 'mute',
                 'status' => 'open',
                 'fragment' => "['fingerprint' => '$fp', 'until' => null],",
-                'evidence' => ['days_seen' => count($r), 'events_per_day' => (int) round($total / $h), 'tokens' => $tokens],
-                'expected_saving' => ['tokens_per_day' => round($tokens / $h, 4), 'events_per_day' => (int) round($total / $h)],
+                'evidence' => ['days_seen' => count($r), 'events_per_day' => (int) round($total / $h)],
+                'expected_saving' => ['events_per_day' => (int) round($total / $h)],
                 'replay' => Replay::mute($fp, $days, $now),
             ];
         }

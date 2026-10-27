@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher\Notify;
 
-/** The failure and budget notices of contracts/slack-messages.md: a reason string, never a trace, URL, key or log content. */
+/** The failure notices of contracts/slack-messages.md: a reason string, never a trace, URL, key or log content. */
 final class NoticeRenderer
 {
     private const MAX_REASON = 200;
@@ -28,40 +28,19 @@ final class NoticeRenderer
         return $this->notice('❌', $service, $environment, $kind . ' failed: ' . $this->reason($reason));
     }
 
-    /** @param string|null $cap 'fleet' or 'service': which cap was hit; null outside a fleet */
-    public function budgetExhausted(string $service, string $environment, ?string $cap = null): Message
-    {
-        return $this->notice('⚠️', $service, $environment, 'budget exhausted' . ($cap === null ? '' : " ($cap cap)") . ': triage only today');
-    }
-
-    public function runCapReached(string $service, string $environment, int $maxRuns, string $untilLocal, string $timezone): Message
-    {
-        return $this->notice(
-            '⚠️',
-            $service,
-            $environment,
-            sprintf(
-                'run limit reached (%d runs today). Further runs today do nothing until %s %s.',
-                $maxRuns,
-                $untilLocal,
-                $timezone,
-            ),
-        );
-    }
-
     /**
-     * Weekly "it is alive" line: counts and cost only, never content.
+     * Weekly "it is alive" line: counts only, never content.
      *
      * @param array<string, int> $counts reported, quiet, baselined, failed, skipped (missing = 0)
      */
-    public function weekly(string $service, string $environment, string $isoWeek, array $counts, float $costUsd): Message
+    public function weekly(string $service, string $environment, string $isoWeek, array $counts): Message
     {
         $parts = [];
         foreach (['reported', 'quiet', 'baselined', 'failed', 'skipped'] as $name) {
             $parts[] = $name . ' ' . (int) ($counts[$name] ?? 0);
         }
 
-        return $this->notice('📊', $service, $environment, sprintf('week %s: %s, cost $%s', SlackText::escape($isoWeek), implode(', ', $parts), number_format($costUsd, 4, '.', '')));
+        return $this->notice('📊', $service, $environment, sprintf('week %s: %s', SlackText::escape($isoWeek), implode(', ', $parts)));
     }
 
     private function notice(string $icon, string $service, string $environment, string $tail): Message

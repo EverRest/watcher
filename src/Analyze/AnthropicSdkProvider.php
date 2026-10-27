@@ -122,7 +122,7 @@ final class AnthropicSdkProvider implements ModelProvider
         }
         $counts = [$message->usage->inputTokens, $message->usage->outputTokens, $message->usage->cacheReadInputTokens ?? 0, $message->usage->cacheCreationInputTokens ?? 0];
         if (array_filter($counts, static fn (int $n): bool => $n < 0) !== []) {
-            throw new AnalyzerFailed('provider unavailable (invalid reply)'); // a negative count would undercount the spend
+            throw new AnalyzerFailed('provider unavailable (invalid reply)'); // a negative count is a malformed reply
         }
 
         $text = null;
@@ -138,10 +138,6 @@ final class AnthropicSdkProvider implements ModelProvider
             $text,
             is_string($stop) ? (self::STOPS[$stop] ?? null) : null,
             $message->model,
-            $message->usage->inputTokens,
-            $message->usage->outputTokens,
-            $message->usage->cacheReadInputTokens ?? 0,
-            $message->usage->cacheCreationInputTokens ?? 0,
         );
     }
 }

@@ -20,7 +20,6 @@ use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\Usage;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
 use Watcher\Observe\ObserveCounters;
@@ -117,7 +116,7 @@ final class ObservePrivacyTest extends TestCase
         $outputs = [
             'log sink' => (string) stream_get_contents($stream),
             'file sink' => (string) file_get_contents($this->dir . '/events.jsonl'),
-            'http body' => implode("\n", array_map(static fn (array $t): string => (string) $t['request']->getBody(), array_filter((array) $history, static fn (array $t): bool => str_contains((string) $t['request']->getBody(), 'watcher.event.v1')))),
+            'http body' => implode("\n", array_map(static fn (array $t): string => (string) $t['request']->getBody(), array_filter((array) $history, static fn (array $t): bool => str_contains((string) $t['request']->getBody(), 'watcher.event.v2')))),
             'prometheus' => (string) file_get_contents($this->dir . '/watcher_svc.prom'),
             'summary' => (new JsonSummary())->render($result->summaryData),
             'host log' => (string) json_encode($hostLog->records),
@@ -153,7 +152,7 @@ final class ObservePrivacyTest extends TestCase
         $h->nextWindow();
         $make()->run();
 
-        $schema = json_decode((string) file_get_contents(__DIR__ . '/../../docs/schema/watcher.event.v1.schema.json'), false, 512, JSON_THROW_ON_ERROR);
+        $schema = json_decode((string) file_get_contents(__DIR__ . '/../../docs/schema/watcher.event.v2.schema.json'), false, 512, JSON_THROW_ON_ERROR);
         $lines = file($this->dir . '/events.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
         self::assertGreaterThan(2, count($lines));
         $types = [];
@@ -180,7 +179,7 @@ final class CanaryInventingAnalyzer implements Analyzer
             $verdicts[$g->fingerprint] = 'interesting';
         }
 
-        return new TriageResult($verdicts, new Usage($req->model, 100, 10));
+        return new TriageResult($verdicts);
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -190,6 +189,6 @@ final class CanaryInventingAnalyzer implements Analyzer
             $req->groups,
         );
 
-        return new AnalysisResult($findings, new Usage($req->model, 100, 10));
+        return new AnalysisResult($findings);
     }
 }

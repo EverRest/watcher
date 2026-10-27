@@ -5,10 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Tests\EndToEnd;
 
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\Spend;
-use Watcher\Analyze\Usage;
 use Watcher\Level;
-use Watcher\Operate\RunOptions;
 use Watcher\RunOutcome;
 use Watcher\Schedule\Window;
 use Watcher\Source\LogSource;
@@ -279,21 +276,4 @@ final class AvailabilityTest extends TestCase
         self::assertCount($before, $h->notifier->sent, 'no digest from a run that no longer owns the window');
     }
 
-    public function testADryRunRefusesToStartWhenTheRealDailyCapIsAlreadyReached(): void
-    {
-        $h = new Harness(['analysis' => ['daily_budget_usd' => 1.0]]);
-        $h->watcher(self::source(self::alpha()))->run();
-        $h->nextWindow();
-        $cfg = \Watcher\Config\WatchConfig::fromArray($h->config());
-        (new Spend($h->state, $h->clock, new \DateTimeZone('UTC'), 'svc'))->add(new Usage('m-a', 1, 1), 1.0);
-
-        $out = '';
-        $result = $h->watcher(self::source(self::alpha(9)), new RunOptions(dryRun: true), static function (string $s) use (&$out): void {
-            $out .= $s;
-        })->run();
-
-        self::assertSame(RunOutcome::Failed, $result->outcome);
-        self::assertSame([], $h->analyzer->allRequests());
-        unset($cfg);
-    }
 }

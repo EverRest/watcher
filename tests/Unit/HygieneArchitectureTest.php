@@ -26,13 +26,10 @@ final class HygieneArchitectureTest extends TestCase
     }
 
     /** @return list<string> */
-    private static function grep(string $pattern, bool $skipLedger = false): array
+    private static function grep(string $pattern): array
     {
         $hits = [];
         foreach (self::files() as $file) {
-            if ($skipLedger && str_contains($file, '/Cost/')) {
-                continue;
-            }
             foreach (file($file) ?: [] as $i => $line) {
                 if (preg_match($pattern, $line) === 1) {
                     $hits[] = basename($file) . ':' . ($i + 1) . ': ' . trim($line);
@@ -51,13 +48,13 @@ final class HygieneArchitectureTest extends TestCase
     public function testNoCodeReachesAModelProviderOrAnHttpClient(): void
     {
         self::assertSame([], self::grep('/^use (Anthropic|GuzzleHttp|Psr\\\\Http)/'));
-        self::assertSame([], self::grep('/AnthropicAnalyzer|->triage\(|->analyze\(/', skipLedger: true), 'only the ledger decorator touches the analyzer contract');
+        self::assertSame([], self::grep('/AnthropicAnalyzer|->triage\(|->analyze\(/'));
     }
 
     public function testTheRunPathIsNotInvolvedExceptThroughItsStaticKeys(): void
     {
         $uses = array_map(static fn (string $h): string => explode(':', $h)[0], self::grep('/^use Watcher\\\\Watcher;/'));
-        self::assertSame(['CostReader.php'], $uses, 'only for Watcher::windowKey(), the key of a run record');
+        self::assertSame([], $uses);
         self::assertSame([], self::grep('/new Watcher\(|Watcher::fromConfig/'));
     }
 
@@ -74,14 +71,4 @@ final class HygieneArchitectureTest extends TestCase
         self::assertSame(['HygieneScanner.php', 'SiteId.php'], array_map('basename', array_values($seeing)));
     }
 
-    public function testEachFleetServiceGetsItsOwnAnalyzerSoTheLedgerBooksUnderTheRightService(): void
-    {
-        $fleet = (string) file_get_contents(__DIR__ . '/../../src/Fleet/FleetRunner.php');
-
-        self::assertStringNotContainsString('Factory::analyzer($first)', $fleet);
-        self::assertStringContainsString('Factory::analyzer($e->config, $options->dryRun)', $fleet);
-        $watcher = (string) file_get_contents(__DIR__ . '/../../src/Watcher.php');
-        self::assertStringContainsString('Factory::analyzer($c,', $watcher);
-        self::assertStringContainsString('dryRun', $watcher);
-    }
 }

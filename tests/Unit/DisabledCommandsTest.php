@@ -35,7 +35,7 @@ final class DisabledCommandsTest extends TestCase
             'analysis' => [
                 'api_key' => 'k',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
-                'prices' => ['m1' => [1, 5, 0, 0], 'm2' => [3, 15, 0, 0], 'm3' => [5, 25, 0, 0]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent/watcher']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],
@@ -249,7 +249,7 @@ final class DisabledCommandsTest extends TestCase
         $dir = self::stateDirOf($file);
 
         // Hygiene reads the master switch before validation: the fleet keys are not validated and nothing is built.
-        $result = Hygiene::fromConfig(require $file)->run(HygieneOptions::fromInput(null, null, null, null, false));
+        $result = Hygiene::fromConfig(require $file)->run(HygieneOptions::fromInput(null, null, null, false));
 
         self::assertTrue($result->disabled);
         self::assertDirectoryDoesNotExist($dir);

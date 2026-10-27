@@ -62,7 +62,7 @@ final class RolloutInspectorTest extends TestCase
             'pdo' => "['driver' => 'pdo', 'pdo' => ['dsn' => 'mysql:host=x;dbname=y']]",
             default => "['driver' => 'file', 'file' => ['path' => '" . $this->dir . "/state']]",
         };
-        file_put_contents($p, "<?php\nreturn [\n 'enabled' => " . ($enabled ? 'true' : 'false') . ",\n 'service' => 'orders-api',\n 'schedule' => ['run_at' => '06:00'],\n 'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.test', 'auth' => ['type' => 'bearer', 'token' => \\Watcher\\Config\\Env::string('T_TOK')]], 'stream_tags' => ['app' => 'a']],\n 'analysis' => ['api_key' => \\Watcher\\Config\\Env::string('T_K'), 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], 'prices' => ['m1' => [1.0, 2.0, 0.0, 0.0], 'm2' => [1.0, 2.0, 0.0, 0.0], 'm3' => [1.0, 2.0, 0.0, 0.0]]],\n 'state' => $driver,\n 'notify' => ['digest' => ['driver' => 'slack', 'webhook' => \\Watcher\\Config\\Env::string('T_HOOK')]],\n];\n");
+        file_put_contents($p, "<?php\nreturn [\n 'enabled' => " . ($enabled ? 'true' : 'false') . ",\n 'service' => 'orders-api',\n 'schedule' => ['run_at' => '06:00'],\n 'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.test', 'auth' => ['type' => 'bearer', 'token' => \\Watcher\\Config\\Env::string('T_TOK')]], 'stream_tags' => ['app' => 'a']],\n 'analysis' => ['api_key' => \\Watcher\\Config\\Env::string('T_K'), 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],\n 'state' => $driver,\n 'notify' => ['digest' => ['driver' => 'slack', 'webhook' => \\Watcher\\Config\\Env::string('T_HOOK')]],\n];\n");
         chmod($p, 0644);
 
         return $p;

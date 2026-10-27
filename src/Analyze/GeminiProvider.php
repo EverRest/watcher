@@ -12,7 +12,7 @@ use GuzzleHttp\ClientInterface;
  * `cachedContentTokenCount` (read tokens); no cache-write count exists, so writes are 0. Output tokens include the thinking
  * tokens (`thoughtsTokenCount`), which the official reference counts separately from `candidatesTokenCount`. No `thinkingConfig`
  * is sent: the reference says it errors on models without thinking, and it does not document 0 as "off" (research R3). So the
- * triage step may think and pay for it; this is a known cost gap until a per-model setting is verified.
+ * triage step may think and pay for it; this is a known gap until a per-model setting is verified.
  * The client never retries itself: `maxRetries` must be 0 (config refuses more).
  */
 final class GeminiProvider implements ModelProvider
@@ -79,7 +79,7 @@ final class GeminiProvider implements ModelProvider
                 throw new AnalyzerFailed('provider unavailable (invalid reply)'); // same rules as the answered path
             }
 
-            return new ModelReply(null, 'refusal', is_string($data['modelVersion'] ?? null) ? $data['modelVersion'] : $requested, $in - $cached, 0, $cached, 0);
+            return new ModelReply(null, 'refusal', is_string($data['modelVersion'] ?? null) ? $data['modelVersion'] : $requested);
         }
         $in = is_array($usage) ? ($usage['promptTokenCount'] ?? null) : null;
         $out = is_array($usage) ? ($usage['candidatesTokenCount'] ?? null) : null;
@@ -99,7 +99,6 @@ final class GeminiProvider implements ModelProvider
         $finish = $candidate['finishReason'] ?? null;
         $model = is_string($data['modelVersion'] ?? null) ? $data['modelVersion'] : $requested;
 
-        // promptTokenCount includes the cached content (official reference): the uncached input is the rest.
-        return new ModelReply($text, is_string($finish) ? (self::STOPS[$finish] ?? null) : null, $model, $in - $cached, $out + $thoughts, $cached, 0);
+        return new ModelReply($text, is_string($finish) ? (self::STOPS[$finish] ?? null) : null, $model);
     }
 }

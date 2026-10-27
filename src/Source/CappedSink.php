@@ -13,7 +13,7 @@ use Psr\Http\Message\StreamInterface;
  * so a chunked body without Content-Length or a gzip bomb is cut while streaming, never buffered whole. It returns 0 bytes
  * rather than throwing: curl then ends the transfer at once (a thrown exception lets a slow reply run to its end, then surfaces).
  * Guzzle reports the aborted transfer as an exception; `$tripped['large']` names the cause, and Retry does not repeat such a reply.
- * Bodies over 1 MB spool to a PHP temp file (mode 0600, removed when the stream closes) until the request ends; that is the price of never holding
+ * Bodies over 1 MB spool to a PHP temp file (mode 0600, removed when the stream closes) until the request ends; that is the cost of never holding
  * a large reply in memory. Use one per attempt: {@see ResponseLimit::options()} builds a fresh one on every call.
  */
 final class CappedSink implements StreamInterface

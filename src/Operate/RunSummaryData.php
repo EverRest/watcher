@@ -20,7 +20,6 @@ final class RunSummaryData
         public readonly ?DateTimeInterface $windowStart = null,
         public readonly ?DateTimeInterface $windowEnd = null,
         public readonly ?RunStats $stats = null,
-        public readonly ?float $todayUsd = null,
         public readonly ?string $release = null,
         public readonly bool $dryRun = false,
         public readonly ?string $environment = null,
@@ -46,6 +45,6 @@ final class RunSummaryData
     /** @param array<string, int> $failures */
     public function withSinks(string $runId, array $failures): self
     {
-        return new self($this->outcome, $this->service, $this->reason, $this->windowStart, $this->windowEnd, $this->stats, $this->todayUsd, $this->release, $this->dryRun, $this->environment, $runId, $failures);
+        return new self($this->outcome, $this->service, $this->reason, $this->windowStart, $this->windowEnd, $this->stats, $this->release, $this->dryRun, $this->environment, $runId, $failures);
     }
 }

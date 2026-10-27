@@ -2,7 +2,6 @@
     "result": {
         "outcome": "skipped_locked",
         "failureReason": null,
-        "usage": null,
         "summary": {
             "@Watcher\\Operate\\RunSummaryData": {
                 "outcome": "skipped_locked",
@@ -11,7 +10,6 @@
                 "windowStart": "2026-10-08T06:00:00+00:00",
                 "windowEnd": "2026-10-09T06:00:00+00:00",
                 "stats": null,
-                "todayUsd": null,
                 "release": null,
                 "dryRun": false,
                 "environment": null
@@ -79,7 +77,6 @@
         },
         "run:svc:2026-10-08T06%3A00%3A00Z": {
             "outcome": "baselined",
-            "usage": null,
             "startedAt": "2026-10-08T06:00:00+00:00",
             "finishedAt": "2026-10-08T06:00:00+00:00"
         },
@@ -97,7 +94,6 @@
             "windowStart": "2026-10-07T06:00:00+00:00",
             "windowEnd": "2026-10-08T06:00:00+00:00",
             "durationSeconds": 0,
-            "costUsd": 0,
             "lastOkAt": "2026-10-08T06:00:00+00:00"
         },
         "hbweek:svc:2026-W41:baselined": {

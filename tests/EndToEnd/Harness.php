@@ -14,7 +14,6 @@ use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\Usage;
 use Watcher\Config\WatchConfig;
 use Watcher\Level;
 use Watcher\Source\LogEvent;
@@ -60,7 +59,7 @@ final class Harness
             'analysis' => [
                 'api_key' => 'k',
                 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'],
-                'prices' => ['m-t' => [1, 5, 0.1, 1.25], 'm-a' => [3, 15, 0.3, 3.75], 'm-e' => [5, 25, 0.5, 6.25]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],
@@ -144,12 +143,8 @@ final class EchoAnalyzer implements Analyzer
     public ?\Watcher\Analyze\AnalyzerFailed $failure = null;
     /** Fails analyze() only, so triage has already completed and been paid for. */
     public ?\Watcher\Analyze\AnalyzerFailed $analyzeFailure = null;
-    /** Simulates a Usage whose model has no configured price. */
-    public ?string $usageModel = null;
     public string $verdict = 'interesting';
     public float $confidence = 0.9;
-    public int $inputTokens = 1200;
-    public int $outputTokens = 300;
 
     /** @return list<TriageRequest|AnalysisRequest> every request the model would have seen */
     public function allRequests(): array
@@ -168,7 +163,7 @@ final class EchoAnalyzer implements Analyzer
             $verdicts[$g->fingerprint] = $this->verdict;
         }
 
-        return new TriageResult($verdicts, new Usage($this->usageModel ?? $req->model, $this->inputTokens, $this->outputTokens));
+        return new TriageResult($verdicts);
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
@@ -189,6 +184,6 @@ final class EchoAnalyzer implements Analyzer
             $req->groups,
         );
 
-        return new AnalysisResult($findings, new Usage($this->usageModel ?? $req->model, $this->inputTokens, $this->outputTokens));
+        return new AnalysisResult($findings);
     }
 }

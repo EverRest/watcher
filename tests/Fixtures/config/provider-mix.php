@@ -25,12 +25,6 @@ return [
             'gemini' => Env::string('WATCHER_GEMINI_KEY'),
         ],
         'models' => ['triage' => 'placeholder-triage-model', 'analyze' => 'placeholder-analyze-model', 'escalate' => 'placeholder-escalate-model'],
-        'prices' => [
-            'placeholder-triage-model' => [0.0, 0.0, 0.0, 0.0],
-            'placeholder-analyze-model' => [0.0, 0.0, 0.0, 0.0],
-            'placeholder-escalate-model' => [0.0, 0.0, 0.0, 0.0],
-        ],
-        'daily_budget_usd' => 0.10,
     ],
     'state' => ['driver' => 'file', 'file' => ['path' => sys_get_temp_dir() . '/watcher-provider-mix']],
     'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example.test/PLACEHOLDER']],

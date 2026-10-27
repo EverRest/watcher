@@ -1,8 +1,7 @@
 # First live smoke run (T114)
 
 Everything in the test suite runs against fakes and recorded fixtures. This guide is the first time `watcher` talks to
-real systems: your log backend, the Anthropic API and Slack. It takes about 45 minutes and costs **at most US$0.10** in
-model usage. It is read-only for your logs and posts only to a Slack channel you choose.
+real systems: your log backend, the Anthropic API and Slack. It takes about 45 minutes and makes a few model calls. It is read-only for your logs and posts only to a Slack channel you choose.
 
 ## Other channels (spec 011)
 
@@ -17,10 +16,10 @@ with enough findings for a long digest and see numbered parts `(1/2)`, `(2/2)`; 
 |---|---|---|
 | 1 | Config loads, nothing external is called | `outcome=skipped_not_due`, exit 0 |
 | 2 | Baseline run on real logs | `outcome=baselined`, one Slack notice, no model call, exit 0 |
-| 3 | Analysis run on the next window | `outcome=reported` (or `quiet` with a reason you can verify), cost <= your cap |
+| 3 | Analysis run on the next window | `outcome=reported` (or `quiet` with a reason you can verify) |
 | 4 | Privacy | no personal value in the Slack message or in the state directory |
 | 5 | Idempotency | the same run again gives `outcome=skipped_done` |
-| 6 | Cost | tokens in the output line match the Anthropic console within about 10% |
+| 6 | Findings | the findings count in the digest matches the `findings_total` of the run record |
 | 7 | Usefulness (SC-001) | the digest finds at least 80% of the High/Medium items you can see by hand |
 
 If any check fails, stop and see [If something fails](#if-something-fails).
@@ -30,9 +29,8 @@ If any check fails, stop and see [If something fails](#if-something-fails).
 | Need | Where to get it | Environment variable |
 |---|---|---|
 | Checkout of this repo with dependencies | `cd ~/code/watcher && composer install` (PHP 8.2 or newer) | n/a |
-| Anthropic API key | Anthropic Console > API keys > create a key named for this test. Set a spend limit on its workspace first. | `WATCHER_ANTHROPIC_KEY` |
+| Anthropic API key | Anthropic Console > API keys > create a key named for this test. Set a usage limit on its workspace first. | `WATCHER_ANTHROPIC_KEY` |
 | Three model ids (cheap / mid / strong) | Console model list. Triage = smallest, analysis = middle, escalation = strongest. | `WATCHER_MODEL_TRIAGE`, `WATCHER_MODEL_ANALYZE`, `WATCHER_MODEL_ESCALATE` |
-| Their prices, USD per million tokens | The provider's pricing page. Prices change: copy the current numbers into `prices` in your config copy (step 3), not into the env file. | (config file) |
 | Read-only Loki access | Grafana > Administration > Users and access > Service accounts > new account with role **Viewer** > add token. | `WATCHER_LOKI_TOKEN` |
 | Loki base URL | Through Grafana: `https://<grafana-host>/api/datasources/proxy/uid/<datasource-uid>` (the uid is in the data source's address bar). Direct Loki: its own base URL. | `WATCHER_LOKI_URL` |
 | Slack incoming webhook for a **private test channel** | api.slack.com/apps > Create New App > From scratch > Incoming Webhooks > on > Add New Webhook to Workspace > pick the channel. | `WATCHER_SLACK_WEBHOOK` |
@@ -73,7 +71,7 @@ php bin/watcher check --config=docs/examples/smoke.config.php
 ```
 
 It checks the Loki query, the Anthropic models list (with the `x-api-key` scheme the analyzer sends),
-the three model ids and prices, the state store and the webhook syntax, and prints PASS/FAIL per line. Add
+the three model ids, the state store and the webhook syntax, and prints PASS/FAIL per line. Add
 `--post-test` to post one labelled message to Slack. If `provider_auth` fails with "x-api-key rejected (HTTP 401)", the key is wrong or revoked.
 
 Fallback when `check` itself is the problem (free, read-only):
@@ -87,7 +85,7 @@ curl -s -o /dev/null -w "bearer: %{http_code}\n" https://api.anthropic.com/v1/mo
 ## 3. Config
 
 Start from [`docs/examples/smoke.config.php`](examples/smoke.config.php): Loki, file state in `/tmp/watcher-smoke`, a
-US$0.10 daily cap, one Slack channel. Copy it next to your env file and change only:
+one Slack channel. Copy it next to your env file and change only:
 
 - `source.stream_tags`: the labels that select your service in Loki (default `['app' => $WATCHER_SERVICE]`);
 - `schedule.timezone` if you want `run_at` in local time (default UTC; `run_at` is `06:00`).
@@ -142,7 +140,7 @@ Expected:
 watcher: outcome=baselined
 ```
 
-and in Slack: `baseline recorded: N groups, M events`. No model is called on the first run, so no cost. `N` is the number
+and in Slack: `baseline recorded: N groups, M events`. No model is called on the first run. `N` is the number
 of distinct problem groups and `M` the number of events in them: events at level `warning` or above (the `read_min_level`)
 that were read for that window. Sanity-check `M` against Grafana (Explore, same labels, same range, a line filter for
 warning/error/critical levels); it should be close, and never larger than the window's real count.
@@ -155,9 +153,9 @@ php bin/watcher run --config=docs/examples/smoke.config.php --now=2026-10-23T06:
 
 Expected one of:
 
-- `watcher: outcome=reported tokens_in=... tokens_out=... tokens_cached=... cost_usd=...` and a digest in Slack. This
+- `watcher: outcome=reported ...` and a digest in Slack. This
   is the case you want. Read it: every finding has a title, a 12-character fingerprint, evidence, a line that starts
-  with "Hypothesis:", a suggested step, and a footer with tokens, models and `today $x of $0.10`. Links appear only if you
+  with "Hypothesis:", a suggested step,  Links appear only if you
   configured `links`/`repo`.
 - `watcher: outcome=quiet`: nothing was new, grown or severe enough (or everything triage judged to be noise). Verify
   by hand that this is true for that window. If you expected findings, lower `selection.min_level` to `warning` in the
@@ -193,15 +191,9 @@ php bin/watcher run --config=docs/examples/smoke.config.php --now=2026-10-23T06:
 # watcher: outcome=skipped_done
 ```
 
-## 8. Check 6: cost
+## 8. Check 6: findings
 
-Compare the `tokens_in` / `tokens_out` of the `reported` run with the usage page of the Anthropic Console for that key
-(allow for a few minutes of delay). They should agree within about 10%. `cost_usd` is an **estimate** from your
-`prices`; the console is the truth. The sample config sets cache prices to 0, so cost can read slightly low when
-caching applies.
-
-Optional budget drill: set `analysis.daily_budget_usd` to `0.01`, wipe the state, rerun checks 2 and 3. You should see
-threshold notices (25/50/75/90%) in Slack and, once spent, one `budget exhausted: triage only today` notice.
+The digest's finding count (the number of finding sections) should equal `findings_total` in the `reported` run record. The run record carries no token or cost figure.
 
 ## 9. Optional failure drills (5 minutes)
 
@@ -234,11 +226,10 @@ Date/time, window A / window B:
 Backend (Loki/Datadog), service labels:
 Check 1 outcome line:
 Check 2 outcome line + groups/events from the Slack notice:
-Check 3 outcome line + findings count + cost_usd + tokens:
+Check 3 outcome line + findings count:
 Anthropic header test (x-api-key / bearer HTTP codes):
 Privacy check: any personal value found? (where, no value)
 Idempotency: skipped_done? yes/no
-Console tokens vs tool tokens (difference %):
 SC-001: visible items N, found M, coverage %:
 Anything surprising in the digest (noise, missing context, wrong severity):
 ```

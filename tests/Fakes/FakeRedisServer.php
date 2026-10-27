@@ -87,18 +87,6 @@ final class FakeRedisServer implements RedisClient
                 $this->data[$key] = [(string) $new, $exp ?? $this->nowMs() + (int) $args[1]];
 
                 return (string) $new;
-            case RedisStateStore::RESERVE:
-                $usd = (float) ($this->data[$keys[0]][0] ?? 0);
-                $tok = (float) ($this->data[$keys[1]][0] ?? 0);
-                if ($usd + (float) $args[0] > (float) $args[2] || ((float) $args[3] >= 0 && $tok + (float) $args[1] > (float) $args[3])) {
-                    return 0;
-                }
-                foreach ([0, 1] as $i) {
-                    $exp = $this->data[$keys[$i]][1] ?? null;
-                    $this->data[$keys[$i]] = [(string) ((float) ($this->data[$keys[$i]][0] ?? 0) + (float) $args[$i]), $exp ?? $this->nowMs() + (int) $args[4]];
-                }
-
-                return 1;
         }
         throw new \LogicException('unknown script');
     }

@@ -128,7 +128,7 @@ final class DashboardsDocsTest extends TestCase
     {
         $text = implode("\n", self::exprs(self::dashboard()));
 
-        foreach (['watcher_last_success_timestamp_seconds', 'watcher_budget_ratio', 'watcher_sink_failures_total', 'event_type="run"', 'event_type="finding"', 'event_type="group"', 'unwrap cost_usd'] as $needle) {
+        foreach (['watcher_last_success_timestamp_seconds', 'watcher_sink_failures_total', 'event_type="run"', 'event_type="finding"', 'event_type="group"'] as $needle) {
             self::assertStringContainsString($needle, $text);
         }
     }
@@ -150,14 +150,14 @@ final class DashboardsDocsTest extends TestCase
             self::assertStringContainsString('`observe.' . $sink . '`', $guide);
         }
         self::assertStringContainsString('driver: none', $guide);
-        self::assertStringContainsString('watcher.event.v1', $guide);
+        self::assertStringContainsString('watcher.event.v2', $guide);
     }
 
     public function testTheGuideKeepsTheZeroDependencySummaryLineQueries(): void
     {
         $guide = (string) file_get_contents(self::GUIDE);
 
-        foreach (['sum by (outcome) (count_over_time({app="watcher"} | json | __error__="" [1d]))', 'unwrap cost_usd', 'unwrap tokens_in', 'line_format "{{.service}} {{.outcome}} findings={{.findings}} cost={{.cost_usd}}"'] as $query) {
+        foreach (['sum by (outcome) (count_over_time({app="watcher"} | json | __error__="" [1d]))'] as $query) {
             self::assertStringContainsString($query, $guide);
         }
         // Every field of those queries is a key of the summary line.
@@ -204,7 +204,7 @@ final class DashboardsDocsTest extends TestCase
             self::assertArrayHasKey('runbook_url', $rule['annotations']);
             self::assertStringNotContainsString('title', json_encode($rule['annotations'], JSON_THROW_ON_ERROR), 'no event text in an alert');
         }
-        foreach (['WatcherNoSuccessfulRun36h', 'WatcherRunFailed', 'WatcherBudgetHigh', 'WatcherNewCriticalFinding', 'WatcherDeliveryOrSinkFailures'] as $name) {
+        foreach (['WatcherNoSuccessfulRun36h', 'WatcherRunFailed', 'WatcherNewCriticalFinding', 'WatcherDeliveryOrSinkFailures'] as $name) {
             self::assertContains($name, $alerts);
         }
     }

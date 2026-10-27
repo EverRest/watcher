@@ -17,6 +17,6 @@ interface StateStore
 
     public function release(string $key, string $owner): void;
 
-    /** Atomic float increment for the daily spend counter (FR-022). */
+    /** Atomic float increment for a counter (for example the heartbeat tally). */
     public function increment(string $key, float $by, int $ttlSeconds): float;
 }

@@ -220,7 +220,7 @@ final class ApiContextTest extends TestCase
 
     private function withoutNote(string $s): string
     {
-        return (string) preg_replace('~^.*API context unavailable.*\n?~m', '', $s);
+        return (string) preg_replace('~\n?^.*API context unavailable.*~m', '', $s);
     }
 
     public function testASecondRunInsideTheTtlMakesNoReadOfTheSource(): void

@@ -66,10 +66,6 @@ final class OpenAiProviderTest extends TestCase
     {
         [, $reply] = $this->call('ok.json');
 
-        self::assertSame(800, $reply->inputTokens, 'prompt 1200 includes 400 cached: the uncached input is 800');
-        self::assertSame(150, $reply->outputTokens);
-        self::assertSame(400, $reply->cacheReadTokens);
-        self::assertSame(0, $reply->cacheWriteTokens);
         self::assertSame('end', $reply->stopReason);
     }
 

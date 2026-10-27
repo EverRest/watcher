@@ -6,7 +6,7 @@ namespace Watcher\Mcp;
 
 /**
  * Code catalog behind the setup tools (research R13): the environment variables the shipped configs read, per driver, and the
- * commands per host. Static text only: no value, no model id, no price, no URL with a credential. Derived from docs/smoke-test.md,
+ * commands per host. Static text only: no value, no model id, no currency figure, no URL with a credential. Derived from docs/smoke-test.md,
  * docs/configuration.md and docs/operations.md; the anchors it cites are checked against those files by a test.
  */
 final class SetupCatalog

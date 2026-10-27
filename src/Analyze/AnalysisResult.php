@@ -9,7 +9,6 @@ final class AnalysisResult
     /** @param list<Finding> $findings */
     public function __construct(
         public readonly array $findings,
-        public readonly Usage $usage,
     ) {
     }
 }

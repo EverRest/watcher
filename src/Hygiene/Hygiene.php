@@ -8,11 +8,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Psr\Clock\ClockInterface;
 use Throwable;
-use Watcher\Analyze\CostCalculator;
 use Watcher\Config\WatchConfig;
-use Watcher\Hygiene\Cost\CostLedger;
-use Watcher\Hygiene\Cost\CostReader;
-use Watcher\Hygiene\Cost\CostReport;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Operate\DryRunStateStore;
 use Watcher\Operate\RefusedAccess;
@@ -156,7 +152,7 @@ final class Hygiene
 
     private function runDry(HygieneOptions $o, DateTimeImmutable $now): HygieneResult
     {
-        $options = new HygieneOptions($o->reports, $o->days, false, $o->decline, $o->now, true);
+        $options = new HygieneOptions($o->reports, false, $o->decline, $o->now, true);
         try {
             return $this->execute($options, $now)->withNote('dry run: nothing was written (day record, registry, counters, lock) and nothing was sent');
         } catch (SourceUnavailable) {
@@ -249,8 +245,8 @@ final class Hygiene
         $wanted = array_values(array_intersect(HygieneOptions::REPORTS, $o->reports));
         $skipped = false;
         if (!$h->enabled) {
-            $skipped = array_diff($wanted, ['cost']) !== [];
-            $wanted = array_values(array_intersect($wanted, ['cost']));
+            $skipped = $wanted !== [];
+            $wanted = [];
         }
 
         $reports = [];
@@ -287,10 +283,6 @@ final class Hygiene
         }
         if (in_array('proposals', $wanted, true)) {
             $reports['proposals'] = new ProposalReport($proposals->find($history->days($now, self::HISTORY_DAYS), $now));
-        }
-        if (in_array('cost', $wanted, true)) {
-            $ledger = new CostLedger($this->state, $c->stateKey, $c->state['retention'], new DateTimeZone($c->schedule['timezone']), $this->clock, new CostCalculator($c->analysis['prices']));
-            $reports['cost'] = new CostReport((new CostReader($c, $this->state, $ledger))->read($now, $o->days));
         }
 
         $notes = $timedOut ? [$this->activeGuard?->reason() === 'memory' ? 'stopped at the memory guard; the read is sampled' : 'stopped at the time budget (hygiene.max_seconds); the read is sampled'] : [];
@@ -408,7 +400,6 @@ final class Hygiene
     {
         $c = $this->config;
         $date = $history->dateOf($now);
-        $ledger = (new CostLedger($this->state, $c->stateKey, $c->state['retention'], new DateTimeZone($c->schedule['timezone']), $this->clock, new CostCalculator($c->analysis['prices'])))->day($date);
 
         // Every family at or above the candidate level is kept, however quiet: proposals must never miss a severe family hidden by the cut (review M2).
         $severe = array_values(array_filter($groups, fn (\Watcher\Reduce\ProblemGroup $g): bool => $g->level->atLeast($c->selection['min_level'])));
@@ -417,7 +408,7 @@ final class Hygiene
         foreach ([...array_slice($severe, 0, self::SEVERE_PER_DAY), ...array_slice($rest, 0, max(0, self::FAMILIES_PER_DAY - min(count($severe), self::SEVERE_PER_DAY)))] as $g) {
             $row = [
                 'fp' => $g->fingerprint, 'tpl' => $labels[$g->fingerprint] ?? null, 'level' => strtolower($g->level->name), 'n' => $g->count,
-                'first' => $g->firstSeen->format(DATE_ATOM), 'last' => $g->lastSeen->format(DATE_ATOM), 'tokens' => $ledger['families'][$g->fingerprint]['tokens'] ?? 0,
+                'first' => $g->firstSeen->format(DATE_ATOM), 'last' => $g->lastSeen->format(DATE_ATOM),
             ];
             if (($hashes[$g->fingerprint] ?? null) !== null) {
                 $row['th'] = $hashes[$g->fingerprint];
@@ -459,7 +450,7 @@ final class Hygiene
             if ($send->isEmpty()) {
                 continue;
             }
-            // Shape, proposals and cost have no per-site trend: at most once per repeat period, not on every --notify.
+            // Shape and proposals have no per-site trend: at most once per repeat period, not on every --notify.
             $last = $name === 'privacy' ? null : $history->sentAt($name);
             if ($last !== null && $now->getTimestamp() - $last->getTimestamp() < $due) {
                 continue;

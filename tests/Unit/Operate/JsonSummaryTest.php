@@ -6,7 +6,6 @@ namespace Watcher\Tests\Unit\Operate;
 
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\Usage;
 use Watcher\Operate\JsonSummary;
 use Watcher\Operate\RunStats;
 use Watcher\Operate\RunSummaryData;
@@ -16,7 +15,7 @@ final class JsonSummaryTest extends TestCase
 {
     private const FIELDS = [
         'schema', 'service', 'outcome', 'reason', 'window_start', 'window_end', 'duration_ms', 'events_read', 'groups',
-        'candidates', 'findings', 'calls', 'tokens_in', 'tokens_out', 'tokens_cached', 'cost_usd', 'today_usd',
+        'candidates', 'findings', 'calls',
         'release', 'version', 'dry_run', 'state_unreadable', 'unscannable_events', 'oversized_lines', 'overflowed_events',
         'pattern_failures', 'read_quality',
     ];
@@ -44,7 +43,7 @@ final class JsonSummaryTest extends TestCase
         $stats->candidates = 5;
         $stats->findings = 2;
         $stats->durationMs = 4300;
-        $stats->addUsage('triage', new Usage('m', 100, 10, 40, 0, 0.01));
+        $stats->addCall('triage');
         $data = new RunSummaryData(
             RunOutcome::Reported,
             'billing',
@@ -52,7 +51,6 @@ final class JsonSummaryTest extends TestCase
             new DateTimeImmutable('2026-10-24T08:00:00+00:00'),
             new DateTimeImmutable('2026-10-24T09:00:00+00:00'),
             $stats,
-            0.25,
             'v1.2.3',
             true,
         );
@@ -65,8 +63,7 @@ final class JsonSummaryTest extends TestCase
         self::assertSame('2026-10-24T08:00:00+00:00', $j['window_start']);
         self::assertSame([1200, 14, 5, 2, 4300], [$j['events_read'], $j['groups'], $j['candidates'], $j['findings'], $j['duration_ms']]);
         self::assertSame(['triage' => 1, 'analyze' => 0, 'escalate' => 0], $j['calls']);
-        self::assertSame([100, 10, 40], [$j['tokens_in'], $j['tokens_out'], $j['tokens_cached']]);
-        self::assertSame([0.01, 0.25, 'v1.2.3', true], [$j['cost_usd'], $j['today_usd'], $j['release'], $j['dry_run']]);
+        self::assertSame(['v1.2.3', true], [$j['release'], $j['dry_run']]);
         self::assertIsString($j['version']);
         self::assertNotSame('', $j['version']);
     }
@@ -120,8 +117,6 @@ final class JsonSummaryTest extends TestCase
         self::assertNull($j['events_read']);
         self::assertNull($j['calls']);
         self::assertNull($j['duration_ms']);
-        self::assertNull($j['today_usd']);
-        self::assertSame([0, 0, 0, 0.0, false], [$j['tokens_in'], $j['tokens_out'], $j['tokens_cached'], $j['cost_usd'], $j['dry_run']]);
         self::assertSame('invalid config', $j['reason']);
 
         $skipped = $this->decode((new JsonSummary())->render(new RunSummaryData(RunOutcome::SkippedNotDue, 'svc')));

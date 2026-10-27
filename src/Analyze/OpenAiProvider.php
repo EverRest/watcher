@@ -79,7 +79,6 @@ final class OpenAiProvider implements ModelProvider
         $refused = is_string($message['refusal'] ?? null);
         $stop = $refused ? 'refusal' : (is_string($finish) ? (self::STOPS[$finish] ?? null) : null);
 
-        // prompt_tokens includes the cached ones: the uncached input is the rest, or the cached tokens would be paid twice.
-        return new ModelReply($text, $stop, $data['model'], $in - $cached, $out, $cached, 0);
+        return new ModelReply($text, $stop, $data['model']);
     }
 }

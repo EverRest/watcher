@@ -55,11 +55,10 @@ final class HeartbeatStatus
         $rec = $this->record;
         $at = static fn (?DateTimeImmutable $d): string => $d?->format(DATE_ATOM) ?? '-';
         $last = $rec === null ? '-' : sprintf(
-            '%s  outcome=%s  duration=%ss  cost_usd=%s%s',
+            '%s  outcome=%s  duration=%ss%s',
             is_string($rec['finishedAt'] ?? null) ? $rec['finishedAt'] : '-',
             is_string($rec['outcome'] ?? null) ? $rec['outcome'] : '-',
             is_int($rec['durationSeconds'] ?? null) ? $rec['durationSeconds'] : '-',
-            is_numeric($rec['costUsd'] ?? null) ? number_format((float) $rec['costUsd'], 4, '.', '') : '-',
             is_string($rec['reason'] ?? null) && $rec['reason'] !== '' ? '  reason=' . $rec['reason'] : '',
         );
 

@@ -39,7 +39,7 @@ final class ProviderRegistryTest extends TestCase
 
             public function create(string $model, int $maxTokens, string $system, string $user, array $schema, bool $thinking): ModelReply
             {
-                return new ModelReply($this->name, 'end', $model, 1, 1);
+                return new ModelReply($this->name, 'end', $model);
             }
         };
     }

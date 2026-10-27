@@ -15,7 +15,7 @@ use Watcher\State\UnreadableCounter;
  * - `put` lands in an in-memory shadow, so reads later in the same run see it (self-consistent run).
  * - `acquire` succeeds and `release` is a no-op; no lock is left behind.
  * - `increment` is kept in memory only: the real counter is never written, but later reads (and a second dry run in the same
- *   process) see real + dry-run spend, so the cap still bites.
+ *   process) see the real and the dry-run counts.
  * - `run:` records of the real store are hidden (the dry run ignores "already done"); the shadow still serves its own.
  * - Not `Purgeable`: nothing can be deleted through it.
  */
@@ -24,7 +24,7 @@ final class DryRunStateStore implements StateStore, RenewableLock, UnreadableCou
     /** @var array<string, array<mixed>> */
     private array $shadow = [];
 
-    /** @var array<string, float> counters added in this process; a repeated dry run shows the cumulative spend (A4-06) */
+    /** @var array<string, float> counters added in this process; a repeated dry run shows the cumulative count (A4-06) */
     private array $counted = [];
 
     public function __construct(private readonly StateStore $real)

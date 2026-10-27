@@ -12,7 +12,7 @@ namespace Watcher\Mcp;
 final class ConfigGenerator
 {
     /**
-     * @param array{service: string, environment?: string, run_at: string, timezone?: string, host: string, source: string, notifier: string, state: string, stream_tags?: array<string, string>, level_mode?: string, daily_budget_usd?: int|float, env_names?: array<string, string>} $a
+     * @param array{service: string, environment?: string, run_at: string, timezone?: string, host: string, source: string, notifier: string, state: string, stream_tags?: array<string, string>, level_mode?: string, env_names?: array<string, string>} $a
      * @return array{php_snippet: string, env_vars: list<array{name: string, purpose: string, secret: bool, required: bool}>, notes: list<string>, next_steps: list<string>}
      * @throws InvalidParams
      */
@@ -65,14 +65,6 @@ final class ConfigGenerator
         $L[] = "    'analysis' => [";
         $L[] = "        'api_key' => " . $str('anthropic_key') . ',';
         $L[] = "        'models' => ['triage' => " . $str('model_triage') . ", 'analyze' => " . $str('model_analyze') . ", 'escalate' => " . $str('model_escalate') . '],';
-        $L[] = "        'prices' => [";
-        foreach (['triage', 'analyze', 'escalate'] as $t) {
-            // Prices are typed into this file from the provider's pricing page, never read from the environment. The nulls fail
-            // the config check until they are numbers, so an unpriced model cannot run and report $0.
-            $L[] = '            (string) ' . $str('model_' . $t) . ' => [null, null, null, null], // input, output, cache read, cache write: USD per million tokens';
-        }
-        $L[] = '        ],';
-        $L[] = "        'daily_budget_usd' => " . var_export((float) ($a['daily_budget_usd'] ?? 0.5), true) . ',';
         $L[] = '    ],';
         $L[] = "    'state' => " . match ($a['state']) {
             'redis' => "['driver' => 'redis', 'redis' => ['host' => " . $str('redis_host', '127.0.0.1') . ", 'port' => " . $int('redis_port', 6379) . ", 'password' => " . $str('redis_password') . ", 'database' => " . $int('redis_database', 0) . "]],",

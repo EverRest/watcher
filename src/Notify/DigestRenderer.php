@@ -16,7 +16,7 @@ use Watcher\Privacy\GroupStatusLabel;
  * Renders the digest (contracts/slack-messages.md) into a neutral Message.
  *
  * Message::$sections kinds, in order: header, then per severity a severity heading followed by its
- * findings (kind "severity", "finding"), then optional "minor" and "notice" lines, then "footer".
+ * findings (kind "severity", "finding"), then optional "minor" and "notice" lines.
  * Message::$text is a plain fallback (title line + counts), at most 4,000 characters.
  * Section text is Slack mrkdwn with every model-provided string escaped.
  */
@@ -155,7 +155,7 @@ final class DigestRenderer
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s events read', number_format($d->eventsReadTruncated))];
         }
         if ($d->droppedGroups > 0) {
-            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s groups dropped (budget)', number_format($d->droppedGroups))];
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ truncated: %s groups dropped (input limit)', number_format($d->droppedGroups))];
         }
         if (($line = $this->readQualityLine($d->readDiagnostics)) !== null) {
             $out[] = ['kind' => 'notice', 'text' => $line];
@@ -173,7 +173,7 @@ final class DigestRenderer
         }
 
         if ($d->notAnalysed > 0) {
-            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) flagged interesting were not analysed (budget exhausted, triage only or top_m cut)', number_format($d->notAnalysed))];
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) flagged interesting were not analysed (top_m cut)', number_format($d->notAnalysed))];
         }
         if ($d->triageCoerced > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ triage marked %s error-or-higher or watch-rule group(s) as noise, known or left them out; they were analysed anyway', number_format($d->triageCoerced))];
@@ -190,11 +190,8 @@ final class DigestRenderer
         if ($d->reusedGroups > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s group(s) reused from earlier verdicts (not analysed again)', number_format($d->reusedGroups))];
         }
-        if ($d->notTriaged > 0) {
-            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s group(s) not triaged: the daily budget would have been exceeded', number_format($d->notTriaged))];
-        }
         if ($d->escalationsSkipped > 0) {
-            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s escalation(s) skipped (daily budget or max_input_tokens.escalate): findings shown as first analysed', number_format($d->escalationsSkipped))];
+            $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s escalation(s) skipped (max_input_tokens.escalate): findings shown as first analysed', number_format($d->escalationsSkipped))];
         }
         if ($d->patternFailures > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
@@ -225,7 +222,7 @@ final class DigestRenderer
                 $out[] = ['kind' => 'notice', 'text' => sprintf('ℹ️ %s operation(s) not kept (cache limit)', number_format($e->droppedOps))];
             }
             if ($e->modelDropped) {
-                $out[] = ['kind' => 'notice', 'text' => 'ℹ️ endpoint documentation not sent to the model (token budget)'];
+                $out[] = ['kind' => 'notice', 'text' => 'ℹ️ endpoint documentation not sent to the model (input limit)'];
             }
             if ($e->unavailable !== null) {
                 $out[] = ['kind' => 'notice', 'text' => '⚠️ API context unavailable (' . $this->esc($e->unavailable) . ')'];
@@ -234,8 +231,6 @@ final class DigestRenderer
         foreach ($d->podEventLines as $line) {
             $out[] = ['kind' => 'notice', 'text' => $this->esc($line)];
         }
-
-        $out[] = ['kind' => 'footer', 'text' => $this->footer($d)];
 
         return $out;
     }
@@ -452,27 +447,6 @@ final class DigestRenderer
         return $url !== null && preg_match('~^https?://[^\s<>|]+$~D', $url) === 1 ? "<$url|$label>" : null;
     }
 
-    private function footer(DigestData $d): string
-    {
-        $u = $d->usage;
-        $parts = [$u === null
-            ? 'tokens n/a'
-            : sprintf('tokens in %s / out %s / cached %s', $this->k($u->inputTokens), $this->k($u->outputTokens), $this->k($u->cacheReadTokens))];
-        foreach ($d->models as $step => $model) {
-            $parts[] = $this->esc("$step $model");
-        }
-        $parts[] = sprintf('≈ $%s', number_format($d->costUsd, 2));
-        if ($d->todayUsd !== null && $d->dailyBudgetUsd !== null && $d->dailyBudgetUsd > 0) {
-            $part = sprintf('today $%s of $%s (%d%%)', number_format($d->todayUsd, 2), number_format($d->dailyBudgetUsd, 2), round($d->todayUsd / $d->dailyBudgetUsd * 100));
-            if ($d->todayTokens !== null && $d->dailyTokenLimit !== null) {
-                $part .= sprintf(' · tokens today %s of %s (%d%%)', $this->k($d->todayTokens), $this->k($d->dailyTokenLimit), round($d->todayTokens / $d->dailyTokenLimit * 100));
-            }
-            $parts[] = $part;
-        }
-
-        return '— ' . implode(' · ', $parts);
-    }
-
     private function header(DigestData $d): string
     {
         $tz = new DateTimeZone($d->timezone);
@@ -529,11 +503,6 @@ final class DigestRenderer
         }
 
         return $best;
-    }
-
-    private function k(int $n): string
-    {
-        return $n < 1000 ? (string) $n : rtrim(rtrim(number_format($n / 1000, 1, '.', ''), '0'), '.') . 'k';
     }
 
     private function gapLine(DigestData $d): string

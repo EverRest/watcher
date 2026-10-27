@@ -42,7 +42,7 @@ default, 14 with the dry run. With `watcher mcp --setup` only onboarding and doc
 ```
 
 Errors: `data` is replaced by `"error": "<code>"` and `"message": "<fixed sentence>"`. Closed set of codes:
-`state_unavailable`, `cost_not_confirmed`, `daily_limit_reached`, `would_exceed_daily_limit`, `busy`, `internal_error`, and
+`state_unavailable`, `model_calls_not_confirmed`, `previous_run_failed`, `busy`, `internal_error`, and
 (2026-10-25) `secret_refused` (message exactly `Give the name of the environment variable, not its value.`), `path_not_allowed`,
 `file_unreadable`, `file_too_large`.
 Absence of data is not an error: `data.available: false` with `reason` in
@@ -65,7 +65,6 @@ Input: none. Output `data`:
 | `last_run` | object or null | `outcome` (enum), `at`, `duration_seconds` (int), `cost_usd` (float), `reason` (**text**, cap 200, the masked heartbeat warning) |
 | `last_ok_at`, `last_trigger_at`, `now` | typed | ISO-8601 UTC `Z` or null |
 | `age_seconds`, `limit_seconds` | typed | int or null |
-| `spend_today` | object | `usd`, `tokens`, `budget_usd`, `token_limit` (int or null), `remaining_usd` |
 
 ## watcher_check
 
@@ -104,13 +103,12 @@ through the same text/typed rules; 006's contract replaces this paragraph with i
 
 ## watcher_dry_run (only with `mcp.allow_dry_run: true`)
 
-Input: `confirm_cost` (boolean; must be `true` for a run that calls a model), `estimate_only` (boolean, default false).
+Input: `confirm_model_calls` (boolean; must be `true` for a run that calls a model), `estimate_only` (boolean, default false).
 Description (static): "Runs the full pipeline once without posting or storing anything. Makes real, billed model calls
-unless estimate_only is true. Requires confirm_cost=true and is refused when it would exceed the daily limit."
+unless estimate_only is true. Requires confirm_model_calls=true and is refused after a failed full run until the server restarts."
 
 Order of checks (each refusal makes zero model calls, SC-004): arguments valid -> `busy` -> (full run only)
-`confirm_cost === true` else `cost_not_confirmed` -> `daily_limit_reached` -> estimate + escalation allowance -> `would_exceed_daily_limit`
--> run. Refusals carry `spend_today` and, for `would_exceed_daily_limit`, `estimate_usd` and `remaining_usd`.
+`confirm_model_calls === true` else `model_calls_not_confirmed` -> `previous_run_failed` -> run. Refusals carry the error code and its fixed message only.
 
 Output `data` (estimate only): `estimate`: per step `{step, groups, tokens_in, tokens_out_max, cost_usd}` and `total_usd`.
 Output `data` (full run): the `watcher_latest_report` shape with `dry_run: true`, plus `estimate_usd` (the upper bound including the escalation allowance, added to the session counter). The rendered digest text is not returned.

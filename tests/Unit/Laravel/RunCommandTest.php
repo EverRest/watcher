@@ -159,7 +159,7 @@ final class RunCommandTest extends TestCase
         $factory = static fn (RunOptions $o, callable $out): callable => static function () use ($out): RunResult {
             $out("== DRY RUN: x ==\n");
 
-            return new RunResult(RunOutcome::Failed, 'source failed', null, new RunSummaryData(RunOutcome::Failed, 'svc', 'source_failed'));
+            return new RunResult(RunOutcome::Failed, 'source failed', new RunSummaryData(RunOutcome::Failed, 'svc', 'source_failed'));
         };
         [$code, $out] = $this->exec($factory, ['--json' => true, '--dry-run' => true]);
 

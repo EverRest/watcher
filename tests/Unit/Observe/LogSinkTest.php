@@ -15,8 +15,8 @@ final class LogSinkTest extends TestCase
         $stream = fopen('php://memory', 'w+');
         self::assertIsResource($stream);
         $events = [
-            ['schema' => 'watcher.event.v1', 'event_type' => 'run', 'title' => 'Zeitüberschreitung → 日本', 'path' => 'a/b'],
-            ['schema' => 'watcher.event.v1', 'event_type' => 'group', 'rank' => 1],
+            ['schema' => 'watcher.event.v2', 'event_type' => 'run', 'title' => 'Zeitüberschreitung → 日本', 'path' => 'a/b'],
+            ['schema' => 'watcher.event.v2', 'event_type' => 'group', 'rank' => 1],
         ];
 
         (new LogSink($stream))->emit($events);
@@ -26,7 +26,7 @@ final class LogSinkTest extends TestCase
         self::assertStringEndsWith("\n", $out);
         $lines = explode("\n", rtrim($out, "\n"));
         self::assertCount(2, $lines);
-        self::assertStringStartsWith('{"schema":"watcher.event.v1",', $lines[0]);
+        self::assertStringStartsWith('{"schema":"watcher.event.v2",', $lines[0]);
         self::assertStringContainsString('Zeitüberschreitung → 日本', $lines[0]);
         self::assertStringContainsString('"a/b"', $lines[0]);
         self::assertSame($events[1], json_decode($lines[1], true));
@@ -48,7 +48,7 @@ final class LogSinkTest extends TestCase
         fclose($stream);
 
         try {
-            (new LogSink($stream))->emit([['schema' => 'watcher.event.v1']]);
+            (new LogSink($stream))->emit([['schema' => 'watcher.event.v2']]);
             self::fail('expected SinkFailed');
         } catch (SinkFailed $e) {
             self::assertSame('log write failed', $e->getMessage());

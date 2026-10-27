@@ -5,23 +5,22 @@ declare(strict_types=1);
 namespace Watcher\Observe;
 
 /**
- * The code side of docs/schema/watcher.event.v1.schema.json: event types, field names in emission order, the closed
+ * The code side of docs/schema/watcher.event.v2.schema.json: event types, field names in emission order, the closed
  * enumerations and the string patterns the sanitizer enforces. EventSchemaTest compares it with the schema file.
  */
 final class EventSchema
 {
-    public const ID = 'watcher.event.v1';
+    public const ID = 'watcher.event.v2';
 
-    public const TYPES = ['run', 'finding', 'group', 'budget', 'heartbeat', 'delivery_failure', 'config_warning'];
+    public const TYPES = ['run', 'finding', 'group', 'heartbeat', 'delivery_failure', 'config_warning'];
 
     public const ENVELOPE = ['schema', 'event_type', 'event_id', 'ts', 'service', 'environment', 'run_id', 'version', 'window_start', 'window_end'];
 
     /** Type-specific fields that are always allowed, in emission order. */
     public const FIELDS = [
-        'run' => ['outcome', 'reason', 'dry_run', 'release', 'duration_ms', 'events_read', 'groups_total', 'candidates', 'findings_total', 'findings_by_severity', 'groups_by_trend', 'calls', 'tokens_in', 'tokens_out', 'tokens_cached', 'cost_usd', 'escalations', 'reused', 'not_analysed', 'muted', 'truncated'],
+        'run' => ['outcome', 'reason', 'dry_run', 'release', 'duration_ms', 'events_read', 'groups_total', 'candidates', 'findings_total', 'findings_by_severity', 'groups_by_trend', 'calls', 'escalations', 'reused', 'not_analysed', 'muted', 'truncated'],
         'finding' => ['finding_index', 'fingerprint', 'fingerprints', 'kind', 'severity', 'confidence', 'escalated', 'group_trend', 'group_count', 'group_previous_count', 'after_release'],
         'group' => ['rank', 'fingerprint', 'level', 'trend', 'count', 'previous_count', 'first_seen', 'last_seen', 'has_finding', 'watch_rules'],
-        'budget' => ['state', 'run_cost_usd', 'spent_today_usd', 'daily_budget_usd', 'usd_ratio', 'tokens_today', 'daily_token_limit', 'token_ratio', 'threshold_pct', 'triage_only'],
         'heartbeat' => ['state', 'last_outcome', 'last_ok_at', 'age_seconds', 'stale_after_seconds', 'warnings'],
         'delivery_failure' => ['channel', 'kind', 'status_class', 'http_status'],
         'config_warning' => ['code', 'key', 'count'],
@@ -45,7 +44,6 @@ final class EventSchema
         'group_trend' => ['new', 'grown', 'unchanged', 'expected'],
         'trend' => ['new', 'grown', 'unchanged', 'expected'],
         'level' => ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'],
-        'budget.state' => ['ok', 'high', 'exhausted'],
         'heartbeat.state' => ['ok', 'degraded', 'stale', 'failed', 'unknown'],
         'channel' => ['slack', 'telegram', 'discord'],
         'status_class' => ['http_4xx', 'http_429', 'http_5xx', 'network', 'timeout', 'other'],
@@ -69,7 +67,7 @@ final class EventSchema
 
     /** Fields holding a string that must match a pattern (null passes where the schema allows null). */
     public const PATTERNS = [
-        'schema' => '/^watcher\.event\.v1$/D',
+        'schema' => '/^watcher\.event\.v2$/D',
         'event_id' => '/^[0-9a-f]{16}-[1-9][0-9]{0,5}$/D',
         'ts' => self::TS,
         'window_start' => self::TS,

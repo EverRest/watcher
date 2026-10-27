@@ -6,12 +6,9 @@ namespace Watcher\Tests\EndToEnd;
 
 use BackedEnum;
 use DateTimeInterface;
-use DateTimeZone;
 use JsonSerializable;
 use PHPUnit\Framework\TestCase;
 use Watcher\Analyze\AnalyzerFailed;
-use Watcher\Analyze\Spend;
-use Watcher\Analyze\Usage;
 use Watcher\Level;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Operate\RunOptions;
@@ -33,14 +30,6 @@ use Watcher\Tests\Fakes\RoutedLogSource;
 final class RefactorGoldenTest extends TestCase
 {
     private const DELIVERY = 'slack delivery failed: HTTP 500';
-
-    /** One dollar a day; only the analyze model costs money ($5 per million input tokens). */
-    private const BUDGET = [
-        'analysis' => [
-            'daily_budget_usd' => 1.0,
-            'prices' => ['m-t' => [0, 0, 0, 0], 'm-a' => [5, 0, 0, 0], 'm-e' => [0, 0, 0, 0]],
-        ],
-    ];
 
     /** @return list<LogEvent> */
     private static function alpha(): array
@@ -76,7 +65,7 @@ final class RefactorGoldenTest extends TestCase
         self::assertInstanceOf(InMemoryStateStore::class, $spy === null ? $h->state : self::inner($h));
 
         return self::plain([
-            'result' => ['outcome' => $r->outcome, 'failureReason' => $r->failureReason, 'usage' => $r->usage, 'summary' => $r->summaryData, 'summaryLine' => $r->summary(), 'exitCode' => $r->exitCode()],
+            'result' => ['outcome' => $r->outcome, 'failureReason' => $r->failureReason, 'summary' => $r->summaryData, 'summaryLine' => $r->summary(), 'exitCode' => $r->exitCode()],
             'sent' => array_map(static fn (array $s): array => ['text' => $s['message']->text, 'sections' => $s['message']->sections, 'to' => $s['to']], $h->notifier->sent),
             'attempts' => $h->notifier->attempts,
             'printed' => $printed,
@@ -163,18 +152,6 @@ final class RefactorGoldenTest extends TestCase
         $r = $h->watcher(self::source(self::withBeta()))->run();
 
         self::assertGolden('failed-delivery', self::capture($h, $r, $spy), RunOutcome::Failed);
-    }
-
-    public function testBudgetExhausted(): void
-    {
-        $h = new Harness(self::BUDGET + ['schedule' => ['window' => 'PT1H']]);
-        $h->watcher(self::source(self::alpha()))->run();
-        $h->clock->advance('+1 hour');
-        (new Spend($h->state, $h->clock, new DateTimeZone('UTC'), 'svc'))->add(new Usage('m-a', 1, 1), 5.0);
-        $h->state = $spy = new RecordingStateStore($h->state);
-        $r = $h->watcher(self::source(self::withBeta()))->run();
-
-        self::assertGolden('budget-exhausted', self::capture($h, $r, $spy), RunOutcome::Reported);
     }
 
     public function testDryRun(): void

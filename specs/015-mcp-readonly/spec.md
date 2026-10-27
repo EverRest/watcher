@@ -163,33 +163,28 @@ dry-run entry points.
 
 ---
 
-### User Story 5 - A dry run that cannot surprise the budget (Priority: P2)
+### User Story 5 - A dry run that cannot make model calls by accident (Priority: P2)
 
-The Assistant user wants to see what a run would report now, knowing it costs real model tokens.
+The Assistant user wants to see what a run would report now, knowing it makes real model calls.
 
-**Independent Test**: faked analyzer with counted calls and a fake spend record. Without `confirm_cost` no analyzer call
-happens; with it, the daily limit is checked first; an estimate over the remaining budget is refused.
+**Independent Test**: faked analyzer with counted calls. Without `confirm_model_calls` no analyzer call happens; a full run
+after a failed one is refused until the server restarts.
 
 **Acceptance Scenarios**:
 
 1. **Given** `mcp.allow_dry_run` is false (default), **Then** `watcher_dry_run` is not in `tools/list` and calling it is
    `-32602`.
-2. **Given** `mcp.allow_dry_run: true` and a call without `confirm_cost` or with `confirm_cost` other than boolean `true`,
-   **Then** the result is an error `cost_not_confirmed` that states that model calls are real and billed and that no
+2. **Given** `mcp.allow_dry_run: true` and a call without `confirm_model_calls` or with it other than boolean `true`,
+   **Then** the result is an error `model_calls_not_confirmed` that states that model calls are real and billed and that no
    call was made. No store read, no estimate.
-3. **Given** `confirm_cost: true` and the daily budget or token limit already exhausted (`Spend::exhausted`), **Then**
-   the result is `daily_limit_reached` with today's figures, and no model call is made.
-4. **Given** `confirm_cost: true`, **When** the estimate's upper-bound cost exceeds the remaining daily budget (after
-   subtracting what dry runs in this process have already been allowed); the upper bound includes the escalation step
-   (the estimate leaves it out: `escalation_cap` groups at the escalation model's worst-case price), and a step whose
-   price cannot be bounded makes the run refused (`would_exceed_daily_limit`), **Then** `would_exceed_daily_limit` with the
-   figures, no model call.
+3. **Given** `confirm_model_calls: true` and an earlier full dry run failed after a model call may have been made, **Then**
+   the result is `previous_run_failed`, and no model call is made.
+4. **Given** `confirm_model_calls: true` and no earlier failed full run, **Then** the run is admitted (see 5).
 5. **Given** all checks pass, **Then** the full pipeline runs as `watcher run --dry-run` does today (real model calls,
-   nothing posted, nothing persisted, due gate ignored), and the result has the findings, counts, tokens and cost in the
+   nothing posted, nothing persisted, due gate ignored), and the result has the findings and counts in the
    `watcher_latest_report` shape with `dry_run: true`.
-6. **Given** a dry run completed, **Then** its upper-bound cost is added to a **per-process** counter that reduces the
-   remaining budget for the next call (a dry run does not record spend in the store, so the store alone cannot stop
-   repeated calls).
+6. **Given** a full dry run failed after a model call may have been made, **Then** further full runs are refused with
+   `previous_run_failed` until the server restarts.
 7. **Given** `estimate_only: true`, **Then** no model call is made, no confirmation is needed and the per-step
    estimate of `watcher run --dry-run --estimate` is returned.
 8. **Given** a call while another dry run in this process is still running, **Then** `busy` (calls are handled one at a
@@ -547,10 +542,9 @@ secrets.
   `To silence this group, a human can add fingerprint <fp> to "mute" in the service configuration. This server cannot do it.`
 - **FR-034**: `watcher_hygiene_report` MUST return the latest hygiene report of spec 006 in its machine-readable form,
   or `available: false`.
-- **FR-035**: `watcher_dry_run` MUST exist only when `mcp.allow_dry_run` is true. It MUST require `confirm_cost === true`
-  (strict boolean) unless `estimate_only` is true, MUST check the daily limit before the first model call, MUST refuse
-  when the estimate's upper bound exceeds the remaining budget, MUST handle one call at a time, and MUST add the upper
-  bound to a per-process counter after each full dry run.
+- **FR-035**: `watcher_dry_run` MUST exist only when `mcp.allow_dry_run` is true. It MUST require `confirm_model_calls === true`
+  (strict boolean) unless `estimate_only` is true, MUST refuse further full runs with `previous_run_failed` after a failed one
+  until the server restarts, and MUST handle one call at a time.
 - **FR-036**: `watcher_dry_run` MUST run the pipeline exactly as `watcher run --dry-run` (nothing posted, no state
   written, no lock left, due gate ignored) with its output callable set to a discarding closure, so that nothing the
   pipeline prints (digest text, estimate table) reaches stdout and MUST NOT return the rendered digest text; it returns the structured
@@ -797,7 +791,7 @@ Each is a default taken without asking; the owner can overrule any of them.
   digest sends). The MCP server MUST NOT depend on spec 013: the 013 file sink stays an independent optional feature and
   the record is built from the values the digest already uses. The `src/Watcher.php` hunk is a late task marked SEQ after
   Lanes A, C, B and G.
-- **O2** `watcher_dry_run` is OFF by default and enabled only with `mcp.allow_dry_run: true`, plus `confirm_cost: true`
+- **O2** `watcher_dry_run` is OFF by default and enabled only with `mcp.allow_dry_run: true`, plus `confirm_model_calls: true`
   on every call and the daily-cap check (FR-035).
 - **O3** `estimate_only` needs no confirmation (zero model calls; counts and token estimates only).
 - **O4** the masked template is never returned by any tool.

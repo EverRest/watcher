@@ -14,7 +14,6 @@ use Watcher\Analyze\FindingKind;
 use Watcher\Analyze\Severity;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Analyze\Usage;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Level;
 use Watcher\RunOutcome;
@@ -108,7 +107,7 @@ final class ModelDistrustTest extends TestCase
     {
         $h = new Harness();
         self::baselined($h);
-        $h->analyzer->failure = new AnalyzerFailed('triage: the model refused the request (not retried)', null, true);
+        $h->analyzer->failure = new AnalyzerFailed('triage: the model refused the request (not retried)', true);
 
         $first = $h->watcher(self::source(self::alpha(9)))->run();
 
@@ -158,13 +157,13 @@ final class HostileModel implements Analyzer
 
     public function triage(TriageRequest $req): TriageResult
     {
-        return new TriageResult(array_fill_keys(array_map(static fn ($g) => $g->fingerprint, $req->groups), 'noise'), new Usage($req->model, 100, 10));
+        return new TriageResult(array_fill_keys(array_map(static fn ($g) => $g->fingerprint, $req->groups), 'noise'));
     }
 
     public function analyze(AnalysisRequest $req): AnalysisResult
     {
         ++$this->analyzeCalls;
 
-        return new AnalysisResult([], new Usage($req->model, 100, 10));
+        return new AnalysisResult([]);
     }
 }

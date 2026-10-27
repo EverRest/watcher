@@ -30,13 +30,13 @@ final class DryRunTool implements Tool
 
     public function description(): string
     {
-        return 'Runs the full pipeline once without posting or storing anything. Makes real, billed model calls unless estimate_only is true. Requires confirm_cost=true and is refused when it would exceed the daily limit.';
+        return 'Runs the full pipeline once without posting or storing anything. Makes real, billed model calls unless estimate_only is true. Requires confirm_model_calls=true.';
     }
 
     public function inputSchema(): array
     {
         return ['type' => 'object', 'additionalProperties' => false, 'properties' => [
-            'confirm_cost' => ['type' => 'boolean', 'description' => 'must be true for a run that calls a model; real, billed tokens'],
+            'confirm_model_calls' => ['type' => 'boolean', 'description' => 'must be true for a run that calls a model'],
             'estimate_only' => ['type' => 'boolean', 'default' => false],
         ]];
     }
@@ -53,16 +53,13 @@ final class DryRunTool implements Tool
                 throw new ToolError('busy');
             }
             $steps = [];
-            $total = 0.0;
             foreach ($this->pipeline->estimate() as $s) {
-                $steps[] = ['step' => OutputGuard::enum($s['step'], ['triage', 'analyze', 'escalate']), 'groups' => OutputGuard::int($s['groups']), 'tokens_in' => OutputGuard::int($s['tokens_in']), 'tokens_out_max' => OutputGuard::int($s['tokens_out_max']), 'cost_usd' => OutputGuard::float($s['cost_usd'])];
-                $total += $s['cost_usd'];
+                $steps[] = ['step' => OutputGuard::enum($s['step'], ['triage', 'analyze', 'escalate']), 'groups' => OutputGuard::int($s['groups'])];
             }
 
-            return ['estimate' => $steps, 'total_usd' => round($total, 6)];
+            return ['estimate' => $steps];
         }
-        $bound = $this->guard->admit($args['confirm_cost'] ?? null, $this->pipeline);
-        $this->guard->enter($bound); // booked before the first model call: paid calls made before a failure must not look free
+        $this->guard->admit($args['confirm_model_calls'] ?? null);
         $failed = true;
         try {
             $report = $this->pipeline->run();
@@ -73,17 +70,16 @@ final class DryRunTool implements Tool
             $this->guard->end($failed);
         }
 
-        return $this->report($report, $bound['usd']);
+        return $this->report($report);
     }
 
     /**
      * @param array<string, mixed> $r
      * @return array<string, mixed>
      */
-    private function report(array $r, float $bound): array
+    private function report(array $r): array
     {
         $c = is_array($r['counts'] ?? null) ? $r['counts'] : [];
-        $t = is_array($r['tokens'] ?? null) ? $r['tokens'] : [];
         $findings = [];
         foreach (is_array($r['findings'] ?? null) ? $r['findings'] : [] as $f) {
             $f = is_array($f) ? $f : [];
@@ -97,11 +93,8 @@ final class DryRunTool implements Tool
             'at' => OutputGuard::timestamp($r['at'] ?? null),
             'outcome' => OutputGuard::outcome($r['outcome'] ?? null),
             'counts' => ['events' => OutputGuard::int($c['events'] ?? null), 'groups' => OutputGuard::int($c['groups'] ?? null), 'candidates' => OutputGuard::int($c['candidates'] ?? null), 'findings' => OutputGuard::int($c['findings'] ?? null)],
-            'tokens' => ['in' => OutputGuard::int($t['in'] ?? null), 'out' => OutputGuard::int($t['out'] ?? null), 'cached' => OutputGuard::int($t['cached'] ?? null)],
-            'cost_usd' => OutputGuard::float($r['cost_usd'] ?? null),
             'findings' => $findings,
             'dry_run' => true,
-            'estimate_usd' => round($bound, 6),
         ];
     }
 }

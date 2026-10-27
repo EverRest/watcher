@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace Watcher\Mcp;
 
-use DateTimeZone;
 use Psr\Clock\ClockInterface;
 use Throwable;
-use Watcher\Analyze\Spend;
 use Watcher\Analyze\VerdictCache;
 use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
@@ -143,21 +141,10 @@ final class McpCommand
         $normalizer = new Normalizer($c->on('dependencies') ? array_map('strval', array_keys($c->dependencies)) : [], $c->dependencyDomains, extraPatterns: $c->redactionPatterns);
         $pathMap = is_array($c->repo['path_map'] ?? null) ? array_map('strval', $c->repo['path_map']) : [];
         $guard = new OutputGuard(new Redactor($normalizer, $c->redactionPatterns, $pathMap));
-        $tz = new DateTimeZone($c->schedule['timezone']);
-        $spend = new Spend($store, $clock, $tz, $c->stateKey);
-        $budget = (float) $c->analysis['daily_budget_usd'];
-        $limit = is_int($c->analysis['daily_token_limit'] ?? null) ? $c->analysis['daily_token_limit'] : null;
-        $today = static fn (): array => $spend->today();
-        $spendFigures = static function () use ($spend, $budget, $limit): array {
-            $t = $spend->today();
-
-            return ['usd' => $t['usd'], 'tokens' => $t['tokens'], 'budget_usd' => $budget, 'token_limit' => $limit, 'remaining_usd' => round($budget - $t['usd'], 6)];
-        };
         $heartbeat = $c->enabled && $c->on('heartbeat');
         $inspect = [
             new StatusTool(
                 static fn (): HeartbeatStatus => Factory::heartbeat($c, $store, $clock)->status($c->heartbeat['stale_after']),
-                $spendFigures,
                 static fn (): \DateTimeImmutable => $clock->now(),
                 $guard,
                 $heartbeat,
@@ -169,7 +156,7 @@ final class McpCommand
         ];
         $allowDry = false;
         if ($c->enabled && $settings->allowDryRun && $dryRun !== null) {
-            $inspect[] = new DryRunTool($dryRun($c, $store), new DryRunGuard($today, $budget, $limit), $guard);
+            $inspect[] = new DryRunTool($dryRun($c, $store), new DryRunGuard(), $guard);
             $allowDry = true;
         } elseif ($c->enabled && $settings->allowDryRun) {
             fwrite($err, "watcher [error] mcp.allow_dry_run is set but this build has no dry-run adapter; watcher_dry_run is not offered\n");
@@ -184,7 +171,7 @@ final class McpCommand
     /** What `watcher_check` can say until a read-only `Doctor` is wired: the configuration loaded, nothing else was run. */
     private static function configOnlyReport(): CheckReport
     {
-        $rest = ['source', 'provider_auth', 'models', 'prices', 'state', 'notifier'];
+        $rest = ['source', 'provider_auth', 'models', 'state', 'notifier'];
 
         return new CheckReport([CheckResult::pass('config'), ...array_map(static fn (string $n): CheckResult => CheckResult::skip($n, 'unavailable'), $rest)]);
     }

@@ -47,21 +47,20 @@ final class HeartbeatTest extends TestCase
         return new Heartbeat($failing ?? $this->store, $this->clock, 'svc', new DateTimeZone('UTC'), self::RETENTION, $log);
     }
 
-    private function finish(Heartbeat $hb, RunOutcome $o, ?string $reason = null, float $cost = 0.0): void
+    private function finish(Heartbeat $hb, RunOutcome $o, ?string $reason = null): void
     {
         $hb->recordRun(
             $o,
             new DateTimeImmutable('2026-10-20T06:00:00+00:00'),
             new DateTimeImmutable('2026-10-21T06:00:00+00:00'),
             $this->clock->now()->modify('-38 seconds'),
-            $cost,
             $reason,
         );
     }
 
     public function testRecordRunWritesTheRecord(): void
     {
-        $this->finish($this->hb(), RunOutcome::Quiet, null, 0.0123);
+        $this->finish($this->hb(), RunOutcome::Quiet);
 
         $r = $this->rec(Keys::heartbeat('svc'));
         self::assertSame(1, $r['v']);
@@ -72,7 +71,6 @@ final class HeartbeatTest extends TestCase
         self::assertSame('2026-10-20T06:00:00+00:00', $r['windowStart']);
         self::assertSame('2026-10-21T06:00:00+00:00', $r['windowEnd']);
         self::assertSame(38, $r['durationSeconds']);
-        self::assertSame(0.0123, $r['costUsd']);
         self::assertSame('2026-10-21T06:00:40+00:00', $r['lastOkAt']);
         self::assertSame(3 * self::RETENTION, $this->store->ttls()[Keys::heartbeat('svc')]);
     }
@@ -165,7 +163,7 @@ final class HeartbeatTest extends TestCase
     {
         $hb = $this->hb();
         foreach (['unavailable', 'stale'] as $events) {
-            $hb->recordRun(RunOutcome::Quiet, new DateTimeImmutable('2026-10-20T06:00:00+00:00'), new DateTimeImmutable('2026-10-21T06:00:00+00:00'), $this->clock->now()->modify('-38 seconds'), 0.0, 'k8s_ingest_failed:unauthorised', $events);
+            $hb->recordRun(RunOutcome::Quiet, new DateTimeImmutable('2026-10-20T06:00:00+00:00'), new DateTimeImmutable('2026-10-21T06:00:00+00:00'), $this->clock->now()->modify('-38 seconds'), 'k8s_ingest_failed:unauthorised', $events);
 
             $s = $hb->status(self::LIMIT);
 
@@ -174,7 +172,7 @@ final class HeartbeatTest extends TestCase
             self::assertSame(1, $s->exitCode());
             self::assertStringContainsString("events:         $events", $s->text('svc'));
         }
-        $hb->recordRun(RunOutcome::Quiet, new DateTimeImmutable('2026-10-20T06:00:00+00:00'), new DateTimeImmutable('2026-10-21T06:00:00+00:00'), $this->clock->now()->modify('-38 seconds'), 0.0, null, 'ok');
+        $hb->recordRun(RunOutcome::Quiet, new DateTimeImmutable('2026-10-20T06:00:00+00:00'), new DateTimeImmutable('2026-10-21T06:00:00+00:00'), $this->clock->now()->modify('-38 seconds'), null, 'ok');
         self::assertSame('ok', $hb->status(self::LIMIT)->state, 'a later successful read clears it');
     }
 
@@ -230,7 +228,7 @@ final class HeartbeatTest extends TestCase
         $log = new SpyLogger();
         $hb = $this->hb($failing, $log);
 
-        $this->finish($hb, RunOutcome::Reported, null, 1.0);
+        $this->finish($hb, RunOutcome::Reported);
         $hb->recordSkip(RunOutcome::SkippedDone);
 
         self::assertNotSame([], $log->records);
@@ -254,7 +252,7 @@ final class HeartbeatTest extends TestCase
     public function testEveryWrittenKeyHasAnExpiry(): void
     {
         $hb = $this->hb();
-        $this->finish($hb, RunOutcome::Reported, null, 0.5);
+        $this->finish($hb, RunOutcome::Reported);
         $hb->recordSkip(RunOutcome::SkippedDone);
 
         $ttls = $this->store->ttls();
@@ -262,18 +260,6 @@ final class HeartbeatTest extends TestCase
         foreach ($ttls as $key => $ttl) {
             self::assertGreaterThan(0, $ttl, $key);
         }
-    }
-
-    public function testWeeklyCountersUseTheIsoWeekInTheServiceTimezone(): void
-    {
-        // 2026-10-25 23:30 UTC is Monday 2026-10-26 in Kyiv: ISO week 44, not 43.
-        $this->clock->set(new DateTimeImmutable('2026-10-25T23:30:00+00:00'));
-        $hb = new Heartbeat($this->store, $this->clock, 'svc', new DateTimeZone('Europe/Kyiv'), self::RETENTION);
-        $this->finish($hb, RunOutcome::Quiet, null, 0.25);
-
-        self::assertSame(1.0, $this->rec(Keys::week('svc', '2026-W44', 'quiet'))['total']);
-        self::assertSame(0.25, $this->rec(Keys::week('svc', '2026-W44', 'cost'))['total']);
-        self::assertSame(1209600, $this->store->ttls()[Keys::week('svc', '2026-W44', 'quiet')]);
     }
 
     public function testWeeklySkipCountersCountDoneAndLockedOnly(): void
@@ -288,13 +274,24 @@ final class HeartbeatTest extends TestCase
         self::assertNull($this->store->get(Keys::week('svc', '2026-W43', 'skipped_not_due')));
     }
 
+    public function testWeeklyCountersUseTheIsoWeekInTheServiceTimezone(): void
+    {
+        // 2026-10-25 23:30 UTC is Monday 2026-10-26 in Kyiv: ISO week 44, not 43.
+        $this->clock->set(new DateTimeImmutable('2026-10-25T23:30:00+00:00'));
+        $hb = new Heartbeat($this->store, $this->clock, 'svc', new DateTimeZone('Europe/Kyiv'), self::RETENTION);
+        $this->finish($hb, RunOutcome::Quiet);
+
+        self::assertSame(1.0, $this->rec(Keys::week('svc', '2026-W44', 'quiet'))['total']);
+        self::assertSame(1209600, $this->store->ttls()[Keys::week('svc', '2026-W44', 'quiet')]);
+    }
+
     /** One week of runs (W43), then the first run of W44. */
     private function aWeekOfRuns(Heartbeat $hb): void
     {
-        $this->finish($hb, RunOutcome::Reported, null, 0.10);
-        $this->finish($hb, RunOutcome::Quiet, null, 0.05);
-        $this->finish($hb, RunOutcome::Quiet, null, 0.05);
-        $this->finish($hb, RunOutcome::Failed, 'down', 0.0);
+        $this->finish($hb, RunOutcome::Reported);
+        $this->finish($hb, RunOutcome::Quiet);
+        $this->finish($hb, RunOutcome::Quiet);
+        $this->finish($hb, RunOutcome::Failed, 'down');
         $hb->recordSkip(RunOutcome::SkippedDone);
         $this->clock->set(new DateTimeImmutable('2026-10-26T06:00:10+00:00'));
     }
@@ -317,7 +314,7 @@ final class HeartbeatTest extends TestCase
         self::assertStringContainsString('quiet 2', $text);
         self::assertStringContainsString('failed 1', $text);
         self::assertStringContainsString('skipped 1', $text);
-        self::assertStringContainsString('$0.2000', $text);
+        self::assertStringContainsString('week 2026-W43', $text);
         self::assertSame(1209600, $this->store->ttls()[Keys::weekSent('svc', '2026-W43')]);
     }
 

@@ -23,7 +23,7 @@ final class HygieneConfigTest extends TestCase
             'analysis' => [
                 'api_key' => 'k',
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
-                'prices' => ['m1' => [1, 5, 0.1, 1.25], 'm2' => [3, 15, 0.3, 3.75], 'm3' => [5, 25, 0.5, 6.25]],
+
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/x']],
@@ -142,7 +142,6 @@ final class HygieneConfigTest extends TestCase
         $load = static function (): WatchConfig {
             $c = require __DIR__ . '/../../../config/watcher.php';
             self::assertArrayHasKey('hygiene', $c);
-            $c['analysis']['prices'] = ['m1' => [1, 5, 0, 0], 'm2' => [3, 15, 0, 0], 'm3' => [5, 25, 0, 0]];
 
             return WatchConfig::fromArray($c);
         };

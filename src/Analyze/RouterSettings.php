@@ -22,11 +22,11 @@ final class RouterSettings
         public readonly int $escalateMaxInputTokens = PHP_INT_MAX,
         /** analysis.triage.enabled: false = every fresh group goes straight to analysis, no triage call */
         public readonly bool $triageEnabled = true,
-        /** analysis.advice.enabled: false = the analysis prompt (and so the budget estimate) has no how_to_check / related_checks */
+        /** analysis.advice.enabled: false = the analysis prompt has no how_to_check / related_checks */
         public readonly bool $advice = true,
         /** Per-run random salt for the top_m tie-break, so a fingerprint cannot be ground to sort first. */
         public readonly string $tieSalt = '',
-        /** spec 009: measured metrics for the payload's `m` section, already fitted to the budget; null = none */
+        /** spec 009: measured metrics for the payload's `m` section, already fitted to max_input_tokens; null = none */
         public readonly ?PayloadExtras $metrics = null,
     ) {
     }

@@ -135,11 +135,6 @@ final class PrometheusSinkTest extends TestCase
         self::assertSame('35', $s['watcher_last_run_groups{trend=unchanged}']);
         self::assertSame('1200', $s['watcher_last_run_events_read']);
         self::assertSame('0', $s['watcher_last_run_truncated']);
-        self::assertSame('9000', $s['watcher_last_run_tokens{direction=in}']);
-        self::assertSame('0.0412', $s['watcher_last_run_cost_usd']);
-        self::assertSame('0.2', $s['watcher_budget_spent_usd']);
-        self::assertSame('1', $s['watcher_budget_limit_usd']);
-        self::assertSame('0.2', $s['watcher_budget_ratio']);
         self::assertSame('86400', $s['watcher_heartbeat_age_seconds']);
         self::assertSame('7', $s['watcher_runs_total{outcome=reported}']);
         self::assertSame('2', $s['watcher_sink_failures_total{sink=http}']);
@@ -186,7 +181,7 @@ final class PrometheusSinkTest extends TestCase
         self::assertSame('1', $s['watcher_last_run_outcome{outcome=skipped_locked}']);
         self::assertSame('0', $s['watcher_last_run_outcome{outcome=reported}']);
         self::assertSame((string) (new DateTimeImmutable('2026-10-24T07:00:00Z'))->getTimestamp(), $s['watcher_last_run_timestamp_seconds']);
-        foreach (['watcher_last_success_timestamp_seconds', 'watcher_last_run_findings{severity=critical}', 'watcher_last_run_groups{trend=unchanged}', 'watcher_last_run_new_findings{severity=critical}', 'watcher_last_run_tokens{direction=in}', 'watcher_last_run_cost_usd', 'watcher_budget_ratio', 'watcher_heartbeat_age_seconds'] as $k) {
+        foreach (['watcher_last_success_timestamp_seconds', 'watcher_last_run_findings{severity=critical}', 'watcher_last_run_groups{trend=unchanged}', 'watcher_last_run_new_findings{severity=critical}', 'watcher_heartbeat_age_seconds'] as $k) {
             self::assertSame($before[$k], $s[$k], $k);
         }
     }
@@ -215,19 +210,6 @@ final class PrometheusSinkTest extends TestCase
         $text = $this->read();
         self::assertSame(1, substr_count($text, "\nwatcher_last_success_timestamp_seconds{"));
         self::assertSame((string) (new DateTimeImmutable('2026-10-24T06:05:00Z'))->getTimestamp(), $this->samples($text)['watcher_last_success_timestamp_seconds']);
-    }
-
-    public function testBudgetRatioIsTheLargerAndOmittedWhenBothNull(): void
-    {
-        $events = $this->fixture();
-        $events[3]['token_ratio'] = 0.95;
-        $this->sink()->emit($events);
-        self::assertSame('0.95', $this->samples($this->read())['watcher_budget_ratio']);
-
-        $events[3]['usd_ratio'] = null;
-        $events[3]['token_ratio'] = null;
-        $this->sink()->emit($events);
-        self::assertArrayNotHasKey('watcher_budget_ratio', $this->samples($this->read()));
     }
 
     public function testNewFindingsAreZeroWithoutFindingEvents(): void
