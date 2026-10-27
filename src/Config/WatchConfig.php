@@ -813,9 +813,6 @@ final class WatchConfig implements \JsonSerializable
             if (!is_int($retries) || $retries < 0 || $retries > 3) {
                 throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0 to 3');
             }
-            if ($name !== 'anthropic' && $retries !== 0) {
-                throw new InvalidConfig('analysis.providers_options.' . $name . '.retries must be 0: this adapter does not retry (the analyzer makes its second attempt)');
-            }
             $options[$name] = ['base_url' => $url, 'retries' => $retries];
         }
 

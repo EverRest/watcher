@@ -9,8 +9,8 @@ use GuzzleHttp\ClientInterface;
 /**
  * OpenAI Chat Completions over the package's HTTP client (no official PHP SDK exists, research R2). Structured output is the
  * stripped schema in `response_format`; the analyzer still validates the reply in code. Caching is reported as read tokens
- * only; OpenAI reports no cache-write count on this endpoint, so writes are 0. The client never retries itself: `maxRetries`
- * is accepted for the shared constructor shape and must be 0 (config refuses more).
+ * only; OpenAI reports no cache-write count on this endpoint, so writes are 0. Transient failures are retried by {@see GuzzlePost}
+ * (`maxRetries` 0 to 3, within the call timeout); a refusal or an invalid reply is not.
  */
 final class OpenAiProvider implements ModelProvider
 {
@@ -24,11 +24,10 @@ final class OpenAiProvider implements ModelProvider
         #[\SensitiveParameter] string $apiKey,
         private readonly string $baseUrl,
         private readonly int $timeoutSeconds,
-        int $maxRetries = 0,
+        private readonly int $maxRetries = 0,
+        private readonly ?\Closure $sleeper = null,
+        private readonly ?\Closure $now = null,
     ) {
-        if ($maxRetries !== 0) {
-            throw new \InvalidArgumentException('OpenAI adapter does not retry; set analysis.providers_options.openai.retries to 0');
-        }
         $this->apiKey = static fn (): string => $apiKey;
     }
 
@@ -55,6 +54,9 @@ final class OpenAiProvider implements ModelProvider
             ],
             (float) $this->timeoutSeconds,
             'openai',
+            $this->maxRetries,
+            $this->sleeper,
+            $this->now,
         );
 
         return self::reply($data);

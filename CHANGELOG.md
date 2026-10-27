@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — Retry transient failures for OpenAI and Gemini
+
+- `analysis.providers_options.openai.retries` and `...gemini.retries` accept 0 to 3 (default 0), like Anthropic. Before, any value above 0 was refused at load.
+- A transient failure (429, 500, 502, 503, 504, a connect error or a timeout) is retried with backoff, or the `Retry-After` wait. A retry never extends the call past its timeout. A 400, 401, 403, 404, a refusal and an invalid reply are not retried.
+
 ## 0.5.0 — 2026-10-27 — Remove budgets and token and cost accounting
 
 Breaking: a 0.4.x configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.
