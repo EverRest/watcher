@@ -17,7 +17,8 @@ use GuzzleHttp\ClientInterface;
  */
 final class GeminiProvider implements ModelProvider
 {
-    private const STOPS = ['STOP' => 'end', 'MAX_TOKENS' => 'max_tokens', 'SAFETY' => 'refusal'];
+    /** Finish reasons that mean the model did not answer on purpose: a refusal, never retried as bad output. */
+    private const STOPS = ['STOP' => 'end', 'MAX_TOKENS' => 'max_tokens', 'SAFETY' => 'refusal', 'PROHIBITED_CONTENT' => 'refusal', 'BLOCKLIST' => 'refusal', 'SPII' => 'refusal', 'RECITATION' => 'refusal'];
 
     /** The key lives in a closure, not a property, so var_export() cannot print it. */
     private readonly \Closure $apiKey;
@@ -69,6 +70,13 @@ final class GeminiProvider implements ModelProvider
     {
         $candidate = $data['candidates'][0] ?? null;
         $usage = $data['usageMetadata'] ?? null;
+        // A prompt the service blocked has no candidate: it is a refusal, and it still carries usage when billed.
+        $blocked = is_array($data['promptFeedback'] ?? null) && is_string($data['promptFeedback']['blockReason'] ?? null);
+        if ($blocked && $candidate === null && is_array($usage)) {
+            $in = is_int($usage['promptTokenCount'] ?? null) ? $usage['promptTokenCount'] : 0;
+            $cached = is_int($usage['cachedContentTokenCount'] ?? null) ? $usage['cachedContentTokenCount'] : 0;
+            return new ModelReply(null, 'refusal', is_string($data['modelVersion'] ?? null) ? $data['modelVersion'] : $requested, $in - min($cached, $in), 0, $cached, 0);
+        }
         $in = is_array($usage) ? ($usage['promptTokenCount'] ?? null) : null;
         $out = is_array($usage) ? ($usage['candidatesTokenCount'] ?? null) : null;
         $cached = is_array($usage) ? ($usage['cachedContentTokenCount'] ?? 0) : 0;

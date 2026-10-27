@@ -118,4 +118,24 @@ final class WatchConfigProvidersTest extends TestCase
         $this->expectExceptionMessage('analysis.prices');
         WatchConfig::fromArray(self::withAnalysis(['models' => ['escalate' => 'not-priced']]));
     }
+
+    public function testOpenAiMayNotRetry(): void
+    {
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('analysis.providers_options.openai.retries must be 0');
+        WatchConfig::fromArray(self::withAnalysis([
+            'api_keys' => ['openai' => 'sk-openai'],
+            'providers' => ['triage' => 'openai'],
+            'providers_options' => ['openai' => ['retries' => 2]],
+        ]));
+    }
+
+    public function testAConfigWithOnlyTheKeysMapLoads(): void
+    {
+        $c = self::valid();
+        unset($c['analysis']['api_key']);
+        $c['analysis']['api_keys'] = ['anthropic' => 'sk-only-map'];
+
+        self::assertSame('sk-only-map', WatchConfig::reveal(WatchConfig::fromArray($c)->analysis['api_keys']['anthropic']));
+    }
 }

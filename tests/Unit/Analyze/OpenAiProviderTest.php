@@ -78,4 +78,16 @@ final class OpenAiProviderTest extends TestCase
         self::assertSame('max_tokens', $this->call('max_tokens.json')[1]->stopReason);
         self::assertSame('refusal', $this->call('refusal.json')[1]->stopReason);
     }
+
+    public function testAStructuredOutputRefusalIsARefusalNotAnEmptyAnswer(): void
+    {
+        $history = new \ArrayObject();
+        $body = ['model' => 'gpt-model', 'choices' => [['message' => ['content' => null, 'refusal' => 'I cannot help with that.'], 'finish_reason' => 'stop']], 'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 2]];
+        $stack = HandlerStack::create(new MockHandler([new Response(200, ['Content-Type' => 'application/json'], json_encode($body, JSON_THROW_ON_ERROR))]));
+        $reply = (new OpenAiProvider(new Client(['handler' => $stack]), 'sk-openai-test', 'https://openai.example.test', 60, 0))
+            ->create('gpt-model', 900, 'system text', 'user text', self::SCHEMA, false);
+
+        self::assertSame('refusal', $reply->stopReason);
+        self::assertNull($reply->text);
+    }
 }

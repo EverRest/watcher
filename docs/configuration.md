@@ -82,7 +82,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `analysis.providers.{triage,analyze,escalate}` | `analysis.provider` | Optional per-step provider. Mix freely, e.g. triage on `gemini`, the rest on `anthropic`. |
 | `analysis.api_keys.{anthropic,openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key fails at load, naming the key path. |
 | `analysis.api_key` | required | The Anthropic key, kept for compatibility; same as `analysis.api_keys.anthropic`. |
-| `analysis.providers_options.{anthropic,openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`) and `retries` (0 to 3). The Anthropic SDK retries on its own; OpenAI and Gemini do not (the analyzer's second attempt is their retry). |
+| `analysis.providers_options.{anthropic,openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` 0 to 3 for Anthropic (the SDK retries on its own); must be 0 for OpenAI and Gemini, which do not retry (the analyzer's second attempt is their retry). |
 | `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused: the Anthropic transport is the official SDK. Delete the key. |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
 | `analysis.prices` | required | `model id => [input, output, cache_read, cache_write]`, **USD per million tokens**, for every model above. Drives the cost line, the daily cap and the alerts: keep it current. |

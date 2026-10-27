@@ -567,7 +567,8 @@ final class Factory
     /** Models-list probe for `check`; null for a provider without one. Makes no call by itself. */
     public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
     {
-        return $c->analysis['provider'] === 'anthropic' ? new AnthropicModelCatalog($http, WatchConfig::reveal($c->analysis['api_key'])) : null;
+        // Only Anthropic has a model list here; it is probed when any step uses it, with that step's key.
+        return in_array('anthropic', $c->analysis['step_providers'], true) ? new AnthropicModelCatalog($http, WatchConfig::reveal($c->analysis['api_keys']['anthropic'])) : null;
     }
 
     /** The OpenAPI context reader (spec 010); null when the section is absent or switched off, so nothing is built, read or cached. */

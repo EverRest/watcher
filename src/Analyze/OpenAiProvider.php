@@ -72,10 +72,14 @@ final class OpenAiProvider implements ModelProvider
             throw new AnalyzerFailed('provider unavailable (invalid reply)');
         }
 
-        $text = is_array($choice['message'] ?? null) && is_string($choice['message']['content'] ?? null) ? $choice['message']['content'] : null;
+        $message = is_array($choice['message'] ?? null) ? $choice['message'] : [];
+        $text = is_string($message['content'] ?? null) ? $message['content'] : null;
         $finish = $choice['finish_reason'] ?? null;
+        // A structured-output refusal arrives as message.refusal with finish_reason stop: a refusal, not an empty answer.
+        $refused = is_string($message['refusal'] ?? null);
+        $stop = $refused ? 'refusal' : (is_string($finish) ? (self::STOPS[$finish] ?? null) : null);
 
         // prompt_tokens includes the cached ones: the uncached input is the rest, or the cached tokens would be paid twice.
-        return new ModelReply($text, is_string($finish) ? (self::STOPS[$finish] ?? null) : null, $data['model'], $in - $cached, $out, $cached, 0);
+        return new ModelReply($text, $stop, $data['model'], $in - $cached, $out, $cached, 0);
     }
 }

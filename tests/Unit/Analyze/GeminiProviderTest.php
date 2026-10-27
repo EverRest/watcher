@@ -89,4 +89,15 @@ final class GeminiProviderTest extends TestCase
         self::assertSame('max_tokens', $this->call('max_tokens.json')[1]->stopReason);
         self::assertSame('refusal', $this->call('refusal.json')[1]->stopReason);
     }
+
+    public function testABlockedPromptIsARefusalWithItsUsage(): void
+    {
+        $body = ['promptFeedback' => ['blockReason' => 'SAFETY'], 'usageMetadata' => ['promptTokenCount' => 90, 'cachedContentTokenCount' => 0], 'modelVersion' => 'gemini-model'];
+        $stack = HandlerStack::create(new MockHandler([new Response(200, ['Content-Type' => 'application/json'], json_encode($body, JSON_THROW_ON_ERROR))]));
+        $reply = (new GeminiProvider(new Client(['handler' => $stack]), 'gm-test', 'https://gemini.example.test', 60, 0))
+            ->create('gemini-model', 900, 'system text', 'user text', self::SCHEMA, true);
+
+        self::assertSame('refusal', $reply->stopReason);
+        self::assertSame(90, $reply->inputTokens);
+    }
 }
