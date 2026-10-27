@@ -125,13 +125,11 @@ A key of another driver (`webhook` on a Telegram entry) is an error that names t
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
 key), and `digest: combined` needs a fleet `notify.digest` of any driver.
 
-### `kubernetes` and `events` (optional, spec 008)
+### Removed in 0.6.0: `kubernetes`, `events` and `source.driver: kubernetes`
 
-Pod events from the Kubernetes API as a second source. Setup, RBAC and limits: [kubernetes.md](kubernetes.md). `events` is
-`['driver' => 'kubernetes']`, beside `source`; settings live in `kubernetes`: `enabled` (flag, default true),
-`api` (`in_cluster`, or `server` + exactly one of `token` / `token_file` [+ `ca_file`], https, or http under `allow_insecure` for a trusted network; `token_file` is an absolute path read at call time so a rotated token works, a regular file of at most 16 KB that is not world-writable; `ca_file` is an absolute path to a readable, non-empty PEM bundle with at least one certificate; an unreadable token or CA is never used and never replaced by a weaker one: the read fails with the reason `credential unreadable`. That does **not** fail the run: the earlier hourly reads are replayed from the ledger with the note "latest read failed (credential unreadable)", and only a ledger that was never filled gives "Pod events were not read". Messages name the key, never the path; the token, or the current content of `token_file`, is masked everywhere like every other secret), `api.allow_insecure` (default false; the same rule as `source.loki.allow_insecure`: `server` must be `https`, plain `http` only for a loopback, private-network or cluster-local host and only with `allow_insecure: true`; a loopback server such as `kubectl proxy` also needs it; a metadata address is always refused), `namespaces` (required), `label_selector`, `involved_kinds`,
-`critical_reasons`, `min_repeat_for_probe_failures` (3), `event_cap` (5000), `tolerance` (120 s), `event_ttl` (3600 s),
-`ledger_ttl`, `allow` (`registries`, `images` kept in image text), `exporter` (true: warn in `check`).
+The Kubernetes event source (spec 008) is gone. A configuration that still has the top-level `kubernetes` section, the
+top-level `events` section or `source.driver: kubernetes` fails at load, and the message says to delete it. Read the events
+from your log backend instead, through `source.driver: loki` or `datadog`. See [kubernetes.md](kubernetes.md).
 
 ### `observe` (event sinks, spec 013)
 

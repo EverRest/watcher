@@ -49,7 +49,6 @@ final class NoBudgetNamesTest extends TestCase
         'docs/configuration.md' => ['budget'], // time_budget, service_time_budget, memory_budget_mb, max_seconds and clustering limits
         'docs/operations.md' => ['budget', 'spend'], // time/page budgets, clustering budget, store size budget; 'spend' only inside 'suspend' (CronJob)
         'docs/privacy.md' => ['budget'], // comparison budget of clustering
-        'docs/kubernetes.md' => ['budget'], // two-minute request budget and the store's codec budgets
         'docs/examples/watcher-fleet.php' => ['budget'], // time_budget key
     ];
 

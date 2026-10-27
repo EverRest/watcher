@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0 — 2026-10-28 — Remove the Kubernetes event source
+
+Breaking: a configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.
+The Kubernetes event source (spec 008) is gone. Pod-level problems are not read from the cluster any more; see "What to do instead".
+
+### Removed configuration (each fails at load with its message; `watcher check` lists them all)
+
+| Key | Message |
+|---|---|
+| `kubernetes` (whole section, including `kubernetes.enabled`) | kubernetes section was removed in 0.6.0; there is no replacement. Delete this section. |
+| `events` (whole section) | events section was removed in 0.6.0; there is no replacement. Delete this section. |
+| `source.driver: kubernetes` | source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings. |
+
+`source.driver` values are now `loki` or `datadog` only. The feature flag `kubernetes` is gone with the section.
+`WATCHER_KUBERNETES_ENABLED` is no longer read; it produces no message.
+
+### Removed behaviour
+- No cluster read on any trigger, and no `--dry-run` read of the cluster. The hourly ledger and its `evt:` state records are gone; records left in a state store expire on their own TTL and nothing reads them.
+- `KUBERNETES_SERVICE_HOST` is no longer read. The in-cluster flag is gone, so `watcher check` no longer warns that `state.driver=file` is used inside Kubernetes.
+- Heartbeat: no `events` field. Nothing sets `degraded` any more (the value stays in the status vocabulary, so exit codes do not change).
+- Digest: no pod-event lines and no `k8s_*` read-quality counters.
+- Outcome code `k8s_ingest_failed` (reserved, never emitted) is no longer registered.
+- `watcher check`: no `events` check.
+- JSON run summary: no `events` key.
+
+### What to do instead
+1. Delete the `kubernetes` and `events` sections, and `source.driver: kubernetes`, from every service configuration (and from the fleet file).
+2. Remove the RBAC role and binding that let watcher read `events` and `pods`, if nothing else uses them.
+3. To keep crash loops, OOM kills, image pull failures, failing probes and restarts in the digest, export the cluster events to the log backend your service already reads, and read them through `source.driver: loki` or `datadog` with a stream selector for them. Watcher then reads them like any other log line and redacts them the same way.
+
+[`docs/kubernetes.md`](docs/kubernetes.md) is kept as a short pointer. Spec 008 stays in `specs/` as history.
+
 ## 0.5.0 — 2026-10-27 — Remove budgets and token and cost accounting
 
 Breaking: a 0.4.x configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.

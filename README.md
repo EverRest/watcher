@@ -8,7 +8,7 @@
 <!-- badges:end -->
 
 Scheduled, model-routed log analysis. Once per window (default 24 h) it reads one service's logs from
-Loki or Datadog (or its Kubernetes pod events), groups errors into fingerprinted clusters, decides in plain code which ones deserve
+Loki or Datadog, groups errors into fingerprinted clusters, decides in plain code which ones deserve
 attention, asks Anthropic models to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
 it never acts on a service, opens tickets, or stores raw log lines.
 
@@ -30,7 +30,7 @@ Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which 
 
 Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`).
 
-Kubernetes events (spec 008): `source.driver: kubernetes` reads pod-level problems (crash loops, OOM kills, image pull failures, probes, restarts) through an hourly ledger; see [docs/kubernetes.md](docs/kubernetes.md).
+Kubernetes events (spec 008) were removed in 0.6.0: the `kubernetes` and `events` sections and `source.driver: kubernetes` fail at load. Export cluster events to your log backend and read them through `loki` or `datadog`.
 
 Read-only MCP server (spec 015): `watcher mcp` over stdio lets an assistant read status, the latest report, one finding, the hygiene report and an optional confirmed dry run, and `--setup` helps to write and validate a first config. It never writes to a monitored system.
 
@@ -130,7 +130,7 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [005](specs/005-incident-workflow/spec.md) | Incident workflow | Phases 1–3 implemented (known issues, severity routing, ticket drafts); weekly report deferred |
 | [006](specs/006-log-hygiene/spec.md) | Log hygiene | Implemented |
 | [007](specs/007-code-aware-analysis/spec.md) | Code-aware analysis | Spec written, blocked on a constitution amendment |
-| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Implemented |
+| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Removed in 0.6.0 |
 | [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Not released (branch `feat/metrics-e009-030`) |
 | [010](specs/010-api-context/spec.md) | API context | Implemented, off by default |
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
@@ -229,7 +229,7 @@ the lowest-priority groups and the digest says so.
 | 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
-exits 0 when `ok`, 1 when `degraded` (the last run worked but the pod events could not be read), `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
+exits 0 when `ok`, 1 when `degraded`, `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store). No source sets `degraded` in 0.6.0.
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to
@@ -272,7 +272,7 @@ decided in code from names, placeholders and times; it makes no model call and w
   threshold again or on the next day.
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
-- Only Slack, Telegram, Discord, Anthropic, Loki, Datadog, Kubernetes events and the three state drivers exist. There is no remediation and no ticketing.
+- Only Slack, Telegram, Discord, Anthropic, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
 - Metrics and Sentry (spec 009) and the weekly report (spec 005) are not released yet.
 - Same-slot baselines for several runs a day and the daily roll-up digest (spec 014) are not released yet.
 
