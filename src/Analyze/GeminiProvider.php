@@ -73,9 +73,13 @@ final class GeminiProvider implements ModelProvider
         // A prompt the service blocked has no candidate: it is a refusal, and it still carries usage when billed.
         $blocked = is_array($data['promptFeedback'] ?? null) && is_string($data['promptFeedback']['blockReason'] ?? null);
         if ($blocked && $candidate === null && is_array($usage)) {
-            $in = is_int($usage['promptTokenCount'] ?? null) ? $usage['promptTokenCount'] : 0;
-            $cached = is_int($usage['cachedContentTokenCount'] ?? null) ? $usage['cachedContentTokenCount'] : 0;
-            return new ModelReply(null, 'refusal', is_string($data['modelVersion'] ?? null) ? $data['modelVersion'] : $requested, $in - min($cached, $in), 0, $cached, 0);
+            $in = $usage['promptTokenCount'] ?? null;
+            $cached = $usage['cachedContentTokenCount'] ?? 0;
+            if (!is_int($in) || !is_int($cached) || $in < 0 || $cached < 0 || $cached > $in) {
+                throw new AnalyzerFailed('provider unavailable (invalid reply)'); // same rules as the answered path
+            }
+
+            return new ModelReply(null, 'refusal', is_string($data['modelVersion'] ?? null) ? $data['modelVersion'] : $requested, $in - $cached, 0, $cached, 0);
         }
         $in = is_array($usage) ? ($usage['promptTokenCount'] ?? null) : null;
         $out = is_array($usage) ? ($usage['candidatesTokenCount'] ?? null) : null;
