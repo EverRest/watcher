@@ -401,7 +401,6 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_DD_SITE`, `WATCHER_DD_API_KEY*`, `WATCHER_DD_APP_KEY*` | `source.datadog.*` |
 | `WATCHER_ANTHROPIC_KEY*` | `analysis.api_key` |
 | `WATCHER_MODEL_TRIAGE*`, `WATCHER_MODEL_ANALYZE*`, `WATCHER_MODEL_ESCALATE*` | `analysis.models.*` |
-| `WATCHER_PRICE_{TRIAGE,ANALYZE,ESCALATE}_{IN,OUT}*` | `analysis.prices` (example config only) |
 | `WATCHER_STATE`, `WATCHER_STATE_PATH` | `state.driver`, `state.file.path` |
 | `WATCHER_RUN_DEADLINE` | `schedule.run_deadline` (seconds; shipped `config/watcher.php` only) |
 | `WATCHER_REDIS_{HOST,PORT,PASSWORD,DATABASE}` | `state.redis.*` |

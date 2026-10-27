@@ -120,12 +120,12 @@
 
 ## Phase 6: Polish & cross-cutting concerns
 
-- [ ] T034 [P] Update `docs/configuration.md`: new keys (`analysis.providers`, `analysis.api_keys`, `analysis.providers_options`), env variables, the `analysis.client` rule (absent or `http` only), and the per-step example from contracts/analysis-config.md with placeholder model ids.
+- [X] T034 [P] Update `docs/configuration.md`: new keys (`analysis.providers`, `analysis.api_keys`, `analysis.providers_options`), env variables, the `analysis.client` rule (absent or `http` only), and the per-step example from contracts/analysis-config.md with placeholder model ids.
 - [ ] T035 [P] Update `docs/smoke-test.md`: choose a provider per step; run once per enabled provider; compare the cost line with that provider's console (within about 10%).
-- [ ] T036 [P] Update `CHANGELOG.md` under Unreleased: reinstated `anthropic-ai/sdk` (reverses the 0.3.0 removal; reasons, pin, beta status from research.md R1); `analysis.client = sdk` now refused with the replacement message; new per-step providers; `analysis.api_keys`.
-- [ ] T037 [P] Remove any leftover `MessagesClient` or `AnthropicHttpClient` mention from code comments and docs (`grep -rn "MessagesClient\|AnthropicHttpClient" src tests docs`).
-- [ ] T038 Run the focused checks from quickstart.md: `vendor/bin/phpunit --filter ModelProviderContract`, `vendor/bin/phpunit --filter Privacy`, `php bin/watcher check --config=tests/Fixtures/config/provider-mix.php --json`. Record each exit code.
-- [ ] T039 Run the gates and record exit codes (not the tail of output): `composer test; echo "test=$?"`, `composer stan; echo "stan=$?"`, `composer style; echo "style=$?"`. All must be 0 before the stage is committed.
+- [X] T036 [P] Update `CHANGELOG.md` under Unreleased: reinstated `anthropic-ai/sdk` (reverses the 0.3.0 removal; reasons, pin, beta status from research.md R1); `analysis.client = sdk` now refused with the replacement message; new per-step providers; `analysis.api_keys`.
+- [X] T037 [P] Remove any leftover `MessagesClient` or `AnthropicHttpClient` mention from code comments and docs (`grep -rn "MessagesClient\|AnthropicHttpClient" src tests docs`).
+- [X] T038 Run the focused checks from quickstart.md: `vendor/bin/phpunit --filter ModelProviderContract`, `vendor/bin/phpunit --filter Privacy`, `php bin/watcher check --config=tests/Fixtures/config/provider-mix.php --json`. Record each exit code.
+- [X] T039 Run the gates and record exit codes (not the tail of output): `composer test; echo "test=$?"`, `composer stan; echo "stan=$?"`, `composer style; echo "style=$?"`. All must be 0 before the stage is committed.
 - [ ] T041 [P] Remove the `WATCHER_PRICE_*` variables from the price path: `src/Mcp/SetupCatalog.php` (ask for prices as configuration values, not env names), `docs/configuration.md` (the env table row), `docs/smoke-test.md` (the price variables and the env file block), `docs/examples/smoke.config.php` and `docs/examples/orders-api.loki.config.php` (literal prices in the file, with a comment naming the provider's pricing page). Spec amendment: FR-003 in spec.md, decision of 2026-10-27.
 - [ ] T040 Live smoke, costs money, ask-first (spec, quickstart section 5): only after T038 and T039 are green and only with the owner's go-ahead. Run `docs/smoke-test.md` once per enabled provider. Then, and only then, widen the SDK pin in `composer.json` from `1.3.0` to `~1.3.0` if the owner agrees.
 

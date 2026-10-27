@@ -34,7 +34,8 @@ final class AnthropicSdkProvider implements ModelProvider
     {
         $stack = $http->getConfig('handler') instanceof HandlerStack ? clone $http->getConfig('handler') : HandlerStack::create();
         // Redirects off, TLS verified and the reply size-capped on every call, whatever the caller's client was built with.
-        $stack->push(static fn (callable $next): \Closure => static fn (RequestInterface $r, array $o): PromiseInterface => $next($r, array_replace($o, ['allow_redirects' => false, 'verify' => true]))->then(
+        $bounds = ['allow_redirects' => false, 'verify' => true, 'timeout' => (float) $timeoutSeconds, 'connect_timeout' => 10];
+        $stack->push(static fn (callable $next): \Closure => static fn (RequestInterface $r, array $o): PromiseInterface => $next($r, array_replace($o, $bounds))->then(
             static function (ResponseInterface $response): ResponseInterface {
                 if (($response->getBody()->getSize() ?? 0) > ResponseLimit::MAX_BYTES) {
                     throw new AnalyzerFailed('provider unavailable (invalid reply)'); // oversized: never handed to the SDK's parser

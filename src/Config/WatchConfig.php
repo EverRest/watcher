@@ -700,7 +700,6 @@ final class WatchConfig implements \JsonSerializable
     private static function analysis(array $a, int $runsPerDay, int $periodSeconds): array
     {
         self::only($a, ['provider', 'providers', 'api_keys', 'providers_options', 'client', 'api_key', 'models', 'prices', 'max_input_tokens', 'max_output_tokens', 'confidence_threshold', 'escalation_cap', 'daily_budget_usd', 'daily_token_limit', 'budget_alert_percents', 'max_runs_per_day', 'run_budget_usd', 'triage', 'advice'], 'analysis');
-        self::str($a, 'api_key', 'analysis.api_key');
         $models = self::section($a, 'models');
         self::only($models, self::STEPS, 'analysis.models');
         foreach (self::STEPS as $step) {
@@ -818,7 +817,9 @@ final class WatchConfig implements \JsonSerializable
         }
         foreach (array_unique(array_values($steps)) as $name) {
             if (!isset($apiKeys[$name])) {
-                throw new InvalidConfig('analysis.api_keys.' . $name . ' is required for the provider in use');
+                throw new InvalidConfig($name === 'anthropic'
+                    ? 'analysis.api_key (or analysis.api_keys.anthropic) is required for the anthropic provider'
+                    : 'analysis.api_keys.' . $name . ' is required for the provider in use');
             }
         }
 
