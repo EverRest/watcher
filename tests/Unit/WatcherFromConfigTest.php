@@ -29,7 +29,7 @@ final class WatcherFromConfigTest extends TestCase
             'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid', 'auth' => ['type' => 'bearer', 'token' => 't']]],
-            'analysis' => ['api_key' => 'k', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
+            'analysis' => ['api_keys' => ['gemini' => 'k'], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => sys_get_temp_dir() . '/watcher-from-config-test']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],
         ];

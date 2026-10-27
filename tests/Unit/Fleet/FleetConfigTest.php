@@ -25,7 +25,7 @@ final class FleetConfigTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid'], 'stream_tags' => ['app' => $name]],
             'analysis' => [
-                'api_key' => self::SECRET,
+                'api_keys' => ['gemini' => self::SECRET],
                 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'],
 
             ],
@@ -144,7 +144,7 @@ final class FleetConfigTest extends TestCase
 
     public function testDifferingApiKeyIsRejectedWithoutEchoingIt(): void
     {
-        $msg = self::message(self::fleet([self::service('a'), self::service('b', ['analysis' => ['api_key' => 'another-secret-key-value']])]));
+        $msg = self::message(self::fleet([self::service('a'), self::service('b', ['analysis' => ['api_keys' => ['gemini' => 'another-secret-key-value']]])]));
 
         self::assertSame('services[1] (b): analysis.api_keys must be identical in all services (differs from services[0] (a))', $msg);
         self::assertStringNotContainsString('another-secret', $msg);

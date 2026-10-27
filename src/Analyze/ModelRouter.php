@@ -97,7 +97,7 @@ final class ModelRouter
             $dropped = $notAnalysed = count($interesting) - count($top);
             $topContext = self::remap($dependencyContext, $groups, $top);
             $topEndpoints = self::only($endpoints, $top);
-            $analyzeCap = AnthropicAnalyzer::analysisOutputCap($this->s->analyzeMaxTokens, count($top), $this->s->advice);
+            $analyzeCap = ProviderAnalyzer::analysisOutputCap($this->s->analyzeMaxTokens, count($top), $this->s->advice);
 
             try {
                 $res = $this->analyzer->analyze(new AnalysisRequest($top, $this->s->serviceContext, $this->s->analyzeModel, $analyzeCap, $topContext, $this->s->metrics, $topEndpoints));
@@ -129,7 +129,7 @@ final class ModelRouter
                     if ($this->inputTokens('analyze', $sub, $subContext, $this->s->metrics, $subEndpoints) > $this->s->escalateMaxInputTokens) {
                         $subEndpoints = []; // context, not evidence: it goes before anything else is cut
                     }
-                    $escalateCap = AnthropicAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
+                    $escalateCap = ProviderAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
                     ++$escalations;
                     $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext, $this->s->metrics, $subEndpoints, 'escalate'));
                     if ($again->findings !== []) {

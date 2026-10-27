@@ -12,9 +12,9 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Watcher\Analyze\AnalysisRequest;
-use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\ProviderAnalyzer;
 use Watcher\Analyze\ProviderRegistry;
-use Watcher\Analyze\AnthropicSdkProvider;
+use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Config\InvalidConfig;
 use Watcher\Config\WatchConfig;
@@ -81,17 +81,17 @@ final class ServiceContextTest extends TestCase
     /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> */
     private array $history = [];
 
-    public function testAnthropicPutsTheContextInTheCachedPrefixOfTriageAndAnalysis(): void
+    public function testTheContextSitsInTheSystemInstructionOfTriageAndAnalysisNotInTheLogData(): void
     {
         $stack = HandlerStack::create(new MockHandler([
-            new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-triage-valid.json')),
-            new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/anthropic/message-valid.json')),
+            new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/providers/gemini/triage_valid.json')),
+            new Response(200, ['Content-Type' => 'application/json'], (string) file_get_contents(__DIR__ . '/../../Fixtures/providers/gemini/ok.json')),
         ]));
         /** @var list<array{request: \Psr\Http\Message\RequestInterface, response: \Psr\Http\Message\ResponseInterface|null, error: mixed, options: array<mixed>}> $log */
         $log = [];
         $this->history = &$log; // Guzzle fills it by reference
         $stack->push(Middleware::history($log));
-        $analyzer = new AnthropicAnalyzer(ProviderRegistry::single(new AnthropicSdkProvider(new Client(['handler' => $stack]), 'k', 'https://api.anthropic.com', 60, 0)));
+        $analyzer = new ProviderAnalyzer(ProviderRegistry::single(new GeminiProvider(new Client(['handler' => $stack]), 'k', 'https://generativelanguage.googleapis.com', 60, 0)));
         $t = new DateTimeImmutable('2026-10-23T05:00:00Z');
         $g = new RedactedGroup('fp-aaa', 'Timeout', Level::Error, null, [], 3, null, GroupStatusLabel::New, [], $t, $t);
 
@@ -101,10 +101,8 @@ final class ServiceContextTest extends TestCase
         self::assertCount(2, $this->history);
         foreach ($this->history as $h) {
             $body = json_decode((string) $h['request']->getBody(), true);
-            $system = $body['system'];
-            self::assertStringContainsString('CONTEXT-MARK payments', implode("\n", array_column($system, 'text')));
-            self::assertSame('ephemeral', $system[array_key_last($system)]['cache_control']['type']);
-            self::assertStringNotContainsString('CONTEXT-MARK', json_encode($body['messages'], JSON_THROW_ON_ERROR));
+            self::assertStringContainsString('CONTEXT-MARK payments', $body['systemInstruction']['parts'][0]['text']);
+            self::assertStringNotContainsString('CONTEXT-MARK', json_encode($body['contents'], JSON_THROW_ON_ERROR));
         }
     }
 }

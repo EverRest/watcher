@@ -14,8 +14,7 @@ use Psr\Log\LoggerInterface;
 use Redis;
 use RedisException;
 use Watcher\Analyze\Analyzer;
-use Watcher\Analyze\AnthropicAnalyzer;
-use Watcher\Analyze\AnthropicSdkProvider;
+use Watcher\Analyze\ProviderAnalyzer;
 use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\ModelProvider;
 use Watcher\Analyze\OpenAiProvider;
@@ -41,11 +40,9 @@ use Watcher\Reduce\Normalizer;
 use Watcher\Source\Retry;
 use Watcher\Notify\Notifier;
 use Watcher\Notify\RoutingNotifier;
-use Watcher\Operate\AnthropicModelCatalog;
 use Watcher\Operate\Doctor;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\HeartbeatStatus;
-use Watcher\Operate\ModelCatalog;
 use Watcher\Operate\RefusedAccess;
 use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
@@ -451,7 +448,7 @@ final class Factory
         foreach (array_unique(array_values($c->analysis['step_providers'])) as $name) {
             $providers[$name] = self::modelProvider($name, $c, $http, $options['timeout']);
         }
-        return new AnthropicAnalyzer(new ProviderRegistry($providers, $c->analysis['step_providers']), $c->on('advice'));
+        return new ProviderAnalyzer(new ProviderRegistry($providers, $c->analysis['step_providers']), $c->on('advice'));
     }
 
     /** The adapter for one provider name, with its key, base URL and retries from configuration (spec 016). */
@@ -461,7 +458,6 @@ final class Factory
         $opt = $c->analysis['providers_options'][$name];
 
         return match ($name) {
-            'anthropic' => new AnthropicSdkProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
             'openai' => new OpenAiProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
             'gemini' => new GeminiProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
             default => throw new \LogicException("no adapter for provider $name"),
@@ -526,11 +522,10 @@ final class Factory
         return new SinkDispatcher($sinks, new EventSanitizer($redactor), $log);
     }
 
-    /** Models-list probe for `check`; null for a provider without one. Makes no call by itself. */
-    public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
+    /** No provider has a model list now, so `check` reports provider_auth and models as skipped (Doctor takes null). */
+    public static function modelCatalog(WatchConfig $c, Client $http): null
     {
-        // Only Anthropic has a model list here; it is probed when any step uses it, with that step's key.
-        return in_array('anthropic', $c->analysis['step_providers'], true) ? new AnthropicModelCatalog($http, WatchConfig::reveal($c->analysis['api_keys']['anthropic'])) : null;
+        return null;
     }
 
     /** The OpenAPI context reader (spec 010); null when the section is absent or switched off, so nothing is built, read or cached. */

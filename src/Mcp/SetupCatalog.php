@@ -14,7 +14,7 @@ final class SetupCatalog
     /** @var array<string, array{name: string, purpose: string, secret: bool, required: bool}> logical name => variable */
     public const ENV = [
         'enabled' => ['name' => 'WATCHER_ENABLED', 'purpose' => 'Master switch; off unless set to 1/true in the environment that should run the watcher.', 'secret' => false, 'required' => false],
-        'anthropic_key' => ['name' => 'WATCHER_ANTHROPIC_KEY', 'purpose' => 'Model provider API key.', 'secret' => true, 'required' => true],
+        'gemini_key' => ['name' => 'WATCHER_GEMINI_KEY', 'purpose' => 'Gemini API key (the model provider).', 'secret' => true, 'required' => true],
         'model_triage' => ['name' => 'WATCHER_MODEL_TRIAGE', 'purpose' => 'Model id of the triage tier (the cheapest).', 'secret' => false, 'required' => true],
         'model_analyze' => ['name' => 'WATCHER_MODEL_ANALYZE', 'purpose' => 'Model id of the analysis tier.', 'secret' => false, 'required' => true],
         'model_escalate' => ['name' => 'WATCHER_MODEL_ESCALATE', 'purpose' => 'Model id of the escalation tier (the strongest).', 'secret' => false, 'required' => true],
@@ -43,7 +43,7 @@ final class SetupCatalog
     public const NOTIFIER_VARS = ['slack' => ['slack_webhook'], 'telegram' => ['tg_token', 'tg_chat'], 'discord' => ['discord_webhook']];
     /** @var array<string, list<string>> */
     public const STATE_VARS = ['file' => ['state_path'], 'pdo' => ['db_dsn', 'db_username', 'db_password'], 'redis' => ['redis_host', 'redis_port', 'redis_password', 'redis_database']];
-    public const COMMON_VARS = ['enabled', 'anthropic_key', 'model_triage', 'model_analyze', 'model_escalate'];
+    public const COMMON_VARS = ['enabled', 'gemini_key', 'model_triage', 'model_analyze', 'model_escalate'];
 
     /** The command to run `watcher <sub>` on a host; `<config>` is a placeholder for the path of the configuration file. */
     public static function command(string $host, string $sub): string

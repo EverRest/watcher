@@ -9,7 +9,7 @@ use Watcher\Context\DependencyContext;
 use Watcher\Privacy\RedactedGroup;
 
 /** One structured-output call through a ModelProvider, validated in code, one retry on bad output. */
-final class AnthropicAnalyzer implements Analyzer
+final class ProviderAnalyzer implements Analyzer
 {
     private readonly OutputValidator $validator;
 

@@ -57,7 +57,7 @@ final class Harness
                 'anomaly_cap' => 100,
             ],
             'analysis' => [
-                'api_key' => 'k',
+                'api_keys' => ['gemini' => 'k'],
                 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'],
 
             ],

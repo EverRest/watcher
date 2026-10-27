@@ -41,7 +41,7 @@ final class DoctorEventsTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test'], 'stream_tags' => ['app' => 'orders']],
             'analysis' => [
-                'api_key' => 'sk-ant-SECRET-KEY',
+                'api_keys' => ['gemini' => 'sk-ant-SECRET-KEY'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],

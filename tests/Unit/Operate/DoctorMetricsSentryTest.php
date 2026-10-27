@@ -27,7 +27,7 @@ final class DoctorMetricsSentryTest extends TestCase
             'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test'], 'stream_tags' => ['app' => 'orders']],
-            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'], ],
+            'analysis' => ['api_keys' => ['gemini' => 'sk-secret-key'], 'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],
             'notify' => ['digest' => ['webhook' => 'https://hooks.slack.test/services/T0/B0/X']],
         ]);
