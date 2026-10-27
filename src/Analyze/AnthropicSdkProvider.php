@@ -34,7 +34,9 @@ final class AnthropicSdkProvider implements ModelProvider
 
     public function __construct(ClientInterface $http, #[\SensitiveParameter] string $apiKey, string $baseUrl, int $timeoutSeconds, int $maxRetries)
     {
-        $stack = $http->getConfig('handler') instanceof HandlerStack ? clone $http->getConfig('handler') : HandlerStack::create();
+        // Guzzle's own Client carries its handler stack; a bare ClientInterface (Guzzle 8) does not expose it.
+        $handler = $http instanceof \GuzzleHttp\Client ? $http->getConfig('handler') : null;
+        $stack = $handler instanceof HandlerStack ? clone $handler : HandlerStack::create();
         // Redirects off, TLS verified, timeouts and the reply size bounded on every call, whatever the caller's client was built with.
         $bounds = ['allow_redirects' => false, 'verify' => true, 'timeout' => (float) $timeoutSeconds, 'connect_timeout' => 10];
         $stack->push(static fn (callable $next): \Closure => static function (RequestInterface $r, array $o) use ($next, $bounds): PromiseInterface {
