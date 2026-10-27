@@ -86,7 +86,7 @@ final class FleetRunner
 
         $share = $fleet->serviceTimeBudgetSeconds(); // A4-12: one slow service cannot take the whole fleet's time
         $watcherFor = static function (ServiceEntry $e, RunOptions $options, ?FleetSeam $seam = null) use ($sources, $events, $sinks, $counters, $state, $notifier, $clock, $log, $out, $share, $http): callable {
-            // Spec 009: a service's own metrics and Sentry (its own tokens, one 60 s budget per call) stop with the run deadline of its Watcher.
+            // Spec 009: a service's own metrics and Sentry (its own tokens, one 60 s limit per call) stop with the run deadline of its Watcher.
             $late = new class () {
                 public ?Watcher $watcher = null;
             };
@@ -131,7 +131,7 @@ final class FleetRunner
             throw new InvalidConfig('--only names a service that is not in the fleet');
         }
         if (!$this->config->enabled) {
-            // The fleet switch: no store, budget, source or notifier is reached.
+            // The fleet switch: no store, source or notifier is reached.
             return new FleetResult($this->config->name, array_map(static fn (string $n): ServiceResult => ServiceResult::disabled($n), array_values(array_filter($names, static fn (string $n): bool => $only === [] || in_array($n, $only, true)))));
         }
         $startedAt = $this->clock->now();

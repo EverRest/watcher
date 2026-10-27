@@ -30,7 +30,7 @@ If any check fails, stop and see [If something fails](#if-something-fails).
 | Need | Where to get it | Environment variable |
 |---|---|---|
 | Checkout of this repo with dependencies | `cd ~/code/watcher && composer install` (PHP 8.2 or newer) | n/a |
-| Anthropic API key | Anthropic Console > API keys > create a key named for this test. Set a spend limit on its workspace first. | `WATCHER_ANTHROPIC_KEY` |
+| Anthropic API key | Anthropic Console > API keys > create a key named for this test. Set a usage limit on its workspace first. | `WATCHER_ANTHROPIC_KEY` |
 | Three model ids (cheap / mid / strong) | Console model list. Triage = smallest, analysis = middle, escalation = strongest. | `WATCHER_MODEL_TRIAGE`, `WATCHER_MODEL_ANALYZE`, `WATCHER_MODEL_ESCALATE` |
 | Read-only Loki access | Grafana > Administration > Users and access > Service accounts > new account with role **Viewer** > add token. | `WATCHER_LOKI_TOKEN` |
 | Loki base URL | Through Grafana: `https://<grafana-host>/api/datasources/proxy/uid/<datasource-uid>` (the uid is in the data source's address bar). Direct Loki: its own base URL. | `WATCHER_LOKI_URL` |

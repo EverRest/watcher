@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/EverRest/watcher/schema/watcher.event.v1.schema.json",
+  "title": "watcher.event.v1",
+  "description": "DRAFT. One line of the watcher event stream. Producer-strict: no property outside this schema is ever emitted. Consumers should ignore unknown properties (additive changes keep the v1 name). Text properties are present only when the sink has include_text=true. Retired: 0.5.0 (superseded by watcher.event.v2).",
+  "type": "object",
+  "required": ["schema", "event_type"],
+  "oneOf": [
+    { "$ref": "#/$defs/run" },
+    { "$ref": "#/$defs/finding" },
+    { "$ref": "#/$defs/group" },
+    { "$ref": "#/$defs/budget" },
+    { "$ref": "#/$defs/heartbeat" },
+    { "$ref": "#/$defs/delivery_failure" },
+    { "$ref": "#/$defs/config_warning" }
+  ],
+  "$defs": {
+    "ts": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+    "tsOrNull": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+    "fp": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "usd": { "type": "number", "minimum": 0 },
+    "ratio": { "type": ["number", "null"], "minimum": 0 },
+    "severity": { "enum": ["info", "warn", "error", "critical"] },
+    "trend": { "enum": ["new", "grown", "unchanged", "expected"] },
+    "envelope": {
+      "type": "object",
+      "required": ["schema", "event_type", "event_id", "ts", "service", "environment", "run_id", "version", "window_start", "window_end"],
+      "properties": {
+        "schema": { "const": "watcher.event.v1" },
+        "event_id": { "type": "string", "pattern": "^[0-9a-f]{16}-[1-9][0-9]{0,5}$" },
+        "ts": { "$ref": "#/$defs/ts" },
+        "service": { "$ref": "#/$defs/name" },
+        "environment": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$|^unset$" },
+        "run_id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "version": { "type": "string", "pattern": "^[A-Za-z0-9._+-]{1,32}$" },
+        "window_start": { "$ref": "#/$defs/tsOrNull" },
+        "window_end": { "$ref": "#/$defs/tsOrNull" }
+      }
+    },
+    "run": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "required": ["event_type", "outcome", "reason", "dry_run", "release", "duration_ms", "events_read", "groups_total", "candidates", "findings_total", "findings_by_severity", "groups_by_trend", "calls", "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "escalations", "reused", "not_analysed", "muted", "truncated"],
+      "properties": {
+        "event_type": { "const": "run" },
+        "outcome": { "enum": ["reported", "quiet", "baselined", "failed", "skipped_done", "skipped_locked"] },
+        "reason": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_.:()\\\\ -]{1,80}$" },
+        "dry_run": { "type": "boolean" },
+        "release": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9._+-]{1,64}$" },
+        "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "events_read": { "type": ["integer", "null"], "minimum": 0 },
+        "groups_total": { "type": ["integer", "null"], "minimum": 0 },
+        "candidates": { "type": ["integer", "null"], "minimum": 0 },
+        "findings_total": { "type": ["integer", "null"], "minimum": 0 },
+        "findings_by_severity": {
+          "type": "object",
+          "required": ["info", "warn", "error", "critical"],
+          "properties": { "info": { "$ref": "#/$defs/count" }, "warn": { "$ref": "#/$defs/count" }, "error": { "$ref": "#/$defs/count" }, "critical": { "$ref": "#/$defs/count" } },
+          "additionalProperties": false
+        },
+        "groups_by_trend": {
+          "type": "object",
+          "required": ["new", "grown", "unchanged", "expected"],
+          "properties": { "new": { "$ref": "#/$defs/count" }, "grown": { "$ref": "#/$defs/count" }, "unchanged": { "$ref": "#/$defs/count" }, "expected": { "$ref": "#/$defs/count" } },
+          "additionalProperties": false
+        },
+        "calls": {
+          "type": "object",
+          "required": ["triage", "analyze", "escalate"],
+          "properties": { "triage": { "$ref": "#/$defs/count" }, "analyze": { "$ref": "#/$defs/count" }, "escalate": { "$ref": "#/$defs/count" } },
+          "additionalProperties": false
+        },
+        "tokens_in": { "$ref": "#/$defs/count" },
+        "tokens_out": { "$ref": "#/$defs/count" },
+        "tokens_cached": { "$ref": "#/$defs/count" },
+        "cost_usd": { "$ref": "#/$defs/usd" },
+        "escalations": { "$ref": "#/$defs/count" },
+        "reused": { "$ref": "#/$defs/count" },
+        "not_analysed": { "$ref": "#/$defs/count" },
+        "muted": { "$ref": "#/$defs/count" },
+        "truncated": { "type": "boolean" }
+      },
+      "unevaluatedProperties": false
+    },
+    "finding": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "required": ["event_type", "finding_index", "fingerprint", "fingerprints", "kind", "severity", "confidence", "escalated", "group_trend", "group_count", "group_previous_count", "after_release"],
+      "properties": {
+        "event_type": { "const": "finding" },
+        "finding_index": { "type": "integer", "minimum": 1 },
+        "fingerprint": { "$ref": "#/$defs/fp" },
+        "fingerprints": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/fp" } },
+        "kind": { "enum": ["bug", "regression", "anomaly", "noise"] },
+        "severity": { "$ref": "#/$defs/severity" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "escalated": { "type": "boolean" },
+        "group_trend": { "enum": ["new", "grown", "unchanged", "expected", null] },
+        "group_count": { "type": ["integer", "null"], "minimum": 0 },
+        "group_previous_count": { "type": ["integer", "null"], "minimum": 0 },
+        "after_release": { "type": "boolean" },
+        "title": { "type": "string", "maxLength": 80 },
+        "evidence": { "type": "string", "maxLength": 240 },
+        "hypothesis": { "type": "string", "maxLength": 240 },
+        "next_step": { "type": "string", "maxLength": 200 },
+        "check": { "type": "string", "maxLength": 200 },
+        "related": { "type": "array", "maxItems": 3, "items": { "type": "string", "maxLength": 80 } }
+      },
+      "unevaluatedProperties": false
+    },
+    "group": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "required": ["event_type", "rank", "fingerprint", "level", "trend", "count", "previous_count", "first_seen", "last_seen", "has_finding", "watch_rules"],
+      "properties": {
+        "event_type": { "const": "group" },
+        "rank": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "fingerprint": { "$ref": "#/$defs/fp" },
+        "level": { "enum": ["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"] },
+        "trend": { "$ref": "#/$defs/trend" },
+        "count": { "$ref": "#/$defs/count" },
+        "previous_count": { "type": ["integer", "null"], "minimum": 0 },
+        "first_seen": { "$ref": "#/$defs/ts" },
+        "last_seen": { "$ref": "#/$defs/ts" },
+        "has_finding": { "type": "boolean" },
+        "watch_rules": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/name" } },
+        "error_type": { "type": ["string", "null"], "maxLength": 120 }
+      },
+      "unevaluatedProperties": false
+    },
+    "budget": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "required": ["event_type", "state", "run_cost_usd", "spent_today_usd", "daily_budget_usd", "usd_ratio", "tokens_today", "daily_token_limit", "token_ratio", "threshold_pct", "triage_only"],
+      "properties": {
+        "event_type": { "const": "budget" },
+        "state": { "enum": ["ok", "high", "exhausted"] },
+        "run_cost_usd": { "$ref": "#/$defs/usd" },
+        "spent_today_usd": { "type": ["number", "null"], "minimum": 0 },
+        "daily_budget_usd": { "type": ["number", "null"], "minimum": 0 },
+        "usd_ratio": { "$ref": "#/$defs/ratio" },
+        "tokens_today": { "type": ["integer", "null"], "minimum": 0 },
+        "daily_token_limit": { "type": ["integer", "null"], "minimum": 0 },
+        "token_ratio": { "$ref": "#/$defs/ratio" },
+        "threshold_pct": { "enum": [0, 25, 50, 75, 90, 100] },
+        "triage_only": { "type": "boolean" }
+      },
+      "unevaluatedProperties": false
+    },
+    "heartbeat": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "required": ["event_type", "state", "last_outcome", "last_ok_at", "age_seconds", "stale_after_seconds", "warnings"],
+      "properties": {
+        "event_type": { "const": "heartbeat" },
+        "state": { "enum": ["ok", "degraded", "stale", "failed", "unknown"] },
+        "last_outcome": { "type": ["string", "null"], "pattern": "^[a-z_]{1,24}$" },
+        "last_ok_at": { "$ref": "#/$defs/tsOrNull" },
+        "age_seconds": { "type": ["integer", "null"], "minimum": 0 },
+        "stale_after_seconds": { "type": "integer", "minimum": 1 },
+        "warnings": { "type": "array", "maxItems": 8, "items": { "type": "string", "pattern": "^sink_failed:(log|file|http|prometheus)$" } }
+      },
+      "unevaluatedProperties": false
+    },
+    "delivery_failure": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "required": ["event_type", "channel", "kind", "status_class", "http_status"],
+      "properties": {
+        "event_type": { "const": "delivery_failure" },
+        "channel": { "enum": ["slack", "telegram", "discord"] },
+        "kind": { "enum": ["digest", "notice", "weekly", "other"] },
+        "status_class": { "enum": ["http_4xx", "http_429", "http_5xx", "network", "timeout", "other"] },
+        "http_status": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 }
+      },
+      "unevaluatedProperties": false
+    },
+    "config_warning": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "required": ["event_type", "code", "key", "count"],
+      "properties": {
+        "event_type": { "const": "config_warning" },
+        "code": { "enum": ["include_text_external", "http_insecure_allowed", "event_cap_hit", "group_cap_hit", "comparison_gap", "analysis_partial", "check_test"] },
+        "key": { "type": ["string", "null"], "pattern": "^[a-z_]+(\\.[a-z_]+){0,4}$" },
+        "count": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "unevaluatedProperties": false
+    }
+  }
+}

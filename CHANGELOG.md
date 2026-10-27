@@ -21,7 +21,7 @@ The package no longer caps spend, reserves model calls, counts tokens for cost, 
 Environment variables `WATCHER_PRICE_*` are no longer read. They produce no message.
 
 ### Removed output and metrics
-- Event stream: `watcher.event.v2` replaces `watcher.event.v1`. Run records lose `tokens_in`, `tokens_out`, `tokens_cached` and `cost_usd`; the `budget` record is gone. Schema: `docs/schema/watcher.event.v2.schema.json`. The v1 schema is retired (`retired: 0.5.0`); its file is no longer published under `docs/schema/`.
+- Event stream: `watcher.event.v2` replaces `watcher.event.v1`. Run records lose `tokens_in`, `tokens_out`, `tokens_cached` and `cost_usd`; the `budget` record is gone. Schema: `docs/schema/watcher.event.v2.schema.json`. The v1 schema is kept and marked retired (`docs/schema/watcher.event.v1.schema.json`, `retired: 0.5.0`).
 - Metrics removed: `watcher_last_run_cost_usd`, `watcher_last_run_tokens`, `watcher_budget_spent_usd`, `watcher_budget_limit_usd`, `watcher_budget_ratio`. Run, finding and outcome metrics stay.
 - Digest: no cost line, no budget line, no token footer, no "budget exhausted" or run-cap notice. Notices name no currency or token figure.
 - Weekly heartbeat line: counts only (no cost).
@@ -33,7 +33,7 @@ Environment variables `WATCHER_PRICE_*` are no longer read. They produce no mess
 
 ### Nothing is converted
 - A stored spend counter (`spend:...` keys in the state store) is neither read nor deleted. The package stops writing them. Delete them when you no longer need them.
-- Findings are the same as 0.4.x for the same window (`tests/EndToEnd/SameFindingsTest.php`). The per-step call count in the run record counts analyzer replies that came back.
+- Findings are the same as 0.4.x for the same window (`tests/EndToEnd/SameFindingsTest.php`). The per-step call count in the run record counts every model request made, including failed ones (as in 0.4).
 
 ### Upgrade steps
 1. Delete every removed key and the `budget` section from the service configuration and from the fleet file (see the table above). Delete `WATCHER_PRICE_*` and any budget variables from the environment.

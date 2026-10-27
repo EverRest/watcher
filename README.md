@@ -26,9 +26,9 @@ Every feature has an on/off flag in the config and a `WATCHER_*` environment var
 
 Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
 
-Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, and what the model costs per day, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
+Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
 
-Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`), and optional caps (`analysis.max_runs_per_day`, `analysis.run_budget_usd`).
+Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`).
 
 Kubernetes events (spec 008): `source.driver: kubernetes` reads pod-level problems (crash loops, OOM kills, image pull failures, probes, restarts) through an hourly ledger; see [docs/kubernetes.md](docs/kubernetes.md).
 
@@ -196,7 +196,7 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.
 
 What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,
-written by you); (2) to the notification channel (Slack, Telegram or Discord), the digest (titles, evidence, hypotheses, counts, short fingerprints, cost line) and
+written by you); (2) to the notification channel (Slack, Telegram or Discord), the digest (titles, evidence, hypotheses, counts, short fingerprints) and
 failure notices; (3) queries to your log backend. Nothing else is sent anywhere.
 
 ## Model calls
@@ -211,7 +211,7 @@ Work is routed by tier and each tier has its own model id and input limit (no id
 Selection is deterministic: new fingerprints, groups that grew by `selection.growth_factor`, level at or above
 `selection.min_level`, watch-rule matches, plus the top `selection.top_n`; the rest collapse to one summary line.
 No candidates means zero model calls; unchanged groups reuse cached verdicts. Inputs over `max_input_tokens` drop
-the lowest-priority groups and the digest says so. There is no spend cap and no cost report.
+the lowest-priority groups and the digest says so.
 
 ## Noise control
 

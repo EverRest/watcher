@@ -12,7 +12,7 @@ use Watcher\Level;
  * changes the configuration. Mute: stable, high-volume and never at or above the candidate level; a family that was ever
  * severe within the history, or whose template was severe under another fingerprint, is never proposed (FR-011).
  *
- * @phpstan-type Proposal array{id: string, type: string, status: string, fragment: string, evidence: array<string, int>, expected_saving?: array<string, int|float>, replay?: array{days: int, candidates_removed: int}}
+ * @phpstan-type Proposal array{id: string, type: string, status: string, fragment: string, evidence: array<string, int>, expected_saving?: array<string, int|float>, replay?: array{days: int, occurrences_removed: int}}
  */
 final class Proposals
 {

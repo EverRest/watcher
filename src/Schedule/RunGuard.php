@@ -9,7 +9,7 @@ use Psr\Clock\ClockInterface;
 
 /**
  * The run's wall-clock deadline and memory guard (A4-01, A4-02). `reason()` is asked between pipeline steps and from
- * the read loops: `deadline` once the budget is spent, `memory` once usage reaches 80% of memory_limit. Sticky: a reason
+ * the read loops: `deadline` once the time budget is spent, `memory` once usage reaches 80% of memory_limit. Sticky: a reason
  * that was given stays, so every later step sees the same truth. Never throws, never allocates beyond two ints.
  */
 final class RunGuard

@@ -26,14 +26,14 @@ final class ReplayTest extends TestCase
 
         $r = Replay::mute('aaaaaaaaaaaa', $days, new DateTimeImmutable(self::NOW));
 
-        self::assertSame(['days' => 16, 'candidates_removed' => 16], $r);
+        self::assertSame(['days' => 16, 'occurrences_removed' => 16], $r);
     }
 
     public function testAFragmentThatMatchesNothingShowsZero(): void
     {
         $days = DayFactory::days(16, [['fp' => 'aaaaaaaaaaaa', 'n' => 500, 'tokens' => 40]]);
 
-        self::assertSame(['days' => 16, 'candidates_removed' => 0], Replay::mute('zzzzzzzzzzzz', $days, new DateTimeImmutable(self::NOW)));
+        self::assertSame(['days' => 16, 'occurrences_removed' => 0], Replay::mute('zzzzzzzzzzzz', $days, new DateTimeImmutable(self::NOW)));
     }
 
     public function testTheProposalCarriesItsReplay(): void
@@ -44,11 +44,11 @@ final class ReplayTest extends TestCase
             $days[$d] = DayFactory::day($d, [['fp' => 'aaaaaaaaaaaa', 'n' => 500, 'tokens' => 100]]);
         }
 
-        /** @var array{replay: array{days: int, candidates_removed: int}} $p */
+        /** @var array{replay: array{days: int, occurrences_removed: int}} $p */
         $p = (new Proposals(new HygieneSettings(enabled: true), Level::Error, [], [], $history))->find($days, new DateTimeImmutable(self::NOW))['proposals'][0];
 
         self::assertSame(16, $p['replay']['days']);
-        self::assertSame(16, $p['replay']['candidates_removed']);
+        self::assertSame(16, $p['replay']['occurrences_removed']);
     }
 
     public function testReplayDoesNotTouchTheHistory(): void

@@ -150,11 +150,15 @@ final class WatchConfig implements \JsonSerializable
     /** @param array<string, mixed> $config */
     public static function fromArray(#[\SensitiveParameter] array $config): self
     {
+        $removed = [];
         foreach (require dirname(__DIR__, 2) . '/resources/removed-config-keys.php' as $path => $message) {
             [$section, $key] = str_contains($path, '.') ? explode('.', $path, 2) : [$path, null];
             if (array_key_exists($section, $config) && ($key === null || (is_array($config[$section]) && array_key_exists($key, $config[$section])))) {
-                throw new InvalidConfig($message); // the first removed key found is named (contracts/config-migration.md rule 2)
+                $removed[] = $message; // every removed key is named at once, in the table's order (`watcher check` lists them all)
             }
+        }
+        if ($removed !== []) {
+            throw new InvalidConfig(implode('; ', $removed));
         }
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::TOP_LEVEL, true)) {

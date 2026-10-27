@@ -9,7 +9,7 @@ use Watcher\Config\Env;
  * Watcher::fromConfig() throw InvalidConfig naming the key (exit code 2).
  * Model ids are never defaulted in code. Set them per tier in the environment,
  * e.g. a small/cheap model for triage, a mid-size one for analysis and the
- * largest for escalation, and give every one of them a price below.
+ * largest for escalation.
  *
  * Every feature has an on/off flag, set here or by its WATCHER_* variable (table: docs/configuration.md).
  * Only `enabled` defaults to off: a deployment must opt in, per environment (WATCHER_ENABLED=1).
@@ -139,7 +139,7 @@ return [
 
     'heartbeat' => [
         // 'stale_after' => 'PT36H',               // default: 1.5 x schedule.window
-        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // one counts-and-cost line per ISO week
+        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // one counts-only line per ISO week
         'enabled' => Env::bool('WATCHER_HEARTBEAT_ENABLED', true),
     ],
 
@@ -156,7 +156,7 @@ return [
         'path_map' => [],                          // ['/var/www/html/' => 'app/']
     ],
 
-    // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default; the cost report works regardless.
+    // Log hygiene reports (spec 006): `php artisan watcher:hygiene`. Off by default.
     'hygiene' => [
         'enabled' => Env::bool('WATCHER_HYGIENE_ENABLED', false),
     ],

@@ -139,7 +139,7 @@ return [
     'heartbeat' => [                                     // optional
         'stale_after' => 'PT36H',                        // ISO-8601; `watcher status` is non-zero when the last ok run is older. Default 1.5 x schedule.window
         'enabled' => Env::bool('WATCHER_HEARTBEAT_ENABLED', true), // false: no liveness record is written; `status` reports disabled
-        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // true: one counts-and-cost line per ISO week to the notice destination, default false
+        'weekly_summary' => Env::bool('WATCHER_HEARTBEAT_WEEKLY_SUMMARY', false), // true: one counts-only line per ISO week to the notice destination, default false
     ],
 
     'service_context' => [
@@ -189,7 +189,7 @@ return [
     //     'ttl' => 'PT24H',                                          // the reduced spec is cached this long, then read again
     //     'max_endpoints' => 5,                                      // 1..20 per run
     // ],
-    // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default; the cost report works regardless.
+    // Log hygiene reports (spec 006): `vendor/bin/watcher hygiene --config=...`. Off by default.
     'hygiene' => [
         'enabled' => false,
     ],

@@ -11,18 +11,18 @@ use Watcher\Select\MuteList;
 
 /**
  * What a mute would have done to the stored history (FR-012): each day's families are turned back into groups and passed
- * through a real {@see MuteList} holding the fragment. A family seen that day is a candidate; muting removes it. A fragment that matches nothing shows zero before it is pasted.
+ * through a real {@see MuteList} holding the fragment. Each day a family appears is one occurrence; muting removes it. A family seen on 16 days is 16 occurrences, so the count is not a number of distinct families. A fragment that matches nothing shows zero before it is pasted.
  */
 final class Replay
 {
     /**
      * @param array<string, DayRecord> $days
-     * @return array{days: int, candidates_removed: int}
+     * @return array{days: int, occurrences_removed: int}
      */
     public static function mute(string $fingerprint, array $days, DateTimeImmutable $now): array
     {
         $list = new MuteList([['fingerprint' => $fingerprint, 'until' => null]]);
-        $removed = 0;
+        $removed = 0; // occurrences: one per day x family
         foreach ($days as $day) {
             $groups = [];
             foreach ($day->families as $f) {
@@ -36,6 +36,6 @@ final class Replay
             }
         }
 
-        return ['days' => count($days), 'candidates_removed' => $removed];
+        return ['days' => count($days), 'occurrences_removed' => $removed];
     }
 }

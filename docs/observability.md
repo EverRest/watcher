@@ -27,7 +27,7 @@ Everything else is unchanged: the same logs are read, the same models are called
 
 Events carry **counts, outcome codes, severities, timestamps and fingerprints** (12 hex characters of a hash). They never carry log lines, message templates, field values, stack frames or filesystem paths. Free text of a finding (title, evidence, hypothesis, next step, check) exists only when a sink has `include_text` on, after the same scrub the chat message gets; it is **off by default for every sink**, `log` included (stderr is often forwarded by a shipper to someone you have not approved); switching it on is an explicit choice and the text stays redacted. An `http` sink with text on emits a `config_warning` event (`include_text_external`) so a dashboard shows that text leaves the host. There is no setting that turns the scrubbing off.
 
-The contract is the JSON Schema in `docs/schema/watcher.event.v2.schema.json`. Inside `v1` fields are never removed, renamed or retyped; new optional fields may appear, so a consumer ignores fields it does not know. Delivery is at-least-once: de-duplicate on `event_id`.
+The contract is the JSON Schema in `docs/schema/watcher.event.v2.schema.json`. Inside `v2` fields are never removed, renamed or retyped; new optional fields may appear, so a consumer ignores fields it does not know. Delivery is at-least-once: de-duplicate on `event_id`. `calls` counts every model request made, including failed ones.
 
 | Event type | One per | Main fields |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Mapping the watcher event stream to other tools
 
-The stream is `watcher.event.v2` (see [observability.md](../observability.md) and `docs/schema/watcher.event.v2.schema.json`). One JSON object per line; parse it under a namespace (`watcher`) so `service` does not collide with ECS or Datadog reserved attributes. Inside `v1` fields are never renamed, removed or retyped; ignore fields you do not know. Delivery is at-least-once: de-duplicate on `event_id`.
+The stream is `watcher.event.v2` (see [observability.md](../observability.md) and `docs/schema/watcher.event.v2.schema.json`). One JSON object per line; parse it under a namespace (`watcher`) so `service` does not collide with ECS or Datadog reserved attributes. Inside `v2` fields are never renamed, removed or retyped; ignore fields you do not know. Delivery is at-least-once: de-duplicate on `event_id`.
 
 ## Fields
 
@@ -30,9 +30,6 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 | `findings_by_severity` | run | object | facet |  |
 | `groups_by_trend` | run | object | facet |  |
 | `calls` | run | object | facet |  |
-| `tokens_in` | run | long | measure |  |
-| `tokens_out` | run | long | measure |  |
-| `tokens_cached` | run | long | measure |  |
 | `escalations` | run | long | measure |  |
 | `reused` | run | long | measure |  |
 | `not_analysed` | run | long | measure |  |
@@ -65,10 +62,7 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 | `has_finding` | group | boolean | facet |  |
 | `watch_rules` | group | keyword (array) | facet |  |
 | `error_type` | group | text | facet | text, only with `include_text` |
-| `state` | budget, heartbeat | keyword | facet |  |
-| `token_ratio` | budget | double | measure |  |
-| `threshold_pct` | budget | long | measure |  |
-| `triage_only` | budget | boolean | facet |  |
+| `state` | heartbeat | keyword | facet |  |
 | `last_outcome` | heartbeat | keyword | facet |  |
 | `last_ok_at` | heartbeat | date | facet |  |
 | `age_seconds` | heartbeat | long | measure |  |
@@ -98,7 +92,7 @@ Backend types are suggestions. In Datadog, make low-cardinality fields facets an
 
 ## Metabase, Superset and other SQL tools
 
-Load the JSONL file (the `file` sink) or an Elasticsearch/Postgres import of the stream. The field table above is the column list. `run` is the fact table; `finding` and `group` join on `run_id`; `budget` and `heartbeat` join on `run_id` too. Finding text exists only for sinks with `include_text`.
+Load the JSONL file (the `file` sink) or an Elasticsearch/Postgres import of the stream. The field table above is the column list. `run` is the fact table; `finding` and `group` join on `run_id`; `heartbeat` joins on `run_id` too. Finding text exists only for sinks with `include_text`.
 
 ## Prometheus
 

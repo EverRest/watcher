@@ -37,7 +37,7 @@ final class FleetConfig
     }
 
     /**
-     * A4-12: wall-clock seconds one service may spend: `service_time_budget`, else the fleet time budget shared equally; null = none.
+     * A4-12: wall-clock seconds one service may use: `service_time_budget`, else the fleet time budget shared equally; null = none.
      * The equal share is floored at half the smallest `lock_ttl` (R-3): a big fleet must not give every service a deadline it cannot finish in.
      */
     public function serviceTimeBudgetSeconds(): ?int
@@ -78,7 +78,7 @@ final class FleetConfig
             return self::switchedOff($config); // the fleet switch comes first: a broken entry does not stop a switched-off fleet
         }
         if (array_key_exists('budget', $config)) {
-            throw new InvalidConfig('budget was removed in 0.5.0; there is no replacement. Delete this section.');
+            throw new InvalidConfig((require dirname(__DIR__, 2) . '/resources/removed-config-keys.php')['budget']);
         }
         foreach (array_keys($config) as $key) {
             if (!in_array($key, self::KEYS, true)) {

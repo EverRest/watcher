@@ -12,7 +12,7 @@ use Watcher\Reduce\ProblemGroup;
 
 /**
  * IssueRecord -> ordinary ProblemGroup (fingerprint `sentry:{id}`, never recomputed from the title) so mute, baseline,
- * selection, budget and redaction apply unchanged. Text goes through the Normalizer here and the Redactor later (two
+ * selection, input cut and redaction apply unchanged. Text goes through the Normalizer here and the Redactor later (two
  * layers). A title and culprit are withheld when the issue is rare (same rule as log groups); an issue whose text cannot be
  * normalised is dropped and counted (Principle I).
  */

@@ -16,5 +16,6 @@ Run record: `outcome`, `reason`, `dry_run`, `release`, `duration_ms`, `events_re
 
 - `schema` is `watcher.event.v2`; consumers select on it.
 - Consumers ignore unknown properties (the additive rule of the v1 schema).
+- `calls` (per step: triage, analyze, escalate) counts every model request made in the run, including a request whose reply failed. Same meaning as in 0.4.
 - Metrics named in the removed list are deleted; no alias.
 - The v2 schema file is `docs/schema/watcher.event.v2.schema.json`; the v1 file keeps its content and gains `retired: 0.5.0`.

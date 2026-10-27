@@ -23,7 +23,7 @@
                         "findings": 0,
                         "calls": {
                             "triage": 1,
-                            "analyze": 0,
+                            "analyze": 1,
                             "escalate": 0
                         },
                         "durationMs": 0,

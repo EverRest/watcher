@@ -471,9 +471,9 @@ final class Factory
     /** $lockTtl bounds the rate-limit wait of the chat notifiers: min(60, max(1, lockTtl / 10)) seconds per message. */
     public static function notifier(Client $http, int $lockTtl = 900): Notifier
     {
-        $budget = min(60, max(1, intdiv($lockTtl, 10)));
+        $timeout = min(60, max(1, intdiv($lockTtl, 10)));
 
-        return new RoutingNotifier(new SlackWebhookNotifier($http, $budget), new TelegramNotifier($http, $budget), new DiscordNotifier($http, $budget));
+        return new RoutingNotifier(new SlackWebhookNotifier($http, $timeout), new TelegramNotifier($http, $timeout), new DiscordNotifier($http, $timeout));
     }
 
     /** Where the log sink writes; a `--json` call keeps stdout for its one summary line. */

@@ -1264,7 +1264,7 @@ final class Watcher
 
     /**
      * A window cut by the deadline or the memory guard has unread or unanalysed groups, so it is not done: the first cut
-     * leaves a marker and no run record (the next trigger in the due period reads the window again with a fresh budget).
+     * leaves a marker and no run record (the next trigger in the due period reads the window again with a fresh run deadline).
      * A second cut is final: true means "retry", false means record it, after a loud notice (counts only).
      */
     private function retryCutWindow(WindowKeys $keys, int $retention, int $unanalysed, ?string $line): bool
@@ -1348,7 +1348,12 @@ final class Watcher
 
             public function triage(TriageRequest $req): TriageResult
             {
-                $r = $this->inner->triage($req);
+                try {
+                    $r = $this->inner->triage($req);
+                } catch (AnalyzerFailed $e) {
+                    $this->stats?->addCall('triage'); // a failed reply was still a model call
+                    throw $e;
+                }
                 $this->stats?->addCall('triage');
 
                 return $r;
@@ -1356,7 +1361,12 @@ final class Watcher
 
             public function analyze(AnalysisRequest $req): AnalysisResult
             {
-                $r = $this->inner->analyze($req);
+                try {
+                    $r = $this->inner->analyze($req);
+                } catch (AnalyzerFailed $e) {
+                    $this->stats?->addCall($this->analyzeStep($req)); // a failed reply was still a model call
+                    throw $e;
+                }
                 $this->stats?->addCall($this->analyzeStep($req));
 
                 return $r;

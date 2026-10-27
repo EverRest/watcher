@@ -107,7 +107,7 @@ An assistant using the MCP tools is not asked about prices, budgets or spend, an
 ### Key Entities *(include if feature involves data)*
 
 - **Run findings**: the findings and outcome of one analysis, unchanged.
-- **Call count**: the number of model calls per step in a run, reported in the digest. It carries no unit of money or tokens.
+- **Call count**: the number of model calls per step in a run, recorded in the run event (`calls`). It carries no unit of money or tokens.
 
 ## Success Criteria *(mandatory)*
 

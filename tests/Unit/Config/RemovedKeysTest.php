@@ -74,4 +74,29 @@ final class RemovedKeysTest extends TestCase
 
         self::expectFailure($c, 'budget was removed in 0.5.0; there is no replacement. Delete this section.');
     }
+
+    public function testBudgetAlertPercentsFails(): void
+    {
+        $c = self::base();
+        $c['analysis']['budget_alert_percents'] = [50, 80];
+
+        self::expectFailure($c, 'analysis.budget_alert_percents was removed in 0.5.0; there is no replacement. Delete this key.');
+    }
+
+    public function testMaxRunsPerDayFails(): void
+    {
+        $c = self::base();
+        $c['analysis']['max_runs_per_day'] = 3;
+
+        self::expectFailure($c, 'analysis.max_runs_per_day was removed in 0.5.0; there is no replacement. Delete this key.');
+    }
+
+    public function testEveryRemovedKeyIsNamedInTableOrder(): void
+    {
+        $c = self::base();
+        $c['analysis']['prices'] = ['a' => [1, 5, 0.1, 1.25]];
+        $c['budget'] = ['daily_budget_usd' => 1.0];
+
+        self::expectFailure($c, 'analysis.prices was removed in 0.5.0; there is no replacement. Delete this key.; budget was removed in 0.5.0; there is no replacement. Delete this section.');
+    }
 }

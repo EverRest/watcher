@@ -12,7 +12,7 @@
 
 - **Run findings**: findings and outcome of one analysis, unchanged.
 - **Run outcome and counts**: outcome, groups, candidates, findings by severity, calls per step, escalations, reused, muted, truncated. Unchanged, minus any spend or token field.
-- **Call count per step**: number of model calls made for each step in a run, shown in the digest. No unit.
+- **Call count per step**: number of model calls made for each step in a run, recorded in the run event (`calls`). No unit.
 
 ## Removed fields (event v1 to v2, metrics, digest)
 
