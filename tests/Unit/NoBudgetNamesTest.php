@@ -37,8 +37,6 @@ final class NoBudgetNamesTest extends TestCase
         'src/Source/GuardedRequest.php' => ['budget'], // the per-call wall-clock budget of one source call
         'src/Source/LokiSource.php' => ['budget'], // page/time budget of one read
         'src/Source/DatadogSource.php' => ['budget'], // page/time budget of one read
-        'src/Source/Kubernetes/KubeApi.php' => ['budget'], // two-minute request budget of one ingest
-        'src/Source/Kubernetes/EventLedger.php' => ['budget'], // the state store's size and structure limits
         'src/Hygiene/Hygiene.php' => ['budget'], // hygiene time budget and the store's size limits
         'src/Hygiene/DayRecord.php' => ['budget'], // the store's size and structure limits
         'src/State/StateCodec.php' => ['budget'], // the state value size and structure limits

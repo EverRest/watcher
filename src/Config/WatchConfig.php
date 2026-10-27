@@ -11,7 +11,6 @@ use Watcher\Observe\EventSchema;
 use Watcher\Observe\ObserveSettings;
 use Watcher\Level;
 use Watcher\State\Redis\RedisClient;
-use Watcher\Source\Kubernetes\KubeSettings;
 use Watcher\Source\Kubernetes\SecretValue;
 
 /**
@@ -26,14 +25,14 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
         'known_issues', 'drafts', 'report',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
-        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'notice', 'digest', 'kubernetes',
+        'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'notice', 'digest',
         'known_issues', 'drafts', 'routes',
     ];
     private const STEPS = ['triage', 'analyze', 'escalate'];
@@ -89,7 +88,6 @@ final class WatchConfig implements \JsonSerializable
         public readonly ?SentrySettings $sentry,
         public readonly \Watcher\Hygiene\HygieneSettings $hygiene,
         public readonly \Watcher\Incident\IncidentSettings $incident,
-        public readonly ?KubeSettings $kubernetes = null,
         /** @var array<string, mixed>|null the validated `api_context` section (spec 010), null when absent; not a feature flag */
         public readonly ?array $apiContext = null,
     ) {
@@ -151,9 +149,15 @@ final class WatchConfig implements \JsonSerializable
     public static function fromArray(#[\SensitiveParameter] array $config): self
     {
         $removed = [];
-        foreach (require dirname(__DIR__, 2) . '/resources/removed-config-keys.php' as $path => $message) {
-            [$section, $key] = str_contains($path, '.') ? explode('.', $path, 2) : [$path, null];
-            if (array_key_exists($section, $config) && ($key === null || (is_array($config[$section]) && array_key_exists($key, $config[$section])))) {
+        foreach (require dirname(__DIR__, 2) . '/resources/removed-config-keys.php' as $rule => $message) {
+            $parts = explode('=', $rule, 2); // `source.driver=kubernetes`: the key must hold that value, not just exist
+            if (!str_contains($parts[0], '.')) {
+                $present = array_key_exists($parts[0], $config);
+            } else {
+                [$section, $key] = explode('.', $parts[0], 2);
+                $present = is_array($config[$section] ?? null) && array_key_exists($key, $config[$section]) && (!isset($parts[1]) || $config[$section][$key] === $parts[1]);
+            }
+            if ($present) {
                 $removed[] = $message; // every removed key is named at once, in the table's order (`watcher check` lists them all)
             }
         }
@@ -180,8 +184,6 @@ final class WatchConfig implements \JsonSerializable
         [$schedule, $interval] = self::schedule(self::section($config, 'schedule'));
 
         $source = self::source(self::section($config, 'source'));
-
-        [$kubernetes, $flags['kubernetes']] = self::kubernetes($config, $source['driver']);
 
         $selSec = self::section($config, 'selection');
         self::only($selSec, ['min_level', 'growth_factor', 'top_n', 'top_m', 'escalation'], 'selection');
@@ -318,7 +320,6 @@ final class WatchConfig implements \JsonSerializable
             is_array($config['sentry'] ?? null) ? SentrySettings::fromArray($config['sentry']) : self::absent($config, 'sentry'),
             \Watcher\Hygiene\HygieneSettings::fromArray(self::section($config, 'hygiene')),
             $incident,
-            $kubernetes,
             array_key_exists('api_context', $config) ? self::hide(self::apiContext($config['api_context'], $state['retention']), 'source', 'auth_token') : null,
         );
     }
@@ -683,8 +684,8 @@ final class WatchConfig implements \JsonSerializable
             if (preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iD', self::optStr($dd, 'site', 'datadoghq.com', 'source.datadog.site')) !== 1) {
                 throw new InvalidConfig('source.datadog.site must be a Datadog site host such as datadoghq.eu');
             }
-        } elseif ($driver !== 'kubernetes') { // its settings live in the top-level `kubernetes` section (spec 008)
-            throw new InvalidConfig('source.driver must be loki, datadog or kubernetes');
+        } else {
+            throw new InvalidConfig('source.driver must be loki or datadog');
         }
 
         $tags = $s['stream_tags'] ?? [];
@@ -1044,7 +1045,6 @@ final class WatchConfig implements \JsonSerializable
             $this->state['redis']['password'] ?? null,
             $this->state['pdo']['password'] ?? null,
             $this->state['pdo']['dsn'] ?? null, // a driver error can echo it whole, `password=` and all
-            ...($this->kubernetes?->maskValues() ?? []), // the API token, or what token_file holds right now
             ...$this->observe->secrets(),
             ...($this->metrics?->secrets() ?? []),
             ...($this->sentry?->secrets() ?? []),
@@ -1311,50 +1311,6 @@ final class WatchConfig implements \JsonSerializable
         }
 
         return $links;
-    }
-
-    /**
-     * Spec 008: the `kubernetes` section plus `events` (beside `source`) and `source.driver: kubernetes`.
-     * A section holding only the flag is not validated further; any other content, or any use, is.
-     *
-     * @param array<string, mixed> $config
-     * @return array{0: ?KubeSettings, 1: bool} settings, the `kubernetes.enabled` flag
-     */
-    private static function kubernetes(array $config, string $driver): array
-    {
-        $sec = self::section($config, 'kubernetes');
-        $on = self::flag($sec, 'enabled', 'kubernetes.enabled');
-        unset($sec['enabled']);
-        $events = $config['events'] ?? null;
-        if ($events !== null) {
-            if (!is_array($events)) {
-                throw new InvalidConfig('events must be a map');
-            }
-            self::only($events, ['driver'], 'events');
-            if (($events['driver'] ?? null) !== 'kubernetes') {
-                throw new InvalidConfig('events.driver must be kubernetes');
-            }
-        }
-        $asSource = $driver === 'kubernetes';
-        if ($sec === [] && $events === null && !$asSource) {
-            return [null, $on];
-        }
-        if ($sec === [] && ($events !== null || $asSource)) {
-            throw new InvalidConfig(($asSource ? 'source.driver kubernetes' : 'events') . ' needs the kubernetes section');
-        }
-        $deps = is_array($config['dependencies'] ?? null) ? $config['dependencies'] : [];
-        unset($deps['enabled']);
-        if ($asSource && $deps !== []) {
-            throw new InvalidConfig('dependencies are not available with source.driver kubernetes: they are read from the service source');
-        }
-        if ($asSource && !$on) {
-            throw new InvalidConfig('source.driver kubernetes needs kubernetes.enabled to be true');
-        }
-        try {
-            return [KubeSettings::fromArray($sec, $on, $events !== null, $asSource), $on];
-        } catch (\InvalidArgumentException $e) {
-            throw new InvalidConfig($e->getMessage()); // paths only, never a value
-        }
     }
 
     /** @param array<string, mixed> $s */

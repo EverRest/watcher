@@ -17,7 +17,6 @@ use Watcher\Notify\Notifier;
 use Watcher\Observe\EventFactory;
 use Watcher\Observe\SinkDispatcher;
 use Watcher\Schedule\Window;
-use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
@@ -49,8 +48,6 @@ final class Doctor
         private readonly ?ModelCatalog $catalog,
         private readonly Notifier $notifier,
         private readonly ClockInterface $clock,
-        private readonly bool $kubernetes = false,
-        private readonly ?KubernetesEventsSource $events = null,
         private readonly ?SinkDispatcher $observe = null,
         private readonly ?MetricSource $metrics = null,
         private readonly ?IssueSource $issues = null,
@@ -93,9 +90,6 @@ final class Doctor
         }
         $results = [CheckResult::pass('config')];
         $results[] = $this->guard('source', fn (): CheckResult => $this->source());
-        if ($this->config->kubernetes !== null && $this->config->kubernetes->events) {
-            $results[] = $this->guard('events', fn (): CheckResult => $this->events());
-        }
         [$auth, $models] = $this->provider();
         $results[] = $auth;
         $results[] = $models;
@@ -134,37 +128,8 @@ final class Doctor
         }
     }
 
-    /** Spec 008: reads only (GET, limit=1); the wording is a fixed vocabulary, never a URL, a token or a body. */
-    private function events(): CheckResult
-    {
-        $k = $this->config->kubernetes;
-        if ($k === null || !$this->config->on('kubernetes') || $this->events === null) {
-            return CheckResult::skip('events', 'disabled');
-        }
-        foreach ($this->events->probe() as $ns => $reason) {
-            if ($reason !== '') {
-                return CheckResult::fail('events', 'namespace ' . $ns . ': ' . $reason);
-            }
-        }
-        $tags = implode(' ', array_map('strval', $this->config->source['stream_tags'] ?? []));
-        if ($k->exporter || preg_match('/event[-_]?(exporter|router)|kube[-_]?events/i', $tags) === 1) {
-            return CheckResult::warn('events', 'native events and an event exporter are both configured; the same events would be counted twice');
-        }
-
-        return CheckResult::pass('events');
-    }
-
     private function source(): CheckResult
     {
-        if ($this->source instanceof KubernetesEventsSource) {
-            foreach ($this->source->probe() as $ns => $reason) {
-                if ($reason !== '') {
-                    return CheckResult::fail('source', 'namespace ' . $ns . ': ' . $reason);
-                }
-            }
-
-            return CheckResult::pass('source');
-        }
         $window = Window::endingAt($this->clock->now(), 'PT5M');
         try {
             $this->source->totals($window, new StreamSelector(array_map('strval', $this->config->source['stream_tags'])));
@@ -281,7 +246,7 @@ final class Doctor
         if (!$first || $second) {
             return CheckResult::fail('state', 'lock not exclusive');
         }
-        $warnings = self::stateWarnings($this->config->state, $this->kubernetes, extension_loaded('zlib'));
+        $warnings = self::stateWarnings($this->config->state, extension_loaded('zlib'));
 
         return CheckResult::pass('state', $warnings === [] ? '' : 'warning: ' . implode('; ', $warnings));
     }
@@ -292,12 +257,9 @@ final class Doctor
      * @param array<string, mixed> $state
      * @return list<string>
      */
-    public static function stateWarnings(array $state, bool $kubernetes, bool $zlib): array
+    public static function stateWarnings(array $state, bool $zlib): array
     {
         $out = [];
-        if (($state['driver'] ?? null) === 'file' && $kubernetes) {
-            $out[] = 'state.driver=file inside Kubernetes (KUBERNETES_SERVICE_HOST is set): a pod-local directory loses history on every new pod; use state.driver=redis (docs/operations.md)';
-        }
         $redis = is_array($state['redis'] ?? null) ? $state['redis'] : [];
         if (($state['driver'] ?? null) === 'redis' && ($redis['compress_min_bytes'] ?? 512) !== 0 && !$zlib) {
             $out[] = 'ext-zlib is not loaded: Redis values are stored uncompressed';

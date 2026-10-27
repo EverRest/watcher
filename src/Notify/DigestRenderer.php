@@ -228,14 +228,11 @@ final class DigestRenderer
                 $out[] = ['kind' => 'notice', 'text' => '⚠️ API context unavailable (' . $this->esc($e->unavailable) . ')'];
             }
         }
-        foreach ($d->podEventLines as $line) {
-            $out[] = ['kind' => 'notice', 'text' => $this->esc($line)];
-        }
 
         return $out;
     }
 
-    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, malformed_entries?: int, oversized_lines?: int, unscannable_events?: int, k8s_read_failed?: int, k8s_gaps?: int, k8s_unattributed?: int, k8s_record_full?: int} $diag */
+    /** @param array{unknown_levels?: int, orphan_trace_lines?: int, message_tails_dropped?: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int, pages_shrunk?: int, malformed_entries?: int, oversized_lines?: int, unscannable_events?: int} $diag */
     private function readQualityLine(array $diag): ?string
     {
         $parts = [];
@@ -250,10 +247,6 @@ final class DigestRenderer
             'pages_shrunk' => '%s pages re-read at a smaller size (response cap)',
             'malformed_entries' => '%s unusable entries from the source skipped',
             'regex_failures' => '%s lines the parser could not read (kept, level guessed)',
-            'k8s_read_failed' => 'the latest cluster read failed (earlier reads reported)',
-            'k8s_gaps' => '%s gaps in the pod-event record',
-            'k8s_unattributed' => '%s pod events matched no selected workload',
-            'k8s_record_full' => 'the pod-event record was full (%s entries dropped, oldest first)',
         ] as $key => $format) {
             if (($diag[$key] ?? 0) > 0) {
                 $parts[] = sprintf($format, number_format($diag[$key]));

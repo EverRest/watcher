@@ -99,4 +99,46 @@ final class RemovedKeysTest extends TestCase
 
         self::expectFailure($c, 'analysis.prices was removed in 0.5.0; there is no replacement. Delete this key.; budget was removed in 0.5.0; there is no replacement. Delete this section.');
     }
+
+    public function testKubernetesSectionFailsWithTheRemovalMessageEvenWhenDisabled(): void
+    {
+        $c = self::base();
+        $c['kubernetes'] = ['enabled' => false];
+
+        self::expectFailure($c, 'kubernetes section was removed in 0.6.0; there is no replacement. Delete this section.');
+    }
+
+    public function testEventsSectionFails(): void
+    {
+        $c = self::base();
+        $c['events'] = ['driver' => 'kubernetes'];
+
+        self::expectFailure($c, 'events section was removed in 0.6.0; there is no replacement. Delete this section.');
+    }
+
+    public function testSourceDriverKubernetesFails(): void
+    {
+        $c = self::base();
+        $c['source'] = ['driver' => 'kubernetes'];
+
+        self::expectFailure($c, 'source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
+    }
+
+    public function testSourceDriverLokiStillLoads(): void
+    {
+        $c = self::base();
+
+        self::assertSame('loki', WatchConfig::fromArray($c)->source['driver']);
+    }
+
+    public function testEveryKubernetesRemovalIsNamedTogetherWithOtherRemovedKeys(): void
+    {
+        $c = self::base();
+        $c['source'] = ['driver' => 'kubernetes'];
+        $c['kubernetes'] = ['namespaces' => ['shop']];
+        $c['events'] = ['driver' => 'kubernetes'];
+        $c['analysis']['prices'] = ['a' => [1, 5, 0.1, 1.25]];
+
+        self::expectFailure($c, 'analysis.prices was removed in 0.5.0; there is no replacement. Delete this key.; kubernetes section was removed in 0.6.0; there is no replacement. Delete this section.; events section was removed in 0.6.0; there is no replacement. Delete this section.; source.driver kubernetes was removed in 0.6.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings.');
+    }
 }
