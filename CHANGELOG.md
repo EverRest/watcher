@@ -24,6 +24,8 @@ The Kubernetes event source (spec 008) is gone. Pod-level problems are not read 
 - Outcome code `k8s_ingest_failed` (reserved, never emitted) is no longer registered.
 - `watcher check`: no `events` check.
 - JSON run summary: no `events` key.
+- Model payload: the `src`, `pods` and `wk` keys of a group are gone. Only a pod-event group ever carried them, and none is produced now, so every payload is unchanged.
+- Internal: the event origin, pod id and workload kind fields on log events and groups are removed. Groups from Loki and Datadog are unchanged.
 
 ### What to do instead
 1. Delete the `kubernetes` and `events` sections, and `source.driver: kubernetes`, from every service configuration (and from the fleet file).

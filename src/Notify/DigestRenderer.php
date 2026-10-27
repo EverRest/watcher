@@ -322,16 +322,6 @@ final class DigestRenderer
             }
         }
 
-        if ($group !== null && $group->origin !== null) {
-            $pods = $group->pods ?? 0; // an HPA or a Deployment is not a pod: no count to show
-            $trend .= sprintf(
-                ' · pod event: %s%s · %s',
-                $this->esc($group->errorType ?? 'unknown'),
-                $pods > 0 ? sprintf(' · %d pod%s', $pods, $pods === 1 ? '' : 's') : '',
-                $this->esc($group->workloadKind ?? 'Pod'),
-            );
-        }
-
         $after = $group !== null ? ($d->afterReleaseFingerprints[$group->fingerprint] ?? null) : null;
         if ($after !== null) {
             $trend .= ' · first seen after ' . $this->esc($after);

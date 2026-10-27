@@ -1085,7 +1085,7 @@ final class Watcher
         foreach ($redacted as $g) {
             // A pod event is not in the log stream, so a log query for it would find nothing.
             $issue = str_starts_with($g->fingerprint, 'sentry:') ? $c->sentry : null; // a Sentry entry links to its issue, built from config and the numeric id, never fetched
-            $links[$g->fingerprint] = ['log' => $issue === null && $g->origin === null ? $logLinks?->forGroup($g, $window) : null, 'code' => $codeLinks?->forGroup($g) ?? [], 'trace' => $issue === null && !str_starts_with($g->fingerprint, 'metric:') ? $traceLinks?->forGroup($read->traces?->idFor($g->fingerprint), $window) : null, 'sentry' => $issue === null ? null : rtrim($issue->baseUrl, '/') . '/organizations/' . rawurlencode($issue->organization) . '/issues/' . rawurlencode(substr($g->fingerprint, 7)) . '/'];
+            $links[$g->fingerprint] = ['log' => $issue === null ? $logLinks?->forGroup($g, $window) : null, 'code' => $codeLinks?->forGroup($g) ?? [], 'trace' => $issue === null && !str_starts_with($g->fingerprint, 'metric:') ? $traceLinks?->forGroup($read->traces?->idFor($g->fingerprint), $window) : null, 'sentry' => $issue === null ? null : rtrim($issue->baseUrl, '/') . '/organizations/' . rawurlencode($issue->organization) . '/issues/' . rawurlencode(substr($g->fingerprint, 7)) . '/'];
             $mark = $deploy->firstSeenAfterLabel($g->status);
             if ($mark !== null) {
                 $afterRelease[$g->fingerprint] = $mark;
