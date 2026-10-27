@@ -13,7 +13,7 @@ use GuzzleHttp\ClientInterface;
  * tokens (`thoughtsTokenCount`), which the official reference counts separately from `candidatesTokenCount`. No `thinkingConfig`
  * is sent: the reference says it errors on models without thinking, and it does not document 0 as "off" (research R3). So the
  * triage step may think and pay for it; this is a known gap until a per-model setting is verified.
- * The client never retries itself: `maxRetries` must be 0 (config refuses more).
+ * Transient failures are retried by {@see GuzzlePost} (`maxRetries` 0 to 3, within the call timeout); a refusal or an invalid reply is not.
  */
 final class GeminiProvider implements ModelProvider
 {
@@ -28,11 +28,10 @@ final class GeminiProvider implements ModelProvider
         #[\SensitiveParameter] string $apiKey,
         private readonly string $baseUrl,
         private readonly int $timeoutSeconds,
-        int $maxRetries = 0,
+        private readonly int $maxRetries = 0,
+        private readonly ?\Closure $sleeper = null,
+        private readonly ?\Closure $now = null,
     ) {
-        if ($maxRetries !== 0) {
-            throw new \InvalidArgumentException('Gemini adapter does not retry; set analysis.providers_options.gemini.retries to 0');
-        }
         $this->apiKey = static fn (): string => $apiKey;
     }
 
@@ -60,6 +59,9 @@ final class GeminiProvider implements ModelProvider
             ],
             (float) $this->timeoutSeconds,
             'gemini',
+            $this->maxRetries,
+            $this->sleeper,
+            $this->now,
         );
 
         return self::reply($model, $data);
