@@ -2,7 +2,7 @@
 Sync Impact Report
 - Version change: 1.0.0 → 2.0.0 (remove budgets, the daily spend cap, and token and cost reporting; MAJOR)
 - Principles added: I. Privacy Fails Closed; II. Read-Only by Design; III. Test-First;
-  IV. Code Decides, the Model Judges; V. Token and Cost Discipline; VI. Configuration and
+  IV. Code Decides, the Model Judges; V. Lean Requests (as of 2.0.0; was Token and Cost Discipline); VI. Configuration and
   Contracts over Hard-Coding; VII. Failures Are Loud; VIII. Simplicity
 - Sections added: Technical Constraints; Development Workflow; Governance
 - Sections removed: none
@@ -66,7 +66,7 @@ Rationale: the package runs unattended on a schedule; tests are the only reviewe
 Rationale: reproducible selection makes the digest debuggable and keeps cost proportional to
 change, not to log volume.
 
-### V. Input Size Discipline
+### V. Lean Requests
 
 - The cheapest correct path wins: no candidates → zero AI requests; first run → baseline only;
   unchanged groups reuse cached verdicts.

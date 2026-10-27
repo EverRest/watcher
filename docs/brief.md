@@ -91,9 +91,13 @@ level ≥ error; tag/watch-rule matches; plus top-N by volume. Everything else i
   keys, ≤5 frames. Compact output: `maxLength` in the schema, per-step `max_tokens`.
 - Prompt caching on the stable prefix (system prompt + schema) if it exceeds the model's minimum
   cacheable size (verify during implementation).
+> Superseded by constitution 2.0.0, Principle V: no budgets, cost caps or token/cost reporting.
+
 - Budget: estimate input size before calling; if over, drop lowest-priority groups and say
   "truncated: N groups" in Slack. Hard daily cost cap per service; when exceeded → triage only plus
   a "budget exhausted" notice, never silence.
+> Superseded by constitution 2.0.0, Principle V: no budgets, cost caps or token/cost reporting.
+
 - Observability: one footer line per digest: tokens in/out/cached, model per step, approx cost.
 - Batch API: not in v1; `Analyzer` interface leaves room.
 
@@ -114,6 +118,8 @@ title, one-sentence evidence, count, trend vs yesterday. Low-confidence or `nois
 already-reported and not grown → omitted.
 
 ## Config surface (per service, env-driven)
+
+> Superseded by constitution 2.0.0, Principle V: no budgets, cost caps or token/cost reporting.
 
 `source` (driver, url, auth, stream selector), `tags`/watch rules, `lookback`, `run hour`/schedule
 hint, `min_severity`, `selector` (K, N, M), `state` (driver), `slack` (webhook, channel), `models`
