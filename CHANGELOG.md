@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 — 2026-10-28 — Retry transient provider failures (OpenAI, Gemini)
+
+### Added
+- OpenAI and Gemini retry transient failures (429, 500, 502, 503, 504, a timeout or a connection error), up to `analysis.providers_options.{openai,gemini}.retries` (0 to 3, default 0). Each attempt gets the time left of the call timeout, and a wait that would end past the deadline is not taken. `Retry-After` is honoured, capped per wait.
+- A refusal or an invalid reply is never retried.
+
+### Changed
+- `analysis.providers_options.{openai,gemini}.retries` may be 0 to 3 (it was refused above 0 in 0.7.0). Anthropic is not part of this change.
+
 ## 0.7.0 — 2026-10-28 — Remove the Kubernetes event source and Anthropic
 
 Breaking: Anthropic is no longer a provider. The providers are OpenAI and Gemini, and the default is Gemini. A configuration

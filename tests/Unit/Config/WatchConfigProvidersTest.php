@@ -113,15 +113,29 @@ final class WatchConfigProvidersTest extends TestCase
         WatchConfig::fromArray(self::withAnalysis(['providers_options' => ['gemini' => ['retries' => 4]]]));
     }
 
-    public function testOpenAiMayNotRetry(): void
+    public function testOpenAiAndGeminiRetriesAreZeroToThree(): void
+    {
+        $c = WatchConfig::fromArray(self::withAnalysis([
+            'providers_options' => ['openai' => ['retries' => 3], 'gemini' => ['retries' => 1]],
+        ]));
+        self::assertSame(3, $c->analysis['providers_options']['openai']['retries']);
+        self::assertSame(1, $c->analysis['providers_options']['gemini']['retries']);
+
+        foreach (['openai' => 4, 'gemini' => 4] as $name => $retries) {
+            try {
+                WatchConfig::fromArray(self::withAnalysis(['providers_options' => [$name => ['retries' => $retries]]]));
+                self::fail("$name retries $retries must be refused");
+            } catch (InvalidConfig $e) {
+                self::assertStringContainsString("analysis.providers_options.$name.retries must be 0 to 3", $e->getMessage());
+            }
+        }
+    }
+
+    public function testRetriesMustBeAnInteger(): void
     {
         $this->expectException(InvalidConfig::class);
-        $this->expectExceptionMessage('analysis.providers_options.openai.retries must be 0');
-        WatchConfig::fromArray(self::withAnalysis([
-            'api_keys' => ['openai' => 'sk-openai'],
-            'providers' => ['triage' => 'openai'],
-            'providers_options' => ['openai' => ['retries' => 2]],
-        ]));
+        $this->expectExceptionMessage('analysis.providers_options.gemini.retries must be 0 to 3');
+        WatchConfig::fromArray(self::withAnalysis(['providers_options' => ['gemini' => ['retries' => '2']]]));
     }
 
     public function testAConfigWithOnlyTheKeysMapLoads(): void
