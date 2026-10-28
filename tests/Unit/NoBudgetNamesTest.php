@@ -26,6 +26,7 @@ final class NoBudgetNamesTest extends TestCase
         'src/Notify/DigestSections.php' => ['budget'], // budgetExhausted: the clustering cap was hit and the grouping time budget notice (no money)
         'src/Schedule/RunGuard.php' => ['budget'], // the run time budget (deadline reason)
         'src/Config/Factory.php' => ['budget'], // SOURCE_BUDGET_SECONDS: the wall-clock limit of one source call
+        'src/Config/Build/SourceFactory.php' => ['budget'], // budgetSeconds: the wall-clock limit of one metrics or Sentry call
         'src/Config/WatchConfig.php' => ['budget'], // grouping.memory_budget_mb
         'src/Config/Catalog/CoreKeys.php' => ['budget'], // summaries that name a time or size budget
         'src/Config/Catalog/ObserveKeys.php' => ['budget'], // time_budget, service_time_budget, grouping.memory_budget_mb keys and their summaries
