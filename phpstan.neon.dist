@@ -5,6 +5,7 @@ parameters:
         - tests
     scanFiles:
         - scripts/badges.php
+        - scripts/check-file-length.php
     excludePaths:
         - tests/Fixtures
     ignoreErrors:
