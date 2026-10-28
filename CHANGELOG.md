@@ -1,5 +1,76 @@
 # Changelog
 
+## 0.7.0 — 2026-10-28 — Remove the Kubernetes event source and Anthropic
+
+Breaking: Anthropic is no longer a provider. The providers are OpenAI and Gemini, and the default is Gemini. A configuration
+that still names Anthropic **fails at load**; nothing is converted.
+
+### Removed configuration (each fails at load with its message; `watcher check` lists them all)
+
+| Key | Message |
+|---|---|
+| `analysis.api_key` | analysis.api_key was removed in 0.7.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use). |
+| `analysis.api_keys.anthropic` | analysis.api_keys.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai. |
+| `analysis.providers_options.anthropic` | analysis.providers_options.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Delete this section. |
+| `analysis.provider = anthropic` | analysis.provider = anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use gemini or openai. |
+| `analysis.providers.<step> = anthropic` | the same, naming the step (`analysis.providers.triage = anthropic was removed in 0.7.0; ...`). |
+
+`WATCHER_ANTHROPIC_KEY` is no longer read by the setup catalog (MCP) and is replaced by `WATCHER_GEMINI_KEY`. The package reads no environment variables itself; the message is not repeated for it.
+
+### Changed
+- The default provider is `gemini` (was `anthropic`). A configuration that names no provider now uses Gemini and needs `analysis.api_keys.gemini`.
+- `analysis.providers_options.{openai,gemini}.retries` must be 0 (neither adapter retries).
+- `watcher check`: `provider_auth` and `models` show SKIP for every provider. The Anthropic models-list probe is gone and no other provider has one.
+- Generated configuration (`watcher_generate_config`) writes `provider => gemini` and `api_keys.gemini`, and the setup catalog asks for `WATCHER_GEMINI_KEY`.
+- The `rotate-credentials` prompt lists `gemini` and `openai` in place of `anthropic`.
+
+### Removed
+- Dependencies: `anthropic-ai/sdk`, and `php-http/discovery` (nothing else used it), with its `allow-plugins` entry. `anthropic` and `claude` are no longer keywords.
+- The Anthropic SDK adapter, the Anthropic model catalog and the Anthropic fixtures.
+- Internal: `AnthropicAnalyzer` is `ProviderAnalyzer`. Its logic is unchanged.
+
+### What operators do
+1. Set `analysis.provider` to `gemini` (or delete the key: gemini is the default), or to `openai`.
+2. Replace `analysis.api_key` and `analysis.api_keys.anthropic` with `analysis.api_keys.gemini` (or `openai`), and set that key from the environment.
+3. Delete `analysis.providers_options.anthropic`. Change any `analysis.providers.<step>` set to `anthropic` to `gemini` or `openai`.
+4. Replace the model ids. A Claude model id is not valid for either provider; set `models.triage`, `models.analyze` and `models.escalate` to ids the chosen provider serves.
+5. In Kubernetes or your environment, replace `WATCHER_ANTHROPIC_KEY` with `WATCHER_GEMINI_KEY`.
+6. Run `watcher check`: `provider_auth` and `models` are SKIP, so check the key and the model ids on the first run.
+
+### Kubernetes event source removed
+
+Breaking: a configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.
+The Kubernetes event source (spec 008) is gone. Pod-level problems are not read from the cluster any more; see "What to do instead".
+
+### Removed configuration (each fails at load with its message; `watcher check` lists them all)
+
+| Key | Message |
+|---|---|
+| `kubernetes` (whole section, including `kubernetes.enabled`) | kubernetes section was removed in 0.7.0; there is no replacement. Delete this section. |
+| `events` (whole section) | events section was removed in 0.7.0; there is no replacement. Delete this section. |
+| `source.driver: kubernetes` | source.driver kubernetes was removed in 0.7.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings. |
+
+`source.driver` values are now `loki` or `datadog` only. The feature flag `kubernetes` is gone with the section.
+`WATCHER_KUBERNETES_ENABLED` is no longer read; it produces no message.
+
+### Removed behaviour
+- No cluster read on any trigger, and no `--dry-run` read of the cluster. The hourly ledger and its `evt:` state records are gone; records left in a state store expire on their own TTL and nothing reads them.
+- `KUBERNETES_SERVICE_HOST` is no longer read. The in-cluster flag is gone, so `watcher check` no longer warns that `state.driver=file` is used inside Kubernetes.
+- Heartbeat: no `events` field. Nothing sets `degraded` any more (the value stays in the status vocabulary, so exit codes do not change).
+- Digest: no pod-event lines and no `k8s_*` read-quality counters.
+- Outcome code `k8s_ingest_failed` (reserved, never emitted) is no longer registered.
+- `watcher check`: no `events` check.
+- JSON run summary: no `events` key.
+- Model payload: the `src`, `pods` and `wk` keys of a group are gone. Only a pod-event group ever carried them, and none is produced now, so every payload is unchanged.
+- Internal: the event origin, pod id and workload kind fields on log events and groups are removed. Groups from Loki and Datadog are unchanged.
+
+### What to do instead
+1. Delete the `kubernetes` and `events` sections, and `source.driver: kubernetes`, from every service configuration (and from the fleet file).
+2. Remove the RBAC role and binding that let watcher read `events` and `pods`, if nothing else uses them.
+3. To keep crash loops, OOM kills, image pull failures, failing probes and restarts in the digest, export the cluster events to the log backend your service already reads, and read them through `source.driver: loki` or `datadog` with a stream selector for them. Watcher then reads them like any other log line and redacts them the same way.
+
+[`docs/kubernetes.md`](docs/kubernetes.md) is kept as a short pointer. Spec 008 stays in `specs/` as history.
+
 ## 0.5.0 — 2026-10-27 — Remove budgets and token and cost accounting
 
 Breaking: a 0.4.x configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.

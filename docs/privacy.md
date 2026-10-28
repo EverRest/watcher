@@ -10,7 +10,7 @@ what it does **not**. Verify each claim against the code and tests named here, n
 log backend (Loki / Datadog)  --read-only queries-->  watcher (inside your service/job)
      raw lines stay here                                 |-- masks and groups in memory
                                                           |-- state store (your Redis / DB / disk)
-                                                          |-- Anthropic API   (masked groups only)
+                                                          |-- model API (OpenAI or Gemini; masked groups only)
                                                           '-- Slack webhook   (digest and notices)
 ```
 
@@ -20,7 +20,7 @@ model or to your notification channel. One caveat sits below it: Guzzle keeps a 
 closes, left behind if the process is killed). A Loki page of 5000 lines can exceed 2 MB, so on a host where the temp
 directory is shared or not encrypted, treat the temp directory as part of the data flow.
 
-## What is sent to the model provider (Anthropic)
+## What is sent to the model provider (OpenAI or Gemini)
 
 Per request, and only this:
 
@@ -174,25 +174,6 @@ terminal control characters (ESC and the other C0 characters) removed. Exception
 request (including the API key) can hang on them; delivery failures are logged as the exception class and a masked message.
 Config objects (`WatchConfig`, `FleetConfig`) hold every credential in a `SecretValue` (the value is read with `->reveal()`, the `WatchConfig::reveal()` helper, or `WatchConfig::plain()` for comparisons). A dump of them (`var_dump`, `print_r`, `var_export`, `json_encode`) shows no value, and `serialize` refuses to serialize a credential; the constructors that take a secret carry `#[\SensitiveParameter]` (PHP 8.2 and later removes those arguments from stack traces). `tests/Unit/Config/SecretDumpTest.php` plants a fake value at every secret key of the catalog and fails when one reaches a dump.
 
-## Kubernetes events (spec 008)
-
-Optional. The cluster is read with `GET` on `events` and `pods` only. Each event is parsed into a closed set of fields
-(annotations, labels other than for the selector, `managedFields`, environment variables, arguments and commands are never read).
-`EventMasker` (pod names -> `api-<POD>`, node names, image registry/path/tag, container ids, quoted secret/configmap/volume names,
-namespaces in front of pods, the free text after an admission webhook's verdict) and then the Normalizer run before grouping; an
-event that cannot be scanned is dropped.
-
-Sent to the model for an event group: the usual allowlisted group plus `src` (`k8s`), `pods` (a number) and `wk` (a workload kind
-from a closed list). Stored (state key `evt:<service>`, expiry = window + tolerance + 1 h at most): the fully masked text (at most
-300 characters), level inputs, counts, unix times, the masked workload name and an 8-character one-way hash of each pod (only to
-count distinct pods). Never stored or sent: raw events, pod/node/image names, registry hosts, annotations, the token or CA.
-`tests/Fixtures/kubernetes/seeded-values.php` lists the values seeded in the fixtures; `tests/EndToEnd/KubernetesEventsTest.php`
-fails if any reaches a model request, a message, a state write, the JSON summary or the host log.
-
-Limit: a name that is identical in every occurrence of an event and not covered by a rule above (for example a person named by
-an operator in free text) is not detectable; see "Limits you must know".
-
-## Similarity grouping and baselines (spec 004)
 
 Clustering by similarity runs on the already masked tokens, per distinct message, inside the process; nothing new is
 stored or sent. The digest's grouping and comparison lines are built from integers, dates and fixed words only. The one

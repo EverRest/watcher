@@ -22,7 +22,7 @@ final class TraceLinksConfigTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki']],
-            'analysis' => ['api_key' => 'k', 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
+            'analysis' => ['api_keys' => ['gemini' => 'k'], 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/x']],
             'links' => $links,

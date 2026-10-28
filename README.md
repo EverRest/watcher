@@ -8,8 +8,8 @@
 <!-- badges:end -->
 
 Scheduled, model-routed log analysis. Once per window (default 24 h) it reads one service's logs from
-Loki or Datadog (or its Kubernetes pod events), groups errors into fingerprinted clusters, decides in plain code which ones deserve
-attention, asks Anthropic models to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
+Loki or Datadog, groups errors into fingerprinted clusters, decides in plain code which ones deserve
+attention, asks the model provider (OpenAI or Gemini) to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
 it never acts on a service, opens tickets, or stores raw log lines.
 
 **Pipeline at a glance**
@@ -30,7 +30,7 @@ Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which 
 
 Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`).
 
-Kubernetes events (spec 008): `source.driver: kubernetes` reads pod-level problems (crash loops, OOM kills, image pull failures, probes, restarts) through an hourly ledger; see [docs/kubernetes.md](docs/kubernetes.md).
+Kubernetes events (spec 008) were removed in 0.7.0: the `kubernetes` and `events` sections and `source.driver: kubernetes` fail at load. Export cluster events to your log backend and read them through `loki` or `datadog`.
 
 Read-only MCP server (spec 015): `watcher mcp` over stdio lets an assistant read status, the latest report, one finding, the hygiene report and an optional confirmed dry run, and `--setup` helps to write and validate a first config. It never writes to a monitored system.
 
@@ -42,7 +42,7 @@ Nothing new to report means zero model calls. The first run only records a basel
 
 - PHP ^8.2. Support matrix: CI tests PHP 8.2 to 8.5. PHP 8.2 security support ends in December 2026; use 8.3 or newer in production. PHP 8.1 support was dropped in 0.1.2.
 - Optional: `ext-redis` or `predis/predis` (Redis state, the default driver), `ext-zlib` (compresses large Redis values), `ext-pdo` plus a driver (PDO state).
-- A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
+- A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an OpenAI or Gemini API key, read-only credentials for Loki or Datadog.
 - Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11; CI tests the oldest and the newest versions Composer resolves, on top of the locked set); the core has no framework dependency. Laravel 10 no longer receives security fixes upstream, prefer 11. Lumen is unmaintained upstream: the adapter has no Lumen-specific test, so treat Lumen as best effort.
 
 ## Installation
@@ -130,7 +130,7 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [005](specs/005-incident-workflow/spec.md) | Incident workflow | Phases 1–3 implemented (known issues, severity routing, ticket drafts); weekly report deferred |
 | [006](specs/006-log-hygiene/spec.md) | Log hygiene | Implemented |
 | [007](specs/007-code-aware-analysis/spec.md) | Code-aware analysis | Spec written, blocked on a constitution amendment |
-| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Implemented |
+| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Removed in 0.7.0 |
 | [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Not released (branch `feat/metrics-e009-030`) |
 | [010](specs/010-api-context/spec.md) | API context | Implemented, off by default |
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
@@ -195,7 +195,7 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 - The model cannot lower an error-or-higher group: its findings are never shown below the group's level, and a cached verdict below that level is not reused (see `docs/privacy.md`).
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.
 
-What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,
+What leaves the service: (1) to the model provider (OpenAI or Gemini), the compact payload above plus `service_context` (up to 1000 chars,
 written by you); (2) to the notification channel (Slack, Telegram or Discord), the digest (titles, evidence, hypotheses, counts, short fingerprints) and
 failure notices; (3) queries to your log backend. Nothing else is sent anywhere.
 
@@ -229,7 +229,7 @@ the lowest-priority groups and the digest says so.
 | 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
-exits 0 when `ok`, 1 when `degraded` (the last run worked but the pod events could not be read), `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
+exits 0 when `ok`, 1 when `degraded`, `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store). No source sets `degraded` in 0.7.0.
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to
@@ -258,7 +258,7 @@ decided in code from names, placeholders and times; it makes no model call and w
 
 - The Grafana Explore URL shape and the Datadog response shapes are not verified against live systems; sources are
   tested against recorded fixtures only.
-- The request format of the built-in Anthropic client (`x-api-key`, structured output) was tested against recorded fixtures only, not the live API.
+- The request formats of the built-in OpenAI and Gemini clients were tested against recorded fixtures only, not the live APIs.
 - At most `source.group_cap` (5000) distinct problem groups are held per run; on a day with more distinct messages the rest
   is grouped as one "other" group per level and the digest says so. Watch-rule matches are exempt up to twice the cap.
 - Cluster templates group by word similarity, not exact shape (`grouping.similarity`); two different problems with very similar wording can still share a template, and fingerprints do not depend on it. A name identical in every event of a cluster is not detectable (see `docs/privacy.md`).
@@ -272,7 +272,7 @@ decided in code from names, placeholders and times; it makes no model call and w
   threshold again or on the next day.
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
-- Only Slack, Telegram, Discord, Anthropic, Loki, Datadog, Kubernetes events and the three state drivers exist. There is no remediation and no ticketing.
+- Only Slack, Telegram, Discord, OpenAI, Gemini, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
 - Metrics and Sentry (spec 009) and the weekly report (spec 005) are not released yet.
 - Same-slot baselines for several runs a day and the daily roll-up digest (spec 014) are not released yet.
 

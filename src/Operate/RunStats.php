@@ -68,9 +68,6 @@ final class RunStats
     {
         return $this->sentry;
     }
-    /** @var array{status: string, read: int, deduplicated: int, unattributed: int, truncated: bool}|null pod events (spec 008); null = not configured */
-    public ?array $events = null;
-
     /** Source pages fetched, when the source reports it. */
     public ?int $pages = null;
 

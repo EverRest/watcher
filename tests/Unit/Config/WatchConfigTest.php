@@ -25,7 +25,7 @@ final class WatchConfigTest extends TestCase
                 'loki' => ['url' => 'https://loki', 'auth' => ['type' => 'bearer', 'token' => 'tok-secret']],
             ],
             'analysis' => [
-                'api_key' => 'sk-secret-key',
+                'api_keys' => ['gemini' => 'sk-secret-key'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],
@@ -131,7 +131,7 @@ final class WatchConfigTest extends TestCase
             'missing run_at' => [$unset(['schedule', 'run_at']), 'schedule.run_at'],
             'missing source driver' => [$unset(['source', 'driver']), 'source.driver'],
             'missing loki url' => [$unset(['source', 'loki', 'url']), 'source.loki.url'],
-            'missing api_key' => [$unset(['analysis', 'api_key']), 'analysis.api_key'],
+            'missing gemini key' => [$unset(['analysis', 'api_keys', 'gemini']), 'analysis.api_keys.gemini'],
             'missing triage model' => [$unset(['analysis', 'models', 'triage']), 'analysis.models.triage'],
             'missing analyze model' => [$unset(['analysis', 'models', 'analyze']), 'analysis.models.analyze'],
             'missing escalate model' => [$unset(['analysis', 'models', 'escalate']), 'analysis.models.escalate'],

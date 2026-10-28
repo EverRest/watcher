@@ -14,8 +14,7 @@ use Psr\Log\LoggerInterface;
 use Redis;
 use RedisException;
 use Watcher\Analyze\Analyzer;
-use Watcher\Analyze\AnthropicAnalyzer;
-use Watcher\Analyze\AnthropicSdkProvider;
+use Watcher\Analyze\ProviderAnalyzer;
 use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\ModelProvider;
 use Watcher\Analyze\OpenAiProvider;
@@ -41,17 +40,13 @@ use Watcher\Reduce\Normalizer;
 use Watcher\Source\Retry;
 use Watcher\Notify\Notifier;
 use Watcher\Notify\RoutingNotifier;
-use Watcher\Operate\AnthropicModelCatalog;
 use Watcher\Operate\Doctor;
 use Watcher\Operate\Heartbeat;
 use Watcher\Operate\HeartbeatStatus;
-use Watcher\Operate\ModelCatalog;
 use Watcher\Operate\RefusedAccess;
 use Watcher\Schedule\SystemClock;
 use Watcher\Notify\SlackWebhookNotifier;
 use Watcher\Notify\TelegramNotifier;
-use Watcher\Source\Kubernetes\KubeApi;
-use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\LogSource;
 use Watcher\Source\DatadogSource;
 use Watcher\Source\LokiSource;
@@ -95,22 +90,17 @@ final class Factory
         return ['timeout' => max(10, min(180, intdiv($lockTtl, 8))), 'connect_timeout' => 10];
     }
 
-    /** @param array<string, KubeApi> $apis shared by the entries of a fleet (pod events only) */
-    public static function source(WatchConfig $c, Client $http, ?ClockInterface $clock = null, array &$apis = []): LogSource
+    public static function source(WatchConfig $c, Client $http, ?ClockInterface $clock = null): LogSource
     {
         try {
-            return self::buildSource($c, $http, $clock, $apis);
+            return self::buildSource($c, $http, $clock);
         } catch (\InvalidArgumentException) {
             throw new InvalidConfig('source: invalid settings'); // not chained: the message may carry a URL or key
         }
     }
 
-    /** @param array<string, KubeApi> $apis */
-    private static function buildSource(WatchConfig $c, Client $http, ?ClockInterface $clock, array &$apis): LogSource
+    private static function buildSource(WatchConfig $c, Client $http, ?ClockInterface $clock): LogSource
     {
-        if ($c->source['driver'] === 'kubernetes') {
-            return self::kubernetesSource($c, $http, $clock ?? new SystemClock(), $apis);
-        }
         if ($c->source['driver'] === 'datadog') {
             /** @var array<string, mixed> $dd */
             $dd = $c->source['datadog'];
@@ -204,33 +194,6 @@ final class Factory
     private static function maxResponseBytes(WatchConfig $c): int
     {
         return (is_int($c->source['max_response_mb'] ?? null) ? $c->source['max_response_mb'] : 16) * 1024 * 1024;
-    }
-
-    /**
-     * The extra pod-events source declared beside `source` (spec 008), or null: nothing declared, the flag is off, or
-     * Kubernetes already is the main source. $apis is shared by the entries of a fleet: the same cluster and credentials
-     * share one client (and its short list memo), different credentials never do.
-     *
-     * @param array<string, KubeApi> $apis
-     */
-    public static function events(WatchConfig $c, Client $http, ClockInterface $clock, array &$apis = []): ?KubernetesEventsSource
-    {
-        $k = $c->kubernetes;
-        if ($k === null || !$c->on('kubernetes') || !$k->events || $k->asSource) {
-            return null;
-        }
-
-        return self::kubernetesSource($c, $http, $clock, $apis);
-    }
-
-    /** @param array<string, KubeApi> $apis */
-    private static function kubernetesSource(WatchConfig $c, Client $http, ClockInterface $clock, array &$apis): KubernetesEventsSource
-    {
-        $k = $c->kubernetes ?? throw new InvalidConfig('kubernetes: invalid settings');
-        $api = $apis[$k->credentialKey()] ??= new KubeApi($http, $k, $clock);
-        $window = (new \DateTimeImmutable('@0'))->add(new \DateInterval($c->schedule['window']))->getTimestamp();
-
-        return new KubernetesEventsSource($api, $k, $clock, new Normalizer(extraPatterns: $c->redactionPatterns), $c->stateKey, $window, $c->state['retention']);
     }
 
     public static function state(WatchConfig $c, ClockInterface $clock, ?LoggerInterface $log = null): StateStore
@@ -451,7 +414,7 @@ final class Factory
         foreach (array_unique(array_values($c->analysis['step_providers'])) as $name) {
             $providers[$name] = self::modelProvider($name, $c, $http, $options['timeout']);
         }
-        return new AnthropicAnalyzer(new ProviderRegistry($providers, $c->analysis['step_providers']), $c->on('advice'));
+        return new ProviderAnalyzer(new ProviderRegistry($providers, $c->analysis['step_providers']), $c->on('advice'));
     }
 
     /** The adapter for one provider name, with its key, base URL and retries from configuration (spec 016). */
@@ -461,7 +424,6 @@ final class Factory
         $opt = $c->analysis['providers_options'][$name];
 
         return match ($name) {
-            'anthropic' => new AnthropicSdkProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
             'openai' => new OpenAiProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
             'gemini' => new GeminiProvider($http, $key, $opt['base_url'], $timeout, $opt['retries']),
             default => throw new \LogicException("no adapter for provider $name"),
@@ -526,11 +488,10 @@ final class Factory
         return new SinkDispatcher($sinks, new EventSanitizer($redactor), $log);
     }
 
-    /** Models-list probe for `check`; null for a provider without one. Makes no call by itself. */
-    public static function modelCatalog(WatchConfig $c, Client $http): ?ModelCatalog
+    /** No provider has a model list now, so `check` reports provider_auth and models as skipped (Doctor takes null). */
+    public static function modelCatalog(WatchConfig $c, Client $http): null
     {
-        // Only Anthropic has a model list here; it is probed when any step uses it, with that step's key.
-        return in_array('anthropic', $c->analysis['step_providers'], true) ? new AnthropicModelCatalog($http, WatchConfig::reveal($c->analysis['api_keys']['anthropic'])) : null;
+        return null;
     }
 
     /** The OpenAPI context reader (spec 010); null when the section is absent or switched off, so nothing is built, read or cached. */
@@ -595,7 +556,7 @@ final class Factory
         $state = self::state($c, $clock);
         $probe = $c->observe->anyEnabled() ? self::observe($c, $clock, null, new ObserveCounters($state, $c->stateKey, $c->state['retention']), probe: true) : null;
 
-        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, events: self::events($c, $http, $clock), kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '', observe: $probe, metrics: self::metricSource($c, $http), issues: self::issueSource($c, $http, $clock), apiContext: self::apiContextReader(config: $c, http: $http, state: $state, redactor: new Redactor(new Normalizer(extraPatterns: $c->redactionPatterns), $c->redactionPatterns), clock: $clock));
+        return new Doctor($c, self::source($c, $http, $clock), $state, self::modelCatalog($c, $http), self::notifier($http, $c->schedule['lock_ttl']), $clock, observe: $probe, metrics: self::metricSource($c, $http), issues: self::issueSource($c, $http, $clock), apiContext: self::apiContextReader(config: $c, http: $http, state: $state, redactor: new Redactor(new Normalizer(extraPatterns: $c->redactionPatterns), $c->redactionPatterns), clock: $clock));
     }
 
     /**

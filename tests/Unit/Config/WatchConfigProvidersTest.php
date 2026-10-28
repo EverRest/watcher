@@ -19,7 +19,7 @@ final class WatchConfigProvidersTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki', 'auth' => ['type' => 'bearer', 'token' => 'tok-secret']]],
             'analysis' => [
-                'api_key' => 'sk-anthropic-secret',
+                'api_keys' => ['gemini' => 'sk-gemini-secret'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],
@@ -45,25 +45,26 @@ final class WatchConfigProvidersTest extends TestCase
     {
         $c = WatchConfig::fromArray(self::valid());
 
-        self::assertSame(['triage' => 'anthropic', 'analyze' => 'anthropic', 'escalate' => 'anthropic'], $c->analysis['step_providers']);
+        self::assertSame('gemini', $c->analysis['provider']);
+        self::assertSame(['triage' => 'gemini', 'analyze' => 'gemini', 'escalate' => 'gemini'], $c->analysis['step_providers']);
     }
 
     public function testOneStepCanUseAnotherProvider(): void
     {
         $c = WatchConfig::fromArray(self::withAnalysis([
-            'api_keys' => ['gemini' => 'gm-secret-key'],
-            'providers' => ['triage' => 'gemini'],
+            'api_keys' => ['openai' => 'oa-secret-key'],
+            'providers' => ['triage' => 'openai'],
             'models' => ['triage' => 'm1'],
         ]));
 
-        self::assertSame(['triage' => 'gemini', 'analyze' => 'anthropic', 'escalate' => 'anthropic'], $c->analysis['step_providers']);
+        self::assertSame(['triage' => 'openai', 'analyze' => 'gemini', 'escalate' => 'gemini'], $c->analysis['step_providers']);
     }
 
     public function testUnknownStepKeyIsRefused(): void
     {
         $this->expectException(InvalidConfig::class);
         $this->expectExceptionMessage('analysis.providers');
-        WatchConfig::fromArray(self::withAnalysis(['providers' => ['rerank' => 'anthropic']]));
+        WatchConfig::fromArray(self::withAnalysis(['providers' => ['rerank' => 'gemini']]));
     }
 
     public function testUnknownProviderNameIsRefused(): void
@@ -80,15 +81,15 @@ final class WatchConfigProvidersTest extends TestCase
             self::fail('expected InvalidConfig');
         } catch (InvalidConfig $e) {
             self::assertStringContainsString('analysis.api_keys.openai', $e->getMessage());
-            self::assertStringNotContainsString('sk-anthropic-secret', $e->getMessage());
+            self::assertStringNotContainsString('sk-gemini-secret', $e->getMessage());
         }
     }
 
-    public function testApiKeyIsTheAnthropicKeyForCompatibility(): void
+    public function testTheGeminiKeyIsReadFromTheKeysMap(): void
     {
         $c = WatchConfig::fromArray(self::valid());
 
-        self::assertSame('sk-anthropic-secret', WatchConfig::reveal($c->analysis['api_keys']['anthropic']));
+        self::assertSame('sk-gemini-secret', WatchConfig::reveal($c->analysis['api_keys']['gemini']));
     }
 
     public function testBaseUrlMustBeHttps(): void
@@ -105,11 +106,11 @@ final class WatchConfigProvidersTest extends TestCase
     public function testRetriesDefaultToZeroAndAreBounded(): void
     {
         $c = WatchConfig::fromArray(self::valid());
-        self::assertSame(0, $c->analysis['providers_options']['anthropic']['retries']);
+        self::assertSame(0, $c->analysis['providers_options']['gemini']['retries']);
 
         $this->expectException(InvalidConfig::class);
-        $this->expectExceptionMessage('analysis.providers_options.anthropic.retries');
-        WatchConfig::fromArray(self::withAnalysis(['providers_options' => ['anthropic' => ['retries' => 4]]]));
+        $this->expectExceptionMessage('analysis.providers_options.gemini.retries');
+        WatchConfig::fromArray(self::withAnalysis(['providers_options' => ['gemini' => ['retries' => 4]]]));
     }
 
     public function testOpenAiMayNotRetry(): void
@@ -126,9 +127,8 @@ final class WatchConfigProvidersTest extends TestCase
     public function testAConfigWithOnlyTheKeysMapLoads(): void
     {
         $c = self::valid();
-        unset($c['analysis']['api_key']);
-        $c['analysis']['api_keys'] = ['anthropic' => 'sk-only-map'];
+        $c['analysis']['api_keys'] = ['gemini' => 'sk-only-map'];
 
-        self::assertSame('sk-only-map', WatchConfig::reveal(WatchConfig::fromArray($c)->analysis['api_keys']['anthropic']));
+        self::assertSame('sk-only-map', WatchConfig::reveal(WatchConfig::fromArray($c)->analysis['api_keys']['gemini']));
     }
 }
