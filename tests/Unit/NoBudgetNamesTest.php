@@ -27,7 +27,8 @@ final class NoBudgetNamesTest extends TestCase
         'src/Schedule/RunGuard.php' => ['budget'], // the run time budget (deadline reason)
         'src/Config/Factory.php' => ['budget'], // SOURCE_BUDGET_SECONDS: the wall-clock limit of one source call
         'src/Config/Build/SourceFactory.php' => ['budget'], // budgetSeconds: the wall-clock limit of one metrics or Sentry call
-        'src/Config/WatchConfig.php' => ['budget'], // grouping.memory_budget_mb
+        'src/Config/WatchConfig.php' => ['budget'], // grouping.memory_budget_mb (the constructor's shape)
+        'src/Config/Section/GroupingSection.php' => ['budget'], // grouping.memory_budget_mb and its validation
         'src/Config/Catalog/CoreKeys.php' => ['budget'], // summaries that name a time or size budget
         'src/Config/Catalog/ObserveKeys.php' => ['budget'], // time_budget, service_time_budget, grouping.memory_budget_mb keys and their summaries
         'src/Config/Catalog/IntegrationKeys.php' => ['budget'], // summaries that name a time or size budget
