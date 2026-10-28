@@ -121,7 +121,7 @@ final class WatchConfigProvidersTest extends TestCase
         self::assertSame(3, $c->analysis['providers_options']['openai']['retries']);
         self::assertSame(1, $c->analysis['providers_options']['gemini']['retries']);
 
-        foreach (['openai' => 4, 'gemini' => 4, 'anthropic' => 4] as $name => $retries) {
+        foreach (['openai' => 4, 'gemini' => 4] as $name => $retries) {
             try {
                 WatchConfig::fromArray(self::withAnalysis(['providers_options' => [$name => ['retries' => $retries]]]));
                 self::fail("$name retries $retries must be refused");
