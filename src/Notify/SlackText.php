@@ -81,4 +81,10 @@ final class SlackText
     {
         return strtr($s, ['&amp;' => '&', ...array_flip(self::LOOKALIKE)]);
     }
+
+    /** At most $max characters; a longer text is cut and ends with an ellipsis. */
+    public static function cap(string $s, int $max): string
+    {
+        return mb_strlen($s) <= $max ? $s : mb_substr($s, 0, $max - 1) . '…';
+    }
 }

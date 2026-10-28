@@ -23,7 +23,7 @@ final class NoBudgetNamesTest extends TestCase
         'src/Watcher.php' => ['budget'], // time_budget share of a fleet, the page budget note, the run deadline
         'src/Metrics/PrometheusSource.php' => ['budget'], // retryBudget, budgetSeconds: per-call wait limits
         'src/Issues/SentryIssueSource.php' => ['budget'], // retryBudget, budgetSeconds: per-call wait limits
-        'src/Notify/DigestRenderer.php' => ['budget'], // budgetExhausted: the clustering comparison cap was hit (a notice, no money)
+        'src/Notify/DigestSections.php' => ['budget'], // budgetExhausted: the clustering cap was hit and the grouping time budget notice (no money)
         'src/Schedule/RunGuard.php' => ['budget'], // the run time budget (deadline reason)
         'src/Config/Factory.php' => ['budget'], // SOURCE_BUDGET_SECONDS: the wall-clock limit of one source call
         'src/Config/WatchConfig.php' => ['budget'], // grouping.memory_budget_mb
