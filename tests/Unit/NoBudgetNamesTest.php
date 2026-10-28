@@ -27,7 +27,9 @@ final class NoBudgetNamesTest extends TestCase
         'src/Schedule/RunGuard.php' => ['budget'], // the run time budget (deadline reason)
         'src/Config/Factory.php' => ['budget'], // SOURCE_BUDGET_SECONDS: the wall-clock limit of one source call
         'src/Config/WatchConfig.php' => ['budget'], // grouping.memory_budget_mb
-        'src/Config/KeyCatalog.php' => ['budget'], // time_budget, service_time_budget, memory_budget_mb keys and their summaries
+        'src/Config/Catalog/CoreKeys.php' => ['budget'], // summaries that name a time or size budget
+        'src/Config/Catalog/ObserveKeys.php' => ['budget'], // time_budget, service_time_budget, grouping.memory_budget_mb keys and their summaries
+        'src/Config/Catalog/IntegrationKeys.php' => ['budget'], // summaries that name a time or size budget
         'src/Fleet/FleetConfig.php' => ['budget'], // time_budget keys, and the removed-section check that reads the removed-keys table
         'src/Fleet/FleetRunner.php' => ['budget'],
         'src/Reduce/EventCollector.php' => ['budget'], // memory_budget_mb passed to the miner
