@@ -52,7 +52,7 @@ final class AlertsConfigTest extends TestCase
 
     public function testWindowIsAnIsoDuration(): void
     {
-        $c = WatchConfig::fromArray(self::config(['enabled' => true, 'window' => 'PT1H']));
+        $c = WatchConfig::fromArray(self::config(['enabled' => true, 'window' => 'PT1H', 'immediate' => ['x' => ['message' => 'boom']]]));
 
         self::assertSame(3600, $c->alerts['window']);
     }
@@ -67,6 +67,7 @@ final class AlertsConfigTest extends TestCase
         yield 'empty message' => [['immediate' => ['x' => ['message' => '']]]];
         yield 'unknown rule key' => [['immediate' => ['x' => ['lvl' => 'critical']]]];
         yield 'enabled not a boolean' => [['enabled' => 'yes']];
+        yield 'enabled without any rule' => [['enabled' => true]];
         yield 'fields not a list' => [['fields' => 'service']];
         yield 'field outside the allowlist' => [['fields' => ['password']]];
     }
