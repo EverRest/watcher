@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 — 2026-10-29 — Immediate alerts for matching log lines
+
+### Added
+- `alerts.immediate`: a notice is sent as soon as a log line matches a rule during the read, not at the next digest. A rule has a `level` (a minimum, default `critical`), a plain `message` substring and an exact `action`. Off by default: `alerts.enabled`, environment `WATCHER_ALERTS_ENABLED`.
+- `alerts.window` (default `PT15M`): at most one alert per rule, message and affected service per window. The window is kept in the state store, so a restart does not repeat an alert.
+- `alerts.fields`: the context values an alert may show (`service`, `http_code`, `error`, `services`). Empty by default. Numbers are masked except `http_code`.
+- At most 5 alert messages per read. The rest are not recorded and go out on a later read, with one line saying how many were held back.
+
+### Notes
+- Context values stay off the notice unless listed in `alerts.fields`. Enabling it sends masked values to the notice destination, which `docs/privacy.md` does not yet describe.
+
+
 ## 0.8.0 — 2026-10-28 — Retry transient provider failures (OpenAI, Gemini)
 
 ### Added
