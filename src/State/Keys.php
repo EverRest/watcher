@@ -32,6 +32,7 @@ final class Keys
     public const KNOWN = 'known';
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
+    public const HEALTH = 'health';
 
     private const NOTICE_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -67,6 +68,12 @@ final class Keys
     public static function reported(string $service, string $fingerprint): string
     {
         return self::join(self::REPORTED, $service, $fingerprint);
+    }
+
+    /** Last seen {success, version, checked_at} of one service of the host's health snapshot; refreshed on every hourly write. */
+    public static function healthcheck(string $service): string
+    {
+        return self::join(self::HEALTH, $service);
     }
 
     public static function run(string $service, string $windowEnd): string

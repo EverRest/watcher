@@ -37,7 +37,7 @@ final class WatchConfig implements \JsonSerializable
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
         'enabled', 'environment', 'purge', 'level_anomaly', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
-        'known_issues', 'drafts', 'report',
+        'known_issues', 'drafts', 'report', 'health_check',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */

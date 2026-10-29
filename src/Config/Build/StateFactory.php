@@ -104,7 +104,7 @@ final class StateFactory
      *
      * @param array<string, mixed> $r
      */
-    private static function redisClient(#[\SensitiveParameter] array $r): RedisClient
+    public static function redisClient(#[\SensitiveParameter] array $r): RedisClient
     {
         if (is_object($r['instance'] ?? null)) {
             return self::wrapRedisInstance($r['instance']);

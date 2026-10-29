@@ -62,6 +62,7 @@ final class SecretDumpTest extends TestCase
             $path === 'observe.http.auth_token' => self::with($c, ['observe'], ['http' => ['enabled' => true, 'url' => 'https://obs.invalid/ingest', 'auth_token' => $m]]),
             $path === 'sentry.auth_token' => self::with($c, ['sentry'], ['enabled' => true, 'base_url' => 'https://sentry.invalid', 'organization' => 'acme', 'project' => 'api', 'auth_token' => $m]),
             str_starts_with($path, 'api_context.') => self::with($c, ['api_context'], ['enabled' => true, 'source' => 'https://docs.invalid/openapi.json?k=' . $own('api_context.source'), 'auth_token' => $own('api_context.auth_token')]),
+            $path === 'health_check.source.password' => self::with($c, ['health_check'], ['enabled' => true, 'source' => ['host' => 'ew-redis', 'key' => 'm-seq:health', 'password' => $m]]),
             default => $c,
         };
     }

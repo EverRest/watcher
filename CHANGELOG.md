@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — Hourly host health check
+
+- `watcher:health` (Laravel adapter): reads the host app's `{app}:health` snapshot from its Redis once per hour and alerts at once when a service's version changes. Opt-in (`health_check.enabled`); separate from the daily run. Optional up/down transitions (`health_check.notify_transitions`).
+
 ## 0.8.0 — 2026-10-28 — Retry transient provider failures (OpenAI, Gemini)
 
 ### Added

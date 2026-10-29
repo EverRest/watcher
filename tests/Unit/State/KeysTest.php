@@ -29,6 +29,12 @@ final class KeysTest extends TestCase
         self::assertNotSame(Keys::week('a', '2026-W43', 'x'), Keys::week('a:2026-W43', 'x', 'x'));
     }
 
+    public function testHealthCopyKey(): void
+    {
+        self::assertSame('health:orders-api', Keys::healthcheck('orders-api'));
+        self::assertSame('health:a%3Ab', Keys::healthcheck('a:b'));
+    }
+
     public function testHeartbeatTtls(): void
     {
         self::assertSame(3 * 2592000, Keys::ttl(Keys::HEARTBEAT, 2592000, 900));

@@ -43,6 +43,22 @@ final class NoticeRenderer
         return $this->notice('📊', $service, $environment, sprintf('week %s: %s', SlackText::escape($isoWeek), implode(', ', $parts)));
     }
 
+    /** Immediate alert from the host health check: the greppable prefix, then both versions. Versions go through reason() like any other host text. */
+    public function versionChanged(string $service, string $environment, string $old, string $new, string $checkedAt): Message
+    {
+        $text = sprintf('🔔 VERSION CHANGED %s · %s · %s → %s (checked %s)', SlackText::escape($service), SlackText::escape($environment), $this->reason($old), $this->reason($new), SlackText::escape($checkedAt));
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    /** Up/down transition of one service (opt-in); sent once when the status flips, never on every failing hour. */
+    public function healthTransition(string $service, string $environment, bool $up, string $checkedAt): Message
+    {
+        $text = sprintf('%s %s · %s · checked %s', $up ? '✅ UP' : '🔴 DOWN', SlackText::escape($service), SlackText::escape($environment), SlackText::escape($checkedAt));
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     private function notice(string $icon, string $service, string $environment, string $tail): Message
     {
         $text = sprintf('%s watcher · %s · %s — %s', $icon, SlackText::escape($service), SlackText::escape($environment), $tail);

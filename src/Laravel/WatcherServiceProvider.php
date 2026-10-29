@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Watcher\Laravel;
 
+use DateTimeImmutable;
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 use Watcher\Config\Factory;
 use Watcher\Fleet\FleetRunner;
+use Watcher\Health\HealthCheck;
 use Watcher\Hygiene\Hygiene;
 use Watcher\Hygiene\HygieneOptions;
 use Watcher\Hygiene\HygieneResult;
@@ -75,6 +77,15 @@ final class WatcherServiceProvider extends ServiceProvider
             StateGetCommand::class,
             static fn ($app): StateGetCommand => new StateGetCommand(static fn (string $key): ?string => Factory::stateInspector((array) $app->make('config')->get('watcher'))->render($key)),
         );
+        // Hourly host health check: separate from the daily run (no run gate, no digest). Off unless health_check.enabled.
+        $this->app->bind(
+            HealthCommand::class,
+            static fn ($app): HealthCommand => new HealthCommand(static function (DateTimeImmutable $now) use ($app): int {
+                $logger = $app->bound(LoggerInterface::class) ? $app->make(LoggerInterface::class) : null;
+
+                return HealthCheck::fromConfig((array) $app->make('config')->get('watcher'), $logger)?->run($now) ?? 0;
+            }),
+        );
         // Spec 006: log hygiene reports.
         $this->app->bind(
             HygieneCommand::class,
@@ -84,7 +95,7 @@ final class WatcherServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, StateGetCommand::class, FleetCommand::class, HygieneCommand::class]);
+        $this->commands([RunCommand::class, CheckCommand::class, StatusCommand::class, StateGetCommand::class, FleetCommand::class, HygieneCommand::class, HealthCommand::class]);
         if (method_exists($this->app, 'basePath')) {
             $this->publishes([self::CONFIG => $this->app->basePath('config/watcher.php')], 'watcher-config');
         }
