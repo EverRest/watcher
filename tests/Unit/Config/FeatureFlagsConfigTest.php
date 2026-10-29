@@ -43,7 +43,7 @@ final class FeatureFlagsConfigTest extends TestCase
 
         self::assertFalse($c->enabled);
         foreach (WatchConfig::FLAGS as $flag) {
-            if ($flag === 'drafts') {
+            if (in_array($flag, ['drafts', 'alerts'], true)) { // opt-in: off by default
                 self::assertFalse($c->on($flag));
                 continue;
             }
@@ -106,7 +106,7 @@ final class FeatureFlagsConfigTest extends TestCase
 
         self::assertFalse($c->on($flag), $path);
         foreach (WatchConfig::FLAGS as $other) {
-            if ($other !== $flag && $other !== 'drafts') {
+            if ($other !== $flag && !in_array($other, ['drafts', 'alerts'], true)) {
                 self::assertTrue($c->on($other), "$other must stay on when only $flag is off");
             }
         }
@@ -249,7 +249,7 @@ final class FeatureFlagsConfigTest extends TestCase
             $c = $load();
             self::assertFalse($c->enabled, 'off unless WATCHER_ENABLED');
             foreach (WatchConfig::FLAGS as $flag) {
-                if ($flag === 'drafts') {
+                if (in_array($flag, ['drafts', 'alerts'], true)) {
                     self::assertFalse($c->on($flag));
                 } else {
                     self::assertTrue($c->on($flag), $flag);

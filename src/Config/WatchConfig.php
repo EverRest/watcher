@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher\Config;
 
+use Watcher\Config\Section\AlertsSection;
 use Watcher\Config\Section\AnalysisSection;
 use Watcher\Config\Section\ApiContextSection;
 use Watcher\Config\Section\BaselineSection;
@@ -37,14 +38,14 @@ final class WatchConfig implements \JsonSerializable
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
         'enabled', 'environment', 'purge', 'level_anomaly', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
-        'known_issues', 'drafts', 'report',
+        'known_issues', 'drafts', 'report', 'alerts',
     ];
 
     /** Every on/off feature flag (spec 012). All default to true; none can touch redaction, the normalizer or the allowlist. */
     public const FLAGS = [
         'heartbeat', 'purge', 'dependencies', 'deploy', 'links.logs', 'links.code', 'service_context', 'watch_rules', 'mute',
         'level_anomaly', 'escalation', 'triage', 'advice', 'baseline', 'grouping', 'notice', 'digest',
-        'known_issues', 'drafts', 'routes',
+        'known_issues', 'drafts', 'routes', 'alerts',
     ];
 
     /**
@@ -100,6 +101,8 @@ final class WatchConfig implements \JsonSerializable
         public readonly \Watcher\Incident\IncidentSettings $incident,
         /** @var array<string, mixed>|null the validated `api_context` section (spec 010), null when absent; not a feature flag */
         public readonly ?array $apiContext = null,
+        /** @var array{window: int, fields: list<string>, immediate: array<string, array{level: Level, message: ?string, action: ?string}>} alerts; window in seconds */
+        public readonly array $alerts = ['window' => 900, 'fields' => [], 'immediate' => []],
     ) {
     }
 
@@ -274,6 +277,8 @@ final class WatchConfig implements \JsonSerializable
         $heartbeat = HeartbeatSection::heartbeat(SectionFields::section($config, 'heartbeat'), $interval);
         $flags['heartbeat'] = $heartbeat['enabled'];
         unset($heartbeat['enabled']);
+        $flags['alerts'] = SectionFields::flag(SectionFields::section($config, 'alerts'), 'enabled', 'alerts.enabled', false);
+        $alerts = AlertsSection::alerts(SectionFields::section($config, 'alerts'));
         $notifySec = SectionFields::section($config, 'notify');
         $notify = NotifySection::notify($notifySec);
         foreach (['digest', 'notice'] as $kind) {
@@ -336,6 +341,7 @@ final class WatchConfig implements \JsonSerializable
             \Watcher\Hygiene\HygieneSettings::fromArray(SectionFields::section($config, 'hygiene')),
             $incident,
             array_key_exists('api_context', $config) ? Credentials::hide(ApiContextSection::apiContext($config['api_context'], $state['retention']), 'source', 'auth_token') : null,
+            $alerts,
         );
     }
 
