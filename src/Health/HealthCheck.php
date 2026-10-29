@@ -161,7 +161,7 @@ final class HealthCheck
         }
         $version = self::known($entry['version'] ?? null);
         $copy = ['success' => $entry['success'], 'version' => $version, 'checked_at' => $entry['checked_at']];
-        $key = Keys::healthcheck($name);
+        $key = Keys::healthcheck($this->service, $name);
         $prev = $this->state->get($key);
 
         $messages = [];

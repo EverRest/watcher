@@ -31,8 +31,8 @@ final class KeysTest extends TestCase
 
     public function testHealthCopyKey(): void
     {
-        self::assertSame('health:orders-api', Keys::healthcheck('orders-api'));
-        self::assertSame('health:a%3Ab', Keys::healthcheck('a:b'));
+        self::assertSame('health:billing:orders-api', Keys::healthcheck('billing', 'orders-api'));
+        self::assertSame('health:billing:a%3Ab', Keys::healthcheck('billing', 'a:b'));
     }
 
     public function testHeartbeatTtls(): void

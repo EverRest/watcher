@@ -207,7 +207,7 @@ Failures are one fixed word in the digest (`API context unavailable (<token>)`) 
 `php artisan watcher:health` (Lumen/Laravel adapter only) reads the host app's health snapshot from the host's Redis, once per hour, and
 alerts at once when a service's version changes. It is separate from the daily run: no run gate, no digest. The host schedules it hourly
 (`$schedule->command('watcher:health')->hourly()`). The snapshot is one JSON object, `{"<service>": {"success": bool, "version": string|null,
-"checked_at": ISO-8601}}`. Only those four fields are stored, one copy per service, under `health:<service>` in the watcher's Redis (prefix
+"checked_at": ISO-8601}}`. Only those four fields are stored, one copy per service, under `health:<watcher service>:<snapshot service>` in the watcher's Redis (prefix
 included). A `null` or `Version not defined` version is unknown and never alerts. The first time a service is seen, its copy is stored silently.
 
 | Key | Default | Meaning |

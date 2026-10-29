@@ -45,7 +45,7 @@ final class HealthCheckTest extends TestCase
         self::assertSame([], $this->notifier->sent);
         self::assertSame(
             ['success' => true, 'version' => '1.2.0', 'checked_at' => '2026-10-29T10:00:00+00:00'],
-            $this->state->get(Keys::healthcheck(self::KEY)),
+            $this->state->get(Keys::healthcheck('watcher', self::KEY)),
         );
     }
 
@@ -116,7 +116,7 @@ final class HealthCheckTest extends TestCase
         $this->runAt('2026-10-29T10:00:00Z');
         $this->runAt('2026-10-29T11:00:00Z');
 
-        self::assertSame(self::TTL, $this->state->ttls[Keys::healthcheck(self::KEY)]);
+        self::assertSame(self::TTL, $this->state->ttls[Keys::healthcheck('watcher', self::KEY)]);
     }
 
     public function testRedisReadFailureReturnsOneAndDoesNotThrow(): void
@@ -154,7 +154,7 @@ final class HealthCheckTest extends TestCase
         $this->publish('1.3.0');
         $this->notifier->fail = true;
         self::assertSame(1, $this->runAt('2026-10-29T11:00:00Z'));
-        $stored = $this->state->get(Keys::healthcheck(self::KEY));
+        $stored = $this->state->get(Keys::healthcheck('watcher', self::KEY));
         self::assertSame('1.2.0', $stored['version'] ?? null);
 
         $this->notifier->fail = false;
@@ -171,8 +171,22 @@ final class HealthCheckTest extends TestCase
         ], JSON_THROW_ON_ERROR);
 
         self::assertSame(0, $this->runAt('2026-10-29T10:00:00Z'));
-        self::assertNull($this->state->get(Keys::healthcheck('broken')));
-        self::assertNotNull($this->state->get(Keys::healthcheck(self::KEY)));
+        self::assertNull($this->state->get(Keys::healthcheck('watcher', 'broken')));
+        self::assertNotNull($this->state->get(Keys::healthcheck('watcher', self::KEY)));
+    }
+
+    /** Two watchers with their own service names sharing one store and one host: each must see the change, not just the first. */
+    public function testTwoWatchersOnTheSameHostEachSeeTheChange(): void
+    {
+        $this->publish('1.2.0');
+        $this->check(service: 'billing')->run(new DateTimeImmutable('2026-10-29T10:00:00Z'));
+        $this->check(service: 'orders')->run(new DateTimeImmutable('2026-10-29T10:00:00Z'));
+
+        $this->publish('1.3.0');
+        $this->check(service: 'billing')->run(new DateTimeImmutable('2026-10-29T11:00:00Z'));
+        $this->check(service: 'orders')->run(new DateTimeImmutable('2026-10-29T11:00:00Z'));
+
+        self::assertCount(2, $this->notifier->sent);
     }
 
     private function runAt(string $at): int
@@ -188,7 +202,7 @@ final class HealthCheckTest extends TestCase
         ], JSON_THROW_ON_ERROR);
     }
 
-    private function check(bool $transitions = false): HealthCheck
+    private function check(bool $transitions = false, string $service = 'watcher'): HealthCheck
     {
         return new HealthCheck(
             source: $this->source,
@@ -198,7 +212,7 @@ final class HealthCheckTest extends TestCase
             to: Destination::none(),
             renderer: new NoticeRenderer(),
             log: new NullLogger(),
-            service: 'watcher',
+            service: $service,
             environment: 'test11',
             ttlSeconds: self::TTL,
             notifyTransitions: $transitions,
