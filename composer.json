@@ -56,6 +56,7 @@
         ],
         "stan": "phpstan analyse --memory-limit=512M",
         "style": "pint --test",
+        "length": "php scripts/check-file-length.php",
         "ci": ["@style", "@stan", "@test"]
     },
     "extra": {

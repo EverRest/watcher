@@ -9,6 +9,7 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Baseline\BaselineResolver;
+use Watcher\Alert\ImmediateAlerts;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
@@ -752,8 +753,15 @@ final class Watcher
         // Spec 009 US4: a tracing link needs the earliest valid trace id per group, kept in memory only (never on a group).
         $traceField = $c->links['tempo']['trace_field'] ?? $c->links['datadog_apm']['trace_field'] ?? (isset($c->links['tempo']) || isset($c->links['datadog_apm']) ? 'trace_id' : null);
         $traces = $traceField === null ? null : new TraceIdCollector((string) $traceField);
-        $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard, $traces === null ? null : $traces->observe(...));
+        $immediate = $c->on('alerts') && $c->alerts['immediate'] !== [] ? new ImmediateAlerts($c->alerts['immediate'], $redactor, $this->notices(), $service, $this->environment(), $c->alerts['fields'], $c->minGroupEventsForText) : null;
+        $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard, $traces === null ? null : $traces->observe(...), $immediate);
         $groups = $collector->collect($window, $selector, $anomalies);
+        // Sent during the read, not with the digest. A failure is logged to the host and never fails the run or the digest.
+        $immediate?->deliver($this->state, $key, $c->alerts['window'], function (Message $m): void {
+            $this->notifier->send($m, $this->noticeDestination());
+        }, function (\Throwable $e) use ($service): void {
+            $this->hostLog?->warning('immediate alert failed: ' . $this->notices()->describe($e), ['service' => $service]);
+        });
         $extras = ['metricsLine' => null, 'unavailable' => [], 'sentryDropped' => 0, 'anomaliesNotShown' => 0];
         if ($this->issues !== null && $c->sentry !== null && $this->guard?->reason() === null) {
             $before = count($groups);
