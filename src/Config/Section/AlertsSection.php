@@ -57,6 +57,11 @@ final class AlertsSection
             ];
         }
 
+        // Switched on with no rule, nothing could ever match: say so at load instead of running silently.
+        if (($a['enabled'] ?? false) === true && $immediate === []) {
+            throw new InvalidConfig('alerts.enabled needs at least one alerts.immediate rule');
+        }
+
         return ['window' => $seconds, 'fields' => $fields, 'immediate' => $immediate];
     }
 }
