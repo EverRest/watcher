@@ -12,15 +12,95 @@ Loki or Datadog, groups errors into fingerprinted clusters, decides in plain cod
 attention, asks the model provider (OpenAI or Gemini) to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
 it never acts on a service, opens tickets, or stores raw log lines.
 
-**Pipeline at a glance**
+## How it works
 
+```mermaid
+flowchart LR
+  host["Host trigger<br/>cron, CronJob or Laravel schedule"] --> run["watcher run"]
+  run --> src[("Log backend<br/>Loki or Datadog")]
+  src --> red["Reduce<br/>fingerprint, counters,<br/>mute and watch rules"]
+  red --> sel{"Select<br/>deterministic, no model"}
+  sel -- "nothing qualifies" --> quiet["Zero model calls"]
+  sel --> tri["Triage<br/>cheap model, one batch"]
+  tri --> ana["Analyze<br/>mid model, top M"]
+  ana --> esc["Escalate<br/>strong model, once per finding"]
+  esc --> dd["Dedupe and digest"]
+  ana --> dd
+  dd --> out[("Slack, Telegram<br/>or Discord")]
+  red <-. "fingerprints, verdicts, run records" .-> st[("StateStore<br/>Redis, PDO or file")]
 ```
-LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) -> Dedupe -> Notifier
-(per env)    fingerprint  allowlist  anomaly     cheap     mid        strong       StateStore  Slack
-             + counters   + normalise rules(code) model     model      model, once
-             + vs yesterday
-   all steps share: StateStore (fingerprints, verdicts, run records, heartbeat)
+
+Each model step uses the provider you choose for it (OpenAI or Gemini); every step is a call to the model, never to the log backend.
+
+## At a glance
+
+| Area | Supported today |
+|---|---|
+| Log sources | Loki and Datadog (read-only queries only) |
+| Model providers | OpenAI and Gemini; each step (triage, analyze, escalate) can use a different one |
+| Notifications | Slack, Telegram, Discord, or `none`; event sinks for `log`, `file`, `http` and a Prometheus textfile ([observability](docs/observability.md)) |
+| State | Redis (default), any PDO database, or a file (single runner only) |
+| Schedule | Once at `schedule.run_at`, every `PT1H` to `PT12H`, or a list of times; catch-up after an outage |
+| Several services | One fleet file; each service keeps its own window, lock and digest; a consumer's finding can point at its origin |
+| Host health | `watcher:health`, off by default: hourly check of the host app's version snapshot ([below](#host-health-check)) |
+| Operations | `check`, `status`, `run --dry-run`, `state:get`, `hygiene`, a read-only MCP server |
+| Privacy | Allowlisted fields only, redaction in code, no raw line persisted; the model never chooses its input |
+
+## How a run works
+
+The host may trigger the command more often than once a window. Only the trigger inside the due hour does work; the others exit 0 and do nothing.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant H as Host trigger
+  participant W as watcher
+  participant S as StateStore
+  participant L as Log backend
+  participant M as Model provider
+  participant N as Notifier
+  H->>W: run
+  alt not due, or this window already has a run record
+    W-->>H: exit 0, nothing done
+  else due
+    W->>S: take lock
+    W->>L: read window (queries only)
+    W->>W: reduce, redact, select
+    opt candidates exist
+      W->>M: triage, analyze, escalate (allowlisted input)
+      M-->>W: findings, checked against the schema
+    end
+    W->>S: snapshot, run record, reported markers
+    W->>N: digest (only when something is reportable)
+    W-->>H: exit 0 (failure: exit 1 and a notice)
+  end
 ```
+
+The first run of a service only records a baseline (`baselined`): it sends no analysis, and the next run compares against it.
+
+## Example digest
+
+Shortened from the golden test fixture (`tests/Fixtures/golden/`); a live digest will differ.
+
+```text
+🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)
+2 findings
+
+🟠 error (1)
+• Problem <ID> — 5×  `922a8ce78cec`
+  Evidence: seen repeatedly; dependency payments shows 6 errors
+  Hypothesis: a dependency may be failing  Next: inspect the dependency
+
+🟡 warn (1)
+• Problem <ID> — 8× (new)  `9ab3237802d9`
+  Evidence: seen repeatedly; dependency payments shows 6 errors
+  Hypothesis: a dependency may be failing  Next: inspect the dependency
+
+1 muted
+📈 info ×6 vs previous window
+```
+
+Every hypothesis is labelled as one. A finding's level is never lowered by the model.
 
 Every feature has an on/off flag in the config and a `WATCHER_*` environment variable, so one package can run in int, prod and dev with different settings; the master switch `enabled` (`WATCHER_ENABLED`) defaults to off and `environment` (`WATCHER_ENVIRONMENT`) prefixes the state keys (see [docs/configuration.md](docs/configuration.md#feature-flags-spec-012) and [docs/operations.md](docs/operations.md#enabling-and-disabling-per-environment)). Redaction has no switch.
 
@@ -148,7 +228,7 @@ The contract is `specs/001-scheduled-log-watch/contracts/configuration.md`.
 
 Configuration is validated once, before any network call. A bad value throws `InvalidConfig` naming the key
 (never the value), and the process exits with code 2. Unknown top-level keys are rejected.
-Required: `service`, `schedule.run_at`, a source driver with its credentials, `analysis.api_key`, all three
+Required: `service`, `schedule.run_at`, a source driver with its credentials, `analysis.api_keys` for each provider in use (`openai` or `gemini`), all three
 `analysis.models`, a state driver with its settings, `notify.digest.webhook`.
 
 ## Log sources
@@ -217,6 +297,17 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 What leaves the service: (1) to the model provider (OpenAI or Gemini), the compact payload above plus `service_context` (up to 1000 chars,
 written by you); (2) to the notification channel (Slack, Telegram or Discord), the digest (titles, evidence, hypotheses, counts, short fingerprints) and
 failure notices; (3) queries to your log backend. Nothing else is sent anywhere.
+
+```mermaid
+flowchart TB
+  raw["Raw log lines<br/>stay in the backend"] -->|read-only query| allow["Allowlist<br/>level, template, error type,<br/>5 frames, counts, timestamps"]
+  allow --> red["Redaction<br/>emails, ids, tokens, hosts become placeholders"]
+  red -->|a field that cannot be scanned is dropped| model["Model provider<br/>compact payload only"]
+  model --> scrub["Output scrubbed again<br/>before cache or display"]
+  scrub --> digest["Digest<br/>titles, evidence, counts, short fingerprints"]
+  digest --> chan["Notification channel"]
+  red -.->|groups under 3 events| text["No message text sent"]
+```
 
 ## Model calls
 

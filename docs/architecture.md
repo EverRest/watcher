@@ -1,5 +1,36 @@
 # Architecture
 
+## Overview
+
+Every external system sits behind an interface chosen by config. The only things that leave the process are the
+read queries to the log backend, the requests to one model provider per step, and the messages to the notifier.
+
+```mermaid
+flowchart TB
+  subgraph pkg[watcher process]
+    entry["Entry points<br/>vendor/bin/watcher, Laravel command, MCP server"] --> core["Watcher::run()"]
+    core --> red["Reduce<br/>EventCollector, fingerprints"]
+    core --> sel["Selection and baselines"]
+    core --> ana["Analysis<br/>triage, analyze, escalate"]
+    core --> dig["Digest and notices"]
+    core --> led["RunLedger<br/>counters, run record, heartbeat"]
+  end
+  subgraph ext[external systems]
+    loki[("Loki")]
+    dd[("Datadog")]
+    prov["Model provider<br/>OpenAI or Gemini"]
+    chan["Slack, Telegram, Discord"]
+    st[("Redis, PDO or file")]
+  end
+  red --> loki
+  red --> dd
+  ana --> prov
+  dig --> chan
+  led --> st
+  red --> st
+  sel --> st
+```
+
 ## Inside `Watcher::run()`
 
 `Watcher` is the single entry point (constructor, `fromConfig`, `run`); a run is split into small collaborators, none of them an interface or a pipeline framework:
