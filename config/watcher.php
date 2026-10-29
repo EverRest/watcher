@@ -57,6 +57,10 @@ return [
     // [['fingerprint' => 'abc123', 'until' => '2030-01-31'], ['template' => '/regex/', 'until' => null]]
     'mute' => ['enabled' => Env::bool('WATCHER_MUTE_ENABLED', true)], // add entries as list items next to `enabled`
 
+    // Sent at once when a log line matches (docs/configuration.md#immediate-alerts). Off by default.
+    // ['health-check' => ['level' => 'critical', 'message' => 'health check failed']]
+    'alerts' => ['enabled' => Env::bool('WATCHER_ALERTS_ENABLED', false), 'immediate' => []],
+
     'selection' => [
         'min_level' => 'error',
         'growth_factor' => 3.0,

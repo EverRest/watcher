@@ -33,6 +33,7 @@ final class Keys
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
     public const HEALTH = 'health';
+    public const ALERT = 'alert';
 
     private const NOTICE_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -107,6 +108,11 @@ final class Keys
     public static function trigger(string $service): string
     {
         return self::join(self::TRIGGER, $service);
+    }
+
+    public static function immediateAlert(string $service, string $identity): string
+    {
+        return self::join(self::ALERT, $service, $identity);
     }
 
     /** Consecutive windows in which the source returned nothing at all (A4-08). */

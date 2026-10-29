@@ -271,6 +271,43 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 | `heartbeat.stale_after` | 1.5 x `schedule.window` | ISO-8601 duration (> 0). `watcher status` reports `stale` and exits non-zero when the last reported/quiet/baselined run is older than this. |
 | `heartbeat.weekly_summary` | `false` | `true` sends one line per ISO week (service timezone) to the notice destination, from the first due run of the next week: counts of reported, quiet, baselined, failed and skipped runs. Nothing is sent for a week with no run. |
 
+### Immediate alerts
+
+Off by default. A log line that matches a rule is sent at once, not in the digest, to `notify.notice` (or `notify.digest`
+when that is unset), as a line that starts with `🚨 ALERT [critical] <service>: <message>`, then the context fields you
+allow in `alerts.fields`, the environment and the time. The alert is checked on every read of the window, using the same
+read as the digest, so it is only as early as the run that reads it. Source truncation (`source.event_cap`) can hide a
+line from the alert as well as from the digest. Mute entries do not suppress alerts. Repeats within one read become one
+message with `(×N)`. At most 5 alert messages go out per read; the rest are not recorded, so a later read sends them, and
+one line says how many were held back.
+
+| Key | Default | Notes |
+|---|---|---|
+| `alerts.enabled` | `false` | Master switch. Environment variable `WATCHER_ALERTS_ENABLED`. |
+| `alerts.window` | `PT15M` | ISO-8601 duration (> 0). At most one alert per rule, message and affected service per window. Kept in the state store as a hash, so it survives a restart. |
+| `alerts.fields` | `[]` | Context names an alert may show: any of `service`, `http_code`, `error`, `services`. Empty means no context values leave the service. Each listed value is masked: emails, tokens, URLs and numbers are replaced, except `http_code`, which keeps its number. |
+| `alerts.immediate` | `[]` | Map of `name => ['level' => 'critical', 'message' => '...', 'action' => '...']`. Every given condition must hold. `level` (default `critical`) is a minimum and accepts any level name; `message` is a plain, case-sensitive substring of the log message; `action` must equal the event's `action` field exactly. A rule with only `level` matches every line at that level. |
+
+The raw message is only matched in memory and never sent. The shown text is the rule's own `message` literal when it has one. Without a literal, the masked event text is shown only for a group as large as `redaction.min_group_events_for_text` (the digest's threshold); a smaller group shows `[withheld]`. Enabling `alerts.fields` sends masked field values to the
+notice destination, which `docs/privacy.md` does not yet describe: the owner must update that page before you enable it.
+
+Example for m-seq, whose health check logs `level: critical`, `message: "health check failed"` and a `context.service`
+per failed service. The `fields` line is optional and is the privacy decision above:
+
+```php
+'alerts' => [
+    'enabled' => true,
+    'window' => 'PT15M',
+    'fields' => ['service', 'http_code', 'error'],
+    'immediate' => [
+        'health-check' => ['level' => 'critical', 'message' => 'health check failed'],
+    ],
+],
+```
+
+A failed alert send is written to the host log (`immediate alert failed`) and does not fail the run or delay the digest.
+Its window is only recorded after a successful send, so the next read retries it.
+
 ### `baseline` and `grouping` (optional)
 
 | Key | Default | Notes |
@@ -359,6 +396,7 @@ environment variable NAME must be true or false`, naming the variable and never 
 
 | Flag | Config key | Environment variable | Default | When false |
 |---|---|---|---|---|
+| immediate alerts | `alerts.enabled` | `WATCHER_ALERTS_ENABLED` | false | `alerts.immediate` is not matched, no alert is sent and no alert window is stored |
 | master switch | `enabled` | `WATCHER_ENABLED` | **false** | `run` reads only this raw key first, **before validating anything**: only the boolean `true` turns the package on, so missing, `null`, `false`, `0`, `'0'`, `'false'`, `''`, `'yes'` or any other value is off (fail-safe; `check` still reports a non-boolean as invalid). With the switch off, `run` (also with `--dry-run`/`--estimate`) returns outcome `disabled` even on a broken or half-filled config (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr); the Disabled JSON summary still carries `service` and `environment` when they look like names; no source, state, model or notifier access, not even a heartbeat. The same short-circuit applies to every other entry point: `watcher check` / `Factory::doctor` (reports `disabled`; validates nothing, builds nothing), `watcher status` / heartbeat (no store read; validates nothing), `watcher hygiene` / `Hygiene::fromConfig`, fleet `FleetRunner::fromConfig` when the fleet switch is off, and MCP inspect tools (`watcher_status`, `watcher_latest_report`, `watcher_finding`, `watcher_hygiene_report`; `watcher_dry_run` is not offered). `check` reads the switch first too, so a broken config is reported `disabled` (exit 0), not invalid |
 | environment name | `environment` (optional string) | `WATCHER_ENVIRONMENT` | unset | not a flag: state keys become `<service>@<environment>`; shown in the digest header and the JSON summary (`environment`) |
 | heartbeat | `heartbeat.enabled` | `WATCHER_HEARTBEAT_ENABLED` | true | no liveness record, trigger record or weekly counter is written; `status` reports `disabled` |

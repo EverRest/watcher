@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher\Reduce;
 
+use Watcher\Alert\ImmediateAlerts;
 use Watcher\Config\WatchConfig;
 use Watcher\Level;
 use Watcher\Schedule\RunGuard;
@@ -57,6 +58,8 @@ final class EventCollector
         private readonly ?RunGuard $guard = null,
         /** @var (\Closure(LogEvent, string): void)|null forwarded to the Reducer (spec 009 trace ids) */
         private readonly ?\Closure $onEvent = null,
+        /** alerts.immediate: sees every event of this read, before grouping */
+        private readonly ?ImmediateAlerts $alerts = null,
     ) {
         foreach ($config->mute as $i => $entry) {
             if (!isset($entry['fingerprint'])) {
@@ -200,6 +203,9 @@ final class EventCollector
     {
         ++$this->eventsRead; // counted as they stream, so muted events are included
         $this->mainEventsRead += $main ? 1 : 0;
+        if ($main) {
+            $this->alerts?->observe($e);
+        }
         $names = $this->rules->namesMatchingEvent($e);
         $this->ruleMatched = $names !== [];
         $hits = [];
