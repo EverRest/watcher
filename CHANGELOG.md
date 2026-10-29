@@ -4,6 +4,9 @@
 
 - `watcher:health` (Laravel adapter): reads the host app's `{app}:health` snapshot from its Redis once per hour and alerts at once when a service's version changes. Opt-in (`health_check.enabled`); separate from the daily run. Optional up/down transitions (`health_check.notify_transitions`).
 
+### Fixed
+- Immediate alerts (0.9.0 review): a noisy rule can no longer hold back every other rule for a whole read, `http_code` is kept only as three digits, and free text in `error` follows `redaction.min_group_events_for_text`.
+
 ## 0.9.0 — 2026-10-29 — Immediate alerts for matching log lines
 
 ### Added
