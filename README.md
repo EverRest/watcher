@@ -24,7 +24,7 @@ LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) 
 
 Every feature has an on/off flag in the config and a `WATCHER_*` environment variable, so one package can run in int, prod and dev with different settings; the master switch `enabled` (`WATCHER_ENABLED`) defaults to off and `environment` (`WATCHER_ENVIRONMENT`) prefixes the state keys (see [docs/configuration.md](docs/configuration.md#feature-flags-spec-012) and [docs/operations.md](docs/operations.md#enabling-and-disabling-per-environment)). Redaction has no switch.
 
-Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
+Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label. An hourly health check (`watcher:health`) reads a host app's health snapshot from its Redis and alerts at once when a service's version changes; it is off by default ([Host health check](#host-health-check)).
 
 Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
 
@@ -79,7 +79,7 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
 
    With `--json`, stdout is exactly one JSON line and every human line goes to stderr. A dry run never posts, writes
    state. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
-   {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`.
+   {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`, `watcher:health` (hourly host health check, see below).
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
    `watcher:run` command and merges `config/watcher.php`, which reads `WATCHER_*` environment variables.
@@ -180,6 +180,25 @@ The host triggers the command at least hourly. The package decides whether a tri
 is due from `schedule.run_at` (in `schedule.timezone`) for one hour; with `schedule.every` or a list of `run_at` times it is due at each boundary. Outside that hour the trigger exits 0 at no cost.
 Inside it, a lock (`schedule.lock_ttl`) and a per-window run record make the run idempotent: a second trigger in the
 same window does nothing, and a failed run leaves no record so the next trigger retries.
+
+## Host health check
+
+`watcher:health` is separate from the daily run: no run gate and no digest. Once per hour it reads the host app's
+health snapshot from the host's Redis, one JSON object `{"<service>": {"success": bool, "version": string|null,
+"checked_at": ISO-8601}}`, and sends an immediate notice when a service's version changes. Only those four fields are
+kept, one copy per service under `health:<watcher service>:<snapshot service>` in the watcher's Redis. A `null` or
+`Version not defined` version is unknown and never alerts; the first sighting stores silently. A failed read or send
+exits this command with 1 and writes to the host log; the daily run and the digest are not affected.
+
+Off by default. Enable it with `health_check.enabled` (the watcher's `enabled` must be on too); the host must schedule
+the command hourly:
+
+```php
+$schedule->command('watcher:health')->hourly();
+```
+
+Keys, the optional up/down transitions (`health_check.notify_transitions`) and the rest are in
+[docs/configuration.md](docs/configuration.md#health-check).
 
 ## Privacy
 
