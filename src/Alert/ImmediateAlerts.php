@@ -92,9 +92,16 @@ final class ImmediateAlerts
                 $failed($e);
             }
         }
+        // One slot per rule first, so a noisy rule cannot hold back every other rule for the whole read.
+        $first = [];
+        $rest = [];
+        foreach ($due as $item) {
+            isset($first[$item[1]['rule']]) ? $rest[] = $item : $first[$item[1]['rule']] = $item;
+        }
+        $due = [...array_values($first), ...$rest];
         foreach (array_slice($due, 0, self::MAX_PER_READ) as [$key, $alert]) {
             try {
-                $send($this->notices->alert($this->service, $this->environment, strtolower($alert['level']->name), $this->shownText($alert), $alert['fields'], $alert['count'], $alert['first']));
+                $send($this->notices->alert($this->service, $this->environment, strtolower($alert['level']->name), $this->shownText($alert), $this->shownFields($alert), $alert['count'], $alert['first']));
                 $state->put($key, ['at' => $alert['first']->format(DATE_ATOM)], $windowSeconds);
             } catch (\Throwable $e) {
                 $failed($e);
@@ -133,6 +140,24 @@ final class ImmediateAlerts
     }
 
     /**
+     * Free text in `error` follows the digest threshold. Identifiers (service, services) stay visible: withholding the name
+     * of the one service that is down would leave the alert without its point. http_code and numbers are masked in allowed().
+     *
+     * @param Pending $alert
+     *
+     * @return array<string, string>
+     */
+    private function shownFields(array $alert): array
+    {
+        $fields = $alert['fields'];
+        if (isset($fields['error']) && $alert['count'] < $this->minTextCount) {
+            $fields['error'] = '[withheld]';
+        }
+
+        return $fields;
+    }
+
+    /**
      * The rule's own literal when it has one (the operator wrote it, and it is what matched). Otherwise the masked template,
      * shown only for a group as large as the digest shows text; a smaller group says [withheld].
      *
@@ -159,7 +184,10 @@ final class ImmediateAlerts
         $out = [];
         foreach ($this->fields as $name) {
             if (isset($raw[$name])) {
-                $out[$name] = $this->redactor->redactText($raw[$name], $name === 'http_code') ?? '[withheld]';
+                $out[$name] = match (true) {
+                    $name === 'http_code' => preg_match('/^\d{3}$/D', $raw[$name]) === 1 ? $raw[$name] : '[withheld]',
+                    default => $this->redactor->redactText($raw[$name], false) ?? '[withheld]',
+                };
             }
         }
 

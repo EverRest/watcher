@@ -175,10 +175,47 @@ final class ImmediateAlertsTest extends TestCase
         );
 
         $text = $sent[0]->text;
-        self::assertStringContainsString("service: orders-api · http_code: 503 · error: connect refused for ", $text);
+        self::assertStringContainsString("service: orders-api · http_code: 503 · error: [withheld]", $text);
         self::assertStringNotContainsString('jane@example.com', $text);
         self::assertStringNotContainsString('user_email', $text);
         self::assertStringNotContainsString('abcdef1234567890', $text);
+    }
+
+    public function testErrorTextShowsOnlyAtTheDigestThreshold(): void
+    {
+        $sent = self::deliverAll(
+            self::alerts(self::healthRule()),
+            self::state(),
+            ...array_map(static fn (int $i): LogEvent => self::event('health check failed', Level::Critical, ['error' => 'connect refused']), range(1, ImmediateAlerts::MAX_PER_READ - 2)),
+        );
+
+        self::assertStringContainsString('error: connect refused', $sent[0]->text);
+    }
+
+    public function testHttpCodeIsShownOnlyAsThreeDigits(): void
+    {
+        $sent = self::deliverAll(
+            self::alerts(self::healthRule()),
+            self::state(),
+            self::event('health check failed', Level::Critical, ['http_code' => 50312]),
+        );
+
+        self::assertStringContainsString('http_code: [withheld]', $sent[0]->text);
+        self::assertStringNotContainsString('50312', $sent[0]->text);
+    }
+
+    public function testEachRuleGetsASlotBeforeOneRuleFillsTheRead(): void
+    {
+        $rules = [
+            'noisy' => ['level' => Level::Critical, 'message' => 'noisy failure', 'action' => null],
+            'quiet' => ['level' => Level::Critical, 'message' => 'quiet failure', 'action' => null],
+        ];
+        $events = [...array_map(static fn (int $i): LogEvent => self::event('noisy failure ' . $i), range(1, ImmediateAlerts::MAX_PER_READ + 3)), self::event('quiet failure')];
+
+        $sent = self::deliverAll(self::alerts($rules), self::state(), ...$events);
+
+        $texts = array_map(static fn (Message $m): string => $m->text, $sent);
+        self::assertTrue(in_array(true, array_map(static fn (string $t): bool => str_contains($t, 'quiet failure'), $texts), true), 'the quiet rule got a slot');
     }
 
     public function testFlattenedNestedContextAndListsAreRenderedAsOneField(): void
