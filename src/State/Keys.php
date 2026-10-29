@@ -32,6 +32,7 @@ final class Keys
     public const KNOWN = 'known';
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
+    public const HEALTH = 'health';
     public const ALERT = 'alert';
 
     private const NOTICE_TTL = 172800;
@@ -68,6 +69,15 @@ final class Keys
     public static function reported(string $service, string $fingerprint): string
     {
         return self::join(self::REPORTED, $service, $fingerprint);
+    }
+
+    /**
+     * Last seen {success, version, checked_at} of one service of a host's health snapshot, per watcher service: two watchers
+     * sharing a prefix and a host must not share a copy, or one of them never sees the change. Refreshed on every hourly write.
+     */
+    public static function healthcheck(string $watcherService, string $service): string
+    {
+        return self::join(self::HEALTH, $watcherService, $service);
     }
 
     public static function run(string $service, string $windowEnd): string

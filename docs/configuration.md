@@ -202,6 +202,45 @@ Failures are one fixed word in the digest (`API context unavailable (<token>)`) 
 [--post-test] [--json]`, `bin/watcher status --config=<file> [--json]`, `bin/watcher state:get <key> --config=<file>`. `--estimate` requires `--dry-run`. See
 [operations](operations.md) for what each prints and its exit codes.
 
+### Health check
+
+`php artisan watcher:health` (Lumen/Laravel adapter only) reads the host app's health snapshot from the host's Redis, once per hour, and
+alerts at once when a service's version changes. It is separate from the daily run: no run gate, no digest. The host schedules it hourly
+(`$schedule->command('watcher:health')->hourly()`). The snapshot is one JSON object, `{"<service>": {"success": bool, "version": string|null,
+"checked_at": ISO-8601}}`. Only those four fields are stored, one copy per service, under `health:<watcher service>:<snapshot service>` in the watcher's Redis (prefix
+included). A `null` or `Version not defined` version is unknown and never alerts. The first time a service is seen, its copy is stored silently.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `health_check.enabled` | `false` | Off by default. The watcher's `enabled` (master switch) must be on as well. |
+| `health_check.source.host` | required | Redis host of the host app. |
+| `health_check.source.port` | `6379` | Redis port. |
+| `health_check.source.database` | `0` | Database index of the host app (read only). |
+| `health_check.source.username` | none | Redis ACL user, when the host app uses one. |
+| `health_check.source.password` | none | A secret: masked everywhere. |
+| `health_check.source.key` | required | Full raw key of the snapshot, for example `m-seq:health`. No watcher prefix is added. |
+| `health_check.ttl_days` | `14` | 1..365. A stored copy lives this long; every hourly write refreshes it. |
+| `health_check.notify_transitions` | `false` | Also alert once when a service flips between up and down. Never on every failing hour. |
+
+Alerts go through `notify.notice` (the digest destination when it is not set). A failed send keeps the old copy, so the next hour retries.
+A failed read or send exits this command with 1 and writes to the host log; the daily run and the digest are not affected.
+
+Example for m-seq (test11), in the watcher's configuration:
+
+```php
+'health_check' => [
+    'enabled' => true,
+    'source' => [
+        'host' => 'ew-redis',
+        'database' => 0,            // the m-seq app's Redis database, not the watcher's (3)
+        'password' => env('WATCHER_HEALTH_REDIS_PASSWORD'),
+        'key' => 'm-seq:health',
+    ],
+    'ttl_days' => 14,
+    'notify_transitions' => false,
+],
+```
+
 ### Fleet configuration
 
 A fleet file returns an array (or a directory: `_fleet.php` with the fleet keys, plus one `*.php` per service, loaded in

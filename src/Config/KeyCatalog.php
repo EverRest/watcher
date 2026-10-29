@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Config;
 
 use Watcher\Config\Catalog\CoreKeys;
+use Watcher\Config\Catalog\HealthKeys;
 use Watcher\Config\Catalog\IntegrationKeys;
 use Watcher\Config\Catalog\ObserveKeys;
 
@@ -22,7 +23,7 @@ use Watcher\Config\Catalog\ObserveKeys;
 final class KeyCatalog
 {
     /** @var array<string, Entry> */
-    private const ENTRIES = [...CoreKeys::ENTRIES, ...ObserveKeys::ENTRIES, ...IntegrationKeys::ENTRIES];
+    private const ENTRIES = [...CoreKeys::ENTRIES, ...ObserveKeys::ENTRIES, ...IntegrationKeys::ENTRIES, ...HealthKeys::ENTRIES];
 
     /** @return list<string> */
     public static function paths(): array
