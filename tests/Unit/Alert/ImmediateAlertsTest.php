@@ -128,7 +128,8 @@ final class ImmediateAlertsTest extends TestCase
         );
 
         self::assertCount(1, $sent);
-        self::assertStringContainsString('health check failed for orders-api', $sent[0]->text);
+        self::assertStringStartsWith('🚨 ALERT [critical] m-seq: health check failed', $sent[0]->text);
+        self::assertStringNotContainsString('orders-api', $sent[0]->text, 'the event text is not shown: the rule literal is');
     }
 
     public function testActionMustEqualTheActionFieldExactly(): void
@@ -284,6 +285,29 @@ final class ImmediateAlertsTest extends TestCase
         });
 
         self::assertSame(['state unreachable'], $failures);
+    }
+
+    public function testFreeTextIsWithheldBelowTheDigestThreshold(): void
+    {
+        $sent = self::deliverAll(
+            self::alerts(self::healthRule(Level::Critical, null)),
+            self::state(),
+            self::event('user 42 could not pay'),
+        );
+
+        self::assertSame("🚨 ALERT [critical] m-seq: [withheld]\nprod · 2026-10-29 10:00:00 UTC", $sent[0]->text);
+    }
+
+    public function testNumbersInContextAreMaskedExceptHttpCode(): void
+    {
+        $sent = self::deliverAll(
+            self::alerts(self::healthRule()),
+            self::state(),
+            self::event('health check failed', Level::Critical, ['service' => 'orders2', 'http_code' => 503, 'error' => 'order 991 refused']),
+        );
+
+        self::assertStringContainsString('http_code: 503', $sent[0]->text);
+        self::assertStringNotContainsString('991', $sent[0]->text);
     }
 
     public function testNoMatchSendsNothing(): void

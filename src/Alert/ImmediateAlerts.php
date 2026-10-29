@@ -19,7 +19,7 @@ use Watcher\State\StateStore;
  * the rest stay unrecorded, so the next read sends them. Context values reach an alert only when listed in alerts.fields.
  *
  * @phpstan-type Rule array{level: Level, message: ?string, action: ?string}
- * @phpstan-type Pending array{identity: string, rule: string, level: Level, message: string, fields: array<string, string>, count: int, first: DateTimeImmutable}
+ * @phpstan-type Pending array{identity: string, rule: string, level: Level, template: string, literal: ?string, fields: array<string, string>, count: int, first: DateTimeImmutable}
  */
 final class ImmediateAlerts
 {
@@ -43,6 +43,8 @@ final class ImmediateAlerts
         private readonly string $service,
         private readonly string $environment,
         private readonly array $fields = [],
+        /** Same threshold as the digest (redaction.min_group_events_for_text): below it, an event text that is not a rule literal is withheld. */
+        private readonly int $minTextCount = 3,
     ) {
     }
 
@@ -60,12 +62,12 @@ final class ImmediateAlerts
             if ($rule['action'] !== null && ($e->fields['action'] ?? null) !== $rule['action']) {
                 continue;
             }
-            $message = $this->redactor->redactText($e->message, false) ?? '[withheld]';
+            $template = $this->redactor->redactText($e->message, false) ?? '[withheld]';
             // The affected service identifies the alert even when its name is not rendered; only its hash is kept.
-            $identity = sha1($name . "\x1f" . $message . "\x1f" . ($raw['service'] ?? ''));
+            $identity = sha1($name . "\x1f" . $template . "\x1f" . ($raw['service'] ?? ''));
             $fields = $this->allowed($raw);
             $group = $identity . "\x1f" . json_encode($fields, JSON_THROW_ON_ERROR);
-            $this->pending[$group] ??= ['identity' => $identity, 'rule' => $name, 'level' => $e->level, 'message' => $message, 'fields' => $fields, 'count' => 0, 'first' => $e->time];
+            $this->pending[$group] ??= ['identity' => $identity, 'rule' => $name, 'level' => $e->level, 'template' => $template, 'literal' => $rule['message'], 'fields' => $fields, 'count' => 0, 'first' => $e->time];
             $this->pending[$group]['count']++;
         }
     }
@@ -92,7 +94,7 @@ final class ImmediateAlerts
         }
         foreach (array_slice($due, 0, self::MAX_PER_READ) as [$key, $alert]) {
             try {
-                $send($this->notices->alert($this->service, $this->environment, strtolower($alert['level']->name), $alert['message'], $alert['fields'], $alert['count'], $alert['first']));
+                $send($this->notices->alert($this->service, $this->environment, strtolower($alert['level']->name), $this->shownText($alert), $alert['fields'], $alert['count'], $alert['first']));
                 $state->put($key, ['at' => $alert['first']->format(DATE_ATOM)], $windowSeconds);
             } catch (\Throwable $e) {
                 $failed($e);
@@ -131,6 +133,21 @@ final class ImmediateAlerts
     }
 
     /**
+     * The rule's own literal when it has one (the operator wrote it, and it is what matched). Otherwise the masked template,
+     * shown only for a group as large as the digest shows text; a smaller group says [withheld].
+     *
+     * @param Pending $alert
+     */
+    private function shownText(array $alert): string
+    {
+        if ($alert['literal'] !== null) {
+            return $alert['literal'];
+        }
+
+        return $alert['count'] >= $this->minTextCount ? $alert['template'] : '[withheld]';
+    }
+
+    /**
      * The configured names only, masked the way the digest masks text.
      *
      * @param array<string, string> $raw
@@ -142,7 +159,7 @@ final class ImmediateAlerts
         $out = [];
         foreach ($this->fields as $name) {
             if (isset($raw[$name])) {
-                $out[$name] = $this->redactor->redactText($raw[$name]) ?? '[withheld]';
+                $out[$name] = $this->redactor->redactText($raw[$name], $name === 'http_code') ?? '[withheld]';
             }
         }
 

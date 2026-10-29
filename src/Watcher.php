@@ -753,7 +753,7 @@ final class Watcher
         // Spec 009 US4: a tracing link needs the earliest valid trace id per group, kept in memory only (never on a group).
         $traceField = $c->links['tempo']['trace_field'] ?? $c->links['datadog_apm']['trace_field'] ?? (isset($c->links['tempo']) || isset($c->links['datadog_apm']) ? 'trace_id' : null);
         $traces = $traceField === null ? null : new TraceIdCollector((string) $traceField);
-        $immediate = $c->on('alerts') && $c->alerts['immediate'] !== [] ? new ImmediateAlerts($c->alerts['immediate'], $redactor, $this->notices(), $service, $this->environment(), $c->alerts['fields']) : null;
+        $immediate = $c->on('alerts') && $c->alerts['immediate'] !== [] ? new ImmediateAlerts($c->alerts['immediate'], $redactor, $this->notices(), $service, $this->environment(), $c->alerts['fields'], $c->minGroupEventsForText) : null;
         $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard, $traces === null ? null : $traces->observe(...), $immediate);
         $groups = $collector->collect($window, $selector, $anomalies);
         // Sent during the read, not with the digest. A failure is logged to the host and never fails the run or the digest.
