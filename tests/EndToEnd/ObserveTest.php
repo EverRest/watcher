@@ -147,7 +147,9 @@ final class ObserveTest extends TestCase
             self::watcher($h, self::source(40, 2), null, notifier: $router)->run();
             $h->nextWindow();
             self::watcher($h, self::source(), self::dispatcher(new RecordingEventSink()), notifier: $router)->run();
-            $calls[$driver] = [count($h->analyzer->triageRequests), count($h->analyzer->requests), count(self::keys($h))];
+            // Model calls only: the top_m tie-break is random by design (a fingerprint cannot be ground to sort first), so which
+            // groups reach the model varies per run, and with them the number of stored state keys.
+            $calls[$driver] = [count($h->analyzer->triageRequests), count($h->analyzer->requests)];
         }
 
         self::assertSame($calls['slack'], $calls['none']);
