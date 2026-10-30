@@ -7,6 +7,7 @@ namespace Watcher\Config;
 use Watcher\Issues\SentrySettings;
 use Watcher\Metrics\MetricsSettings;
 use Watcher\Notify\Destination;
+use Watcher\Probe\ProbeSettings;
 use Watcher\Observe\EventSchema;
 use Watcher\Observe\ObserveSettings;
 use Watcher\Level;
@@ -26,7 +27,7 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'kubernetes', 'events', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context', 'probes',
         'known_issues', 'drafts', 'report',
     ];
 
@@ -92,6 +93,8 @@ final class WatchConfig implements \JsonSerializable
         public readonly ?KubeSettings $kubernetes = null,
         /** @var array<string, mixed>|null the validated `api_context` section (spec 010), null when absent; not a feature flag */
         public readonly ?array $apiContext = null,
+        /** The validated `probes` section, null when absent; not a feature flag (its own `enabled` is the switch). */
+        public readonly ?ProbeSettings $probes = null,
     ) {
     }
 
@@ -320,6 +323,7 @@ final class WatchConfig implements \JsonSerializable
             $incident,
             $kubernetes,
             array_key_exists('api_context', $config) ? self::hide(self::apiContext($config['api_context'], $state['retention']), 'source', 'auth_token') : null,
+            is_array($config['probes'] ?? null) ? ProbeSettings::fromArray($config['probes']) : self::absent($config, 'probes'),
         );
     }
 
@@ -370,7 +374,12 @@ final class WatchConfig implements \JsonSerializable
      */
     private static function schedule(array $sch): array
     {
-        self::only($sch, ['run_at', 'every', 'timezone', 'window', 'catch_up', 'ingestion_delay', 'lock_ttl', 'run_deadline'], 'schedule');
+        self::only($sch, ['run_at', 'every', 'timezone', 'window', 'catch_up', 'ingestion_delay', 'lock_ttl', 'run_deadline', 'probe_every'], 'schedule');
+        $rawProbeEvery = $sch['probe_every'] ?? 'PT1H';
+        $probeEvery = is_string($rawProbeEvery) ? self::seconds($rawProbeEvery) : null; // a non-string is refused like any other bad value, not replaced
+        if ($probeEvery === null || $probeEvery < 300) {
+            throw new InvalidConfig('schedule.probe_every must be an ISO-8601 duration of at least PT5M');
+        }
         $every = $sch['every'] ?? null;
         if ($every !== null && !is_string($every)) {
             throw new InvalidConfig('schedule.every must be one of PT1H, PT2H, PT3H, PT4H, PT6H, PT8H, PT12H');
@@ -468,6 +477,7 @@ final class WatchConfig implements \JsonSerializable
         return [[
             'run_at' => $runAtList,
             'every' => $every,
+            'probe_every' => $probeEvery,
             'timezone' => $tz,
             'window' => $window,
             'catch_up' => $catchUp,

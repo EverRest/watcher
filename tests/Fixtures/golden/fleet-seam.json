@@ -86,7 +86,7 @@
                 },
                 {
                     "kind": "finding",
-                    "text": "• Problem &lt;ID&gt; — 5×  `3ba2fceef742`\n  Evidence: seen repeatedly\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
+                    "text": "• Problem &lt;ID&gt; — 5×  `5384e0c68f57`\n  Evidence: seen repeatedly\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
                 },
                 {
                     "kind": "finding",
@@ -104,11 +104,11 @@
     "state": {
         "snap:api:2026-10-08T06%3A00%3A00Z": {
             "groups": {
-                "3ba2fceef742": 5
+                "5384e0c68f57": 5
             },
             "fpv": 1,
             "totals": {
-                "error": 5
+                "warning": 5
             },
             "deploy": {
                 "release": null,
@@ -160,25 +160,6 @@
         "sent:api:2026-10-09T06%3A00%3A00Z": {
             "at": "2026-10-09T06:00:00+00:00"
         },
-        "verdict:api:3ba2fceef742": {
-            "triage": "interesting",
-            "atCount": 5,
-            "finding": {
-                "fingerprints": [
-                    "3ba2fceef742"
-                ],
-                "kind": "bug",
-                "severity": "error",
-                "title": "Problem <ID>",
-                "evidence": "seen repeatedly",
-                "suspected_cause": "a dependency may be failing",
-                "suggested_action": "inspect the dependency",
-                "confidence": 0.9,
-                "escalated": false,
-                "how_to_check": "",
-                "related_checks": []
-            }
-        },
         "verdict:api:ed1c1517d685": {
             "triage": "interesting",
             "atCount": 3,
@@ -198,22 +179,72 @@
                 "related_checks": []
             }
         },
-        "reported:api:3ba2fceef742": {
-            "lastReportedAt": "2026-10-09T06:00:00+00:00",
-            "atCount": 5
+        "verdict:api:5384e0c68f57": {
+            "triage": "interesting",
+            "atCount": 5,
+            "finding": {
+                "fingerprints": [
+                    "5384e0c68f57"
+                ],
+                "kind": "bug",
+                "severity": "error",
+                "title": "Problem <ID>",
+                "evidence": "seen repeatedly",
+                "suspected_cause": "a dependency may be failing",
+                "suggested_action": "inspect the dependency",
+                "confidence": 0.9,
+                "escalated": false,
+                "how_to_check": "",
+                "related_checks": []
+            }
         },
         "reported:api:ed1c1517d685": {
             "lastReportedAt": "2026-10-09T06:00:00+00:00",
             "atCount": 3
         },
+        "finding:api:ed1c1517d685": {
+            "fingerprints": [
+                "ed1c1517d685"
+            ],
+            "kind": "bug",
+            "severity": "error",
+            "title": "Problem <ID>",
+            "evidence": "seen repeatedly",
+            "suspectedCause": "a dependency may be failing",
+            "suggestedAction": "inspect the dependency",
+            "confidence": 0.9,
+            "escalated": false,
+            "howToCheck": "",
+            "relatedChecks": []
+        },
+        "reported:api:5384e0c68f57": {
+            "lastReportedAt": "2026-10-09T06:00:00+00:00",
+            "atCount": 5
+        },
+        "finding:api:5384e0c68f57": {
+            "fingerprints": [
+                "5384e0c68f57"
+            ],
+            "kind": "bug",
+            "severity": "error",
+            "title": "Problem <ID>",
+            "evidence": "seen repeatedly",
+            "suspectedCause": "a dependency may be failing",
+            "suggestedAction": "inspect the dependency",
+            "confidence": 0.9,
+            "escalated": false,
+            "howToCheck": "",
+            "relatedChecks": []
+        },
         "snap:api:2026-10-09T06%3A00%3A00Z": {
             "groups": {
-                "3ba2fceef742": 5,
+                "5384e0c68f57": 5,
                 "ed1c1517d685": 3
             },
             "fpv": 1,
             "totals": {
-                "error": 8
+                "warning": 5,
+                "error": 3
             },
             "deploy": {
                 "release": null,
@@ -243,10 +274,12 @@
         "hb:fleet%2Fplatform": 7776000,
         "hbweek:fleet%2Fplatform:2026-W41:quiet": 1123200,
         "sent:api:2026-10-09T06%3A00%3A00Z": 21600,
-        "verdict:api:3ba2fceef742": 2592000,
         "verdict:api:ed1c1517d685": 2592000,
-        "reported:api:3ba2fceef742": 2592000,
+        "verdict:api:5384e0c68f57": 2592000,
         "reported:api:ed1c1517d685": 2592000,
+        "finding:api:ed1c1517d685": 2592000,
+        "reported:api:5384e0c68f57": 2592000,
+        "finding:api:5384e0c68f57": 2592000,
         "snap:api:2026-10-09T06%3A00%3A00Z": 2592000,
         "run:api:2026-10-09T06%3A00%3A00Z": 2592000,
         "hbweek:api:2026-W41:reported": 1209600,

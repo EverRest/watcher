@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Certificate and secret expiry probes
+
+- New `probes` section, off by default: TLS certificate expiry of `probes.hosts` and declared secret expiry of `probes.secrets`, with `probes.warn_days` (30) and `probes.fail_days` (7). Deterministic, no model call, no secret value read.
+- `schedule.probe_every` (`WATCHER_PROBE_EVERY`, default `PT1H`, at least `PT5M`): probes run on the first run trigger after it has passed. A host that triggers less often runs them less often.
+- Alerts go to the notice destination on a status change, or once a day while a warning or failure stands. An unreachable host is `unknown` and never alerts.
+
 ## 0.5.0 — 2026-10-27 — Remove budgets and token and cost accounting
 
 Breaking: a 0.4.x configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.

@@ -20,7 +20,7 @@ final class PurgeWiringTest extends TestCase
 {
     private static function source(): LogSource
     {
-        $events = Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
+        $events = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha'); // first runs: Warning only records a baseline (FR-035)
 
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }

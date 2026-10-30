@@ -103,13 +103,15 @@ final class KubernetesEventsTest extends TestCase
     public function testPodEventsArriveBesideLogGroupsAndCollapse(): void
     {
         $h = new Harness(self::patch());
-        $logs = new FakeLogSource(Harness::totalsOf(self::alpha()), self::alpha());
         $events = $this->events($h, [...self::fullRead(), ...self::fullRead()]);
-        $watcher = $h->watcher($logs, null, null, $events);
+        // Day one is a Warning baseline: an Error first run now reports (FR-035), and this test is about pod events.
+        $warning = Harness::events(Level::Warning, 'Alpha service exploded badly', 5, 'AlphaException');
+        $watcher = $h->watcher(new FakeLogSource(Harness::totalsOf($warning), $warning), null, null, $events);
 
         $this->dayOne($h);
         self::assertSame(RunOutcome::Baselined, $watcher->run()->outcome);
         $this->dayTwo($h);
+        $watcher = $h->watcher(new FakeLogSource(Harness::totalsOf(self::alpha()), self::alpha()), null, null, $events);
         self::assertSame(RunOutcome::Reported, $watcher->run()->outcome);
 
         $groups = self::sentGroups($h);
