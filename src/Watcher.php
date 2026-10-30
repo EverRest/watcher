@@ -11,6 +11,7 @@ use Throwable;
 use Watcher\Baseline\BaselineResolver;
 use Watcher\Alert\ImmediateAlerts;
 use Watcher\Analyze\AnalysisRequest;
+use Watcher\Analyze\Finding;
 use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnalyzerFailed;
@@ -69,6 +70,7 @@ use Watcher\Operate\RunStats;
 use Watcher\Operate\RunSummaryData;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Privacy\Redactor;
+use Watcher\Probe\ProbeRunner;
 use Watcher\Reduce\GroupStatus;
 use Watcher\Reduce\EventCollector;
 use Watcher\Reduce\Fingerprinter;
@@ -134,6 +136,8 @@ final class Watcher
 
     private readonly RunLedger $ledger;
 
+    /** Spec probes: null unless `probes.enabled`, and never in a dry run (no state write, no alert). */
+    private readonly ?ProbeRunner $probes;
     private ?ObservingNotifier $observer = null;
 
     // Availability bookkeeping (A4-01, A4-05), reset by run().
@@ -204,6 +208,19 @@ final class Watcher
         $heartbeat = $this->options->dryRun || !$config->on('heartbeat') ? null : Factory::heartbeat($config, $state, $this->clock, $hostLog);
         $this->ledger = new RunLedger(config: $config, state: $state, clock: $this->clock, heartbeat: $heartbeat, notifier: $notifier, hostLog: $hostLog, publisher: $publisher, topGroups: $config->observe->topGroups);
         $this->observer?->observeWith(fn () => $this->ledger->observation());
+        $probes = $config->probes;
+        if ($probes !== null && $probes->enabled && !$config->on('notice')) {
+            $hostLog?->warning('probes are off: notify.notice is disabled', ['service' => $config->service]);
+        }
+        $this->probes = $this->options->dryRun || $probes === null || !$probes->enabled || !$config->on('notice') ? null : new ProbeRunner(
+            ProbeRunner::probesFor($probes, $this->clock),
+            $this->state,
+            $this->notifier,
+            $config->destination('notice'),
+            $config->stateKey,
+            $config->schedule['probe_every'],
+            $hostLog,
+        );
     }
 
     private static function discarding(): Notifier
@@ -294,6 +311,7 @@ final class Watcher
             // The master switch: no source, state, model or notifier access, not even a heartbeat.
             return new RunResult(RunOutcome::Disabled, null, new RunSummaryData(RunOutcome::Disabled, $this->config->service, null, environment: $this->config->environment));
         }
+        $this->probes?->runDue(); // its own interval (schedule.probe_every); cannot change this run's outcome
         $this->ledger->reset();
         $this->guard = new RunGuard($this->clock, min($this->config->schedule['run_deadline'], $this->fleetDeadline ?? PHP_INT_MAX));
         $this->blindCode = null;
@@ -828,7 +846,8 @@ final class Watcher
         $environment = $this->environment();
         $renderer = new DigestRenderer();
 
-        if ($comparison->isBaseline()) {
+        // FR-035: a first run only records a baseline when nothing is at Error or above; otherwise those groups go on to selection.
+        if ($comparison->isBaseline() && array_filter($groups, static fn (ProblemGroup $g): bool => $g->level->atLeast(Level::Error)) === []) {
             $this->readDependencies($window, $normalizer, $redactor, null);
             $this->ledger->snapshot($window, $allGroups, $totals);
             if ($c->on('notice')) {
@@ -865,16 +884,42 @@ final class Watcher
         }
         $digestExtras = new DigestExtras(...$extras);
         $candidates = [];
+        $repeatGroups = [];
+        $repeatFindings = [];
         foreach ($pool as $cand) {
+            if ($comparison->isBaseline() && !$cand->group->level->atLeast(Level::Error)) {
+                continue; // FR-035: a first run reports Error-or-above groups only, not the top-N by volume
+            }
             $reported = $this->state->get($keys->reported($cand->group->fingerprint));
             if ($reported === null || $cand->group->status === GroupStatus::Grown) {
                 $candidates[] = $cand;
+                continue;
+            }
+            $finding = $this->storedFinding($keys, $cand->group->fingerprint);
+            if ($finding === null) {
+                // Reported, but nothing readable to repeat: analyse it again rather than stay silent (FR-008). A verdict without a
+                // finding is not reused for an Error-or-above group, so the router asks the model again.
+                (new VerdictCache($this->state, $key, $retention))->put($cand->group->fingerprint, 'interesting', $cand->group->count, null);
+                $candidates[] = $cand;
+                continue;
+            }
+            // FR-008: unchanged and already sent: the same finding goes out again, with no model call.
+            $repeatGroups[$cand->group->fingerprint] = $cand->group;
+            $repeatFindings[serialize($finding->toArray())] = $finding;
+        }
+        // A stored finding is repeated only when every group it names is in today's read; groups of a dropped finding are not shown.
+        $repeatFindings = array_values(array_filter($repeatFindings, static fn (Finding $f): bool => array_diff($f->fingerprints, array_keys($repeatGroups)) === []));
+        $repeatedFingerprints = [];
+        foreach ($repeatFindings as $finding) {
+            foreach ($finding->fingerprints as $fp) {
+                $repeatedFingerprints[$fp] = true;
             }
         }
+        $repeatGroups = array_intersect_key($repeatGroups, $repeatedFingerprints);
 
         $this->ledger->stats()->candidates = count($candidates);
         $expired = $this->guard?->reason() !== null; // deadline or memory: no model call may start now (A4-01)
-        if ($candidates === [] || !$c->on('digest') || $expired) {
+        if (($candidates === [] && $repeatFindings === []) || !$c->on('digest') || $expired) {
             // Digest off: nothing could be posted, so no model is paid for; the window is still read and snapshotted.
             $line = $blind(true);
             $this->ledger->setCode($candidates === [] || $expired ? $this->ledger->code() : 'digest_disabled');
@@ -893,10 +938,10 @@ final class Watcher
         }
 
         $read = new WindowRead(window: $window, allGroups: $allGroups, totals: $totals, anomalies: $anomalies, previousTotals: $prev['totals'] ?? [], comparedWith: $comparedWith, deploy: $deploy, collector: $collector, muteResult: $muteResult, comparison: $comparison, patternFailures: $patternFailures, extras: $digestExtras->isEmpty() ? null : $digestExtras, payloadExtras: $payloadExtras, traces: $traces, knownResult: $knownResult, knownLine: $knownLine);
-        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, keys: $keys, started: $started, buffer: $knownBuffer);
+        $analysis = $this->analyze(read: $read, candidates: $candidates, normalizer: $normalizer, redactor: $redactor, keys: $keys, started: $started, buffer: $knownBuffer, repeatGroups: array_values($repeatGroups));
 
         $routed = $analysis->routed;
-        $findings = $routed->findings; // already scrubbed by the decorator, before the router cached them
+        $findings = [...$routed->findings, ...$repeatFindings]; // already scrubbed by the decorator, before the router cached them; repeats come from the stored, scrubbed text
         $dropped = $analysis->truncation->droppedCount + $routed->droppedByTopM;
 
         if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->escalationsSkippedSize === 0 && $patternFailures === 0 && $routed->unreported === 0 && $routed->triageCoerced === 0) {
@@ -913,7 +958,7 @@ final class Watcher
         Delivery::run(
             $c,
             $read,
-            $routed->findings,
+            $findings,
             $keys,
             $this->state,
             $this->notifier,
@@ -936,9 +981,10 @@ final class Watcher
 
         $now = $this->clock->now()->format(DATE_ATOM);
         $this->blindNotice($blind(false, true), $key, $endKey);
-        foreach ($routed->findings as $finding) {
+        foreach ($findings as $finding) {
             foreach ($finding->fingerprints as $fp) {
                 $analysis->buffer->put($keys->reported($fp), ['lastReportedAt' => $now, 'atCount' => $analysis->byFingerprint[$fp]->count ?? 0], $retention);
+                $analysis->buffer->put($keys->finding($fp), $finding->toArray(), $retention); // what a repeat sends (FR-008)
             }
         }
         $analysis->checkpoint->clear();
@@ -950,14 +996,29 @@ final class Watcher
         return new RunResult(RunOutcome::Reported);
     }
 
+    /** The finding last sent for a group, or null when none is stored or the stored entry cannot be read. */
+    private function storedFinding(WindowKeys $keys, string $fingerprint): ?Finding
+    {
+        $stored = $this->state->get($keys->finding($fingerprint));
+        if (!is_array($stored)) {
+            return null;
+        }
+        try {
+            return Finding::fromArray($stored);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     /**
      * Redacts and truncates the candidates, reads the dependencies, runs the models.
      *
-     * @param list<Candidate> $candidates
+     * @param list<Candidate>    $candidates
+     * @param list<ProblemGroup> $repeatGroups groups sent again without a model call (FR-008); shown, never routed
      *
      * @throws AnalyzerFailed after the window snapshot is kept, so the next trigger retries
      */
-    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, WindowKeys $keys, DateTimeImmutable $started, ?BufferedStateStore $buffer = null): Analysis
+    private function analyze(WindowRead $read, array $candidates, Normalizer $normalizer, Redactor $redactor, WindowKeys $keys, DateTimeImmutable $started, ?BufferedStateStore $buffer = null, array $repeatGroups = []): Analysis
     {
         $c = $this->config;
         $key = $c->stateKey;
@@ -1017,12 +1078,14 @@ final class Watcher
 
         $this->ledger->stats()->findings = count($routed->findings);
 
+        // Repeated groups were not sent to a model: they are shown with today's counts and links, nothing more.
+        $shown = [...$redacted, ...array_map(static fn (ProblemGroup $g): RedactedGroup => $redactor->redact($g), $repeatGroups)];
         $byFingerprint = [];
-        foreach ($redacted as $g) {
+        foreach ($shown as $g) {
             $byFingerprint[$g->fingerprint] = $g;
         }
 
-        $analysis = new Analysis(routed: $routed, truncation: $truncation, redacted: $redacted, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint, endpoints: $endpoints);
+        $analysis = new Analysis(routed: $routed, truncation: $truncation, redacted: $shown, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint, endpoints: $endpoints);
         $this->ledger->observeAnalysis($analysis);
 
         return $analysis;

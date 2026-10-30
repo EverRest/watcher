@@ -36,7 +36,7 @@ final class StateDirectoryTest extends TestCase
         chmod($this->dir, $mode);
         $h = new Harness();
         $h->state = new FileStateStore($this->dir, $h->clock, 900);
-        $events = Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
+        $events = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha'); // a first run: Warning only records a baseline (FR-035)
         $r = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
 
         return [$r, $h];

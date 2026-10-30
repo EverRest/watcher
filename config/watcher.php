@@ -26,6 +26,7 @@ return [
         'window' => 'PT24H',                       // ISO-8601 duration
         'lock_ttl' => 900,                         // seconds
         'run_deadline' => Env::int('WATCHER_RUN_DEADLINE', 0) ?: null, // seconds; default lock_ttl minus a margin (810)
+        'probe_every' => Env::string('WATCHER_PROBE_EVERY', 'PT1H'), // ISO-8601, at least PT5M; probes run on the first run trigger after it
     ],
 
     'source' => [
@@ -122,6 +123,15 @@ return [
 
     'known_issues' => ['enabled' => Env::bool('WATCHER_KNOWN_ISSUES_ENABLED', true), 'entries' => []],
     'drafts' => ['enabled' => Env::bool('WATCHER_DRAFTS_ENABLED', false)],
+
+    // Certificate and declared-secret expiry (docs/configuration.md, probes). Off by default; no model call.
+    'probes' => [
+        'enabled' => Env::bool('WATCHER_PROBES_ENABLED', false),
+        'warn_days' => Env::int('WATCHER_PROBES_WARN_DAYS', 30),
+        'fail_days' => Env::int('WATCHER_PROBES_FAIL_DAYS', 7),
+        'hosts' => Env::list('WATCHER_PROBES_HOSTS'), // TLS hosts on port 443, comma separated
+        'secrets' => [], // list of ['name' => ..., 'expires' => 'YYYY-MM-DD', 'owner' => ...]; set in code, not in env
+    ],
 
     'service_context' => [
         'enabled' => Env::bool('WATCHER_SERVICE_CONTEXT_ENABLED', true),

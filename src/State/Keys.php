@@ -12,6 +12,7 @@ final class Keys
     public const VERDICT = 'verdict';
     public const TRIAGE = 'triage';
     public const REPORTED = 'reported';
+    public const FINDING = 'finding';
     public const RUN = 'run';
     public const LOCK = 'lock';
     public const HEARTBEAT = 'hb';
@@ -32,6 +33,8 @@ final class Keys
     public const KNOWN = 'known';
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
+    public const PROBE = 'probe';
+    public const PROBE_DUE = 'probedue';
     public const HEALTH = 'health';
     public const ALERT = 'alert';
 
@@ -69,6 +72,24 @@ final class Keys
     public static function reported(string $service, string $fingerprint): string
     {
         return self::join(self::REPORTED, $service, $fingerprint);
+    }
+
+    /** The finding last sent for one group, so a repeat sends the same text without a model call (FR-008). */
+    public static function finding(string $service, string $fingerprint): string
+    {
+        return self::join(self::FINDING, $service, $fingerprint);
+    }
+
+    /** Last alerted status of one probe subject (for example `certificate:api.example.com`); expires so a standing problem repeats. */
+    public static function probe(string $service, string $subject): string
+    {
+        return self::join(self::PROBE, $service, $subject);
+    }
+
+    /** Set while the probes are due: their interval is the TTL, so the next run after it runs them again. */
+    public static function probeDue(string $service): string
+    {
+        return self::join(self::PROBE_DUE, $service);
     }
 
     /**

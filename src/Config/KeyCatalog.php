@@ -8,6 +8,7 @@ use Watcher\Config\Catalog\CoreKeys;
 use Watcher\Config\Catalog\HealthKeys;
 use Watcher\Config\Catalog\IntegrationKeys;
 use Watcher\Config\Catalog\ObserveKeys;
+use Watcher\Config\Catalog\ProbeKeys;
 
 /**
  * The table of every configuration key with what a person needs to know about it (spec 015 FR-083, research R17): type, required,
@@ -23,7 +24,7 @@ use Watcher\Config\Catalog\ObserveKeys;
 final class KeyCatalog
 {
     /** @var array<string, Entry> */
-    private const ENTRIES = [...CoreKeys::ENTRIES, ...ObserveKeys::ENTRIES, ...IntegrationKeys::ENTRIES, ...HealthKeys::ENTRIES];
+    private const ENTRIES = [...CoreKeys::ENTRIES, ...ObserveKeys::ENTRIES, ...IntegrationKeys::ENTRIES, ...HealthKeys::ENTRIES, ...ProbeKeys::ENTRIES];
 
     /** @return list<string> */
     public static function paths(): array

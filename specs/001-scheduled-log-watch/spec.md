@@ -284,9 +284,12 @@ finding has a log link and code links at the deployed commit.
   summary line with counts.
 - **FR-008**: If no group is a candidate, the run MUST make no AI request and post no digest.
 - **FR-035**: When no previous window exists for the service (first run, or state expired/cleared),
-  the run MUST only record groups and counters as the baseline, MUST make no AI request, and MUST
-  post one short message "baseline recorded: N groups, M events". Comparison and analysis start
-  from the next run.
+  the run MUST record groups and counters as the baseline. If no group is at or above the Error
+  level, it MUST make no AI request and post one short message "baseline recorded: N groups, M
+  events". If any group is at or above the Error level, the run MUST post a digest with only those
+  groups (no top-N by volume, no lower levels) and MUST NOT make an AI request for groups that
+  were already reported; the baseline is recorded in both cases. Growth and trend comparison
+  start from the next run.
 
 #### Privacy
 

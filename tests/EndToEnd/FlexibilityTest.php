@@ -244,7 +244,8 @@ final class FlexibilityTest extends TestCase
             $h = new Harness(['schedule' => ['run_at' => '06:00']]);
             $h->clock->set(new DateTimeImmutable("2026-10-08T$time:00", new DateTimeZone('UTC')));
 
-            $outcome = $h->watcher(self::source(self::alpha()))->run()->outcome;
+            // Warning: an Error first run now reports instead of baselining (FR-035); this test is about the schedule gate.
+            $outcome = $h->watcher(self::source(Harness::events(Level::Warning, 'Alpha service exploded badly', 5, 'AlphaException')))->run()->outcome;
 
             self::assertSame($due ? RunOutcome::Baselined : RunOutcome::SkippedNotDue, $outcome, $time);
         }

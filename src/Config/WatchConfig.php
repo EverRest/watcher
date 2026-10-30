@@ -17,6 +17,7 @@ use Watcher\Config\Section\SectionFields;
 use Watcher\Config\Section\SourceSection;
 use Watcher\Config\Section\StateSection;
 use Watcher\Config\Section\WatchRulesSection;
+use Watcher\Probe\ProbeSettings;
 use Watcher\Issues\SentrySettings;
 use Watcher\Level;
 use Watcher\Metrics\MetricsSettings;
@@ -37,7 +38,7 @@ final class WatchConfig implements \JsonSerializable
         'service', 'schedule', 'source', 'watch_rules', 'mute', 'service_context', 'dependencies',
         'dependency_read_cap', 'dependency_domains', 'deploy', 'links', 'repo', 'selection',
         'analysis', 'redaction', 'state', 'notify', 'heartbeat', 'baseline', 'grouping',
-        'enabled', 'environment', 'purge', 'level_anomaly', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context',
+        'enabled', 'environment', 'purge', 'level_anomaly', 'observe', 'metrics', 'sentry', 'hygiene', 'api_context', 'probes',
         'known_issues', 'drafts', 'report', 'alerts', 'health_check',
     ];
 
@@ -103,6 +104,8 @@ final class WatchConfig implements \JsonSerializable
         public readonly ?array $apiContext = null,
         /** @var array{window: int, fields: list<string>, immediate: array<string, array{level: Level, message: ?string, action: ?string}>} alerts; window in seconds */
         public readonly array $alerts = ['window' => 900, 'fields' => [], 'immediate' => []],
+        /** The validated `probes` section, null when absent; not a feature flag (its own `enabled` is the switch). */
+        public readonly ?ProbeSettings $probes = null,
     ) {
     }
 
@@ -342,6 +345,8 @@ final class WatchConfig implements \JsonSerializable
             $incident,
             array_key_exists('api_context', $config) ? Credentials::hide(ApiContextSection::apiContext($config['api_context'], $state['retention']), 'source', 'auth_token') : null,
             $alerts,
+            // Spec probes: absent = off. Validated even with `enabled: false`; not a FLAG (the section's own `enabled` is the switch).
+            is_array($config['probes'] ?? null) ? ProbeSettings::fromArray($config['probes']) : SectionFields::absent($config, 'probes'),
         );
     }
 

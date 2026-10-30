@@ -37,10 +37,10 @@ final class FailureTest extends TestCase
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }
 
-    /** First window done, so the next run is a real one. */
+    /** First window done, so the next run is a real one. Below Error: a first run with Error groups now reports (FR-035). */
     private static function baselined(Harness $h): void
     {
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::source(Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha')))->run();
         $h->nextWindow();
     }
 
