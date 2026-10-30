@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1 — 2026-10-30 — Test fixes, no runtime change
+
+- The MCP process test runs its child with `XDEBUG_MODE=off`, so an Xdebug banner on stderr no longer fails it.
+- The driver equivalence test compares model calls only. Which groups reach the model varies per run by design (the `top_m` tie-break is random), and so does the stored state key count.
+
 ## 0.11.0 — 2026-10-30 — Certificate and secret expiry probes; errors are reported on the first run and repeated daily
 
 - New `probes` section, off by default: TLS certificate expiry of `probes.hosts` and declared secret expiry of `probes.secrets`, with `probes.warn_days` (30) and `probes.fail_days` (7). Deterministic, no model call, no secret value read.
