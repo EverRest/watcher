@@ -58,6 +58,10 @@ return [
     // [['fingerprint' => 'abc123', 'until' => '2030-01-31'], ['template' => '/regex/', 'until' => null]]
     'mute' => ['enabled' => Env::bool('WATCHER_MUTE_ENABLED', true)], // add entries as list items next to `enabled`
 
+    // Sent at once when a log line matches (docs/configuration.md#immediate-alerts). Off by default.
+    // ['health-check' => ['level' => 'critical', 'message' => 'health check failed']]
+    'alerts' => ['enabled' => Env::bool('WATCHER_ALERTS_ENABLED', false), 'immediate' => []],
+
     'selection' => [
         'min_level' => 'error',
         'growth_factor' => 3.0,
@@ -70,13 +74,12 @@ return [
     'purge' => ['enabled' => Env::bool('WATCHER_PURGE_ENABLED', true)],                  // expired-file purge (file state store only)
     'baseline' => ['enabled' => Env::bool('WATCHER_BASELINE_ENABLED', true)],            // false: previous-window comparison only
     'grouping' => ['enabled' => Env::bool('WATCHER_GROUPING_ENABLED', true)],            // false: exact token-count clusters
-    'kubernetes' => ['enabled' => Env::bool('WATCHER_KUBERNETES_ENABLED', true)],        // pod events: add `events` + this section's settings to use (docs/kubernetes.md)
 
     'analysis' => [
-        'provider' => 'anthropic',
+        'provider' => 'gemini',
         'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis
         'advice' => ['enabled' => Env::bool('WATCHER_ADVICE_ENABLED', true)], // false: no how_to_check / related_checks (fewer output tokens)
-        'api_key' => env('WATCHER_ANTHROPIC_KEY'),
+        'api_keys' => ['gemini' => env('WATCHER_GEMINI_KEY')],
         'models' => [
             'triage' => env('WATCHER_MODEL_TRIAGE'),
             'analyze' => env('WATCHER_MODEL_ANALYZE'),

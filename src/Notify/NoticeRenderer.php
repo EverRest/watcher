@@ -43,6 +43,53 @@ final class NoticeRenderer
         return $this->notice('📊', $service, $environment, sprintf('week %s: %s', SlackText::escape($isoWeek), implode(', ', $parts)));
     }
 
+    /** Closing line of a read that held back alerts beyond the per-read limit; they are sent on a later read. */
+    public function held(string $service, string $environment, string $level, int $held, int $limit): Message
+    {
+        $text = sprintf('🚨 ALERT [%s] %s: +%d more not sent (limit %d per read), retried on the next read', $level, SlackText::escape($service), $held, $limit);
+        $text .= "\n" . SlackText::escape($environment);
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    /**
+     * Urgent line for a matched log event (alerts.immediate). The first line is the greppable prefix; the masked fields,
+     * the environment and the time follow. $fields are already allowlisted and masked by the caller.
+     *
+     * @param array<string, string> $fields
+     */
+    public function alert(string $service, string $environment, string $level, string $message, array $fields, int $count, \DateTimeImmutable $at): Message
+    {
+        $head = sprintf('🚨 ALERT [%s] %s: %s', $level, SlackText::escape($service), $this->reason($message));
+        if ($count > 1) {
+            $head .= sprintf(' (×%d)', $count);
+        }
+        $context = [];
+        foreach ($fields as $name => $value) {
+            $context[] = $name . ': ' . $this->reason($value);
+        }
+        $when = sprintf('%s · %s', SlackText::escape($environment), $at->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s \U\T\C'));
+        $text = implode("\n", array_filter([$head, implode(' · ', $context), $when], static fn (string $line): bool => $line !== ''));
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    /** Immediate alert from the host health check: the greppable prefix, then both versions. Versions go through reason() like any other host text. */
+    public function versionChanged(string $service, string $environment, string $old, string $new, string $checkedAt): Message
+    {
+        $text = sprintf('🔔 VERSION CHANGED %s · %s · %s → %s (checked %s)', SlackText::escape($service), SlackText::escape($environment), $this->reason($old), $this->reason($new), SlackText::escape($checkedAt));
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    /** Up/down transition of one service (opt-in); sent once when the status flips, never on every failing hour. */
+    public function healthTransition(string $service, string $environment, bool $up, string $checkedAt): Message
+    {
+        $text = sprintf('%s %s · %s · checked %s', $up ? '✅ UP' : '🔴 DOWN', SlackText::escape($service), SlackText::escape($environment), SlackText::escape($checkedAt));
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     private function notice(string $icon, string $service, string $environment, string $tail): Message
     {
         $text = sprintf('%s watcher · %s · %s — %s', $icon, SlackText::escape($service), SlackText::escape($environment), $tail);

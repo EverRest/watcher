@@ -28,12 +28,10 @@ final class OutcomeRegistryTest extends TestCase
         }
     }
 
-    public function testFamiliesAndReservations(): void
+    public function testFamilies(): void
     {
         self::assertSame('truncated', OutcomeRegistry::explain('truncated:deadline')['code'] ?? null);
-        self::assertSame('spec-008', OutcomeRegistry::explain('k8s_ingest_failed:oomkilled')['reserved_by'] ?? null);
         self::assertNull(OutcomeRegistry::explain('nope'));
         self::assertNull(OutcomeRegistry::explain('quiet:x'));
-        self::assertSame(['k8s_ingest_failed' => 'spec-008'], OutcomeRegistry::RESERVED);
     }
 }

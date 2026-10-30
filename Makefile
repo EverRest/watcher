@@ -1,5 +1,5 @@
 # Thin wrapper over the composer scripts, so `make ci` works the same locally and in docs.
-.PHONY: install test test-serial coverage badges stan style fix ci audit hooks release-guards-test
+.PHONY: install test test-serial coverage badges stan style length fix ci audit hooks release-guards-test
 
 install:
 	composer install --no-interaction --prefer-dist
@@ -12,6 +12,9 @@ stan:
 
 style:
 	composer style
+
+length:
+	composer length
 
 fix:
 	vendor/bin/pint

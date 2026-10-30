@@ -9,6 +9,7 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Baseline\BaselineResolver;
+use Watcher\Alert\ImmediateAlerts;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\AnalysisResult;
@@ -22,7 +23,6 @@ use Watcher\Analyze\RouterSettings;
 use Watcher\Analyze\TriageCheckpoint;
 use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
-use Watcher\Events\EventsRun;
 use Watcher\Fleet\FleetSeam;
 use Watcher\Issues\IssueSource;
 use Watcher\Issues\SentryMerge;
@@ -90,7 +90,6 @@ use Watcher\Select\Selector;
 use Watcher\Select\Tier;
 use Watcher\Source\LogSource;
 use Watcher\Source\ReadDiagnostics;
-use Watcher\Source\KubernetesEventsSource;
 use Watcher\Source\SourceUnavailable;
 use Watcher\Source\StreamSelector;
 use Watcher\State\BufferedStateStore;
@@ -139,8 +138,6 @@ final class Watcher
 
     /** Spec probes: null unless `probes.enabled`, and never in a dry run (no state write, no alert). */
     private readonly ?ProbeRunner $probes;
-
-    private readonly ?EventsRun $eventsRun;
     private ?ObservingNotifier $observer = null;
 
     // Availability bookkeeping (A4-01, A4-05), reset by run().
@@ -178,7 +175,6 @@ final class Watcher
         ?RunOptions $options = null,
         mixed $out = null,
         private readonly ?FleetSeam $fleet = null,
-        ?KubernetesEventsSource $events = null,
         ?SinkDispatcher $sinks = null,
         ?ObserveCounters $counters = null,
         private readonly ?MetricSource $metrics = null,
@@ -202,7 +198,6 @@ final class Watcher
             }
         }
         $this->state = $state;
-        $this->eventsRun = EventsRun::create($config, $source, $events, $state, $hostLog);
         $this->analyzer = $analyzer;
         if ($sinks !== null && !$this->options->dryRun) {
             // Spec 013: a failed chat delivery becomes a delivery_failure event (code only), then travels on untouched.
@@ -269,7 +264,6 @@ final class Watcher
             options: $options,
             out: $out,
             sinks: $c->enabled ? Factory::observe($c, $clock, $hostLog, $counters, stdoutToStderr: $options?->json === true) : null,
-            events: Factory::events($c, $http, $clock),
             counters: $counters,
             metrics: $c->enabled ? Factory::metricSource($c, $http, $stop) : null,
             issues: $c->enabled ? Factory::issueSource($c, $http, $clock, $stop) : null,
@@ -320,7 +314,6 @@ final class Watcher
         $this->probes?->runDue(); // its own interval (schedule.probe_every); cannot change this run's outcome
         $this->ledger->reset();
         $this->guard = new RunGuard($this->clock, min($this->config->schedule['run_deadline'], $this->fleetDeadline ?? PHP_INT_MAX));
-        $this->eventsRun?->bindGuard($this->guard);
         $this->blindCode = null;
         $this->lockKey = $this->lockOwner = null;
         $this->keys = null;
@@ -334,9 +327,6 @@ final class Watcher
         $now ??= $this->clock->now();
         // Before any external call and before the lock: a trigger outside the run_at hour costs nothing (FR-002).
         // A dry run previews the window the real run would analyse, whatever the hour.
-        if (!$this->options->dryRun) {
-            $this->eventsRun?->ingestOnTrigger(); // pod events live about an hour: every trigger feeds the ledger, due or not
-        }
         $gate = Factory::gate($c);
         if ($this->options->dryRun) {
             $this->scheduleMeta = null;
@@ -574,11 +564,6 @@ final class Watcher
     private function conclude(RunResult $r): RunResult
     {
         $outcome = $r->outcome;
-        // Fail closed: a cluster that could not be read is named in the summary and the heartbeat even when a digest went out
-        // and even with notices off, unless the run already has a more specific code.
-        if ($this->ledger->code() === null && ($unread = $this->eventsRun?->runCode()) !== null) {
-            $this->ledger->setCode($unread);
-        }
         $this->ledger->finish($outcome, $this->notices(), $this->environment());
         if ($this->estimator !== null) {
             $this->printEstimate($this->estimator);
@@ -786,8 +771,15 @@ final class Watcher
         // Spec 009 US4: a tracing link needs the earliest valid trace id per group, kept in memory only (never on a group).
         $traceField = $c->links['tempo']['trace_field'] ?? $c->links['datadog_apm']['trace_field'] ?? (isset($c->links['tempo']) || isset($c->links['datadog_apm']) ? 'trace_id' : null);
         $traces = $traceField === null ? null : new TraceIdCollector((string) $traceField);
-        $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard, $traces === null ? null : $traces->observe(...), $this->eventsRun);
+        $immediate = $c->on('alerts') && $c->alerts['immediate'] !== [] ? new ImmediateAlerts($c->alerts['immediate'], $redactor, $this->notices(), $service, $this->environment(), $c->alerts['fields'], $c->minGroupEventsForText) : null;
+        $collector = new EventCollector($c, $this->source, $normalizer, $rules, $this->guard, $traces === null ? null : $traces->observe(...), $immediate);
         $groups = $collector->collect($window, $selector, $anomalies);
+        // Sent during the read, not with the digest. A failure is logged to the host and never fails the run or the digest.
+        $immediate?->deliver($this->state, $key, $c->alerts['window'], function (Message $m): void {
+            $this->notifier->send($m, $this->noticeDestination());
+        }, function (\Throwable $e) use ($service): void {
+            $this->hostLog?->warning('immediate alert failed: ' . $this->notices()->describe($e), ['service' => $service]);
+        });
         $extras = ['metricsLine' => null, 'unavailable' => [], 'sentryDropped' => 0, 'anomaliesNotShown' => 0];
         if ($this->issues !== null && $c->sentry !== null && $this->guard?->reason() === null) {
             $before = count($groups);
@@ -808,7 +800,6 @@ final class Watcher
         $zeroStreak = $this->zeroStreak($key, $collector->mainEventsRead(), $totals);
         $blind = fn (bool $quiet, bool $digestSent = false): ?string => $this->blindLine($quiet, $digestSent, $readReason, $collector->eventsRead(), $collector->overflowedEvents(), $zeroStreak);
         $this->ledger->stats()->groups = count($groups);
-        $this->ledger->stats()->events = $this->eventsRun?->summary($window);
         // Muted groups leave first, so they reach neither a model nor the selector; the snapshot keeps them for growth.
         $allGroups = $groups;
         $muteResult = $mute->filter($groups, $collector->muteHits(), $started);
@@ -859,7 +850,6 @@ final class Watcher
         if ($comparison->isBaseline() && array_filter($groups, static fn (ProblemGroup $g): bool => $g->level->atLeast(Level::Error)) === []) {
             $this->readDependencies($window, $normalizer, $redactor, null);
             $this->ledger->snapshot($window, $allGroups, $totals);
-            $this->announceEventsProblem($key, $window);
             if ($c->on('notice')) {
                 $eventCount = array_sum(array_map(static fn (ProblemGroup $g): int => $g->count, $groups));
                 $notice = $fpvResetFrom === null
@@ -905,14 +895,13 @@ final class Watcher
                 $candidates[] = $cand;
                 continue;
             }
-            $stored = $this->state->get($keys->finding($cand->group->fingerprint));
-            if (!is_array($stored)) {
+            $finding = $this->storedFinding($keys, $cand->group->fingerprint);
+            if ($finding === null) {
+                // Reported, but nothing readable to repeat: analyse it again rather than stay silent (FR-008). A verdict without a
+                // finding is not reused for an Error-or-above group, so the router asks the model again.
+                (new VerdictCache($this->state, $key, $retention))->put($cand->group->fingerprint, 'interesting', $cand->group->count, null);
+                $candidates[] = $cand;
                 continue;
-            }
-            try {
-                $finding = Finding::fromArray($stored);
-            } catch (Throwable) {
-                continue; // an unreadable stored finding counts as none: the group is not repeated, and the next analysis replaces it
             }
             // FR-008: unchanged and already sent: the same finding goes out again, with no model call.
             $repeatGroups[$cand->group->fingerprint] = $cand->group;
@@ -938,7 +927,6 @@ final class Watcher
                 $this->readDependencies($window, $normalizer, $redactor, null);
             }
             $this->ledger->snapshot($window, $allGroups, $totals);
-            $this->announceEventsProblem($key, $window);
             if ($expired && $this->retryCutWindow($keys, $retention, count($candidates), $line)) {
                 return new RunResult(RunOutcome::Quiet); // no done record: the next trigger reads this window again (R-3)
             }
@@ -960,7 +948,6 @@ final class Watcher
             $analysis->checkpoint->clear();
             $analysis->buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->ledger->snapshot($window, $allGroups, $totals);
-            $this->announceEventsProblem($key, $window);
             $this->blindNotice($blind(true), $key, $endKey);
             $this->ledger->runRecord($runKey, RunOutcome::Quiet, $started, $this->blindCode);
             $this->advanceHighWater($window, $keys);
@@ -1007,6 +994,20 @@ final class Watcher
         $this->advanceHighWater($window, $keys);
 
         return new RunResult(RunOutcome::Reported);
+    }
+
+    /** The finding last sent for a group, or null when none is stored or the stored entry cannot be read. */
+    private function storedFinding(WindowKeys $keys, string $fingerprint): ?Finding
+    {
+        $stored = $this->state->get($keys->finding($fingerprint));
+        if (!is_array($stored)) {
+            return null;
+        }
+        try {
+            return Finding::fromArray($stored);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -1155,7 +1156,7 @@ final class Watcher
         foreach ($redacted as $g) {
             // A pod event is not in the log stream, so a log query for it would find nothing.
             $issue = str_starts_with($g->fingerprint, 'sentry:') ? $c->sentry : null; // a Sentry entry links to its issue, built from config and the numeric id, never fetched
-            $links[$g->fingerprint] = ['log' => $issue === null && $g->origin === null ? $logLinks?->forGroup($g, $window) : null, 'code' => $codeLinks?->forGroup($g) ?? [], 'trace' => $issue === null && !str_starts_with($g->fingerprint, 'metric:') ? $traceLinks?->forGroup($read->traces?->idFor($g->fingerprint), $window) : null, 'sentry' => $issue === null ? null : rtrim($issue->baseUrl, '/') . '/organizations/' . rawurlencode($issue->organization) . '/issues/' . rawurlencode(substr($g->fingerprint, 7)) . '/'];
+            $links[$g->fingerprint] = ['log' => $issue === null ? $logLinks?->forGroup($g, $window) : null, 'code' => $codeLinks?->forGroup($g) ?? [], 'trace' => $issue === null && !str_starts_with($g->fingerprint, 'metric:') ? $traceLinks?->forGroup($read->traces?->idFor($g->fingerprint), $window) : null, 'sentry' => $issue === null ? null : rtrim($issue->baseUrl, '/') . '/organizations/' . rawurlencode($issue->organization) . '/issues/' . rawurlencode(substr($g->fingerprint, 7)) . '/'];
             $mark = $deploy->firstSeenAfterLabel($g->status);
             if ($mark !== null) {
                 $afterRelease[$g->fingerprint] = $mark;
@@ -1200,7 +1201,6 @@ final class Watcher
             newOverflow: $routed->newOverflow,
             extras: $read->extras,
             endpoints: $analysis->endpoints,
-            podEventLines: $this->eventsRun?->digestLines($window, new \DateTimeZone($c->schedule['timezone'])) ?? [],
             knownLine: $read->knownLine,
             findingLabels: $read->knownResult !== null ? $read->knownResult->labels : [],
             routedNotice: $routedNotice,
@@ -1532,20 +1532,6 @@ final class Watcher
     private static function plainNotice(string $text): Message
     {
         return new Message($text, [['kind' => 'notice', 'text' => $text]]);
-    }
-
-    /** A run with nothing to report must still say that pod events could not be read (spec 008, Principle VII). */
-    private function announceEventsProblem(string $key, Window $window): void
-    {
-        $text = $this->eventsRun?->problemNotice($this->environment());
-        if ($text !== null && $this->config->on('notice')) {
-            try {
-                $this->noticeOnce('events:' . rawurlencode($key) . ':' . self::windowKey($window->end), self::plainNotice($text), $this->noticeDestination());
-            } catch (Throwable $e) {
-                // Like every other notice: a channel that is down must not turn a quiet run into a failed one.
-                $this->hostLog?->warning('pod events notice not delivered: ' . $e::class, ['service' => $this->config->service]);
-            }
-        }
     }
 
     /** Sends once per key (the key lives two days); a failed send gives the key back so the next run retries. */

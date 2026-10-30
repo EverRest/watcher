@@ -32,7 +32,7 @@ final class MasterSwitchTest extends TestCase
         $c = [
             'service' => 'svc',
             'source' => ['driver' => 'loki', 'loki' => ['auth' => ['type' => 'bearer', 'token' => self::CANARY]]],
-            'analysis' => ['api_key' => self::CANARY],
+            'analysis' => ['api_keys' => ['gemini' => self::CANARY]],
             'state' => ['driver' => 'file', 'file' => ['path' => $this->dir]],
         ];
         if ($enabled !== 'missing') {

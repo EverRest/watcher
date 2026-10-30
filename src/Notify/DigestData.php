@@ -76,8 +76,6 @@ final class DigestData
         public readonly ?DigestExtras $extras = null,
         /** @var EndpointContext|null spec 010: one documentation line per fingerprint, what the cap skipped, why none (masked, capped) */
         public readonly ?EndpointContext $endpoints = null,
-        /** @var list<string> code-built lines about pod events (source unavailable, coverage); integers, times and fixed words only (spec 008) */
-        public readonly array $podEventLines = [],
         public readonly ?string $knownLine = null,
         /** @var array<string, string> */
         public readonly array $findingLabels = [],

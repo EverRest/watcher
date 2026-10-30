@@ -47,7 +47,7 @@ final class SecretDumpTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.invalid', 'auth' => ['type' => 'bearer', 'token' => $own('source.loki.auth.token')]]],
-            'analysis' => ['api_key' => $own('analysis.api_key'), 'api_keys' => ['anthropic' => $own('analysis.api_keys.anthropic'), 'openai' => $own('analysis.api_keys.openai'), 'gemini' => $own('analysis.api_keys.gemini')], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
+            'analysis' => ['api_keys' => ['openai' => $own('analysis.api_keys.openai'), 'gemini' => $own('analysis.api_keys.gemini')], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => sys_get_temp_dir() . '/watcher-secret-dump']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/' . $own('notify.digest.webhook')]],
         ];
@@ -62,6 +62,7 @@ final class SecretDumpTest extends TestCase
             $path === 'observe.http.auth_token' => self::with($c, ['observe'], ['http' => ['enabled' => true, 'url' => 'https://obs.invalid/ingest', 'auth_token' => $m]]),
             $path === 'sentry.auth_token' => self::with($c, ['sentry'], ['enabled' => true, 'base_url' => 'https://sentry.invalid', 'organization' => 'acme', 'project' => 'api', 'auth_token' => $m]),
             str_starts_with($path, 'api_context.') => self::with($c, ['api_context'], ['enabled' => true, 'source' => 'https://docs.invalid/openapi.json?k=' . $own('api_context.source'), 'auth_token' => $own('api_context.auth_token')]),
+            $path === 'health_check.source.password' => self::with($c, ['health_check'], ['enabled' => true, 'source' => ['host' => 'ew-redis', 'key' => 'm-seq:health', 'password' => $m]]),
             default => $c,
         };
     }

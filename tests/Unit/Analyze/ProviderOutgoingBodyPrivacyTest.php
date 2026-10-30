@@ -11,7 +11,7 @@ use GuzzleHttp\Psr7\Response;
 use Psr\Http\Message\RequestInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\AnthropicSdkProvider;
+use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\ModelProvider;
 use Watcher\Analyze\OpenAiProvider;
@@ -29,7 +29,7 @@ final class ProviderOutgoingBodyPrivacyTest extends TestCase
     /** @return array<string, array{0: string}> */
     public static function providers(): array
     {
-        return ['anthropic' => ['anthropic'], 'openai' => ['openai'], 'gemini' => ['gemini']];
+        return ['openai' => ['openai'], 'gemini' => ['gemini']];
     }
 
     /** @return list<string> */
@@ -61,6 +61,50 @@ final class ProviderOutgoingBodyPrivacyTest extends TestCase
         self::assertStringContainsString('judge error groups', $body, "$name must send the system prompt as given");
     }
 
+    /** @return array<string, array{0: string}> */
+    public static function retryingProviders(): array
+    {
+        return ['openai' => ['openai'], 'gemini' => ['gemini']];
+    }
+
+    /** The retry path: each attempt carries the same reduced payload, and a failure after the retries names neither key nor body. */
+    #[DataProvider('retryingProviders')]
+    public function testARetriedFailureNamesNeitherTheKeyNorTheBody(string $name): void
+    {
+        /** @var \ArrayObject<int, RequestInterface> $history */
+        $history = new \ArrayObject();
+        $stack = HandlerStack::create(new MockHandler([new Response(503), new Response(503)]));
+        $stack->push(static function (callable $next) use ($history): callable {
+            return static function (RequestInterface $request, array $options) use ($next, $history) {
+                $history->append($request);
+
+                return $next($request, $options);
+            };
+        });
+        $http = new Client(['handler' => $stack]);
+        $sleeper = static fn (int $seconds) => null;
+        $provider = match ($name) {
+            'openai' => new OpenAiProvider($http, 'sk-test', 'https://provider.example.test', 60, 1, $sleeper),
+            'gemini' => new GeminiProvider($http, 'sk-test', 'https://provider.example.test', 60, 1, $sleeper),
+            default => throw new \LogicException("no adapter for $name"),
+        };
+
+        try {
+            $provider->create('model-under-test', 1000, self::SYSTEM, self::USER, ['type' => 'object'], false);
+            self::fail('503 on every attempt must fail');
+        } catch (AnalyzerFailed $e) {
+            self::assertSame('provider unavailable (HTTP 503)', $e->getMessage());
+            self::assertStringNotContainsString('sk-test', $e->getMessage());
+            foreach (self::seeded() as $value) {
+                self::assertStringNotContainsString($value, $e->getMessage());
+            }
+        }
+        self::assertCount(2, $history, 'one retry: both attempts were sent');
+        foreach ($history as $request) {
+            self::assertStringContainsString('Payment gateway timeout for <EMAIL> on <ID>', (string) $request->getBody());
+        }
+    }
+
     private function capturedBody(string $name): string
     {
         /** @var \ArrayObject<int, RequestInterface> $history */
@@ -85,7 +129,6 @@ final class ProviderOutgoingBodyPrivacyTest extends TestCase
     private function provider(string $name, Client $http): ModelProvider
     {
         return match ($name) {
-            'anthropic' => new AnthropicSdkProvider($http, 'sk-test', 'https://provider.example.test', 60, 0),
             'openai' => new OpenAiProvider($http, 'sk-test', 'https://provider.example.test', 60, 0),
             'gemini' => new GeminiProvider($http, 'sk-test', 'https://provider.example.test', 60, 0),
             default => throw new \LogicException("no adapter for $name"),

@@ -13,7 +13,7 @@ final class ObserveEnvConfigTest extends TestCase
     private const ROOT = __DIR__ . '/../../..';
 
     private const BASE = [
-        'WATCHER_LOKI_URL' => 'https://loki.example.com', 'WATCHER_LOKI_TOKEN' => 't', 'WATCHER_ANTHROPIC_KEY' => 'k',
+        'WATCHER_LOKI_URL' => 'https://loki.example.com', 'WATCHER_LOKI_TOKEN' => 't', 'WATCHER_GEMINI_KEY' => 'k',
         'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example.com/x', 'WATCHER_DB_DSN' => 'sqlite::memory:',
         'WATCHER_MODEL_TRIAGE' => 'model-a', 'WATCHER_MODEL_ANALYZE' => 'model-b', 'WATCHER_MODEL_ESCALATE' => 'model-c',
         'WATCHER_PRICE_TRIAGE_IN' => '1', 'WATCHER_PRICE_TRIAGE_OUT' => '5', 'WATCHER_PRICE_ANALYZE_IN' => '3',

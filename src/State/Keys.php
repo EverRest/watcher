@@ -35,6 +35,8 @@ final class Keys
     public const REPORTSENT = 'rsent';
     public const PROBE = 'probe';
     public const PROBE_DUE = 'probedue';
+    public const HEALTH = 'health';
+    public const ALERT = 'alert';
 
     private const NOTICE_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -90,6 +92,15 @@ final class Keys
         return self::join(self::PROBE_DUE, $service);
     }
 
+    /**
+     * Last seen {success, version, checked_at} of one service of a host's health snapshot, per watcher service: two watchers
+     * sharing a prefix and a host must not share a copy, or one of them never sees the change. Refreshed on every hourly write.
+     */
+    public static function healthcheck(string $watcherService, string $service): string
+    {
+        return self::join(self::HEALTH, $watcherService, $service);
+    }
+
     public static function run(string $service, string $windowEnd): string
     {
         return self::join(self::RUN, $service, $windowEnd);
@@ -118,6 +129,11 @@ final class Keys
     public static function trigger(string $service): string
     {
         return self::join(self::TRIGGER, $service);
+    }
+
+    public static function immediateAlert(string $service, string $identity): string
+    {
+        return self::join(self::ALERT, $service, $identity);
     }
 
     /** Consecutive windows in which the source returned nothing at all (A4-08). */
