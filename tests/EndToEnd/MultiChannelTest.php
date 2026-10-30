@@ -16,9 +16,9 @@ final class MultiChannelTest extends TestCase
     private const TOKEN = '123456:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789';
     private const HOOK = 'https://discord.com/api/webhooks/123456789012345678/abcDEF_ghi-123';
 
-    private static function source(int $n = 5): FakeLogSource
+    private static function source(int $n = 5, Level $level = Level::Error): FakeLogSource
     {
-        $e = Harness::events(Level::Error, 'Alpha failed in a unique way', $n, 'Alpha');
+        $e = Harness::events($level, 'Alpha failed in a unique way', $n, 'Alpha');
 
         return new FakeLogSource(Harness::totalsOf($e), $e);
     }
@@ -31,7 +31,7 @@ final class MultiChannelTest extends TestCase
 
     private static function baselined(Harness $h): void
     {
-        $h->watcher(self::source())->run();
+        $h->watcher(self::source(5, Level::Warning))->run(); // a Warning baseline: an Error first run would post (FR-035)
         $h->nextWindow();
     }
 
@@ -79,7 +79,7 @@ final class MultiChannelTest extends TestCase
     {
         $h = new Harness(['notify' => ['digest' => self::telegram(), 'notice' => ['driver' => 'discord', 'webhook' => self::HOOK]]]);
 
-        $h->watcher(self::source())->run(); // baseline notice
+        $h->watcher(self::source(5, Level::Warning))->run(); // baseline notice
 
         self::assertSame('discord', $h->notifier->sent[0]['to']->driver());
     }

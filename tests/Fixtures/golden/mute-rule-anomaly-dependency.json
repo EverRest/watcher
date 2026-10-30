@@ -65,7 +65,7 @@
                 },
                 {
                     "kind": "finding",
-                    "text": "• Problem &lt;ID&gt; — 5×  `922a8ce78cec`\n  Evidence: seen repeatedly; dependency core-api shows 6 errors\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
+                    "text": "• Problem &lt;ID&gt; — 5×  `c51795a40f74`\n  Evidence: seen repeatedly; dependency core-api shows 6 errors\n  Hypothesis: a dependency may be failing  Next: inspect the dependency"
                 },
                 {
                     "kind": "severity",
@@ -107,7 +107,7 @@
         ],
         [
             "put",
-            "verdict:svc:922a8ce78cec"
+            "verdict:svc:c51795a40f74"
         ],
         [
             "put",
@@ -115,7 +115,15 @@
         ],
         [
             "put",
-            "reported:svc:922a8ce78cec"
+            "finding:svc:9ab3237802d9"
+        ],
+        [
+            "put",
+            "reported:svc:c51795a40f74"
+        ],
+        [
+            "put",
+            "finding:svc:c51795a40f74"
         ],
         [
             "put",
@@ -159,7 +167,7 @@
         },
         "snap:svc:2026-10-08T06%3A00%3A00Z": {
             "groups": {
-                "922a8ce78cec": 5
+                "c51795a40f74": 5
             },
             "fpv": 1,
             "totals": {
@@ -221,12 +229,12 @@
                 "related_checks": []
             }
         },
-        "verdict:svc:922a8ce78cec": {
+        "verdict:svc:c51795a40f74": {
             "triage": "interesting",
             "atCount": 5,
             "finding": {
                 "fingerprints": [
-                    "922a8ce78cec"
+                    "c51795a40f74"
                 ],
                 "kind": "bug",
                 "severity": "error",
@@ -244,9 +252,39 @@
             "lastReportedAt": "2026-10-09T06:00:00+00:00",
             "atCount": 8
         },
-        "reported:svc:922a8ce78cec": {
+        "finding:svc:9ab3237802d9": {
+            "fingerprints": [
+                "9ab3237802d9"
+            ],
+            "kind": "bug",
+            "severity": "warn",
+            "title": "Problem <ID>",
+            "evidence": "seen repeatedly; dependency core-api shows 6 errors",
+            "suspectedCause": "a dependency may be failing",
+            "suggestedAction": "inspect the dependency",
+            "confidence": 0.9,
+            "escalated": false,
+            "howToCheck": "",
+            "relatedChecks": []
+        },
+        "reported:svc:c51795a40f74": {
             "lastReportedAt": "2026-10-09T06:00:00+00:00",
             "atCount": 5
+        },
+        "finding:svc:c51795a40f74": {
+            "fingerprints": [
+                "c51795a40f74"
+            ],
+            "kind": "bug",
+            "severity": "error",
+            "title": "Problem <ID>",
+            "evidence": "seen repeatedly; dependency core-api shows 6 errors",
+            "suspectedCause": "a dependency may be failing",
+            "suggestedAction": "inspect the dependency",
+            "confidence": 0.9,
+            "escalated": false,
+            "howToCheck": "",
+            "relatedChecks": []
         },
         "snap:svc:dep:core-api:2026-10-09T06%3A00%3A00Z": {
             "totals": {
@@ -259,7 +297,7 @@
         "snap:svc:2026-10-09T06%3A00%3A00Z": {
             "groups": {
                 "9ab3237802d9": 8,
-                "922a8ce78cec": 5,
+                "c51795a40f74": 5,
                 "dad8ae6bd5b9": 5
             },
             "fpv": 1,
@@ -292,9 +330,11 @@
         "hbweek:svc:2026-W41:baselined": 1123200,
         "sent:svc:2026-10-09T06%3A00%3A00Z": 21600,
         "verdict:svc:9ab3237802d9": 2592000,
-        "verdict:svc:922a8ce78cec": 2592000,
+        "verdict:svc:c51795a40f74": 2592000,
         "reported:svc:9ab3237802d9": 2592000,
-        "reported:svc:922a8ce78cec": 2592000,
+        "finding:svc:9ab3237802d9": 2592000,
+        "reported:svc:c51795a40f74": 2592000,
+        "finding:svc:c51795a40f74": 2592000,
         "snap:svc:dep:core-api:2026-10-09T06%3A00%3A00Z": 2592000,
         "snap:svc:2026-10-09T06%3A00%3A00Z": 2592000,
         "run:svc:2026-10-09T06%3A00%3A00Z": 2592000,

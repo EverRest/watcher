@@ -50,10 +50,11 @@ final class ProviderRunTest extends TestCase
     private function runWith(string $provider, array $responses, array $configPatch = []): array
     {
         $h = new Harness($configPatch);
+        $baseline = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha'); // below Error: the first run only records (FR-035)
+        $h->watcher(new FakeLogSource(Harness::totalsOf($baseline), $baseline))->run();
+        $h->nextWindow();
         $events = Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
         $source = new FakeLogSource(Harness::totalsOf($events), $events);
-        $h->watcher($source)->run();
-        $h->nextWindow();
 
         $requests = new \ArrayObject();
         $stack = HandlerStack::create(new MockHandler($responses));

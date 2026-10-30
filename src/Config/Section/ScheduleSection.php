@@ -15,7 +15,12 @@ final class ScheduleSection
      */
     public static function schedule(array $sch): array
     {
-        SectionFields::only($sch, ['run_at', 'every', 'timezone', 'window', 'catch_up', 'ingestion_delay', 'lock_ttl', 'run_deadline'], 'schedule');
+        SectionFields::only($sch, ['run_at', 'every', 'timezone', 'window', 'catch_up', 'ingestion_delay', 'lock_ttl', 'run_deadline', 'probe_every'], 'schedule');
+        $rawProbeEvery = $sch['probe_every'] ?? 'PT1H';
+        $probeEvery = is_string($rawProbeEvery) ? SectionFields::seconds($rawProbeEvery) : null; // a non-string is refused like any other bad value, not replaced
+        if ($probeEvery === null || $probeEvery < 300) {
+            throw new InvalidConfig('schedule.probe_every must be an ISO-8601 duration of at least PT5M');
+        }
         $every = $sch['every'] ?? null;
         if ($every !== null && !is_string($every)) {
             throw new InvalidConfig('schedule.every must be one of PT1H, PT2H, PT3H, PT4H, PT6H, PT8H, PT12H');
@@ -113,6 +118,7 @@ final class ScheduleSection
         return [[
             'run_at' => $runAtList,
             'every' => $every,
+            'probe_every' => $probeEvery,
             'timezone' => $tz,
             'window' => $window,
             'catch_up' => $catchUp,

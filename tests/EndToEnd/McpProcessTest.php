@@ -15,7 +15,8 @@ final class McpProcessTest extends TestCase
     private function proc(string $args, string $stdin): array
     {
         $cwd = sys_get_temp_dir();
-        $p = proc_open([PHP_BINARY, self::BIN, 'mcp', ...($args === '' ? [] : explode(' ', $args))], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd);
+        // Xdebug in the child prints its own banner to stderr, which this test treats as a failure; the child needs no debugger.
+        $p = proc_open([PHP_BINARY, self::BIN, 'mcp', ...($args === '' ? [] : explode(' ', $args))], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, ['XDEBUG_MODE' => 'off'] + getenv());
         self::assertIsResource($p);
         fwrite($pipes[0], $stdin);
         fclose($pipes[0]);

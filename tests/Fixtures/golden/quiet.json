@@ -96,11 +96,11 @@
     "state": {
         "snap:svc:2026-10-08T06%3A00%3A00Z": {
             "groups": {
-                "3ba2fceef742": 5
+                "5384e0c68f57": 5
             },
             "fpv": 1,
             "totals": {
-                "error": 5
+                "warning": 5
             },
             "deploy": {
                 "release": null,

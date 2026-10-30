@@ -84,10 +84,16 @@ final class AvailabilityTest extends TestCase
     private function cutHarness(): array
     {
         $h = new Harness(['schedule' => ['lock_ttl' => 900, 'run_deadline' => 10]]);
-        $h->watcher(self::source(self::alpha()))->run(); // baseline
+        $h->watcher(self::baselineSource())->run(); // baseline
         $h->nextWindow();
 
         return [$h, Keys::run('svc', Watcher::windowKey($h->windowEnd()))];
+    }
+
+    /** A first window below Error: it only records a baseline (FR-035), so the window under test is the first one that can report. */
+    private static function baselineSource(): FakeLogSource
+    {
+        return self::source(Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha'));
     }
 
     private static function beta(int $n = 5): FakeLogSource
@@ -145,21 +151,23 @@ final class AvailabilityTest extends TestCase
         self::assertSame([], $src->calls);
     }
 
-    public function testAQuietRunThatWasTruncatedStillSendsOneNotice(): void
+    public function testATruncatedRepeatRunStillSendsOneNotice(): void
     {
         $h = new Harness(['source' => ['event_cap' => 3]]);
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::baselineSource())->run();
         $h->nextWindow();
         self::assertSame(RunOutcome::Reported, $h->watcher(self::source(self::alpha(2)))->run()->outcome);
         $h->nextWindow();
         $before = count($h->notifier->sent);
 
+        // The group reported last window is still present and not grown, so it is repeated (FR-008), not quiet. The digest
+        // carries the truncation line itself, so the summary records no cap reason for a sent digest.
         $result = $h->watcher(self::source(self::alpha(50)))->run();
 
-        self::assertSame(RunOutcome::Quiet, $result->outcome);
+        self::assertSame(RunOutcome::Reported, $result->outcome);
         self::assertCount($before + 1, $h->notifier->sent);
-        self::assertStringContainsString('truncated', (end($h->notifier->sent) ?: throw new \LogicException())['message']->text);
-        self::assertSame('truncated:cap', $result->summaryData?->reason);
+        self::assertStringContainsString('truncated', (end($h->notifier->sent) ?: throw new \LogicException())['message']->text . implode("\n", array_column(end($h->notifier->sent)['message']->sections, 'text')));
+        self::assertNull($result->summaryData?->reason);
     }
 
     public function testZeroEventsForThreeWindowsIsReported(): void
@@ -210,7 +218,7 @@ final class AvailabilityTest extends TestCase
         $h = new Harness();
         $probe = new ProbeStateStore(new InMemoryStateStore($h->clock));
         $h->state = $probe;
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::baselineSource())->run();
         $h->nextWindow();
         $slow = new class ($h->clock, $h->analyzer) implements \Watcher\Analyze\Analyzer {
             public function __construct(private readonly FrozenClock $clock, private readonly EchoAnalyzer $inner)
@@ -242,7 +250,7 @@ final class AvailabilityTest extends TestCase
         $h = new Harness();
         $probe = new ProbeStateStore(new InMemoryStateStore($h->clock));
         $h->state = $probe;
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::baselineSource())->run();
         $h->nextWindow();
         $probe->loseLock = true;
         $analyses = new \stdClass();

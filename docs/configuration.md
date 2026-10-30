@@ -371,6 +371,23 @@ Sentry in RFC 1918 space (`10/8`, `172.16/12`, `192.168/16`) or a cluster-local 
 (cloud credentials), CGNAT, metadata and the reserved ranges stay refused whatever is allowed, in every numeric spelling; a ClusterIP in CGNAT or
 unique-local IPv6 space cannot be configured, use the service's `*.svc` name. Host names are not resolved to check them (a documented limit). Redirects
 are never followed; every call has a 60 s wall-clock budget and stops when the run deadline is reached.
+### `probes` (certificate and secret expiry)
+
+Deterministic checks, no model call, off by default (`probes.enabled`; the master `enabled` must also be true). They warn before a TLS certificate or a declared secret expires and alert through the notice destination.
+
+| Key | Default | Notes |
+|---|---|---|
+| `probes.enabled` (`WATCHER_PROBES_ENABLED`) | `false` | The section's own switch. Off: nothing is read, nothing is stored, nothing is sent; the section is still validated. |
+| `schedule.probe_every` (`WATCHER_PROBE_EVERY`) | `PT1H` | ISO-8601, at least `PT5M`. Probes run on the first run trigger after this interval has passed (a due key with the same TTL). A host that triggers the run less often, for example once a day with `run_at`, runs them that often. |
+| `probes.warn_days` (`WATCHER_PROBES_WARN_DAYS`) | `30` | Warn when at most this many days are left. |
+| `probes.fail_days` (`WATCHER_PROBES_FAIL_DAYS`) | `7` | Fail when at most this many days are left, or when already expired. Must be below `warn_days`. |
+| `probes.hosts` (`WATCHER_PROBES_HOSTS`) | `[]` | Host names. The TLS handshake on port 443 reads the leaf certificate's `validTo`. Verification is off so an expired certificate still yields its date. A host that cannot be reached is `unknown`: it never alerts and never changes the stored status. |
+| `probes.secrets` | `[]` | List of `['name' => 'DB_PASSWORD', 'expires' => '2027-01-31', 'owner' => 'team-x']`. A secret is valid through its `expires` day (UTC). Only the date is compared; no secret value, environment variable or credential file is read. Config file only. |
+
+Alerts: one short message per subject, when its status changes (a return to `ok` is announced too) or when a warning or failure still stands and its dedupe key has expired (24 hours). Messages name the subject and the days left, never a secret value, DSN, password or token.
+
+Limit: the stored status lives 24 hours. A warning or failure that stood with no run for more than 24 hours has lost its record, so its return to `ok` is not announced. Keep the run trigger at least as often as `probe_every` to avoid it.
+
 ## Log hygiene (spec 006)
 
 `hygiene` section; every key optional. `enabled` (default **false**, `WATCHER_HYGIENE_ENABLED` in the shipped configs) switches on the privacy, shape and proposal reports. Keys: `read_min_level` (`info`), `event_cap` (200000, more is sampled and said so), `max_line_length` (2000), `noisy_share` (0.20), `variable_distinct` (20), `repeat_days` (7), `growth_factor` (2.0), `min_history_days` (14), `mute_min_daily` (100), `watch_lead` (1800 s), `decline_days` (90), `spike_factor` (2.0), `max_seconds` (900, time budget of one pass), `site_allow_dirs` (`[]`, directory names such as `data` that are accepted below a `repo.path_map` root although the privacy report's deny list names them). `variable_distinct` must be at least 5. Invalid values fail at start naming `hygiene.<key>`. Contract: `specs/006-log-hygiene/contracts/config.md`. `allow_constant_labels` (false) lets a message that never varies keep its label and a watch proposal (it may be one person's name; the privacy floor of [privacy.md](privacy.md#log-hygiene-reports-spec-006) otherwise withholds it), `literal_min_sites` (5, at least 2): a literal word of a shown template must be common log vocabulary or seen at that many different sites in the pass, else it is shown as `<w>`.

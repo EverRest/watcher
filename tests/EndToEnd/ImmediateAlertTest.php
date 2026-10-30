@@ -36,11 +36,11 @@ final class ImmediateAlertTest extends TestCase
 
         $result = $h->watcher(self::source())->run();
 
-        self::assertSame(RunOutcome::Baselined, $result->outcome);
+        self::assertSame(RunOutcome::Reported, $result->outcome); // a first run with Error-or-above groups reports them (FR-035)
         $alerts = self::alerts($h);
         self::assertCount(1, $alerts);
         self::assertStringStartsWith("🚨 ALERT [critical] svc: health check failed (×2)\nstg · 2026-10-07 12:00:00 UTC", $alerts[0]);
-        self::assertCount(2, $h->notifier->sent, 'the alert and the baseline notice');
+        self::assertCount(2, $h->notifier->sent, 'the alert and the digest');
     }
 
     public function testNothingIsSentWhileTheSwitchIsOff(): void
@@ -60,9 +60,9 @@ final class ImmediateAlertTest extends TestCase
 
         $result = $h->watcher(self::source())->run();
 
-        self::assertSame(RunOutcome::Baselined, $result->outcome);
+        self::assertSame(RunOutcome::Reported, $result->outcome); // a first run with Error-or-above groups reports them (FR-035)
         self::assertSame([], self::alerts($h));
-        self::assertCount(1, $h->notifier->sent, 'the baseline notice still goes out');
+        self::assertCount(1, $h->notifier->sent, 'the digest still goes out');
         self::assertSame('warning', $log->records[0][0]);
         self::assertStringStartsWith('immediate alert failed: ', $log->records[0][1]);
     }

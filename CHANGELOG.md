@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.1 — 2026-10-30 — Test fixes, no runtime change
+
+- The MCP process test runs its child with `XDEBUG_MODE=off`, so an Xdebug banner on stderr no longer fails it.
+- The driver equivalence test compares model calls only. Which groups reach the model varies per run by design (the `top_m` tie-break is random), and so does the stored state key count.
+
+## 0.11.0 — 2026-10-30 — Certificate and secret expiry probes; errors are reported on the first run and repeated daily
+
+- New `probes` section, off by default: TLS certificate expiry of `probes.hosts` and declared secret expiry of `probes.secrets`, with `probes.warn_days` (30) and `probes.fail_days` (7). Deterministic, no model call, no secret value read.
+- `schedule.probe_every` (`WATCHER_PROBE_EVERY`, default `PT1H`, at least `PT5M`): probes run on the first run trigger after it has passed. A host that triggers less often runs them less often. A non-string value is refused.
+- Alerts go to the notice destination on a status change, or once a day while a warning or failure stands. An unreachable host is `unknown` and never alerts.
+- Behaviour change (FR-035): a first run with no previous snapshot posts a digest when a group is at Error or above, with only those groups. It used to record a baseline only, so a day with errors on the first run looked silent. Warning and lower levels are not in the first digest.
+- Behaviour change (FR-008): a group already reported that has not grown and is still in today's read is sent again with its stored finding, with no model call. A stored finding that cannot be read makes the group analysed again.
+- A probe that fails no longer stops the other probes in the same interval. `probes` enabled while `notify.notice` is off logs a warning.
+- Known ceiling: certificate hosts are connected one after another, up to 5 s each, before the run guard exists.
+
+- New `probes` section, off by default: TLS certificate expiry of `probes.hosts` and declared secret expiry of `probes.secrets`, with `probes.warn_days` (30) and `probes.fail_days` (7). Deterministic, no model call, no secret value read.
+- `schedule.probe_every` (`WATCHER_PROBE_EVERY`, default `PT1H`, at least `PT5M`): probes run on the first run trigger after it has passed. A host that triggers less often runs them less often.
+- Alerts go to the notice destination on a status change, or once a day while a warning or failure stands. An unreachable host is `unknown` and never alerts.
+
 ## 0.10.0 — 2026-10-29 — Hourly host health check
 
 - `watcher:health` (Laravel adapter): reads the host app's `{app}:health` snapshot from its Redis once per hour and alerts at once when a service's version changes. Opt-in (`health_check.enabled`); separate from the daily run. Optional up/down transitions (`health_check.notify_transitions`).

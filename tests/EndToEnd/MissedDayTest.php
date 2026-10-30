@@ -33,7 +33,8 @@ final class MissedDayTest extends TestCase
     public function testMissedMiddleDayStillReports(): void
     {
         $h = new Harness();
-        self::assertSame(RunOutcome::Baselined, $h->watcher(self::source(5))->run()->outcome);
+        // The Error first run now reports (FR-035); the later growth check still compares with it.
+        $h->watcher(self::source(5))->run();
         $h->nextWindow();
         self::assertSame(RunOutcome::Failed, $h->watcher(self::down())->run()->outcome);
         $h->nextWindow();
@@ -52,7 +53,9 @@ final class MissedDayTest extends TestCase
         $h->watcher(self::source(5))->run();
         $h->clock->advance('+8 days');
 
-        self::assertSame(RunOutcome::Baselined, $h->watcher(self::source(20))->run()->outcome);
+        // The Error group makes this baseline run report (FR-035), so it is no longer Baselined.
+        self::assertSame(RunOutcome::Reported, $h->watcher(self::source(20))->run()->outcome);
+        self::assertStringNotContainsString('compared with', implode("\n", $h->sentTexts()));
     }
 
     public function testFailedRunKeepsOlderSnapshotUsable(): void

@@ -72,7 +72,8 @@ final class MetricsSentryTest extends TestCase
     {
         $h = new Harness(self::sections());
         $metrics = self::tripled();
-        self::assertSame(RunOutcome::Baselined, self::make($h, self::errors(5), $metrics)->run()->outcome);
+        $warning = Harness::events(Level::Warning, 'Alpha service exploded badly', 5, 'AlphaException'); // below Error: the baseline only records (FR-035)
+        self::assertSame(RunOutcome::Baselined, self::make($h, new FakeLogSource(Harness::totalsOf($warning), $warning), $metrics)->run()->outcome);
         self::assertSame([], $metrics->calls);
         $h->nextWindow();
 

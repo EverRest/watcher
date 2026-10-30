@@ -37,9 +37,10 @@ final class ModelDistrustTest extends TestCase
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }
 
+    /** Below Error: a first run with Error groups now reports (FR-035), and these tests start from a baseline. */
     private static function baselined(Harness $h): void
     {
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::source(Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha')))->run();
         $h->nextWindow();
     }
 
