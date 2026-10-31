@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.2 — 2026-10-31 — Run digest and checks from MCP
+
+- **New `actions` MCP group** (off unless named in `mcp.groups` or `WATCHER_MCP_GROUPS`): `watcher_run_digest` (`watcher:fleet` or `watcher:run`, with `dry_run`, `now`, `only`, `fleet`), `watcher_health_check` (`watcher:health`), `watcher_test_message` (`watcher:check --post-test`).
+- Actions that send need `confirm: true`; a digest run is a dry run unless `dry_run` is false. Each action runs at most once per 5 minutes per session, and every run is logged as `watcher [audit] ...`.
+- Actions run the artisan commands in a child process with an argument list. `src/Mcp/ArtisanCommand.php` is the only file in `src/Mcp` allowed to start a process (the static guard exempts it).
+- `mcp.groups` default is still the read-only three; `actions` must be named.
+- Tool annotations: `actions` tools are `readOnlyHint: false`, `destructiveHint: true`.
+
 ## 0.13.1 — 2026-10-31 — Health summary on weekdays in its own zone, one schedule
 
 - **Removed:** `health_check.summary_every_hours`. The summary has one schedule: `summary_at`, inside `summary_hours`. A config that still sets it is rejected with an error, instead of quietly falling back to the daily summary.

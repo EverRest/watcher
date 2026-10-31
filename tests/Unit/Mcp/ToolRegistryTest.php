@@ -32,6 +32,17 @@ final class ToolRegistryTest extends TestCase
         return array_values(array_map(static fn (array $t): string => $t['name'], $r[0]['result']['tools']));
     }
 
+    public function testActionsAreListedOnlyWhenEnabledAndMarkedAsWrites(): void
+    {
+        $schema = ['type' => 'object', 'additionalProperties' => false, 'properties' => []];
+        $tools = [new StubTool('watcher_health_check', 'actions', $schema, static fn (array $a): array => [])];
+
+        self::assertSame([], (new McpHarness())->run([['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list']], $tools, ['inspect'])[0]['result']['tools']);
+
+        $listed = (new McpHarness())->run([['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list']], $tools, ['actions'])[0]['result']['tools'];
+        self::assertSame(['readOnlyHint' => false, 'destructiveHint' => true, 'openWorldHint' => false], $listed[0]['annotations']);
+    }
+
     public function testGroupsAndDryRunSwitch(): void
     {
         self::assertSame(['watcher_latest_report', 'watcher_first_day', 'watcher_explain_config'], $this->listed(['inspect', 'onboarding', 'docs']));

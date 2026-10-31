@@ -13,6 +13,7 @@ use Watcher\Config\WatchConfig;
 use Watcher\Mcp\Tools\CheckTool;
 use Watcher\Mcp\Tools\DryRunTool;
 use Watcher\Mcp\Tools\ExplainConfigTool;
+use Watcher\Mcp\Tools\WatcherActions;
 use Watcher\Mcp\Tools\ExplainOutcomeTool;
 use Watcher\Mcp\Tools\FindingTool;
 use Watcher\Mcp\Tools\FirstDayTool;
@@ -163,7 +164,13 @@ final class McpCommand
         }
         $root = dirname(__DIR__, 2);
         // F1: the configured file itself is the only PHP file a client may name; its directory's other files are not approved
-        $tools = [...$inspect, ...self::onboardingTools(PathPolicy::forFile($file), static fn (WatchConfig $w): StateStore => self::store($w, $clock, $log), $clock), ...self::docsTools($root)];
+        // Actions run the artisan commands of this deployment: the same binary, the working directory's artisan (the pod's app).
+        $actions = in_array('actions', $settings->groups, true) && $c->enabled
+            ? WatcherActions::tools(new ArtisanCommand(PHP_BINARY, getcwd() . '/artisan'), static function (string $tool, array $data) use ($err): void {
+                fwrite($err, 'watcher [audit] ' . $tool . ' exit=' . (string) ($data['exit'] ?? '?') . "\n");
+            }, static fn (): int => $clock->now()->getTimestamp())
+            : [];
+        $tools = [...$inspect, ...self::onboardingTools(PathPolicy::forFile($file), static fn (WatchConfig $w): StateStore => self::store($w, $clock, $log), $clock), ...self::docsTools($root), ...$actions];
 
         return self::assemble($tools, $settings->groups, $allowDry, $c->service, $in, $out, $err, $clock, $root);
     }

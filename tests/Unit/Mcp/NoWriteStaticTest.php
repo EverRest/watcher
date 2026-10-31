@@ -51,6 +51,10 @@ final class NoWriteStaticTest extends TestCase
             if ($f->getExtension() === 'php') {
                 ++$n;
                 $rel = substr($f->getPathname(), strlen($root) + 1);
+                // 0.13.2: the `actions` group runs artisan commands by design (confirm, rate limit, audit). This is the only file allowed to spawn a process.
+                if ($rel === 'ArtisanCommand.php') {
+                    continue;
+                }
                 self::assertSame([], self::violations((string) file_get_contents($f->getPathname()), $rel), $rel);
             }
         }

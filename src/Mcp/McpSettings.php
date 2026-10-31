@@ -9,14 +9,18 @@ use Watcher\Config\InvalidConfig;
 
 /**
  * The `mcp` section (FR-040/095): `allow_dry_run` (strict boolean, default false, `WATCHER_MCP_ALLOW_DRY_RUN`) and `groups`
- * (default all three, `WATCHER_MCP_GROUPS` comma list). Any other key is rejected naming `mcp.<key>`.
+ * (default the read-only three, `WATCHER_MCP_GROUPS` comma list; `actions` must be named). Any other key is rejected naming `mcp.<key>`.
  *
  * INTEGRATOR (T018/T051): move this into `WatchConfig`/`KeyCatalog`; until then {@see McpCommand} strips the `mcp` key before `WatchConfig::fromArray`
  * (which would reject it as unknown) and reads it here. `watcher check` therefore still rejects a config file that holds an `mcp` key.
  */
 final class McpSettings
 {
-    public const GROUPS = ['inspect', 'onboarding', 'docs'];
+    /** Every group a deployment may name. `actions` writes (sends, records) and is off unless named. */
+    public const GROUPS = ['inspect', 'onboarding', 'docs', 'actions'];
+
+    /** What a deployment gets when `groups` is not set: read-only, so actions stay off by default. */
+    public const DEFAULT_GROUPS = ['inspect', 'onboarding', 'docs'];
 
     /** @param list<string> $groups */
     public function __construct(public readonly bool $allowDryRun, public readonly array $groups)
@@ -38,7 +42,7 @@ final class McpSettings
         if (!is_bool($allow)) {
             throw new InvalidConfig('mcp.allow_dry_run must be true or false');
         }
-        $groups = $section['groups'] ?? Env::list('WATCHER_MCP_GROUPS', self::GROUPS);
+        $groups = $section['groups'] ?? Env::list('WATCHER_MCP_GROUPS', self::DEFAULT_GROUPS);
         if (!is_array($groups) || !array_is_list($groups) || $groups === [] || count(array_unique($groups)) !== count($groups) || array_diff($groups, self::GROUPS) !== []) {
             throw new InvalidConfig('mcp.groups must be a non-empty list of unique names from: ' . implode(', ', self::GROUPS));
         }
