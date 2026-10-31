@@ -57,4 +57,43 @@ final class HealthCheckConfigTest extends TestCase
         yield 'too long' => [366];
         yield 'a string' => ['14'];
     }
+
+    /** @dataProvider badSummaryAt */
+    public function testSummaryAtIsHhMmOrNull(mixed $value): void
+    {
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('health_check.summary_at must be HH:MM (UTC) or null');
+
+        HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
+            'enabled' => true,
+            'source' => ['host' => 'ew-redis', 'key' => 'm-seq:health'],
+            'summary_at' => $value,
+        ]]);
+    }
+
+    /** @return iterable<string, array{mixed}> */
+    public static function badSummaryAt(): iterable
+    {
+        yield 'hour 24' => ['24:00'];
+        yield 'minute 60' => ['09:60'];
+        yield 'no colon' => ['0900'];
+        yield 'one digit' => ['9:00'];
+        yield 'an int' => [9];
+    }
+
+    /** A bare config fails later ("service is required"), so only the summary_at message is ruled out. */
+    public function testSummaryAtAcceptsValidTimesAndNull(): void
+    {
+        foreach (['00:00', '09:00', '23:59', null] as $value) {
+            try {
+                HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
+                    'enabled' => true,
+                    'source' => ['host' => 'ew-redis', 'key' => 'm-seq:health'],
+                    'summary_at' => $value,
+                ]]);
+            } catch (InvalidConfig $e) {
+                self::assertStringNotContainsString('summary_at', $e->getMessage());
+            }
+        }
+    }
 }

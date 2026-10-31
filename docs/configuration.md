@@ -221,6 +221,7 @@ included). A `null` or `Version not defined` version is unknown and never alerts
 | `health_check.source.key` | required | Full raw key of the snapshot, for example `m-seq:health`. No watcher prefix is added. |
 | `health_check.ttl_days` | `14` | 1..365. A stored copy lives this long; every hourly write refreshes it. |
 | `health_check.notify_transitions` | `false` | Also alert once when a service flips between up and down. Never on every failing hour. |
+| `health_check.summary_at` | `09:00` | `HH:MM`, UTC, or `null` for no summary. Once a day, a summary of every service (name, version, up/down, `checked_at`) is sent even when nothing changed. Only the hour counts, because the check runs hourly. A failed send is logged (`health: summary not sent`) and does not change the exit code. |
 
 Alerts go through `notify.notice` (the digest destination when it is not set). A failed send keeps the old copy, so the next hour retries.
 A failed read or send exits this command with 1 and writes to the host log; the daily run and the digest are not affected.

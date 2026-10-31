@@ -45,6 +45,8 @@ final class HealthCheck
         private readonly string $environment,
         private readonly int $ttlSeconds,
         private readonly bool $notifyTransitions,
+        /** UTC hour (0..23) of the daily summary; null = no summary. Only the hour is used: the run is hourly. */
+        private readonly ?int $summaryHour = null,
     ) {
     }
 
@@ -83,6 +85,11 @@ final class HealthCheck
             throw new InvalidConfig('health_check.notify_transitions must be true or false');
         }
 
+        $summaryAt = array_key_exists('summary_at', $h) ? $h['summary_at'] : '09:00';
+        if ($summaryAt !== null && (!is_string($summaryAt) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $summaryAt) !== 1)) {
+            throw new InvalidConfig('health_check.summary_at must be HH:MM (UTC) or null');
+        }
+
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $log ??= new NullLogger();
         $redis = array_filter([
@@ -106,6 +113,7 @@ final class HealthCheck
             environment: $c->environment ?? 'default',
             ttlSeconds: $ttlDays * 86400,
             notifyTransitions: $transitions,
+            summaryHour: $summaryAt === null ? null : (int) substr($summaryAt, 0, 2),
         );
     }
 
@@ -125,16 +133,38 @@ final class HealthCheck
         }
 
         $code = 0;
+        $rows = [];
         foreach ($snapshot as $name => $entry) {
             try {
-                $this->handle((string) $name, $entry);
+                $row = $this->handle((string) $name, $entry);
+                if ($row !== null) {
+                    $rows[] = $row;
+                }
             } catch (Throwable $e) {
                 $code = 1;
                 $this->log->error('health: service not stored', ['service' => (string) $name, 'error' => $this->renderer->describe($e)]);
             }
         }
+        $this->summarise($now, $rows);
 
         return $code;
+    }
+
+    /**
+     * The daily summary: a failed send is logged and never changes the alert result. The hourly lock already makes it once per hour.
+     *
+     * @param list<array{name: string, version: ?string, success: bool, checked_at: string}> $rows
+     */
+    private function summarise(DateTimeImmutable $now, array $rows): void
+    {
+        if ($this->summaryHour === null || $rows === [] || (int) $now->setTimezone(new \DateTimeZone('UTC'))->format('G') !== $this->summaryHour) {
+            return;
+        }
+        try {
+            $this->notifier->send($this->renderer->healthSummary($this->service, $this->environment, $rows), $this->to);
+        } catch (Throwable $e) {
+            $this->log->error('health: summary not sent', ['error' => $this->renderer->describe($e)]);
+        }
     }
 
     /** @return array<mixed> */
@@ -152,12 +182,13 @@ final class HealthCheck
         return $data;
     }
 
-    private function handle(string $name, mixed $entry): void
+    /** @return array{name: string, version: ?string, success: bool, checked_at: string}|null the summary row; null for a malformed entry */
+    private function handle(string $name, mixed $entry): ?array
     {
         if (!is_array($entry) || !is_bool($entry['success'] ?? null) || !is_string($entry['checked_at'] ?? null)) {
             $this->log->warning('health: entry malformed, skipped', ['service' => $name]);
 
-            return;
+            return null;
         }
         $version = self::known($entry['version'] ?? null);
         $copy = ['success' => $entry['success'], 'version' => $version, 'checked_at' => $entry['checked_at']];
@@ -180,6 +211,8 @@ final class HealthCheck
         }
         // Stored after the sends: a failed send keeps the old copy, so the next hour compares again and retries.
         $this->state->put($key, $copy, $this->ttlSeconds);
+
+        return ['name' => $name, ...$copy];
     }
 
     /** A version worth comparing: a non-empty string that is not the host's "unknown" text. Anything else is unknown and never alerts. */
