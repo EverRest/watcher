@@ -221,9 +221,10 @@ included). A `null` or `Version not defined` version is unknown and never alerts
 | `health_check.source.key` | required | Full raw key of the snapshot, for example `m-seq:health`. No watcher prefix is added. |
 | `health_check.ttl_days` | `14` | 1..365. A stored copy lives this long; every hourly write refreshes it. |
 | `health_check.notify_transitions` | `false` | Also alert once when a service flips between up and down. Never on every failing hour. |
-| `health_check.summary_at` | `09:00` | `HH:MM` in `schedule.timezone` (UTC when not set), or `null` for no daily summary. Once a day a summary of every service (name, version, up/down, `checked_at`) is sent, even when nothing changed. Only the hour counts, because the check runs hourly. |
+| `health_check.timezone` | `Europe/Berlin` | IANA zone (CET/CEST) for `summary_at`, `summary_hours` and `summary_days`. Independent of `schedule.timezone`. |
+| `health_check.summary_at` | `09:00` | `HH:MM` in `health_check.timezone`, or `null` for no daily summary. Once a day a summary of every service (name, version, up/down, `checked_at`) is sent, even when nothing changed. Only the hour counts, because the check runs hourly. |
 | `health_check.summary_hours` | `09-18` | `HH-HH` working hours (start included, end excluded) the summary may be sent in; `null` = all day. |
-| `health_check.summary_days` | `null` | Days the summary may be sent on (`mon`..`sun`); `null` = every day. Example for working days only: `['mon','tue','wed','thu','fri']`. |
+| `health_check.summary_days` | `['mon','tue','wed','thu','fri']` | Days the summary may be sent on (`mon`..`sun`); `null` = every day. |
 
 A failed summary send is logged (`health: summary not sent`) and does not change the exit code or the version alerts.
 

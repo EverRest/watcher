@@ -51,7 +51,7 @@ final class SummarySchedule
             [$from, $to] = [(int) $m[1], (int) $m[2]];
         }
 
-        $days = $h['summary_days'] ?? null;
+        $days = array_key_exists('summary_days', $h) ? $h['summary_days'] : ['mon', 'tue', 'wed', 'thu', 'fri'];
         if ($days !== null && (!is_array($days) || $days === [] || array_diff($days, array_keys(self::DAYS)) !== [])) {
             throw new InvalidConfig('health_check.summary_days must be a list of mon..sun or null');
         }

@@ -84,9 +84,12 @@ final class HealthCheck
             throw new InvalidConfig('health_check.notify_transitions must be true or false');
         }
 
-        // schedule.timezone is validated by WatchConfig below; a bad name falls back to UTC here and is rejected there.
-        $tz = $config['schedule']['timezone'] ?? 'UTC';
-        $summary = SummarySchedule::fromConfig($h, new \DateTimeZone(is_string($tz) && in_array($tz, \DateTimeZone::listIdentifiers(), true) ? $tz : 'UTC'));
+        // Own zone for the summary, so the daily run's schedule.timezone does not move the summary hours.
+        $tz = $h['timezone'] ?? 'Europe/Berlin';
+        if (!is_string($tz) || !in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
+            throw new InvalidConfig('health_check.timezone must be an IANA zone name');
+        }
+        $summary = SummarySchedule::fromConfig($h, new \DateTimeZone($tz));
 
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $log ??= new NullLogger();

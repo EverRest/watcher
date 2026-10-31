@@ -22,12 +22,28 @@ final class SummaryScheduleTest extends TestCase
     }
 
     /** 2026-10-28 is a Wednesday, 2026-10-31 a Saturday; Kyiv is UTC+2 on both (DST ended 25 Oct). */
-    public function testDefaultIsOnceAtNineEveryDayInTheWatcherTimezone(): void
+    public function testDefaultIsOnceAtNineOnWeekdaysInTheConfiguredZone(): void
     {
         $s = self::make();
 
         self::assertTrue($s->due(new DateTimeImmutable('2026-10-28T07:00:00Z')), '09:00 Kyiv');
         self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T09:00:00Z')), '11:00 Kyiv');
+        self::assertFalse($s->due(new DateTimeImmutable('2026-10-31T07:00:00Z')), 'Saturday');
+    }
+
+    public function testSummaryUsesTheZoneItIsGiven(): void
+    {
+        $s = SummarySchedule::fromConfig([], new DateTimeZone('Europe/Berlin'));
+        self::assertNotNull($s);
+
+        self::assertTrue($s->due(new DateTimeImmutable('2026-10-28T08:00:00Z')), '09:00 Berlin (CET, UTC+1)');
+        self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T07:00:00Z')), '08:00 Berlin');
+    }
+
+    public function testNullSummaryDaysMeansEveryDay(): void
+    {
+        $s = self::make(['summary_days' => null]);
+
         self::assertTrue($s->due(new DateTimeImmutable('2026-10-31T07:00:00Z')), 'Saturday');
     }
 
