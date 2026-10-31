@@ -3,8 +3,9 @@
 ## 0.14.0 — 2026-10-31 — Health check: problems every hour, and a broken check is no longer silent
 
 - **New:** `health_check.problems_hourly` (default `true`). Every hour inside `summary_hours` on an allowed day a `HEALTH PROBLEMS` message lists the services that are DOWN or STALE, and nothing is sent when all are up. The full `HEALTH SUMMARY` still goes out once a day at `summary_at`.
-- **New:** `health_check.stale_after_hours` (default `3`, `null` = off). A service whose `checked_at` is older, or not a date, is shown as `STALE` in the summary and in the problem list.
+- **New:** `health_check.stale_after_hours` (default `3`, `null` = off). A service whose `checked_at` is older, is not an ISO-8601 timestamp (`now` or `+1 day` do not count) or is more than an hour ahead is shown as `STALE` in the summary and in the problem list.
 - **Behaviour change:** a health check that cannot tell anything now says so in the notice destination: a missing or unreadable snapshot, an unreachable source Redis, or a snapshot without one valid service entry (`{}` too) sends `HEALTH CHECK BROKEN`, then a reminder every 24 hours, then `HEALTH CHECK RECOVERED`. Before, this only reached the host log, and an empty snapshot exited 0. An empty snapshot now exits 1.
+- A service whose DOWN alert (`notify_transitions`) went out in the same run is not listed again in that hour. A break soon after a recovery is announced again.
 - **Behaviour change:** with the defaults a service that is down is listed every working hour. Set `problems_hourly` to `false` to keep only the daily summary.
 
 ## 0.13.2 — 2026-10-31 — Run digest and checks from MCP

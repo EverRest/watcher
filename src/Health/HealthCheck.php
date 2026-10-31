@@ -36,6 +36,9 @@ final class HealthCheck
 
     private const BROKEN_TTL = 2592000;
 
+    /** How far ahead of this clock a host's checked_at may be before it is not believed. */
+    private const MAX_AHEAD = 3600;
+
     private const UNKNOWN_VERSION = 'Version not defined';
 
     public function __construct(
@@ -174,7 +177,7 @@ final class HealthCheck
             }
         }
         if ($rows === []) {
-            $this->broken($now, 'health snapshot has no valid service entry');
+            $this->broken($now, $code === 0 ? 'health snapshot has no valid service entry' : 'no service could be processed');
 
             return 1;
         }
@@ -188,11 +191,12 @@ final class HealthCheck
      * The full summary when the schedule says it is due, otherwise (inside the working hours) the services that are down or
      * stale. A failed send is logged and never changes the alert result. The hourly lock already makes it once per hour.
      *
-     * @param list<array{name: string, version: ?string, success: bool, checked_at: string, stale: bool}> $rows
+     * @param list<array{name: string, version: ?string, success: bool, checked_at: string, stale: bool, announced: bool}> $rows
      */
     private function summarise(DateTimeImmutable $now, array $rows): void
     {
-        $problems = array_values(array_filter($rows, static fn (array $r): bool => !$r['success'] || $r['stale']));
+        // A service whose DOWN alert went out in this very run is not listed again in the same hour.
+        $problems = array_values(array_filter($rows, static fn (array $r): bool => (!$r['success'] || $r['stale']) && !$r['announced']));
         if ($this->summary?->due($now)) {
             $message = $this->renderer->healthSummary($this->service, $this->environment, $rows);
         } elseif ($this->problemsHourly && $problems !== [] && ($this->summary?->inWindow($now) ?? true)) {
@@ -207,17 +211,29 @@ final class HealthCheck
         }
     }
 
-    /** The check cannot tell anything: say so at once, then once a day while it lasts. A failed send is retried next hour. */
+    /**
+     * The check cannot tell anything: say so at once, then once a day while it lasts. The marker is stored before the send, so a
+     * state that cannot keep it sends nothing instead of repeating every hour; a failed send puts the old marker back, so the
+     * next hour retries.
+     */
     private function broken(DateTimeImmutable $now, string $reason): void
     {
         try {
             $key = Keys::healthBroken($this->service);
-            $notified = ($this->state->get($key) ?? [])['notified'] ?? null;
+            $prev = $this->state->get($key);
+            // Only an open break counts: the marker of a recovery (status ok) holds the time of the recovery, not of a notice.
+            $notified = ($prev['status'] ?? null) === 'broken' ? ($prev['notified'] ?? null) : null;
             if (is_int($notified) && $now->getTimestamp() - $notified < self::REMIND_AFTER) {
                 return;
             }
-            $this->notifier->send($this->renderer->healthBroken($this->service, $this->environment, $reason, is_int($notified)), $this->to);
             $this->state->put($key, ['status' => 'broken', 'notified' => $now->getTimestamp()], self::BROKEN_TTL);
+            try {
+                $this->notifier->send($this->renderer->healthBroken($this->service, $this->environment, $reason, is_int($notified)), $this->to);
+            } catch (Throwable $e) {
+                $this->state->put($key, $prev ?? ['status' => 'unsent'], self::BROKEN_TTL);
+
+                throw $e;
+            }
         } catch (Throwable $e) {
             $this->log->error('health: broken notice not sent', ['error' => $this->renderer->describe($e)]);
         }
@@ -253,7 +269,7 @@ final class HealthCheck
         return $data;
     }
 
-    /** @return array{name: string, version: ?string, success: bool, checked_at: string, stale: bool}|null the summary row; null for a malformed entry */
+    /** @return array{name: string, version: ?string, success: bool, checked_at: string, stale: bool, announced: bool}|null the summary row; null for a malformed entry */
     private function handle(string $name, mixed $entry, DateTimeImmutable $now): ?array
     {
         if (!is_array($entry) || !is_bool($entry['success'] ?? null) || !is_string($entry['checked_at'] ?? null)) {
@@ -267,6 +283,7 @@ final class HealthCheck
         $prev = $this->state->get($key);
 
         $messages = [];
+        $announced = false;
         // The first run for a service stores silently: there is nothing to compare with.
         if ($prev !== null) {
             $old = self::known($prev['version'] ?? null);
@@ -275,6 +292,7 @@ final class HealthCheck
             }
             if ($this->notifyTransitions && is_bool($prev['success'] ?? null) && $prev['success'] !== $copy['success']) {
                 $messages[] = $this->renderer->healthTransition($name, $this->environment, $copy['success'], $copy['checked_at']);
+                $announced = true;
             }
         }
         foreach ($messages as $message) {
@@ -283,20 +301,28 @@ final class HealthCheck
         // Stored after the sends: a failed send keeps the old copy, so the next hour compares again and retries.
         $this->state->put($key, $copy, $this->ttlSeconds);
 
-        return ['name' => $name, ...$copy, 'stale' => $this->isStale($copy['checked_at'], $now)];
+        return ['name' => $name, ...$copy, 'stale' => $this->isStale($copy['checked_at'], $now), 'announced' => $announced];
     }
 
-    /** The host stopped updating this service: its checked_at is older than stale_after_hours, or not a date at all. */
+    /**
+     * The host stopped updating this service: checked_at is older than stale_after_hours, is not an ISO-8601 timestamp
+     * ("now" or "+1 day" would always look fresh), or is more than an hour ahead (a clock that is not telling the time).
+     */
     private function isStale(string $checkedAt, DateTimeImmutable $now): bool
     {
         if ($this->staleAfterHours === null) {
             return false;
         }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/', $checkedAt) !== 1) {
+            return true;
+        }
         try {
-            return $now->getTimestamp() - (new DateTimeImmutable($checkedAt))->getTimestamp() > $this->staleAfterHours * 3600;
+            $age = $now->getTimestamp() - (new DateTimeImmutable($checkedAt))->getTimestamp();
         } catch (Throwable) {
             return true;
         }
+
+        return $age > $this->staleAfterHours * 3600 || $age < -self::MAX_AHEAD;
     }
 
     /** A version worth comparing: a non-empty string that is not the host's "unknown" text. Anything else is unknown and never alerts. */
