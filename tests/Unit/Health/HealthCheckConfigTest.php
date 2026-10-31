@@ -62,7 +62,7 @@ final class HealthCheckConfigTest extends TestCase
     public function testSummaryAtIsHhMmOrNull(mixed $value): void
     {
         $this->expectException(InvalidConfig::class);
-        $this->expectExceptionMessage('health_check.summary_at must be HH:MM (UTC) or null');
+        $this->expectExceptionMessage('health_check.summary_at must be HH:MM or null');
 
         HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
             'enabled' => true,

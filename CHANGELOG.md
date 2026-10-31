@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0 — 2026-10-31 — Health summary in working hours, with a period
+
+- `health_check.summary_every_hours` (`1`..`24`): send the health summary every N hours instead of once a day, counted from the start of the working window. Cannot be set together with `summary_at`.
+- `health_check.summary_hours` (default `09-18`) and `health_check.summary_days` (default `mon`..`fri`): the summary is only sent inside these working hours of working days. `null` turns each limit off.
+- **Behaviour change:** `summary_at` and the new keys use `schedule.timezone` (UTC when it is not set). In 0.12.0 `summary_at` was always UTC, so a watcher with another timezone sees its 09:00 summary move. The daily summary is no longer sent on Saturday and Sunday; set `summary_days` to `null` to keep it every day.
+
 ## 0.12.0 — 2026-10-31 — Daily health summary
 
 - `health_check.summary_at` (`HH:MM` UTC, default `09:00`, `null` = off): once a day the health check sends a summary of every service in the host snapshot (name, version, up/down, `checked_at`), even when no version changed. Only the hour is used, because the check runs hourly. A failed summary send is logged (`health: summary not sent`) and does not change the exit code or the version alerts.

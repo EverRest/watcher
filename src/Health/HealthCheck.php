@@ -45,8 +45,7 @@ final class HealthCheck
         private readonly string $environment,
         private readonly int $ttlSeconds,
         private readonly bool $notifyTransitions,
-        /** UTC hour (0..23) of the daily summary; null = no summary. Only the hour is used: the run is hourly. */
-        private readonly ?int $summaryHour = null,
+        private readonly ?SummarySchedule $summary = null,
     ) {
     }
 
@@ -85,10 +84,9 @@ final class HealthCheck
             throw new InvalidConfig('health_check.notify_transitions must be true or false');
         }
 
-        $summaryAt = array_key_exists('summary_at', $h) ? $h['summary_at'] : '09:00';
-        if ($summaryAt !== null && (!is_string($summaryAt) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $summaryAt) !== 1)) {
-            throw new InvalidConfig('health_check.summary_at must be HH:MM (UTC) or null');
-        }
+        // schedule.timezone is validated by WatchConfig below; a bad name falls back to UTC here and is rejected there.
+        $tz = $config['schedule']['timezone'] ?? 'UTC';
+        $summary = SummarySchedule::fromConfig($h, new \DateTimeZone(is_string($tz) && in_array($tz, \DateTimeZone::listIdentifiers(), true) ? $tz : 'UTC'));
 
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $log ??= new NullLogger();
@@ -113,7 +111,7 @@ final class HealthCheck
             environment: $c->environment ?? 'default',
             ttlSeconds: $ttlDays * 86400,
             notifyTransitions: $transitions,
-            summaryHour: $summaryAt === null ? null : (int) substr($summaryAt, 0, 2),
+            summary: $summary,
         );
     }
 
@@ -151,13 +149,13 @@ final class HealthCheck
     }
 
     /**
-     * The daily summary: a failed send is logged and never changes the alert result. The hourly lock already makes it once per hour.
+     * The health summary, when the schedule says it is due: a failed send is logged and never changes the alert result. The hourly lock already makes it once per hour.
      *
      * @param list<array{name: string, version: ?string, success: bool, checked_at: string}> $rows
      */
     private function summarise(DateTimeImmutable $now, array $rows): void
     {
-        if ($this->summaryHour === null || $rows === [] || (int) $now->setTimezone(new \DateTimeZone('UTC'))->format('G') !== $this->summaryHour) {
+        if ($this->summary === null || $rows === [] || !$this->summary->due($now)) {
             return;
         }
         try {
