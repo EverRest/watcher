@@ -84,9 +84,12 @@ final class HealthCheck
             throw new InvalidConfig('health_check.notify_transitions must be true or false');
         }
 
-        // schedule.timezone is validated by WatchConfig below; a bad name falls back to UTC here and is rejected there.
-        $tz = $config['schedule']['timezone'] ?? 'UTC';
-        $summary = SummarySchedule::fromConfig($h, new \DateTimeZone(is_string($tz) && in_array($tz, \DateTimeZone::listIdentifiers(), true) ? $tz : 'UTC'));
+        // Own zone for the summary, so the daily run's schedule.timezone does not move the summary hours.
+        $tz = $h['timezone'] ?? 'UTC';
+        if (!is_string($tz) || !in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
+            throw new InvalidConfig('health_check.timezone must be an IANA zone name');
+        }
+        $summary = SummarySchedule::fromConfig($h, new \DateTimeZone($tz));
 
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
         $log ??= new NullLogger();
@@ -118,6 +121,13 @@ final class HealthCheck
     /** @return int 0 when every service was handled or this hour was already checked; 1 when the snapshot or any service failed */
     public function run(DateTimeImmutable $now): int
     {
+        // Nothing is read, sent or stored on a day outside summary_days. The first allowed run compares with the last stored copy, so a change made on a weekend is sent then.
+        if ($this->summary !== null && !$this->summary->allowsDay($now)) {
+            $this->log->info('health: day not allowed, nothing sent');
+
+            return 0;
+        }
+
         try {
             // Taken for the hour and never released: an overlapping or repeated run in the same hour finds it and stops.
             if (!$this->state->acquire(Keys::lock($this->service, 'health:' . $now->format('Y-m-d\TH')), bin2hex(random_bytes(8)), self::LOCK_TTL)) {

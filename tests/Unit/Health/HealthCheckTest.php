@@ -202,17 +202,6 @@ final class HealthCheckTest extends TestCase
         self::assertStringContainsString('orders · 1.2.0 · UP · checked 2026-10-29T10:00:00+00:00', $this->notifier->sent[0]);
     }
 
-    public function testHourlySummaryIsSentEveryHour(): void
-    {
-        $this->publish('1.2.0');
-
-        $this->runAt('2026-10-29T09:00:00Z', summary: self::everyHour());
-        $this->runAt('2026-10-29T10:00:00Z', summary: self::everyHour());
-        $this->runAt('2026-10-29T10:30:00Z', summary: self::everyHour());
-
-        self::assertCount(2, $this->notifier->sent, 'one per hour: the lock stops the repeat in the same hour');
-    }
-
     public function testSummaryIsNotSentWhenTheHourDoesNotMatch(): void
     {
         $this->publish('1.2.0');
@@ -229,6 +218,24 @@ final class HealthCheckTest extends TestCase
         $this->runAt('2026-10-29T09:00:00Z', summary: null);
 
         self::assertSame([], $this->notifier->sent);
+    }
+
+    public function testNothingIsSentOnTheWeekendAndTheChangeWaitsForMonday(): void
+    {
+        $weekdays = new SummarySchedule(new \DateTimeZone('UTC'), hour: 9, days: [1, 2, 3, 4, 5]);
+        $this->publish('1.2.0');
+        $this->runAt('2026-10-30T09:00:00Z', summary: $weekdays);
+        self::assertCount(1, $this->notifier->sent, 'Friday: the summary only');
+
+        $this->publish('1.3.0');
+        self::assertSame(0, $this->runAt('2026-10-31T09:00:00Z', summary: $weekdays), 'Saturday, summary hour');
+        self::assertSame(0, $this->runAt('2026-11-01T10:00:00Z', summary: $weekdays), 'Sunday');
+        self::assertCount(1, $this->notifier->sent, 'nothing sent at the weekend');
+
+        $this->runAt('2026-11-02T00:30:00Z', summary: $weekdays);
+
+        self::assertCount(2, $this->notifier->sent, 'the change is sent on the first allowed day');
+        self::assertStringContainsString('VERSION CHANGED', $this->notifier->sent[1]);
     }
 
     public function testSummaryIsSentOncePerHour(): void
@@ -282,11 +289,6 @@ final class HealthCheckTest extends TestCase
     private static function at(int $hour): SummarySchedule
     {
         return new SummarySchedule(new \DateTimeZone('UTC'), hour: $hour);
-    }
-
-    private static function everyHour(): SummarySchedule
-    {
-        return new SummarySchedule(new \DateTimeZone('UTC'), every: 1);
     }
 
     private function runAt(string $at, ?SummarySchedule $summary = null): int

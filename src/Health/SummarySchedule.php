@@ -9,8 +9,8 @@ use DateTimeZone;
 use Watcher\Config\InvalidConfig;
 
 /**
- * When the health summary is due, judged on the hour in the watcher's timezone: inside the working hours of a working day,
- * and either at one fixed hour (summary_at) or every N hours counted from the start of the window (summary_every_hours).
+ * When health messages may be sent, judged in the health check's timezone. allowsDay() gates every health message
+ * (alerts and summary) to summary_days. due() is the summary only: summary_at inside summary_hours.
  */
 final class SummarySchedule
 {
@@ -20,7 +20,6 @@ final class SummarySchedule
     public function __construct(
         private readonly DateTimeZone $zone,
         private readonly ?int $hour = null,
-        private readonly ?int $every = null,
         private readonly int $from = 0,
         private readonly int $to = 24,
         private readonly array $days = [],
@@ -32,21 +31,15 @@ final class SummarySchedule
      *
      * @throws InvalidConfig
      */
-    public static function fromConfig(array $h, DateTimeZone $zone): ?self
+    public static function fromConfig(array $h, DateTimeZone $zone): self
     {
-        $every = $h['summary_every_hours'] ?? null;
-        if ($every !== null && (!is_int($every) || $every < 1 || $every > 24)) {
-            throw new InvalidConfig('health_check.summary_every_hours must be 1..24 or null');
+        // Released in 0.13.0; ignoring it would quietly turn an hourly summary into a daily one.
+        if (array_key_exists('summary_every_hours', $h)) {
+            throw new InvalidConfig('health_check.summary_every_hours was removed in 0.13.1; use summary_at and summary_hours');
         }
-        if ($every !== null && array_key_exists('summary_at', $h)) {
-            throw new InvalidConfig('health_check.summary_every_hours and health_check.summary_at cannot both be set');
-        }
-        $at = array_key_exists('summary_at', $h) ? $h['summary_at'] : ($every === null ? '09:00' : null);
+        $at = array_key_exists('summary_at', $h) ? $h['summary_at'] : '09:00';
         if ($at !== null && (!is_string($at) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $at) !== 1)) {
             throw new InvalidConfig('health_check.summary_at must be HH:MM or null');
-        }
-        if ($at === null && $every === null) {
-            return null;
         }
 
         $hours = array_key_exists('summary_hours', $h) ? $h['summary_hours'] : '09-18';
@@ -59,24 +52,26 @@ final class SummarySchedule
             [$from, $to] = [(int) $m[1], (int) $m[2]];
         }
 
-        $days = $h['summary_days'] ?? ['mon', 'tue', 'wed', 'thu', 'fri'];
-        if (array_key_exists('summary_days', $h) && $h['summary_days'] === null) {
-            $days = [];
-        } elseif (!is_array($days) || $days === [] || array_diff($days, array_keys(self::DAYS)) !== []) {
+        $days = array_key_exists('summary_days', $h) ? $h['summary_days'] : ['mon', 'tue', 'wed', 'thu', 'fri'];
+        if ($days !== null && (!is_array($days) || $days === [] || array_diff($days, array_keys(self::DAYS)) !== [])) {
             throw new InvalidConfig('health_check.summary_days must be a list of mon..sun or null');
         }
 
-        return new self($zone, $at === null ? null : (int) substr($at, 0, 2), $every, $from, $to, array_values(array_map(static fn (string $d): int => self::DAYS[$d], $days)));
+        return new self($zone, $at === null ? null : (int) substr($at, 0, 2), $from, $to, array_values(array_map(static fn (string $d): int => self::DAYS[$d], $days ?? [])));
     }
 
+    /** Health messages go out only on these days; an empty list means every day. */
+    public function allowsDay(DateTimeImmutable $now): bool
+    {
+        return $this->days === [] || in_array((int) $now->setTimezone($this->zone)->format('N'), $this->days, true);
+    }
+
+    /** The summary is due in its hour, inside the working hours, on an allowed day. Never when summary_at is null. */
     public function due(DateTimeImmutable $now): bool
     {
         $local = $now->setTimezone($this->zone);
         $hour = (int) $local->format('G');
-        if ($hour < $this->from || $hour >= $this->to || ($this->days !== [] && !in_array((int) $local->format('N'), $this->days, true))) {
-            return false;
-        }
 
-        return $this->every !== null ? ($hour - $this->from) % $this->every === 0 : $hour === $this->hour;
+        return $this->hour !== null && $hour === $this->hour && $hour >= $this->from && $hour < $this->to && $this->allowsDay($now);
     }
 }
