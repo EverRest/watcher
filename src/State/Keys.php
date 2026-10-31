@@ -36,6 +36,7 @@ final class Keys
     public const PROBE = 'probe';
     public const PROBE_DUE = 'probedue';
     public const HEALTH = 'health';
+    public const HEALTH_BROKEN = 'healthbroken';
     public const ALERT = 'alert';
 
     private const NOTICE_TTL = 172800;
@@ -99,6 +100,12 @@ final class Keys
     public static function healthcheck(string $watcherService, string $service): string
     {
         return self::join(self::HEALTH, $watcherService, $service);
+    }
+
+    /** Whether the health check itself is broken and when that was last announced; one per watcher service. */
+    public static function healthBroken(string $watcherService): string
+    {
+        return self::join(self::HEALTH_BROKEN, $watcherService);
     }
 
     public static function run(string $service, string $windowEnd): string

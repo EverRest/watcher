@@ -132,6 +132,27 @@ final class NoticeRendererTest extends TestCase
         self::assertSame($m->text, $m->sections[0]['text']);
     }
 
+    public function testHealthBrokenRecoveredAndProblemsNotices(): void
+    {
+        $r = new NoticeRenderer();
+
+        self::assertSame('⚠️ HEALTH CHECK BROKEN svc · stg — health snapshot is missing', $r->healthBroken('svc', 'stg', 'health snapshot is missing', false)->text);
+        self::assertStringContainsString('still broken', $r->healthBroken('svc', 'stg', 'x', true)->text);
+        self::assertSame('✅ HEALTH CHECK RECOVERED svc · stg', $r->healthRecovered('svc', 'stg')->text);
+
+        $m = $r->healthProblems('svc', 'stg', [['name' => 'crm', 'version' => '2.0', 'success' => true, 'checked_at' => 'T', 'stale' => true]]);
+        self::assertStringStartsWith('⚠️ HEALTH PROBLEMS svc · stg', $m->text);
+        self::assertStringContainsString("\ncrm · 2.0 · STALE · checked T", $m->text);
+    }
+
+    public function testBrokenReasonIsMasked(): void
+    {
+        $text = (new NoticeRenderer(['hunter2-secret-value']))->healthBroken('svc', 'stg', 'failed password=abc hunter2-secret-value', false)->text;
+
+        self::assertStringNotContainsString('hunter2-secret-value', $text);
+        self::assertStringNotContainsString('abc', $text);
+    }
+
     public function testDescribeIsTheClassNameAndAMaskedMessage(): void
     {
         $r = new NoticeRenderer(['hunter2-secret-value']);

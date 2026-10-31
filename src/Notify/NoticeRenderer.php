@@ -94,13 +94,45 @@ final class NoticeRenderer
      * Daily list of every service in the host snapshot, whether or not anything changed. Names and times are escaped, versions
      * go through reason() like any host text.
      *
-     * @param list<array{name: string, version: ?string, success: bool, checked_at: string}> $services
+     * @param list<array{name: string, version: ?string, success: bool, checked_at: string, stale?: bool}> $services
      */
     public function healthSummary(string $service, string $environment, array $services): Message
     {
-        $lines = [sprintf('📋 HEALTH SUMMARY %s · %s', SlackText::escape($service), SlackText::escape($environment))];
+        return $this->healthList('📋 HEALTH SUMMARY', $service, $environment, $services);
+    }
+
+    /**
+     * Hourly list of only the services that are down or stale. Same line shape as the summary.
+     *
+     * @param list<array{name: string, version: ?string, success: bool, checked_at: string, stale?: bool}> $services
+     */
+    public function healthProblems(string $service, string $environment, array $services): Message
+    {
+        return $this->healthList('⚠️ HEALTH PROBLEMS', $service, $environment, $services);
+    }
+
+    /** The health check itself cannot tell anything: no snapshot, no Redis, or nothing valid in it. $again marks a daily reminder. */
+    public function healthBroken(string $service, string $environment, string $reason, bool $again): Message
+    {
+        $text = sprintf('⚠️ HEALTH CHECK BROKEN %s · %s — %s%s', SlackText::escape($service), SlackText::escape($environment), $again ? 'still broken: ' : '', $this->reason($reason));
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    public function healthRecovered(string $service, string $environment): Message
+    {
+        $text = sprintf('✅ HEALTH CHECK RECOVERED %s · %s', SlackText::escape($service), SlackText::escape($environment));
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
+    /** @param list<array{name: string, version: ?string, success: bool, checked_at: string, stale?: bool}> $services */
+    private function healthList(string $title, string $service, string $environment, array $services): Message
+    {
+        $lines = [sprintf('%s %s · %s', $title, SlackText::escape($service), SlackText::escape($environment))];
         foreach ($services as $s) {
-            $lines[] = sprintf('%s · %s · %s · checked %s', SlackText::escape($s['name']), $s['version'] === null ? 'unknown' : $this->reason($s['version']), $s['success'] ? 'UP' : 'DOWN', SlackText::escape($s['checked_at']));
+            $status = ($s['stale'] ?? false) ? 'STALE' : ($s['success'] ? 'UP' : 'DOWN');
+            $lines[] = sprintf('%s · %s · %s · checked %s', SlackText::escape($s['name']), $s['version'] === null ? 'unknown' : $this->reason($s['version']), $status, SlackText::escape($s['checked_at']));
         }
         $text = implode("\n", $lines);
 

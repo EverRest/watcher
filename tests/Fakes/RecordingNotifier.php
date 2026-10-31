@@ -20,10 +20,18 @@ final class RecordingNotifier implements Notifier
     /** When set, sends fail from this 1-based call on; earlier ones are delivered. */
     public ?int $failFrom = null;
 
+    /** The next this many sends fail, then sends work again. */
+    public int $failFirst = 0;
+
     private int $calls = 0;
 
     public function send(Message $message, Destination $to): void
     {
+        if ($this->failFirst > 0) {
+            --$this->failFirst;
+
+            throw new DeliveryFailed('send refused');
+        }
         if ($this->fail || ($this->failFrom !== null && ++$this->calls >= $this->failFrom)) {
             throw new DeliveryFailed('send refused');
         }

@@ -66,6 +66,14 @@ final class SummarySchedule
         return $this->days === [] || in_array((int) $now->setTimezone($this->zone)->format('N'), $this->days, true);
     }
 
+    /** The working hours of an allowed day: where the hourly problem list may go out. */
+    public function inWindow(DateTimeImmutable $now): bool
+    {
+        $hour = (int) $now->setTimezone($this->zone)->format('G');
+
+        return $hour >= $this->from && $hour < $this->to && $this->allowsDay($now);
+    }
+
     /** The summary is due in its hour, inside the working hours, on an allowed day. Never when summary_at is null. */
     public function due(DateTimeImmutable $now): bool
     {

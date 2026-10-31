@@ -13,6 +13,8 @@ use Watcher\Notify\Destination;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Schedule\SystemClock;
 use Watcher\State\Keys;
+use Watcher\State\StateStore;
+use Watcher\Tests\Fakes\FailingStateStore;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 use Watcher\Tests\Fakes\RecordingNotifier;
 use Watcher\Tests\Fakes\SnapshotRedis;
@@ -126,8 +128,9 @@ final class HealthCheckTest extends TestCase
         $this->source->fail = true;
 
         self::assertSame(1, $this->runAt('2026-10-29T10:00:00Z'));
-        self::assertSame([], $this->notifier->sent);
-        self::assertSame([], $this->state->ttls);
+        self::assertCount(1, $this->notifier->sent, 'one notice that the check is broken, nothing about services');
+        self::assertStringContainsString('HEALTH CHECK BROKEN', $this->notifier->sent[0]);
+        self::assertSame([], array_filter(array_keys($this->state->ttls), static fn (string $k): bool => str_starts_with($k, 'health:')), 'no service copy is stored');
     }
 
     public function testMissingSnapshotReturnsOne(): void
@@ -286,6 +289,230 @@ final class HealthCheckTest extends TestCase
         self::assertSame('health: summary not sent', array_values(array_filter($log->records, static fn (array $r): bool => $r[0] === 'error'))[0][1] ?? null);
     }
 
+    public function testABrokenCheckIsAnnouncedOnceThenRemindedDailyAndRecoveryIsAnnounced(): void
+    {
+        self::assertSame(1, $this->runAt('2026-10-29T10:00:00Z'), 'the snapshot is missing');
+        self::assertCount(1, $this->notifier->sent);
+        self::assertStringStartsWith('⚠️ HEALTH CHECK BROKEN', $this->notifier->sent[0]);
+        self::assertStringContainsString('health snapshot is missing', $this->notifier->sent[0]);
+
+        $this->runAt('2026-10-29T11:00:00Z');
+        $this->runAt('2026-10-30T09:00:00Z');
+        self::assertCount(1, $this->notifier->sent, 'not again within 24 hours');
+
+        $this->runAt('2026-10-30T10:00:00Z');
+        self::assertCount(2, $this->notifier->sent, 'a daily reminder');
+        self::assertStringContainsString('still', $this->notifier->sent[1]);
+
+        $this->publish('1.2.0');
+        self::assertSame(0, $this->runAt('2026-10-30T11:00:00Z'));
+        self::assertCount(3, $this->notifier->sent);
+        self::assertStringStartsWith('✅ HEALTH CHECK RECOVERED', $this->notifier->sent[2]);
+
+        $this->runAt('2026-10-30T12:00:00Z');
+        self::assertCount(3, $this->notifier->sent, 'recovery is announced once');
+    }
+
+    public function testAnEmptySnapshotIsABrokenCheck(): void
+    {
+        $this->source->value = '{}';
+
+        self::assertSame(1, $this->runAt('2026-10-29T10:00:00Z'));
+
+        self::assertCount(1, $this->notifier->sent);
+        self::assertStringContainsString('no valid service entry', $this->notifier->sent[0]);
+    }
+
+    public function testASnapshotOfOnlyMalformedEntriesIsABrokenCheck(): void
+    {
+        $this->source->value = json_encode(['broken' => ['version' => '1.0.0']], JSON_THROW_ON_ERROR);
+
+        self::assertSame(1, $this->runAt('2026-10-29T10:00:00Z'));
+
+        self::assertStringContainsString('HEALTH CHECK BROKEN', $this->notifier->sent[0]);
+    }
+
+    public function testABrokenNoticeThatFailsToSendIsRetriedNextHour(): void
+    {
+        $this->notifier->fail = true;
+        self::assertSame(1, $this->runAt('2026-10-29T10:00:00Z'));
+        self::assertSame([], $this->notifier->sent);
+
+        $this->notifier->fail = false;
+        $this->runAt('2026-10-29T11:00:00Z');
+
+        self::assertCount(1, $this->notifier->sent);
+    }
+
+    public function testAStaleServiceIsShownAsStaleInTheSummary(): void
+    {
+        $this->publish('1.2.0', checkedAt: '2026-10-29T05:00:00+00:00');
+
+        $this->check(summary: self::at(9), staleAfterHours: 3)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+
+        self::assertStringContainsString('orders · 1.2.0 · STALE · checked 2026-10-29T05:00:00+00:00', $this->notifier->sent[0]);
+    }
+
+    public function testAFreshServiceIsNotStaleAndNullDisablesTheCheck(): void
+    {
+        $this->publish('1.2.0', checkedAt: '2026-10-29T08:00:00+00:00');
+        $this->check(summary: self::at(9), staleAfterHours: 3)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+        self::assertStringContainsString('orders · 1.2.0 · UP', $this->notifier->sent[0]);
+
+        $this->publish('1.2.0', checkedAt: '2026-10-20T08:00:00+00:00');
+        $this->check(service: 'other', summary: self::at(9), staleAfterHours: null)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+        self::assertStringContainsString('orders · 1.2.0 · UP', $this->notifier->sent[1]);
+    }
+
+    public function testAnUnreadableCheckedAtCountsAsStale(): void
+    {
+        $this->publish('1.2.0', checkedAt: 'yesterday-ish');
+
+        $this->check(summary: self::at(9), staleAfterHours: 3)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+
+        self::assertStringContainsString('· STALE ·', $this->notifier->sent[0]);
+    }
+
+    public function testEveryHourInsideTheWindowListsOnlyTheProblemServices(): void
+    {
+        $this->publish('1.2.0', success: false, checkedAt: '2026-10-29T11:30:00+00:00');
+
+        $this->check(summary: self::workHours(), problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T12:00:00Z'));
+        $this->check(summary: self::workHours(), problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T13:00:00Z'));
+
+        self::assertCount(2, $this->notifier->sent, 'again every hour while the problem lasts');
+        self::assertStringStartsWith('⚠️ HEALTH PROBLEMS', $this->notifier->sent[0]);
+        self::assertStringContainsString('orders · 1.2.0 · DOWN', $this->notifier->sent[0]);
+    }
+
+    public function testAStaleServiceIsAProblem(): void
+    {
+        $this->publish('1.2.0', checkedAt: '2026-10-29T06:00:00+00:00');
+
+        $this->check(summary: self::workHours(), staleAfterHours: 3, problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T12:00:00Z'));
+
+        self::assertStringContainsString('orders · 1.2.0 · STALE', $this->notifier->sent[0]);
+    }
+
+    public function testNothingIsSentWhenEveryServiceIsUp(): void
+    {
+        $this->publish('1.2.0', checkedAt: '2026-10-29T11:30:00+00:00');
+
+        $this->check(summary: self::workHours(), staleAfterHours: 3, problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T12:00:00Z'));
+
+        self::assertSame([], $this->notifier->sent);
+    }
+
+    public function testProblemsAreNotListedOutsideTheWorkingHoursOrWhenSwitchedOff(): void
+    {
+        $this->publish('1.2.0', success: false, checkedAt: '2026-10-29T19:30:00+00:00');
+
+        $this->check(summary: self::workHours(), problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T20:00:00Z'));
+        $this->check(service: 'other', summary: self::workHours(), problemsHourly: false)->run(new DateTimeImmutable('2026-10-29T12:00:00Z'));
+
+        self::assertSame([], $this->notifier->sent);
+    }
+
+    public function testInTheSummaryHourOnlyTheFullSummaryIsSent(): void
+    {
+        $this->publish('1.2.0', success: false, checkedAt: '2026-10-29T08:30:00+00:00');
+
+        $this->check(summary: self::workHours(), problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+
+        self::assertCount(1, $this->notifier->sent);
+        self::assertStringContainsString('HEALTH SUMMARY', $this->notifier->sent[0]);
+    }
+
+    public function testABreakSoonAfterARecoveryIsAnnouncedAgain(): void
+    {
+        $this->runAt('2026-10-29T10:00:00Z');
+        $this->publish('1.2.0');
+        $this->runAt('2026-10-29T11:00:00Z');
+        self::assertCount(2, $this->notifier->sent, 'broken, then recovered');
+
+        $this->source->value = null;
+        $this->runAt('2026-10-29T12:00:00Z');
+
+        self::assertCount(3, $this->notifier->sent);
+        self::assertStringStartsWith('⚠️ HEALTH CHECK BROKEN', $this->notifier->sent[2]);
+        self::assertStringNotContainsString('still', $this->notifier->sent[2], 'a new break, not a reminder');
+    }
+
+    /** @dataProvider unreadableCheckedAt */
+    public function testACheckedAtThatIsNotAnIsoTimestampOrIsInTheFarFutureIsStale(string $checkedAt): void
+    {
+        $this->publish('1.2.0', checkedAt: $checkedAt);
+
+        $this->check(summary: self::at(9), staleAfterHours: 3)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+
+        self::assertStringContainsString('· STALE ·', $this->notifier->sent[0]);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unreadableCheckedAt(): iterable
+    {
+        yield 'now' => ['now'];
+        yield 'tomorrow' => ['tomorrow'];
+        yield 'relative' => ['+1 day'];
+        yield 'two hours ahead' => ['2026-10-29T11:00:00+00:00'];
+    }
+
+    public function testAClockSkewOfAFewMinutesAndFractionalSecondsAreNotStale(): void
+    {
+        $this->publish('1.2.0', checkedAt: '2026-10-29T09:05:00.250Z');
+
+        $this->check(summary: self::at(9), staleAfterHours: 3)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+
+        self::assertStringContainsString('· UP ·', $this->notifier->sent[0]);
+    }
+
+    public function testAServiceThatJustWentDownIsNotListedAgainInTheSameHour(): void
+    {
+        $this->publish('1.2.0', checkedAt: '2026-10-29T11:30:00+00:00');
+        $this->check(transitions: true, summary: self::workHours(), problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T11:00:00Z'));
+        $this->publish('1.2.0', success: false, checkedAt: '2026-10-29T12:30:00+00:00');
+
+        $this->check(transitions: true, summary: self::workHours(), problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T12:45:00Z'));
+        self::assertCount(1, $this->notifier->sent, 'only the DOWN alert');
+        self::assertStringStartsWith('🔴 DOWN', $this->notifier->sent[0]);
+
+        $this->check(transitions: true, summary: self::workHours(), problemsHourly: true)->run(new DateTimeImmutable('2026-10-29T13:45:00Z'));
+        self::assertCount(2, $this->notifier->sent, 'still down an hour later: now it is listed');
+        self::assertStringStartsWith('⚠️ HEALTH PROBLEMS', $this->notifier->sent[1]);
+    }
+
+    public function testWhenEveryServiceFailsToBeProcessedTheNoticeDoesNotBlameTheSnapshot(): void
+    {
+        $this->publish('1.2.0');
+        $this->runAt('2026-10-29T10:00:00Z');
+        $this->publish('1.3.0');
+        $this->notifier->failFirst = 1; // the version alert fails, so the only service is not handled
+
+        self::assertSame(1, $this->runAt('2026-10-29T11:00:00Z'));
+
+        self::assertCount(1, $this->notifier->sent);
+        self::assertStringContainsString('HEALTH CHECK BROKEN', $this->notifier->sent[0]);
+        self::assertStringContainsString('no service could be processed', $this->notifier->sent[0]);
+        self::assertStringNotContainsString('no valid service entry', $this->notifier->sent[0]);
+    }
+
+    public function testABrokenNoticeIsNotSentWhenItsMarkerCannotBeStored(): void
+    {
+        $log = new SpyLogger();
+        $state = new FailingStateStore($this->state);
+        $state->failOn('put');
+
+        self::assertSame(1, $this->check(log: $log, state: $state)->run(new DateTimeImmutable('2026-10-29T10:00:00Z')));
+
+        self::assertSame([], $this->notifier->sent, 'otherwise it would repeat every hour');
+        self::assertContains('health: broken notice not sent', array_column($log->records, 1));
+    }
+
+    private static function workHours(): SummarySchedule
+    {
+        return new SummarySchedule(new \DateTimeZone('UTC'), hour: 9, from: 9, to: 18);
+    }
+
     private static function at(int $hour): SummarySchedule
     {
         return new SummarySchedule(new \DateTimeZone('UTC'), hour: $hour);
@@ -297,19 +524,19 @@ final class HealthCheckTest extends TestCase
     }
 
     /** Publishes the host snapshot for the next run: one service, `orders`. */
-    private function publish(?string $version, bool $success = true): void
+    private function publish(?string $version, bool $success = true, string $checkedAt = '2026-10-29T10:00:00+00:00'): void
     {
         $this->source->value = json_encode([
-            self::KEY => ['success' => $success, 'version' => $version, 'checked_at' => '2026-10-29T10:00:00+00:00'],
+            self::KEY => ['success' => $success, 'version' => $version, 'checked_at' => $checkedAt],
         ], JSON_THROW_ON_ERROR);
     }
 
-    private function check(bool $transitions = false, string $service = 'watcher', ?SummarySchedule $summary = null, ?SpyLogger $log = null): HealthCheck
+    private function check(bool $transitions = false, string $service = 'watcher', ?SummarySchedule $summary = null, ?SpyLogger $log = null, ?int $staleAfterHours = null, bool $problemsHourly = false, ?StateStore $state = null): HealthCheck
     {
         return new HealthCheck(
             source: $this->source,
             sourceKey: 'm-seq:health',
-            state: $this->state,
+            state: $state ?? $this->state,
             notifier: $this->notifier,
             to: Destination::none(),
             renderer: new NoticeRenderer(),
@@ -319,6 +546,8 @@ final class HealthCheckTest extends TestCase
             ttlSeconds: self::TTL,
             notifyTransitions: $transitions,
             summary: $summary,
+            staleAfterHours: $staleAfterHours,
+            problemsHourly: $problemsHourly,
         );
     }
 }
