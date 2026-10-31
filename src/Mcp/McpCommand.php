@@ -164,9 +164,12 @@ final class McpCommand
         }
         $root = dirname(__DIR__, 2);
         // F1: the configured file itself is the only PHP file a client may name; its directory's other files are not approved
-        // Actions run the artisan commands of this deployment: the same binary, the working directory's artisan (the pod's app).
+        // Actions run the artisan commands of this deployment, with the artisan path the settings name (never the working directory).
+        if (in_array('actions', $settings->groups, true) && $c->enabled && $settings->artisan === null) {
+            throw new InvalidConfig('mcp.artisan (or WATCHER_MCP_ARTISAN) is required when mcp.groups includes actions');
+        }
         $actions = in_array('actions', $settings->groups, true) && $c->enabled
-            ? WatcherActions::tools(new ArtisanCommand(PHP_BINARY, getcwd() . '/artisan'), static function (string $tool, array $data) use ($err): void {
+            ? WatcherActions::tools(new ArtisanCommand(PHP_BINARY, (string) $settings->artisan), static function (string $tool, array $data) use ($err): void {
                 fwrite($err, 'watcher [audit] ' . $tool . ' exit=' . (string) ($data['exit'] ?? '?') . "\n");
             }, static fn (): int => $clock->now()->getTimestamp())
             : [];

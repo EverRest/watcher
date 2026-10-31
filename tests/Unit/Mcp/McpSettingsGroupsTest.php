@@ -27,4 +27,15 @@ final class McpSettingsGroupsTest extends TestCase
 
         McpSettings::fromArray(['groups' => ['writes']]);
     }
+
+    public function testTheArtisanPathIsAnAbsolutePathOrNull(): void
+    {
+        self::assertSame('/var/www/html/artisan', McpSettings::fromArray(['artisan' => '/var/www/html/artisan'])->artisan);
+        self::assertNull(McpSettings::fromArray([])->artisan);
+
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('mcp.artisan must be an absolute path');
+
+        McpSettings::fromArray(['artisan' => 'artisan']);
+    }
 }

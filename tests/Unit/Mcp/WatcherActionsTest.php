@@ -34,10 +34,18 @@ final class WatcherActionsTest extends TestCase
 
     public function testNowAndOnlyBecomeFlags(): void
     {
-        [, $flags] = WatcherActions::invocation('watcher_run_digest', ['now' => '2026-11-02T06:00:00Z', 'only' => 'm-seq,m-seq-schedule', 'dry_run' => false]);
+        [, $flags] = WatcherActions::invocation('watcher_run_digest', ['now' => '2026-11-02T06:00:00Z', 'only' => 'm-seq,m-seq-schedule']);
 
         self::assertContains('--now=2026-11-02T06:00:00Z', $flags);
         self::assertContains('--only=m-seq,m-seq-schedule', $flags);
+    }
+
+    public function testNowIsRefusedForARealRun(): void
+    {
+        $this->expectException(\Watcher\Mcp\ToolError::class);
+        $this->expectExceptionMessage('now_needs_dry_run');
+
+        WatcherActions::invocation('watcher_run_digest', ['now' => '2026-11-02T06:00:00Z', 'dry_run' => false]);
     }
 
     public function testOnlyIsIgnoredForASingleService(): void

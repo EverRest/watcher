@@ -6,8 +6,8 @@ namespace Watcher\Mcp;
 
 /**
  * Runs one `artisan` command in a child process with an argument list (no shell). The child's own output is not forwarded:
- * stdout is the MCP protocol channel, and a digest or log line may hold text. Only the exit code and a JSON last line (when
- * the command was given `--json`) come back.
+ * stdout is the MCP protocol channel, and a digest or log line may hold text. Only the exit code comes back, plus the JSON
+ * last line when the command was given `--json`.
  */
 final class ArtisanCommand
 {
@@ -52,10 +52,12 @@ final class ArtisanCommand
         $code = proc_close($proc);
 
         $out = ['exit' => $code];
-        $last = trim((string) strrchr(rtrim($stdout), "\n"));
-        $json = json_decode($last === '' ? rtrim($stdout) : $last, true);
-        if (is_array($json)) {
-            $out['json'] = $json;
+        if (in_array('--json', $flags, true)) {
+            $last = trim((string) strrchr(rtrim($stdout), "\n"));
+            $json = json_decode($last === '' ? rtrim($stdout) : $last, true);
+            if (is_array($json)) {
+                $out['json'] = $json;
+            }
         }
 
         return $out;

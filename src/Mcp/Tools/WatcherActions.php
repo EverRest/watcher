@@ -78,6 +78,10 @@ final class WatcherActions
         }
         $flags[] = '--json';
         if (is_string($args['now'] ?? null)) {
+            // A real run recorded at a chosen instant would move the state's window: `now` is for previews only.
+            if (($args['dry_run'] ?? true) !== true) {
+                throw new ToolError('now_needs_dry_run');
+            }
             $flags[] = '--now=' . $args['now'];
         }
         if ($fleet && is_string($args['only'] ?? null)) {

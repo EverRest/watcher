@@ -23,7 +23,7 @@ final class McpSettings
     public const DEFAULT_GROUPS = ['inspect', 'onboarding', 'docs'];
 
     /** @param list<string> $groups */
-    public function __construct(public readonly bool $allowDryRun, public readonly array $groups)
+    public function __construct(public readonly bool $allowDryRun, public readonly array $groups, public readonly ?string $artisan = null)
     {
     }
 
@@ -34,7 +34,7 @@ final class McpSettings
     public static function fromArray(array $section): self
     {
         foreach (array_keys($section) as $k) {
-            if (!in_array($k, ['allow_dry_run', 'groups'], true)) {
+            if (!in_array($k, ['allow_dry_run', 'groups', 'artisan'], true)) {
                 throw new InvalidConfig('Unknown configuration key: mcp.' . (is_string($k) ? $k : (string) $k));
             }
         }
@@ -47,6 +47,11 @@ final class McpSettings
             throw new InvalidConfig('mcp.groups must be a non-empty list of unique names from: ' . implode(', ', self::GROUPS));
         }
 
-        return new self($allow, array_map('strval', $groups));
+        $artisan = $section['artisan'] ?? Env::string('WATCHER_MCP_ARTISAN');
+        if ($artisan !== null && (!is_string($artisan) || $artisan === '' || !str_starts_with($artisan, '/'))) {
+            throw new InvalidConfig('mcp.artisan must be an absolute path to artisan');
+        }
+
+        return new self($allow, array_map('strval', $groups), $artisan);
     }
 }

@@ -72,7 +72,9 @@ The `actions` group runs the same artisan commands with parameters. It is off un
 - A dry run posts nothing and records nothing. It still calls the model, so it costs tokens.
 - A real run sends through `notify.days`: outside those days the digest is dropped, as it is for the schedule.
 - Each action runs at most once per 5 minutes per MCP session, and every run is logged as `watcher [audit] <tool> exit=<code>`.
-- The child process gets its arguments as a list, never through a shell. Only the exit code and the JSON line come back, not the digest text.
+- The child process gets its arguments as a list, never through a shell. Only the exit code comes back; the JSON line only when the command ran with `--json`.
+- `now` is for dry runs only. The artisan path comes from `mcp.artisan` (or `WATCHER_MCP_ARTISAN`), which is required with the `actions` group.
+- `confirm` is a flag the client sends, not a human approval. Anyone who can call the MCP tool can set it.
 
 The same commands on the console: `php artisan watcher:fleet --dry-run`, `php artisan watcher:health`,
 `php artisan watcher:check --post-test`.
