@@ -96,4 +96,16 @@ final class HealthCheckConfigTest extends TestCase
             }
         }
     }
+
+    public function testSummaryTimezoneMustBeAnIanaZone(): void
+    {
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('health_check.timezone must be an IANA zone name');
+
+        HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
+            'enabled' => true,
+            'source' => ['host' => 'ew-redis', 'key' => 'm-seq:health'],
+            'timezone' => 'CET+1',
+        ]]);
+    }
 }

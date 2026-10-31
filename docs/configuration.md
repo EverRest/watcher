@@ -119,6 +119,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `notify.digest.chat_id` | required for telegram | Integer or `@channel` name; a supergroup id is negative. |
 | `notify.digest.thread_id` | none | Telegram forum topic id (positive integer). Discord has no equivalent. |
 | `notify.notice` | null | Separate destination (same shape, any driver) for failures and baseline messages; null uses the digest destination. |
+| `notify.days` | `null` | Days (`mon`..`sun`, in `schedule.timezone`) on which the digest and immediate alerts are sent; `null` = every day. Outside them a message is dropped, not queued. Example for working days only: `['mon','tue','wed','thu','fri']`. The run still reads and analyses on those days. Failure notices, probes and the heartbeat are not affected. |
 
 A key of another driver (`webhook` on a Telegram entry) is an error that names the key path, never the value. In a fleet
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
@@ -221,12 +222,12 @@ included). A `null` or `Version not defined` version is unknown and never alerts
 | `health_check.source.key` | required | Full raw key of the snapshot, for example `m-seq:health`. No watcher prefix is added. |
 | `health_check.ttl_days` | `14` | 1..365. A stored copy lives this long; every hourly write refreshes it. |
 | `health_check.notify_transitions` | `false` | Also alert once when a service flips between up and down. Never on every failing hour. |
-| `health_check.summary_at` | `09:00` | `HH:MM` in `schedule.timezone` (UTC when not set), or `null` for no daily summary. Once a day a summary of every service (name, version, up/down, `checked_at`) is sent, even when nothing changed. Only the hour counts, because the check runs hourly. |
-| `health_check.summary_every_hours` | none | `1`..`24`. Send the summary every N hours instead of once a day, counted from the start of `summary_hours`. Cannot be set together with `summary_at`. |
+| `health_check.timezone` | `UTC` | IANA zone (for CET/CEST set `Europe/Berlin`) for `summary_at`, `summary_hours` and `summary_days`. Independent of `schedule.timezone`. |
+| `health_check.summary_at` | `09:00` | `HH:MM` in `health_check.timezone`, or `null` for no daily summary. Once a day a summary of every service (name, version, up/down, `checked_at`) is sent, even when nothing changed. Only the hour counts, because the check runs hourly. |
 | `health_check.summary_hours` | `09-18` | `HH-HH` working hours (start included, end excluded) the summary may be sent in; `null` = all day. |
-| `health_check.summary_days` | `['mon','tue','wed','thu','fri']` | Working days the summary may be sent on (`mon`..`sun`); `null` = every day. |
+| `health_check.summary_days` | `['mon','tue','wed','thu','fri']` | Days health messages may be sent on (`mon`..`sun`), both the summary and the version and up/down alerts. Outside these days nothing is sent or stored; a change made on a weekend is sent on the first allowed day. `null` = every day. |
 
-A failed summary send is logged (`health: summary not sent`) and does not change the exit code or the version alerts. Example, a summary every hour in working hours on working days: `'summary_every_hours' => 1`.
+A failed summary send is logged (`health: summary not sent`) and does not change the exit code or the version alerts.
 
 Alerts go through `notify.notice` (the digest destination when it is not set). A failed send keeps the old copy, so the next hour retries.
 A failed read or send exits this command with 1 and writes to the host log; the daily run and the digest are not affected.
