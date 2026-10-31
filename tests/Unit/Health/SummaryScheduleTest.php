@@ -83,6 +83,7 @@ final class SummaryScheduleTest extends TestCase
     /** @return iterable<string, array{array<string, mixed>, string}> */
     public static function bad(): iterable
     {
+        yield 'removed key' => [['summary_every_hours' => 1], 'summary_every_hours was removed in 0.13.1'];
         yield 'bad time' => [['summary_at' => '9:00'], 'summary_at must be HH:MM'];
         yield 'reversed hours' => [['summary_hours' => '18-09'], 'summary_hours must be HH-HH'];
         yield 'hours past 24' => [['summary_hours' => '09-25'], 'summary_hours must be HH-HH'];

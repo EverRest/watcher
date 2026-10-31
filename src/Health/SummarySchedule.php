@@ -33,6 +33,10 @@ final class SummarySchedule
      */
     public static function fromConfig(array $h, DateTimeZone $zone): self
     {
+        // Released in 0.13.0; ignoring it would quietly turn an hourly summary into a daily one.
+        if (array_key_exists('summary_every_hours', $h)) {
+            throw new InvalidConfig('health_check.summary_every_hours was removed in 0.13.1; use summary_at and summary_hours');
+        }
         $at = array_key_exists('summary_at', $h) ? $h['summary_at'] : '09:00';
         if ($at !== null && (!is_string($at) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $at) !== 1)) {
             throw new InvalidConfig('health_check.summary_at must be HH:MM or null');

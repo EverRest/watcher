@@ -125,6 +125,9 @@ final class Watcher
 
     private readonly Notifier $notifier;
 
+    /** The notifier for the digest and immediate alerts only: it drops them outside notify.days. Notices and probes use $notifier. */
+    private readonly Notifier $dayGated;
+
     /** The unwrapped store: a dry run reads the real "already done" record through it. */
     private readonly StateStore $realState;
 
@@ -205,6 +208,7 @@ final class Watcher
             $notifier = $this->observer = new ObservingNotifier($notifier);
         }
         $this->notifier = $notifier;
+        $this->dayGated = $this->options->dryRun ? $notifier : DayGate::wrap($notifier, $config->notify['days'], new \DateTimeZone($config->schedule['timezone'] ?? 'UTC'), $this->clock, $hostLog);
         $publisher = $sinks === null ? null : new RunPublisher($sinks, $config->observe, $this->clock, $this->options->dryRun ? null : $counters, $hostLog);
         $heartbeat = $this->options->dryRun || !$config->on('heartbeat') ? null : Factory::heartbeat($config, $state, $this->clock, $hostLog);
         $this->ledger = new RunLedger(config: $config, state: $state, clock: $this->clock, heartbeat: $heartbeat, notifier: $notifier, hostLog: $hostLog, publisher: $publisher, topGroups: $config->observe->topGroups);
@@ -259,7 +263,7 @@ final class Watcher
             source: Factory::source($c, $http, $clock),
             state: $state,
             analyzer: Factory::analyzer($c),
-            notifier: DayGate::wrap(Factory::notifier($http, $c->schedule['lock_ttl']), $c->notify['days'], new \DateTimeZone($c->schedule['timezone'] ?? 'UTC'), $hostLog),
+            notifier: Factory::notifier($http, $c->schedule['lock_ttl']),
             clock: $clock,
             hostLog: $hostLog,
             options: $options,
@@ -777,7 +781,7 @@ final class Watcher
         $groups = $collector->collect($window, $selector, $anomalies);
         // Sent during the read, not with the digest. A failure is logged to the host and never fails the run or the digest.
         $immediate?->deliver($this->state, $key, $c->alerts['window'], function (Message $m): void {
-            $this->notifier->send($m, $this->noticeDestination());
+            $this->dayGated->send($m, $this->noticeDestination());
         }, function (\Throwable $e) use ($service): void {
             $this->hostLog?->warning('immediate alert failed: ' . $this->notices()->describe($e), ['service' => $service]);
         });
@@ -962,7 +966,7 @@ final class Watcher
             $findings,
             $keys,
             $this->state,
-            $this->notifier,
+            $this->dayGated,
             $this->options,
             function (array $findings, ?string $routedNotice, int $draftsSkipped) use ($read, $analysis, $selection, $environment): Message {
                 return $this->buildDigest($read, $analysis, $selection, $environment, $findings, $routedNotice, $draftsSkipped);

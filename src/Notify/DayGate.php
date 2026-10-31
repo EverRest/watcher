@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace Watcher\Notify;
 
 use Closure;
-use DateTimeImmutable;
 use DateTimeZone;
+use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 
 /**
  * Sends only on the allowed days (notify.days, in the schedule timezone). Outside them the message is dropped and logged:
- * nothing is queued, so it is not sent on the next allowed day.
+ * nothing is queued, so it is not sent on the next allowed day. Wrap only the digest and the immediate alerts: failure
+ * notices, probes and the heartbeat must still go out on any day.
  */
 final class DayGate implements Notifier
 {
@@ -41,8 +42,8 @@ final class DayGate implements Notifier
     }
 
     /** @param list<string>|null $days null means every day: the notifier is returned unchanged. */
-    public static function wrap(Notifier $inner, ?array $days, DateTimeZone $zone, ?LoggerInterface $log = null): Notifier
+    public static function wrap(Notifier $inner, ?array $days, DateTimeZone $zone, ClockInterface $clock, ?LoggerInterface $log = null): Notifier
     {
-        return $days === null ? $inner : new self($inner, $days, $zone, static fn (): DateTimeImmutable => new DateTimeImmutable('now'), $log);
+        return $days === null ? $inner : new self($inner, $days, $zone, $clock->now(...), $log);
     }
 }
