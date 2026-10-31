@@ -49,6 +49,7 @@ use Watcher\Context\DeployInfo;
 use Watcher\Context\LogLinkBuilder;
 use Watcher\Context\TraceIdCollector;
 use Watcher\Context\TraceLinkBuilder;
+use Watcher\Notify\DayGate;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Notify\DeliveryProgress;
 use Watcher\Notify\Destination;
@@ -258,7 +259,7 @@ final class Watcher
             source: Factory::source($c, $http, $clock),
             state: $state,
             analyzer: Factory::analyzer($c),
-            notifier: Factory::notifier($http, $c->schedule['lock_ttl']),
+            notifier: DayGate::wrap(Factory::notifier($http, $c->schedule['lock_ttl']), $c->notify['days'], new \DateTimeZone($c->schedule['timezone'] ?? 'UTC'), $hostLog),
             clock: $clock,
             hostLog: $hostLog,
             options: $options,

@@ -119,6 +119,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `notify.digest.chat_id` | required for telegram | Integer or `@channel` name; a supergroup id is negative. |
 | `notify.digest.thread_id` | none | Telegram forum topic id (positive integer). Discord has no equivalent. |
 | `notify.notice` | null | Separate destination (same shape, any driver) for failures and baseline messages; null uses the digest destination. |
+| `notify.days` | `null` | Days (`mon`..`sun`, in `schedule.timezone`) on which the digest and immediate alerts are sent; `null` = every day. Outside them a message is dropped, not queued. Example for working days only: `['mon','tue','wed','thu','fri']`. The run still reads and analyses on those days. |
 
 A key of another driver (`webhook` on a Telegram entry) is an error that names the key path, never the value. In a fleet
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by

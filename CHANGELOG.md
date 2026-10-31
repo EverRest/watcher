@@ -8,6 +8,7 @@
 - **Behaviour change:** in 0.13.0 the summary followed `schedule.timezone`. A watcher whose `schedule.timezone` is not Europe/Berlin now sends it at a different hour. Set `health_check.timezone` to keep another zone.
 - Health messages, both the summary and version/up-down alerts, are sent only on `summary_days` (default `mon..fri`). Nothing is sent or stored on a weekend; a change made then is sent on the first allowed day.
 - Version-change alerts are not limited to working hours; only the summary uses `summary_hours`.
+- New `notify.days` (default `null`, every day): the digest and immediate alerts are sent only on the listed days, in `schedule.timezone`. Outside them a message is dropped, not queued. The run still reads and analyses those days.
 
 ## 0.13.0 — 2026-10-31 — Health summary in working hours, with a period
 

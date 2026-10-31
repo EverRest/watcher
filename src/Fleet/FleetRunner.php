@@ -13,6 +13,7 @@ use Throwable;
 use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
 use Watcher\Config\WatchConfig;
+use Watcher\Notify\DayGate;
 use Watcher\Notify\Destination;
 use Watcher\Notify\Message;
 use Watcher\Notify\NoticeRenderer;
@@ -70,7 +71,7 @@ final class FleetRunner
         $http = Factory::http();
         $first = $fleet->services[0]->config;
         $state = Factory::state($first, $clock, $log);
-        $notifier = Factory::notifier($http, $first->schedule['lock_ttl']);
+        $notifier = DayGate::wrap(Factory::notifier($http, $first->schedule['lock_ttl']), $first->notify['days'], new \DateTimeZone($first->schedule['timezone'] ?? 'UTC'), $log);
         $sources = [];
         $sinks = [];
         $counters = [];

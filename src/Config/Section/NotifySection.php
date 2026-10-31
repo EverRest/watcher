@@ -17,7 +17,11 @@ final class NotifySection
      */
     public static function notify(array $n): array
     {
-        SectionFields::only($n, ['digest', 'notice', 'routes', 'routes_enabled'], 'notify');
+        SectionFields::only($n, ['digest', 'notice', 'routes', 'routes_enabled', 'days'], 'notify');
+        $days = $n['days'] ?? null;
+        if ($days !== null && (!is_array($days) || $days === [] || array_diff($days, ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) !== [])) {
+            throw new InvalidConfig('notify.days must be a list of mon..sun or null');
+        }
         $digest = self::notifyEntry(self::withoutEnabled($n['digest'] ?? null), 'notify.digest');
         $notice = $n['notice'] ?? null;
         $notice = self::withoutEnabled($notice);
@@ -31,7 +35,7 @@ final class NotifySection
             throw new InvalidConfig('notify.routes_enabled must be true or false');
         }
 
-        return ['digest' => $digest, 'notice' => $notice, 'routes' => $routes, 'routes_enabled' => $routesEnabled];
+        return ['digest' => $digest, 'notice' => $notice, 'routes' => $routes, 'routes_enabled' => $routesEnabled, 'days' => $days === null ? null : array_values($days)];
     }
 
     public static function withoutEnabled(mixed $entry): mixed
