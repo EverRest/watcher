@@ -56,9 +56,10 @@ final class ActionTool implements Tool
         return $this->inputSchema;
     }
 
+    /** The actions send to chat or webhook destinations and read the state store: open world. */
     public function openWorld(): bool
     {
-        return false;
+        return true;
     }
 
     public function call(array $args): array

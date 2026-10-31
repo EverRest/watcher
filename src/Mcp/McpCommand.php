@@ -165,8 +165,8 @@ final class McpCommand
         $root = dirname(__DIR__, 2);
         // F1: the configured file itself is the only PHP file a client may name; its directory's other files are not approved
         // Actions run the artisan commands of this deployment, with the artisan path the settings name (never the working directory).
-        if (in_array('actions', $settings->groups, true) && $c->enabled && $settings->artisan === null) {
-            throw new InvalidConfig('mcp.artisan (or WATCHER_MCP_ARTISAN) is required when mcp.groups includes actions');
+        if (in_array('actions', $settings->groups, true) && $c->enabled && ($settings->artisan === null || !is_file($settings->artisan))) {
+            throw new InvalidConfig('mcp.artisan (or WATCHER_MCP_ARTISAN) must name an existing artisan file when mcp.groups includes actions');
         }
         $actions = in_array('actions', $settings->groups, true) && $c->enabled
             ? WatcherActions::tools(new ArtisanCommand(PHP_BINARY, (string) $settings->artisan), static function (string $tool, array $data) use ($err): void {

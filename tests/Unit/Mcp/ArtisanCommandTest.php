@@ -22,6 +22,7 @@ final class ArtisanCommandTest extends TestCase
     protected function tearDown(): void
     {
         @unlink($this->dir . '/artisan');
+        @unlink($this->dir . '/slow');
         @rmdir($this->dir);
     }
 
@@ -39,5 +40,14 @@ final class ArtisanCommandTest extends TestCase
         $r = (new ArtisanCommand(PHP_BINARY, $this->dir . '/artisan'))->run('watcher:health', ['3']);
 
         self::assertSame(3, $r['exit']);
+    }
+
+    public function testATimedOutChildIsStoppedAndReportedAsTimeout(): void
+    {
+        file_put_contents($this->dir . '/slow', "<?php\nsleep(10);\n");
+
+        $r = (new ArtisanCommand(PHP_BINARY, $this->dir . '/slow', 1))->run('watcher:run', []);
+
+        self::assertSame('timeout', $r['exit']);
     }
 }

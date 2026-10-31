@@ -60,9 +60,19 @@ final class WatcherActions
     public static function needsConfirm(string $tool, array $args): bool
     {
         return match ($tool) {
-            'watcher_run_digest' => ($args['dry_run'] ?? true) !== true,
+            'watcher_run_digest' => !self::isDryRun($args),
             default => true,
         };
+    }
+
+    /**
+     * A digest is a dry run unless the client sends dry_run: false.
+     *
+     * @param array<string, mixed> $args
+     */
+    private static function isDryRun(array $args): bool
+    {
+        return ($args['dry_run'] ?? true) === true;
     }
 
     /**
@@ -73,13 +83,13 @@ final class WatcherActions
     {
         $fleet = ($args['fleet'] ?? true) === true;
         $flags = [];
-        if (($args['dry_run'] ?? true) === true) {
+        if (self::isDryRun($args)) {
             $flags[] = '--dry-run';
         }
         $flags[] = '--json';
         if (is_string($args['now'] ?? null)) {
             // A real run recorded at a chosen instant would move the state's window: `now` is for previews only.
-            if (($args['dry_run'] ?? true) !== true) {
+            if (!self::isDryRun($args)) {
                 throw new ToolError('now_needs_dry_run');
             }
             $flags[] = '--now=' . $args['now'];

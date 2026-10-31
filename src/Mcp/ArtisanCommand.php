@@ -11,6 +11,8 @@ namespace Watcher\Mcp;
  */
 final class ArtisanCommand
 {
+    private const TAIL_BYTES = 262_144;
+
     public function __construct(private readonly string $php, private readonly string $artisan, private readonly int $timeoutSeconds = 1800)
     {
     }
@@ -30,28 +32,29 @@ final class ArtisanCommand
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
 
+        // Only the tail is kept: the JSON line is the last one, and a long digest must not grow memory without bound.
         $stdout = '';
         $deadline = microtime(true) + $this->timeoutSeconds;
-        while (true) {
-            $stdout .= (string) stream_get_contents($pipes[1]);
+        $exit = null;
+        while ($exit === null) {
+            $stdout = substr($stdout . (string) stream_get_contents($pipes[1]), -self::TAIL_BYTES);
             stream_get_contents($pipes[2]); // drained, not returned
             $status = proc_get_status($proc);
             if (!$status['running']) {
-                break;
-            }
-            if (microtime(true) > $deadline) {
+                $exit = $status['exitcode'];
+            } elseif (microtime(true) > $deadline) {
                 proc_terminate($proc);
-
-                return ['exit' => 'timeout'];
+                $exit = 'timeout';
+            } else {
+                usleep(100_000);
             }
-            usleep(100_000);
         }
-        $stdout .= (string) stream_get_contents($pipes[1]);
+        $stdout = substr($stdout . (string) stream_get_contents($pipes[1]), -self::TAIL_BYTES);
         fclose($pipes[1]);
         fclose($pipes[2]);
-        $code = proc_close($proc);
+        proc_close($proc); // the exit code is already taken from proc_get_status: proc_close may report -1 after it
 
-        $out = ['exit' => $code];
+        $out = ['exit' => $exit];
         if (in_array('--json', $flags, true)) {
             $last = trim((string) strrchr(rtrim($stdout), "\n"));
             $json = json_decode($last === '' ? rtrim($stdout) : $last, true);
