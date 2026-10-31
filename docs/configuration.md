@@ -395,6 +395,22 @@ Alerts: one short message per subject, when its status changes (a return to `ok`
 
 Limit: the stored status lives 24 hours. A warning or failure that stood with no run for more than 24 hours has lost its record, so its return to `ok` is not announced. Keep the run trigger at least as often as `probe_every` to avoid it.
 
+### `mcp` (optional, read-only by default)
+
+The MCP server (`watcher mcp`, over stdio) reads from the same state. Only the groups named here are served.
+
+| Key | Default | Env | Notes |
+|---|---|---|---|
+| `mcp.groups` | `['inspect','onboarding','docs']` | `WATCHER_MCP_GROUPS` | Any of `inspect`, `onboarding`, `docs`, `actions`. `actions` is off unless named. |
+| `mcp.allow_dry_run` | `false` | `WATCHER_MCP_ALLOW_DRY_RUN` | Adds `watcher_dry_run`. |
+| `mcp.artisan` | none | `WATCHER_MCP_ARTISAN` | Absolute path to the artisan file. Required when `actions` is on; checked at startup. |
+
+With `actions` on, the tools `watcher_run_digest`, `watcher_health_check` and `watcher_test_message` run the artisan
+commands `watcher:fleet` or `watcher:run`, `watcher:health` and `watcher:check --post-test`. A sending action needs
+`confirm: true`; a digest is a dry run unless `dry_run: false`; `now` is for dry runs only. Each action runs at most once
+per 5 minutes per session and is logged as `watcher [audit] <tool> exit=<code>`. `confirm` is a flag the client sends,
+not a human approval.
+
 ## Log hygiene (spec 006)
 
 `hygiene` section; every key optional. `enabled` (default **false**, `WATCHER_HYGIENE_ENABLED` in the shipped configs) switches on the privacy, shape and proposal reports. Keys: `read_min_level` (`info`), `event_cap` (200000, more is sampled and said so), `max_line_length` (2000), `noisy_share` (0.20), `variable_distinct` (20), `repeat_days` (7), `growth_factor` (2.0), `min_history_days` (14), `mute_min_daily` (100), `watch_lead` (1800 s), `decline_days` (90), `spike_factor` (2.0), `max_seconds` (900, time budget of one pass), `site_allow_dirs` (`[]`, directory names such as `data` that are accepted below a `repo.path_map` root although the privacy report's deny list names them). `variable_distinct` must be at least 5. Invalid values fail at start naming `hygiene.<key>`. Contract: `specs/006-log-hygiene/contracts/config.md`. `allow_constant_labels` (false) lets a message that never varies keep its label and a watch proposal (it may be one person's name; the privacy floor of [privacy.md](privacy.md#log-hygiene-reports-spec-006) otherwise withholds it), `literal_min_sites` (5, at least 2): a literal word of a shown template must be common log vocabulary or seen at that many different sites in the pass, else it is shown as `<w>`.
