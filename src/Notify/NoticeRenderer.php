@@ -90,6 +90,23 @@ final class NoticeRenderer
         return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
     }
 
+    /**
+     * Daily list of every service in the host snapshot, whether or not anything changed. Names and times are escaped, versions
+     * go through reason() like any host text.
+     *
+     * @param list<array{name: string, version: ?string, success: bool, checked_at: string}> $services
+     */
+    public function healthSummary(string $service, string $environment, array $services): Message
+    {
+        $lines = [sprintf('📋 HEALTH SUMMARY %s · %s', SlackText::escape($service), SlackText::escape($environment))];
+        foreach ($services as $s) {
+            $lines[] = sprintf('%s · %s · %s · checked %s', SlackText::escape($s['name']), $s['version'] === null ? 'unknown' : $this->reason($s['version']), $s['success'] ? 'UP' : 'DOWN', SlackText::escape($s['checked_at']));
+        }
+        $text = implode("\n", $lines);
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     private function notice(string $icon, string $service, string $environment, string $tail): Message
     {
         $text = sprintf('%s watcher · %s · %s — %s', $icon, SlackText::escape($service), SlackText::escape($environment), $tail);

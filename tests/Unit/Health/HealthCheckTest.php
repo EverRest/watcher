@@ -15,6 +15,7 @@ use Watcher\State\Keys;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 use Watcher\Tests\Fakes\RecordingNotifier;
 use Watcher\Tests\Fakes\SnapshotRedis;
+use Watcher\Tests\Fakes\SpyLogger;
 use Watcher\Tests\Fakes\TtlSpyStateStore;
 
 final class HealthCheckTest extends TestCase
@@ -189,9 +190,86 @@ final class HealthCheckTest extends TestCase
         self::assertCount(2, $this->notifier->sent);
     }
 
-    private function runAt(string $at): int
+    public function testSummaryIsSentWhenTheUtcHourMatchesEvenIfNothingChanged(): void
     {
-        return $this->check()->run(new DateTimeImmutable($at));
+        $this->publish('1.2.0');
+
+        self::assertSame(0, $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9));
+
+        self::assertCount(1, $this->notifier->sent);
+        self::assertStringContainsString('HEALTH SUMMARY', $this->notifier->sent[0]);
+        self::assertStringContainsString('orders · 1.2.0 · UP · checked 2026-10-29T10:00:00+00:00', $this->notifier->sent[0]);
+    }
+
+    public function testSummaryIsNotSentWhenTheHourDoesNotMatch(): void
+    {
+        $this->publish('1.2.0');
+
+        $this->runAt('2026-10-29T10:00:00Z', summaryHour: 9);
+
+        self::assertSame([], $this->notifier->sent);
+    }
+
+    public function testNullSummaryHourDisablesTheSummary(): void
+    {
+        $this->publish('1.2.0');
+
+        $this->runAt('2026-10-29T09:00:00Z', summaryHour: null);
+
+        self::assertSame([], $this->notifier->sent);
+    }
+
+    public function testSummaryIsSentOncePerHour(): void
+    {
+        $this->publish('1.2.0');
+        $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9);
+        $this->runAt('2026-10-29T09:30:00Z', summaryHour: 9);
+
+        self::assertCount(1, $this->notifier->sent);
+    }
+
+    public function testSummaryListsAnUnknownVersionAndADownService(): void
+    {
+        $this->publish(null, success: false);
+
+        $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9);
+
+        self::assertStringContainsString('orders · unknown · DOWN', $this->notifier->sent[0]);
+    }
+
+    public function testSummaryComesAfterAVersionAlertAndBothAreSent(): void
+    {
+        $this->publish('1.2.0');
+        $this->runAt('2026-10-29T08:00:00Z', summaryHour: 9);
+        $this->publish('1.3.0');
+
+        $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9);
+
+        self::assertCount(2, $this->notifier->sent);
+        self::assertStringStartsWith('🔔 VERSION CHANGED', $this->notifier->sent[0]);
+        self::assertStringContainsString('HEALTH SUMMARY', $this->notifier->sent[1]);
+    }
+
+    public function testASummarySendFailureIsLoggedAndDoesNotChangeTheAlertResult(): void
+    {
+        $log = new SpyLogger();
+        $this->publish('1.2.0');
+        $this->runAt('2026-10-29T08:00:00Z', summaryHour: 9);
+
+        // The version alert goes out first, then only the summary fails.
+        $this->publish('1.3.0');
+        $this->notifier->failFrom = 2;
+        $code = $this->check(summaryHour: 9, log: $log)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+
+        self::assertSame(0, $code);
+        self::assertCount(1, $this->notifier->sent, 'the alert was sent');
+        self::assertSame('1.3.0', $this->state->get(Keys::healthcheck('watcher', self::KEY))['version'] ?? null, 'alert logic finished');
+        self::assertSame('health: summary not sent', array_values(array_filter($log->records, static fn (array $r): bool => $r[0] === 'error'))[0][1] ?? null);
+    }
+
+    private function runAt(string $at, ?int $summaryHour = null): int
+    {
+        return $this->check(summaryHour: $summaryHour)->run(new DateTimeImmutable($at));
     }
 
     /** Publishes the host snapshot for the next run: one service, `orders`. */
@@ -202,7 +280,7 @@ final class HealthCheckTest extends TestCase
         ], JSON_THROW_ON_ERROR);
     }
 
-    private function check(bool $transitions = false, string $service = 'watcher'): HealthCheck
+    private function check(bool $transitions = false, string $service = 'watcher', ?int $summaryHour = null, ?SpyLogger $log = null): HealthCheck
     {
         return new HealthCheck(
             source: $this->source,
@@ -211,11 +289,12 @@ final class HealthCheckTest extends TestCase
             notifier: $this->notifier,
             to: Destination::none(),
             renderer: new NoticeRenderer(),
-            log: new NullLogger(),
+            log: $log ?? new NullLogger(),
             service: $service,
             environment: 'test11',
             ttlSeconds: self::TTL,
             notifyTransitions: $transitions,
+            summaryHour: $summaryHour,
         );
     }
 }
