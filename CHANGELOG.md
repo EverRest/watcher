@@ -1,11 +1,11 @@
 # Changelog
 
-## 0.13.1 — 2026-10-31 — Health summary on weekdays in CET, one schedule
+## 0.13.1 — 2026-10-31 — Health summary on weekdays in its own zone, one schedule
 
 - **Removed:** `health_check.summary_every_hours`. The summary has one schedule: `summary_at`, inside `summary_hours`. A config that still sets it is rejected with an error, instead of quietly falling back to the daily summary.
-- **New:** `health_check.timezone` (default `Europe/Berlin`, CET/CEST) sets the zone for `summary_at`, `summary_hours` and `summary_days`. It is independent of `schedule.timezone`, so the daily run keeps its zone.
-- **Changed:** `summary_days` defaults to `mon..fri` again; `null` still means every day. The default summary time is 09:00 in the new zone.
-- **Behaviour change:** in 0.13.0 the summary followed `schedule.timezone`. A watcher whose `schedule.timezone` is not Europe/Berlin now sends it at a different hour. Set `health_check.timezone` to keep another zone.
+- **New:** `health_check.timezone` (default `UTC`; set `Europe/Berlin` for CET/CEST) sets the zone for `summary_at`, `summary_hours` and `summary_days`. It is independent of `schedule.timezone`, so the daily run keeps its zone.
+- **Changed:** `summary_days` defaults to `mon..fri` again; `null` still means every day. The default summary time is 09:00 in the new zone (UTC unless set).
+- **Behaviour change:** in 0.13.0 the summary followed `schedule.timezone`. A watcher whose `schedule.timezone` is not UTC now sends it at a different hour. Set `health_check.timezone` (for example `Europe/Berlin`) to keep its zone.
 - Health messages, both the summary and version/up-down alerts, are sent only on `summary_days` (default `mon..fri`). Nothing is sent or stored on a weekend; a change made then is sent on the first allowed day.
 - Version-change alerts are not limited to working hours; only the summary uses `summary_hours`.
 - New `notify.days` (default `null`, every day): the digest and immediate alerts are sent only on the listed days, in `schedule.timezone`. Outside them a message is dropped, not queued. The run still reads and analyses those days. Failure notices, probes and the weekly heartbeat are not affected and go out on any day. In a fleet each service uses its own `notify.days`.

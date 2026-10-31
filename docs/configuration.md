@@ -222,7 +222,7 @@ included). A `null` or `Version not defined` version is unknown and never alerts
 | `health_check.source.key` | required | Full raw key of the snapshot, for example `m-seq:health`. No watcher prefix is added. |
 | `health_check.ttl_days` | `14` | 1..365. A stored copy lives this long; every hourly write refreshes it. |
 | `health_check.notify_transitions` | `false` | Also alert once when a service flips between up and down. Never on every failing hour. |
-| `health_check.timezone` | `Europe/Berlin` | IANA zone (CET/CEST) for `summary_at`, `summary_hours` and `summary_days`. Independent of `schedule.timezone`. |
+| `health_check.timezone` | `UTC` | IANA zone (for CET/CEST set `Europe/Berlin`) for `summary_at`, `summary_hours` and `summary_days`. Independent of `schedule.timezone`. |
 | `health_check.summary_at` | `09:00` | `HH:MM` in `health_check.timezone`, or `null` for no daily summary. Once a day a summary of every service (name, version, up/down, `checked_at`) is sent, even when nothing changed. Only the hour counts, because the check runs hourly. |
 | `health_check.summary_hours` | `09-18` | `HH-HH` working hours (start included, end excluded) the summary may be sent in; `null` = all day. |
 | `health_check.summary_days` | `['mon','tue','wed','thu','fri']` | Days health messages may be sent on (`mon`..`sun`), both the summary and the version and up/down alerts. Outside these days nothing is sent or stored; a change made on a weekend is sent on the first allowed day. `null` = every day. |

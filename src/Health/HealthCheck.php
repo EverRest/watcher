@@ -85,7 +85,7 @@ final class HealthCheck
         }
 
         // Own zone for the summary, so the daily run's schedule.timezone does not move the summary hours.
-        $tz = $h['timezone'] ?? 'Europe/Berlin';
+        $tz = $h['timezone'] ?? 'UTC';
         if (!is_string($tz) || !in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
             throw new InvalidConfig('health_check.timezone must be an IANA zone name');
         }
