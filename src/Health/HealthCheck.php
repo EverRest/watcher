@@ -31,6 +31,9 @@ final class HealthCheck
     /** One check per hour: the lock is taken for the hour and expires before the next one. */
     private const LOCK_TTL = 3300;
 
+    /** Value of $summaryHour for a summary every hour. */
+    public const EVERY_HOUR = -1;
+
     private const UNKNOWN_VERSION = 'Version not defined';
 
     public function __construct(
@@ -45,7 +48,7 @@ final class HealthCheck
         private readonly string $environment,
         private readonly int $ttlSeconds,
         private readonly bool $notifyTransitions,
-        /** UTC hour (0..23) of the daily summary; null = no summary. Only the hour is used: the run is hourly. */
+        /** UTC hour (0..23) of the daily summary, {@see self::EVERY_HOUR}, or null for no summary. Only the hour is used: the run is hourly. */
         private readonly ?int $summaryHour = null,
     ) {
     }
@@ -86,8 +89,8 @@ final class HealthCheck
         }
 
         $summaryAt = array_key_exists('summary_at', $h) ? $h['summary_at'] : '09:00';
-        if ($summaryAt !== null && (!is_string($summaryAt) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $summaryAt) !== 1)) {
-            throw new InvalidConfig('health_check.summary_at must be HH:MM (UTC) or null');
+        if ($summaryAt !== null && $summaryAt !== 'hourly' && (!is_string($summaryAt) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $summaryAt) !== 1)) {
+            throw new InvalidConfig('health_check.summary_at must be HH:MM (UTC), hourly or null');
         }
 
         $c = WatchConfig::fromArray(WatchConfig::withoutFleet($config));
@@ -113,7 +116,7 @@ final class HealthCheck
             environment: $c->environment ?? 'default',
             ttlSeconds: $ttlDays * 86400,
             notifyTransitions: $transitions,
-            summaryHour: $summaryAt === null ? null : (int) substr($summaryAt, 0, 2),
+            summaryHour: $summaryAt === null ? null : ($summaryAt === 'hourly' ? self::EVERY_HOUR : (int) substr($summaryAt, 0, 2)),
         );
     }
 
@@ -151,13 +154,13 @@ final class HealthCheck
     }
 
     /**
-     * The daily summary: a failed send is logged and never changes the alert result. The hourly lock already makes it once per hour.
+     * The summary (daily, or hourly): a failed send is logged and never changes the alert result. The hourly lock already makes it once per hour.
      *
      * @param list<array{name: string, version: ?string, success: bool, checked_at: string}> $rows
      */
     private function summarise(DateTimeImmutable $now, array $rows): void
     {
-        if ($this->summaryHour === null || $rows === [] || (int) $now->setTimezone(new \DateTimeZone('UTC'))->format('G') !== $this->summaryHour) {
+        if ($this->summaryHour === null || $rows === [] || ($this->summaryHour !== self::EVERY_HOUR && (int) $now->setTimezone(new \DateTimeZone('UTC'))->format('G') !== $this->summaryHour)) {
             return;
         }
         try {
