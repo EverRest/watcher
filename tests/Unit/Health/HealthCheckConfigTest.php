@@ -108,4 +108,37 @@ final class HealthCheckConfigTest extends TestCase
             'timezone' => 'CET+1',
         ]]);
     }
+
+    /** @dataProvider badStaleAfter */
+    public function testStaleAfterHoursIsOneToAWeekOrNull(mixed $value): void
+    {
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('health_check.stale_after_hours must be 1..168 or null');
+
+        HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
+            'enabled' => true,
+            'source' => ['host' => 'ew-redis', 'key' => 'm-seq:health'],
+            'stale_after_hours' => $value,
+        ]]);
+    }
+
+    /** @return iterable<string, array{mixed}> */
+    public static function badStaleAfter(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'too long' => [169];
+        yield 'a string' => ['3'];
+    }
+
+    public function testProblemsHourlyMustBeABool(): void
+    {
+        $this->expectException(InvalidConfig::class);
+        $this->expectExceptionMessage('health_check.problems_hourly must be true or false');
+
+        HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
+            'enabled' => true,
+            'source' => ['host' => 'ew-redis', 'key' => 'm-seq:health'],
+            'problems_hourly' => 'yes',
+        ]]);
+    }
 }
