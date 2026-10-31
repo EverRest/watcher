@@ -121,6 +121,13 @@ final class HealthCheck
     /** @return int 0 when every service was handled or this hour was already checked; 1 when the snapshot or any service failed */
     public function run(DateTimeImmutable $now): int
     {
+        // Nothing is read, sent or stored on a day outside summary_days. The first allowed run compares with the last stored copy, so a change made on a weekend is sent then.
+        if ($this->summary !== null && !$this->summary->allowsDay($now)) {
+            $this->log->info('health: day not allowed, nothing sent');
+
+            return 0;
+        }
+
         try {
             // Taken for the hour and never released: an overlapping or repeated run in the same hour finds it and stops.
             if (!$this->state->acquire(Keys::lock($this->service, 'health:' . $now->format('Y-m-d\TH')), bin2hex(random_bytes(8)), self::LOCK_TTL)) {

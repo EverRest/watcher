@@ -9,8 +9,8 @@ use DateTimeZone;
 use Watcher\Config\InvalidConfig;
 
 /**
- * When the health summary is due, judged on the hour in the watcher's timezone: at one fixed hour (summary_at), inside
- * the working hours (summary_hours) of the working days (summary_days).
+ * When health messages may be sent, judged in the health check's timezone. allowsDay() gates every health message
+ * (alerts and summary) to summary_days. due() is the summary only: summary_at inside summary_hours.
  */
 final class SummarySchedule
 {
@@ -31,13 +31,10 @@ final class SummarySchedule
      *
      * @throws InvalidConfig
      */
-    public static function fromConfig(array $h, DateTimeZone $zone): ?self
+    public static function fromConfig(array $h, DateTimeZone $zone): self
     {
         $at = array_key_exists('summary_at', $h) ? $h['summary_at'] : '09:00';
-        if ($at === null) {
-            return null;
-        }
-        if (!is_string($at) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $at) !== 1) {
+        if ($at !== null && (!is_string($at) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $at) !== 1)) {
             throw new InvalidConfig('health_check.summary_at must be HH:MM or null');
         }
 
@@ -56,17 +53,21 @@ final class SummarySchedule
             throw new InvalidConfig('health_check.summary_days must be a list of mon..sun or null');
         }
 
-        return new self($zone, (int) substr($at, 0, 2), $from, $to, array_values(array_map(static fn (string $d): int => self::DAYS[$d], $days ?? [])));
+        return new self($zone, $at === null ? null : (int) substr($at, 0, 2), $from, $to, array_values(array_map(static fn (string $d): int => self::DAYS[$d], $days ?? [])));
     }
 
+    /** Health messages go out only on these days; an empty list means every day. */
+    public function allowsDay(DateTimeImmutable $now): bool
+    {
+        return $this->days === [] || in_array((int) $now->setTimezone($this->zone)->format('N'), $this->days, true);
+    }
+
+    /** The summary is due in its hour, inside the working hours, on an allowed day. Never when summary_at is null. */
     public function due(DateTimeImmutable $now): bool
     {
         $local = $now->setTimezone($this->zone);
         $hour = (int) $local->format('G');
-        if ($hour < $this->from || $hour >= $this->to || ($this->days !== [] && !in_array((int) $local->format('N'), $this->days, true))) {
-            return false;
-        }
 
-        return $hour === $this->hour;
+        return $this->hour !== null && $hour === $this->hour && $hour >= $this->from && $hour < $this->to && $this->allowsDay($now);
     }
 }

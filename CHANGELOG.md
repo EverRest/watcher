@@ -6,7 +6,8 @@
 - **New:** `health_check.timezone` (default `Europe/Berlin`, CET/CEST) sets the zone for `summary_at`, `summary_hours` and `summary_days`. It is independent of `schedule.timezone`, so the daily run keeps its zone.
 - **Changed:** `summary_days` defaults to `mon..fri` again; `null` still means every day. The default summary time is 09:00 in the new zone.
 - **Behaviour change:** in 0.13.0 the summary followed `schedule.timezone`. A watcher whose `schedule.timezone` is not Europe/Berlin now sends it at a different hour. Set `health_check.timezone` to keep another zone.
-- Version-change alerts are unchanged.
+- Health messages, both the summary and version/up-down alerts, are sent only on `summary_days` (default `mon..fri`). Nothing is sent or stored on a weekend; a change made then is sent on the first allowed day.
+- Version-change alerts are not limited to working hours; only the summary uses `summary_hours`.
 
 ## 0.13.0 — 2026-10-31 — Health summary in working hours, with a period
 

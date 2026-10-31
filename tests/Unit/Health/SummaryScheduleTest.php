@@ -15,10 +15,7 @@ final class SummaryScheduleTest extends TestCase
     /** @param array<string, mixed> $h */
     private static function make(array $h = []): SummarySchedule
     {
-        $s = SummarySchedule::fromConfig($h, new DateTimeZone('Europe/Kyiv'));
-        self::assertNotNull($s);
-
-        return $s;
+        return SummarySchedule::fromConfig($h, new DateTimeZone('Europe/Kyiv'));
     }
 
     /** 2026-10-28 is a Wednesday, 2026-10-31 a Saturday; Kyiv is UTC+2 on both (DST ended 25 Oct). */
@@ -34,7 +31,6 @@ final class SummaryScheduleTest extends TestCase
     public function testSummaryUsesTheZoneItIsGiven(): void
     {
         $s = SummarySchedule::fromConfig([], new DateTimeZone('Europe/Berlin'));
-        self::assertNotNull($s);
 
         self::assertTrue($s->due(new DateTimeImmutable('2026-10-28T08:00:00Z')), '09:00 Berlin (CET, UTC+1)');
         self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T07:00:00Z')), '08:00 Berlin');
@@ -62,9 +58,13 @@ final class SummaryScheduleTest extends TestCase
         self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T05:00:00Z')), '07:00 Kyiv is before the window');
     }
 
-    public function testSummaryAtNullMeansNoSummary(): void
+    public function testSummaryAtNullMeansNoSummaryButKeepsTheDayGate(): void
     {
-        self::assertNull(SummarySchedule::fromConfig(['summary_at' => null], new DateTimeZone('UTC')));
+        $s = SummarySchedule::fromConfig(['summary_at' => null], new DateTimeZone('UTC'));
+
+        self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T09:00:00Z')), 'no summary');
+        self::assertFalse($s->allowsDay(new DateTimeImmutable('2026-10-31T09:00:00Z')), 'Saturday still gated');
+        self::assertTrue($s->allowsDay(new DateTimeImmutable('2026-10-28T09:00:00Z')), 'Wednesday allowed');
     }
 
     /**

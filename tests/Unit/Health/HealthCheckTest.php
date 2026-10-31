@@ -220,6 +220,24 @@ final class HealthCheckTest extends TestCase
         self::assertSame([], $this->notifier->sent);
     }
 
+    public function testNothingIsSentOnTheWeekendAndTheChangeWaitsForMonday(): void
+    {
+        $weekdays = new SummarySchedule(new \DateTimeZone('UTC'), hour: 9, days: [1, 2, 3, 4, 5]);
+        $this->publish('1.2.0');
+        $this->runAt('2026-10-30T09:00:00Z', summary: $weekdays);
+        self::assertCount(1, $this->notifier->sent, 'Friday: the summary only');
+
+        $this->publish('1.3.0');
+        self::assertSame(0, $this->runAt('2026-10-31T09:00:00Z', summary: $weekdays), 'Saturday, summary hour');
+        self::assertSame(0, $this->runAt('2026-11-01T10:00:00Z', summary: $weekdays), 'Sunday');
+        self::assertCount(1, $this->notifier->sent, 'nothing sent at the weekend');
+
+        $this->runAt('2026-11-02T00:30:00Z', summary: $weekdays);
+
+        self::assertCount(2, $this->notifier->sent, 'the change is sent on the first allowed day');
+        self::assertStringContainsString('VERSION CHANGED', $this->notifier->sent[1]);
+    }
+
     public function testSummaryIsSentOncePerHour(): void
     {
         $this->publish('1.2.0');
