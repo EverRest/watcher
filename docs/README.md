@@ -5,6 +5,7 @@ Back to the [project README](../README.md).
 | Document | For | Read it when |
 |---|---|---|
 | [smoke-test.md](smoke-test.md) | whoever runs the first live test | before connecting watcher to real systems |
+| [how-it-works.md](how-it-works.md) | anyone who asks where the watcher runs and how it is configured | a one-page map of the three configuration layers, what runs when, the Redis roles and the traps |
 | [operations.md](operations.md) | the engineer who installs and runs it | deploying, scheduling, alerting, dry runs, heartbeat, fleet, muting noise, troubleshooting |
 | [configuration.md](configuration.md) | anyone editing the config | looking up a key, a default, an environment variable or a feature flag |
 | [kubernetes.md](kubernetes.md) | whoever used the removed pod-events source | Removed in 0.7.0, and what to use instead |

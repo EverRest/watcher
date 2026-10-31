@@ -40,7 +40,7 @@ Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of
 
 Kubernetes events (spec 008) were removed in 0.7.0: the `kubernetes` and `events` sections and `source.driver: kubernetes` fail at load. Export cluster events to your log backend and read them through `loki` or `datadog`.
 
-Read-only MCP server (spec 015): `watcher mcp` over stdio lets an assistant read status, the latest report, one finding, the hygiene report and an optional confirmed dry run, and `--setup` helps to write and validate a first config. It never writes to a monitored system.
+Read-only MCP server (spec 015): `watcher mcp` over stdio lets an assistant read status, the latest report, one finding, the hygiene report and an optional confirmed dry run, and `--setup` helps to write and validate a first config. It never writes to a monitored system. The optional `actions` group (off unless named in `mcp.groups`) runs the digest, the health check and a test message with parameters: a sending action needs `confirm: true`, a digest is a dry run unless `dry_run: false`, and each action is rate limited and audited. See [docs/how-it-works.md](docs/how-it-works.md#run-it-by-hand-from-the-server-or-from-an-mcp-client).
 
 Master switch: when `enabled` is not the boolean `true` the package does nothing at all (no source, state, model or notifier access), in every entry point, even with a broken or partial config.
 
@@ -56,7 +56,7 @@ Nothing new to report means zero model calls. The first run only records a basel
 | State | Redis (default), any PDO database, or a file (single runner only) |
 | Schedule | Once at `schedule.run_at`, every `PT1H` to `PT12H`, or a list of times; catch-up after an outage |
 | Several services | One fleet file; each service keeps its own window, lock and digest; a consumer's finding can point at its origin |
-| Operations | `check`, `status`, `run --dry-run`, `state:get`, `hygiene`, a read-only MCP server |
+| Operations | `check`, `status`, `run --dry-run`, `state:get`, `hygiene`, a read-only MCP server with optional actions (run, health check, test message) |
 | Privacy | Allowlisted fields only, redaction in code, no raw line persisted; the model never chooses its input |
 | Unreleased | Certificate and secret expiry probes (`probes`), see [CHANGELOG](CHANGELOG.md) |
 
@@ -180,6 +180,7 @@ archive via `.gitattributes`; they remain in the repository.
 |---|---|
 | [docs/README.md](docs/README.md) | Index of every document in `docs/` |
 | [docs/smoke-test.md](docs/smoke-test.md) | First live run, step by step |
+| [docs/how-it-works.md](docs/how-it-works.md) | A map: where the watcher runs, where its configuration lives, what runs when, and the traps |
 | [docs/operations.md](docs/operations.md) | Running it: scheduling, alerting, dry run, heartbeat, fleet, troubleshooting |
 | [docs/configuration.md](docs/configuration.md) | Every key and environment variable, feature flags |
 | [docs/privacy.md](docs/privacy.md) | What leaves the service |
@@ -263,7 +264,9 @@ same window does nothing, and a failed run leaves no record so the next trigger 
 
 `watcher:health` is separate from the daily run: no run gate and no digest. Once per hour it reads the host app's
 health snapshot from the host's Redis, one JSON object `{"<service>": {"success": bool, "version": string|null,
-"checked_at": ISO-8601}}`, and sends an immediate notice when a service's version changes. Only those four fields are
+"checked_at": ISO-8601}}`, and sends an immediate notice when a service's version changes. Once a day, at `health_check.summary_at`
+(09:00 by default), it also sends a summary of every service. Both go out only on `health_check.summary_days` (weekdays by
+default) and are judged in `health_check.timezone` (UTC by default; set `Europe/Berlin` for CET). Only those four fields are
 kept, one copy per service under `health:<watcher service>:<snapshot service>` in the watcher's Redis. A `null` or
 `Version not defined` version is unknown and never alerts; the first sighting stores silently. A failed read or send
 exits this command with 1 and writes to the host log; the daily run and the digest are not affected.
@@ -360,7 +363,7 @@ reference a service that has a new or grown finding in the same window, the cons
 `likely caused by the <origin> finding <fingerprint> (hypothesis)` and one additional message names the origin. It is
 decided in code from names, placeholders and times; it makes no model call and withholds nothing. See
 [docs/examples/watcher-fleet.php](docs/examples/watcher-fleet.php), [operations](docs/operations.md#fleet) and the
-[configuration reference](docs/configuration.md#fleet-configuration).
+[configuration reference](docs/configuration.md#fleet-configuration). `notify.days` is set per service, so each service in a fleet can have its own send days.
 
 ## Known limits
 

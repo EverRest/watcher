@@ -51,7 +51,7 @@ final class ToolRegistry
                 'name' => $t->name(),
                 'description' => $t->description(),
                 'inputSchema' => $schema,
-                'annotations' => ['readOnlyHint' => true, 'destructiveHint' => false, 'openWorldHint' => $t->openWorld()],
+                'annotations' => ['readOnlyHint' => $t->group() !== 'actions', 'destructiveHint' => $t->group() === 'actions', 'openWorldHint' => $t->openWorld()],
             ];
         }
 
