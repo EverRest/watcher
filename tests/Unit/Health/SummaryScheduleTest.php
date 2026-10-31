@@ -22,45 +22,31 @@ final class SummaryScheduleTest extends TestCase
     }
 
     /** 2026-10-28 is a Wednesday, 2026-10-31 a Saturday; Kyiv is UTC+2 on both (DST ended 25 Oct). */
-    public function testDefaultIsOnceAtNineOnWorkingDaysInTheWatcherTimezone(): void
+    public function testDefaultIsOnceAtNineEveryDayInTheWatcherTimezone(): void
     {
         $s = self::make();
 
         self::assertTrue($s->due(new DateTimeImmutable('2026-10-28T07:00:00Z')), '09:00 Kyiv');
         self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T09:00:00Z')), '11:00 Kyiv');
+        self::assertTrue($s->due(new DateTimeImmutable('2026-10-31T07:00:00Z')), 'Saturday');
+    }
+
+    public function testWorkingDaysAndHoursCanBeSet(): void
+    {
+        $s = self::make(['summary_days' => ['mon', 'tue', 'wed', 'thu', 'fri'], 'summary_hours' => '09-18']);
+
+        self::assertTrue($s->due(new DateTimeImmutable('2026-10-28T07:00:00Z')), 'Wednesday 09:00');
         self::assertFalse($s->due(new DateTimeImmutable('2026-10-31T07:00:00Z')), 'Saturday');
     }
 
-    public function testEveryHourRunsOnlyInsideTheWorkingHoursOfWorkingDays(): void
+    public function testSummaryHoursOutsideTheWindowMeanNoSummary(): void
     {
-        $s = self::make(['summary_every_hours' => 1]);
+        $s = self::make(['summary_at' => '07:00', 'summary_hours' => '09-18']);
 
-        self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T06:00:00Z')), '08:00 before the window');
-        self::assertTrue($s->due(new DateTimeImmutable('2026-10-28T07:00:00Z')), '09:00 start');
-        self::assertTrue($s->due(new DateTimeImmutable('2026-10-28T15:00:00Z')), '17:00 last hour');
-        self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T16:00:00Z')), '18:00 end is exclusive');
-        self::assertFalse($s->due(new DateTimeImmutable('2026-10-31T09:00:00Z')), 'Saturday');
+        self::assertFalse($s->due(new DateTimeImmutable('2026-10-28T05:00:00Z')), '07:00 Kyiv is before the window');
     }
 
-    public function testEveryNHoursCountsFromTheStartOfTheWindow(): void
-    {
-        $s = self::make(['summary_every_hours' => 3]);
-
-        $due = [];
-        foreach (range(0, 23) as $h) {
-            $due[$h] = $s->due(new DateTimeImmutable(sprintf('2026-10-28T%02d:00:00', $h), new DateTimeZone('Europe/Kyiv')));
-        }
-        self::assertSame([9, 12, 15], array_keys(array_filter($due)));
-    }
-
-    public function testNullWindowAndDaysMeanAroundTheClock(): void
-    {
-        $s = self::make(['summary_every_hours' => 1, 'summary_hours' => null, 'summary_days' => null]);
-
-        self::assertTrue($s->due(new DateTimeImmutable('2026-10-31T01:00:00Z')), 'Saturday night');
-    }
-
-    public function testSummaryAtNullAndNoPeriodMeansNoSummary(): void
+    public function testSummaryAtNullMeansNoSummary(): void
     {
         self::assertNull(SummarySchedule::fromConfig(['summary_at' => null], new DateTimeZone('UTC')));
     }
@@ -81,9 +67,7 @@ final class SummaryScheduleTest extends TestCase
     /** @return iterable<string, array{array<string, mixed>, string}> */
     public static function bad(): iterable
     {
-        yield 'zero period' => [['summary_every_hours' => 0], 'summary_every_hours must be 1..24'];
-        yield 'string period' => [['summary_every_hours' => '2'], 'summary_every_hours must be 1..24'];
-        yield 'both' => [['summary_every_hours' => 2, 'summary_at' => '09:00'], 'cannot both be set'];
+        yield 'bad time' => [['summary_at' => '9:00'], 'summary_at must be HH:MM'];
         yield 'reversed hours' => [['summary_hours' => '18-09'], 'summary_hours must be HH-HH'];
         yield 'hours past 24' => [['summary_hours' => '09-25'], 'summary_hours must be HH-HH'];
         yield 'bad day' => [['summary_days' => ['mon', 'funday']], 'summary_days must be a list'];

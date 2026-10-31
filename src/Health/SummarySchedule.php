@@ -9,8 +9,8 @@ use DateTimeZone;
 use Watcher\Config\InvalidConfig;
 
 /**
- * When the health summary is due, judged on the hour in the watcher's timezone: inside the working hours of a working day,
- * and either at one fixed hour (summary_at) or every N hours counted from the start of the window (summary_every_hours).
+ * When the health summary is due, judged on the hour in the watcher's timezone: at one fixed hour (summary_at), inside
+ * the working hours (summary_hours) of the working days (summary_days).
  */
 final class SummarySchedule
 {
@@ -20,7 +20,6 @@ final class SummarySchedule
     public function __construct(
         private readonly DateTimeZone $zone,
         private readonly ?int $hour = null,
-        private readonly ?int $every = null,
         private readonly int $from = 0,
         private readonly int $to = 24,
         private readonly array $days = [],
@@ -34,19 +33,12 @@ final class SummarySchedule
      */
     public static function fromConfig(array $h, DateTimeZone $zone): ?self
     {
-        $every = $h['summary_every_hours'] ?? null;
-        if ($every !== null && (!is_int($every) || $every < 1 || $every > 24)) {
-            throw new InvalidConfig('health_check.summary_every_hours must be 1..24 or null');
-        }
-        if ($every !== null && array_key_exists('summary_at', $h)) {
-            throw new InvalidConfig('health_check.summary_every_hours and health_check.summary_at cannot both be set');
-        }
-        $at = array_key_exists('summary_at', $h) ? $h['summary_at'] : ($every === null ? '09:00' : null);
-        if ($at !== null && (!is_string($at) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $at) !== 1)) {
-            throw new InvalidConfig('health_check.summary_at must be HH:MM or null');
-        }
-        if ($at === null && $every === null) {
+        $at = array_key_exists('summary_at', $h) ? $h['summary_at'] : '09:00';
+        if ($at === null) {
             return null;
+        }
+        if (!is_string($at) || preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $at) !== 1) {
+            throw new InvalidConfig('health_check.summary_at must be HH:MM or null');
         }
 
         $hours = array_key_exists('summary_hours', $h) ? $h['summary_hours'] : '09-18';
@@ -59,14 +51,12 @@ final class SummarySchedule
             [$from, $to] = [(int) $m[1], (int) $m[2]];
         }
 
-        $days = $h['summary_days'] ?? ['mon', 'tue', 'wed', 'thu', 'fri'];
-        if (array_key_exists('summary_days', $h) && $h['summary_days'] === null) {
-            $days = [];
-        } elseif (!is_array($days) || $days === [] || array_diff($days, array_keys(self::DAYS)) !== []) {
+        $days = $h['summary_days'] ?? null;
+        if ($days !== null && (!is_array($days) || $days === [] || array_diff($days, array_keys(self::DAYS)) !== [])) {
             throw new InvalidConfig('health_check.summary_days must be a list of mon..sun or null');
         }
 
-        return new self($zone, $at === null ? null : (int) substr($at, 0, 2), $every, $from, $to, array_values(array_map(static fn (string $d): int => self::DAYS[$d], $days)));
+        return new self($zone, (int) substr($at, 0, 2), $from, $to, array_values(array_map(static fn (string $d): int => self::DAYS[$d], $days ?? [])));
     }
 
     public function due(DateTimeImmutable $now): bool
@@ -77,6 +67,6 @@ final class SummarySchedule
             return false;
         }
 
-        return $this->every !== null ? ($hour - $this->from) % $this->every === 0 : $hour === $this->hour;
+        return $hour === $this->hour;
     }
 }
