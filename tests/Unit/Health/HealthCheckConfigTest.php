@@ -62,7 +62,7 @@ final class HealthCheckConfigTest extends TestCase
     public function testSummaryAtIsHhMmOrNull(mixed $value): void
     {
         $this->expectException(InvalidConfig::class);
-        $this->expectExceptionMessage('health_check.summary_at must be HH:MM (UTC), hourly or null');
+        $this->expectExceptionMessage('health_check.summary_at must be HH:MM or null');
 
         HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
             'enabled' => true,
@@ -79,13 +79,12 @@ final class HealthCheckConfigTest extends TestCase
         yield 'no colon' => ['0900'];
         yield 'one digit' => ['9:00'];
         yield 'an int' => [9];
-        yield 'wrong case' => ['Hourly'];
     }
 
     /** A bare config fails later ("service is required"), so only the summary_at message is ruled out. */
     public function testSummaryAtAcceptsValidTimesAndNull(): void
     {
-        foreach (['00:00', '09:00', '23:59', 'hourly', null] as $value) {
+        foreach (['00:00', '09:00', '23:59', null] as $value) {
             try {
                 HealthCheck::fromConfig(['enabled' => true, 'health_check' => [
                     'enabled' => true,

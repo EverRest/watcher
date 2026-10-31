@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Watcher\Health\HealthCheck;
+use Watcher\Health\SummarySchedule;
 use Watcher\Notify\Destination;
 use Watcher\Notify\NoticeRenderer;
 use Watcher\Schedule\SystemClock;
@@ -194,7 +195,7 @@ final class HealthCheckTest extends TestCase
     {
         $this->publish('1.2.0');
 
-        self::assertSame(0, $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9));
+        self::assertSame(0, $this->runAt('2026-10-29T09:00:00Z', summary: self::at(9)));
 
         self::assertCount(1, $this->notifier->sent);
         self::assertStringContainsString('HEALTH SUMMARY', $this->notifier->sent[0]);
@@ -205,9 +206,9 @@ final class HealthCheckTest extends TestCase
     {
         $this->publish('1.2.0');
 
-        $this->runAt('2026-10-29T09:00:00Z', summaryHour: HealthCheck::EVERY_HOUR);
-        $this->runAt('2026-10-29T10:00:00Z', summaryHour: HealthCheck::EVERY_HOUR);
-        $this->runAt('2026-10-29T10:30:00Z', summaryHour: HealthCheck::EVERY_HOUR);
+        $this->runAt('2026-10-29T09:00:00Z', summary: self::everyHour());
+        $this->runAt('2026-10-29T10:00:00Z', summary: self::everyHour());
+        $this->runAt('2026-10-29T10:30:00Z', summary: self::everyHour());
 
         self::assertCount(2, $this->notifier->sent, 'one per hour: the lock stops the repeat in the same hour');
     }
@@ -216,7 +217,7 @@ final class HealthCheckTest extends TestCase
     {
         $this->publish('1.2.0');
 
-        $this->runAt('2026-10-29T10:00:00Z', summaryHour: 9);
+        $this->runAt('2026-10-29T10:00:00Z', summary: self::at(9));
 
         self::assertSame([], $this->notifier->sent);
     }
@@ -225,7 +226,7 @@ final class HealthCheckTest extends TestCase
     {
         $this->publish('1.2.0');
 
-        $this->runAt('2026-10-29T09:00:00Z', summaryHour: null);
+        $this->runAt('2026-10-29T09:00:00Z', summary: null);
 
         self::assertSame([], $this->notifier->sent);
     }
@@ -233,8 +234,8 @@ final class HealthCheckTest extends TestCase
     public function testSummaryIsSentOncePerHour(): void
     {
         $this->publish('1.2.0');
-        $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9);
-        $this->runAt('2026-10-29T09:30:00Z', summaryHour: 9);
+        $this->runAt('2026-10-29T09:00:00Z', summary: self::at(9));
+        $this->runAt('2026-10-29T09:30:00Z', summary: self::at(9));
 
         self::assertCount(1, $this->notifier->sent);
     }
@@ -243,7 +244,7 @@ final class HealthCheckTest extends TestCase
     {
         $this->publish(null, success: false);
 
-        $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9);
+        $this->runAt('2026-10-29T09:00:00Z', summary: self::at(9));
 
         self::assertStringContainsString('orders · unknown · DOWN', $this->notifier->sent[0]);
     }
@@ -251,10 +252,10 @@ final class HealthCheckTest extends TestCase
     public function testSummaryComesAfterAVersionAlertAndBothAreSent(): void
     {
         $this->publish('1.2.0');
-        $this->runAt('2026-10-29T08:00:00Z', summaryHour: 9);
+        $this->runAt('2026-10-29T08:00:00Z', summary: self::at(9));
         $this->publish('1.3.0');
 
-        $this->runAt('2026-10-29T09:00:00Z', summaryHour: 9);
+        $this->runAt('2026-10-29T09:00:00Z', summary: self::at(9));
 
         self::assertCount(2, $this->notifier->sent);
         self::assertStringStartsWith('🔔 VERSION CHANGED', $this->notifier->sent[0]);
@@ -265,12 +266,12 @@ final class HealthCheckTest extends TestCase
     {
         $log = new SpyLogger();
         $this->publish('1.2.0');
-        $this->runAt('2026-10-29T08:00:00Z', summaryHour: 9);
+        $this->runAt('2026-10-29T08:00:00Z', summary: self::at(9));
 
         // The version alert goes out first, then only the summary fails.
         $this->publish('1.3.0');
         $this->notifier->failFrom = 2;
-        $code = $this->check(summaryHour: 9, log: $log)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
+        $code = $this->check(summary: self::at(9), log: $log)->run(new DateTimeImmutable('2026-10-29T09:00:00Z'));
 
         self::assertSame(0, $code);
         self::assertCount(1, $this->notifier->sent, 'the alert was sent');
@@ -278,9 +279,19 @@ final class HealthCheckTest extends TestCase
         self::assertSame('health: summary not sent', array_values(array_filter($log->records, static fn (array $r): bool => $r[0] === 'error'))[0][1] ?? null);
     }
 
-    private function runAt(string $at, ?int $summaryHour = null): int
+    private static function at(int $hour): SummarySchedule
     {
-        return $this->check(summaryHour: $summaryHour)->run(new DateTimeImmutable($at));
+        return new SummarySchedule(new \DateTimeZone('UTC'), hour: $hour);
+    }
+
+    private static function everyHour(): SummarySchedule
+    {
+        return new SummarySchedule(new \DateTimeZone('UTC'), every: 1);
+    }
+
+    private function runAt(string $at, ?SummarySchedule $summary = null): int
+    {
+        return $this->check(summary: $summary)->run(new DateTimeImmutable($at));
     }
 
     /** Publishes the host snapshot for the next run: one service, `orders`. */
@@ -291,7 +302,7 @@ final class HealthCheckTest extends TestCase
         ], JSON_THROW_ON_ERROR);
     }
 
-    private function check(bool $transitions = false, string $service = 'watcher', ?int $summaryHour = null, ?SpyLogger $log = null): HealthCheck
+    private function check(bool $transitions = false, string $service = 'watcher', ?SummarySchedule $summary = null, ?SpyLogger $log = null): HealthCheck
     {
         return new HealthCheck(
             source: $this->source,
@@ -305,7 +316,7 @@ final class HealthCheckTest extends TestCase
             environment: 'test11',
             ttlSeconds: self::TTL,
             notifyTransitions: $transitions,
-            summaryHour: $summaryHour,
+            summary: $summary,
         );
     }
 }
