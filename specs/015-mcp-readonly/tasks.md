@@ -295,7 +295,7 @@ Original IDs T001-T032 keep their meaning. New IDs start at T040. Same rules: te
   catalog `type`; a wildcard map entry (`source.stream_tags.app`); `secret` flag true for the credential keys; unknown key ->
   `found:false`, at most three `did_you_mean`, none equal to the input, input not echoed; `selection.growth_factor` default equals the
   validator's; outcome codes `disabled`, `skipped_done`, `baselined`, `zero_events`, `lock_lost`, `analysis_refused`,
-  `state_unavailable`, `k8s_ingest_failed:oomkilled` (reserved, `reserved_by: spec-008`), `truncated:deadline` (family); an unregistered
+  `state_unavailable`, `truncated:deadline` (family); `k8s_ingest_failed:oomkilled` dropped (spec 008 was removed in 0.7.0); an unregistered
   code is `found:false`; no code lists all codes (bounded, no prose); secret-shaped `key`/`code` is refused. Then `ConfigExplainer`, `Tools/{ExplainConfig,ExplainOutcome}Tool.php`. (FR-083, FR-084, US11 AC1-AC4)
 - [X] T063 [P] [US12] `tests/Unit/Mcp/PromptCatalogTest.php` with `tests/Fixtures/mcp/prompts/*.golden` (red): `prompts/list` shows the
   four prompts when their tools are enabled and omits a prompt whose tools are off (`['docs']` only: `onboard-new-service` is absent);

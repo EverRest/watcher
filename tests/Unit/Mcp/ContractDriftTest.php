@@ -19,7 +19,6 @@ final class ContractDriftTest extends TestCase
     private const CONTRACT = __DIR__ . '/../../../specs/015-mcp-readonly/contracts/tools.md';
     private const DOCS = __DIR__ . '/../../../docs/mcp.md';
     private const ACTIONS = ['watcher_run_digest', 'watcher_health_check', 'watcher_test_message'];
-    private const PENDING_OWNER_DECISION = ['cost-too-high'];
 
     private string $dir;
 
@@ -109,8 +108,7 @@ final class ContractDriftTest extends TestCase
 
         $served = array_map(static fn (array $p): string => $p['name'], $this->reply('prompts/list')[0]['result']['prompts']);
 
-        // OWNER DECISION: tools.md still lists `cost-too-high`, but spec 017 removed cost accounting and the code does not serve it.
-        self::assertSame(self::PENDING_OWNER_DECISION, array_values(array_diff($m[1], $served)));
+        self::assertSame([], array_values(array_diff($m[1], $served)));
         self::assertSame([], array_values(array_diff($served, $m[1])));
     }
 
