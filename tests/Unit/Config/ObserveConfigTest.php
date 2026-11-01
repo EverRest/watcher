@@ -41,13 +41,13 @@ final class ObserveConfigTest extends TestCase
         return array_replace_recursive(self::base(), ['observe' => $observe], $patch);
     }
 
-    public function testAllSinksOffByDefault(): void
+    public function testOnlyTheLogSinkIsOnByDefault(): void
     {
         $o = WatchConfig::fromArray(self::base())->observe;
 
-        self::assertFalse($o->anyEnabled());
+        self::assertTrue($o->log['enabled']);
         self::assertSame(20, $o->topGroups);
-        foreach ([$o->log, $o->file, $o->http, $o->prometheus] as $sink) {
+        foreach ([$o->file, $o->http, $o->prometheus] as $sink) {
             self::assertFalse($sink['enabled']);
         }
     }
@@ -144,12 +144,31 @@ final class ObserveConfigTest extends TestCase
     #[DataProvider('badNames')]
     public function testNamesTheSinksWouldNullAreRejectedAtLoadNotSilentlyDropped(array $patch, string $message): void
     {
-        $config = array_replace(self::with(['log' => ['enabled' => true]]), $patch);
+        $config = array_replace(self::with(['file' => ['enabled' => true, 'path' => '/var/lib/watcher/events.jsonl']]), $patch);
         try {
             WatchConfig::fromArray($config);
             self::fail('expected InvalidConfig');
         } catch (InvalidConfig $e) {
             self::assertSame($message, $e->getMessage());
+        }
+    }
+
+    public function testADefaultLogSinkDoesNotRefuseANameItCannotCarry(): void
+    {
+        $c = WatchConfig::fromArray(array_replace(self::base(), ['service' => 'orders api']));
+
+        self::assertSame('orders api', $c->service);
+        self::assertTrue($c->observe->log['enabled']);
+    }
+
+    public function testNoneNeedsASinkThatCanCarryTheNames(): void
+    {
+        $config = array_replace(self::base(), ['service' => 'orders api', 'notify' => ['digest' => ['driver' => 'none']]]);
+        try {
+            WatchConfig::fromArray($config);
+            self::fail('expected InvalidConfig');
+        } catch (InvalidConfig $e) {
+            self::assertSame('notify.digest.driver none needs at least one enabled observe sink', $e->getMessage());
         }
     }
 
@@ -184,7 +203,7 @@ final class ObserveConfigTest extends TestCase
 
     public function testNoneNeedsASink(): void
     {
-        $config = array_replace(self::base(), ['notify' => ['digest' => ['driver' => 'none']]]);
+        $config = array_replace(self::with(['log' => ['enabled' => false]]), ['notify' => ['digest' => ['driver' => 'none']]]);
         try {
             WatchConfig::fromArray($config);
             self::fail('expected InvalidConfig');

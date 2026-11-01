@@ -10,6 +10,7 @@ use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
+use Psr\Log\AbstractLogger;
 use PHPUnit\Framework\TestCase;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
@@ -41,10 +42,10 @@ final class ObserveFactoryTest extends TestCase
     /**
      * @param array<string, mixed> $observe
      */
-    private function config(array $observe, string $driver = 'slack'): WatchConfig
+    private function config(array $observe, string $driver = 'slack', string $service = 'svc'): WatchConfig
     {
         return WatchConfig::fromArray([
-            'service' => 'svc',
+            'service' => $service,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.com']],
             'analysis' => ['api_keys' => ['gemini' => 'sk-secret-key'], 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
@@ -71,7 +72,25 @@ final class ObserveFactoryTest extends TestCase
 
     public function testNoSinkEnabledBuildsNothing(): void
     {
-        self::assertNull(Factory::observe($this->config([]), $this->clock(), null, $this->counters()));
+        self::assertNull(Factory::observe($this->config(['log' => ['enabled' => false]]), $this->clock(), null, $this->counters()));
+    }
+
+    public function testAnInvalidNameSkipsTheDefaultLogSinkWithAWarningThatNamesNoValue(): void
+    {
+        $logger = new class () extends AbstractLogger {
+            /** @var list<string> */
+            public array $lines = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->lines[] = (string) $message;
+            }
+        };
+
+        self::assertNull(Factory::observe($this->config([], 'slack', 'orders api'), $this->clock(), $logger, $this->counters(), null, false, fopen('php://memory', 'w') ?: self::fail('no stream')));
+        self::assertCount(1, $logger->lines);
+        self::assertStringContainsString('observe.log', $logger->lines[0]);
+        self::assertStringNotContainsString('orders api', $logger->lines[0]);
     }
 
     public function testEnabledSinksAreBuiltAndWriteTheirOutput(): void
