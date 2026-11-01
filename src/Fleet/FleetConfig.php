@@ -126,7 +126,7 @@ final class FleetConfig
         $services = self::entries($config, $notify);
         foreach (['digest', 'notice'] as $kind) {
             // A fleet destination of `none` is dashboard-only for the whole fleet: some service must have a sink to be seen in.
-            if (($notify[$kind]['driver'] ?? null) === 'none' && array_filter($services, static fn (ServiceEntry $e): bool => $e->config->observe->anyEnabled()) === []) {
+            if (($notify[$kind]['driver'] ?? null) === 'none' && array_filter($services, static fn (ServiceEntry $e): bool => $e->config->observe->delivers($e->config->service, $e->config->environment)) === []) {
                 throw new InvalidConfig('notify.' . $kind . '.driver none needs at least one enabled observe sink');
             }
         }

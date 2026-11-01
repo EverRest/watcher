@@ -303,7 +303,7 @@ final class WatchConfig implements \JsonSerializable
                 throw new InvalidConfig('environment must match [A-Za-z0-9][A-Za-z0-9._-]{0,31} when an observe sink is enabled');
             }
         }
-        if (!$observe->anyEnabled() && ($notify['digest']['driver'] === 'none' || $notify['notice']['driver'] === 'none')) {
+        if (!$observe->delivers($service, $environment) && ($notify['digest']['driver'] === 'none' || $notify['notice']['driver'] === 'none')) {
             throw new InvalidConfig('notify.' . ($notify['digest']['driver'] === 'none' ? 'digest' : 'notice') . '.driver none needs at least one enabled observe sink');
         }
 

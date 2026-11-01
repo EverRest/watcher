@@ -92,6 +92,16 @@ final class FleetObserveTest extends TestCase
         self::assertSame('services[1] (bff): observe.http.url is required', $msg);
     }
 
+    public function testFleetNoneNeedsASinkThatCanCarryTheNames(): void
+    {
+        $services = [FleetConfigTest::service('orders api'), FleetConfigTest::service('billing api')];
+
+        self::assertSame(
+            'notify.digest.driver none needs at least one enabled observe sink',
+            self::message(self::fleet($services, ['digest' => 'combined', 'notify' => ['digest' => ['driver' => 'none']]])),
+        );
+    }
+
     public function testCombinedDigestWorksWithDriverNoneOnlyWhenASinkIsOn(): void
     {
         $services = [FleetConfigTest::service('api'), FleetConfigTest::service('bff')];
