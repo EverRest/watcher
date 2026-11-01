@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.0 — 2026-11-01 — Same-slot baselines, multi-run weekly line, schedule warnings
+
+- **New:** `baseline.mode` `same_slot_yesterday` and `same_slot_last_week` now compare with the snapshot at the same wall-clock boundary one day or seven days earlier (`windows` is ignored). A missing slot falls back to the previous window and the digest says so (`No snapshot for the same slot ...`). The config accepted these modes before; the comparison did not run them.
+- **Behaviour change:** the weekly summary of a multi-run schedule (`schedule.every` with more than one run a day) shows `runs/day N` instead of `skipped`, because its shorter triggers skip by design. Single-run schedules are unchanged.
+- **New:** `watcher check` warns (never fails) when `schedule.window` is shorter or longer than the period, and when `schedule.catch_up` is 1 on a schedule with several runs a day. A `schedule` row appears only when there is a warning.
+- Heartbeat stale defaults are pinned by tests: `ceil(1.5 x period)` with `schedule.every`, and 1.5 x the longest gap for a `run_at` list.
+- Spec 009: tests for the token cost of a Sentry group against a log group (within 5%) and for the unchanged payload with nothing configured.
+- Spec 015: MCP operator page `docs/mcp.md`. The contract drops cost and budget remnants (spec 017 removed them) and the reserved `k8s_ingest_failed:oomkilled` code.
+
 ## 0.15.0 — 2026-11-01 — Observe log sink on by default
 
 Behaviour change (spec 013 contract updated): `observe.log` is on by default (`WATCHER_OBSERVE_LOG_ENABLED` defaults to true), so every run writes one JSON line per event to stderr. The text of findings stays off (`observe.log.include_text` is still false). A service or environment name that does not match the event pattern no longer fails the load when only the log sink is on: the log sink is skipped and each run logs one warning that names no value, and `watcher check` reports the `observe` row as a failure (`log skipped`). File, http and prometheus sinks still refuse such a name at load. To keep the old silence, set `WATCHER_OBSERVE_LOG_ENABLED=0` or `observe.log.enabled => false`.
