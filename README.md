@@ -17,7 +17,7 @@ it never acts on a service, opens tickets, or stores raw log lines.
 ```mermaid
 flowchart LR
   host["Host trigger<br/>cron, CronJob or Laravel schedule"] --> run["watcher run"]
-  run --> src[("Log backend<br/>Loki, Datadog or pod events")]
+  run --> src[("Log backend<br/>Loki or Datadog")]
   src --> red["Reduce<br/>fingerprint, counters,<br/>mute and watch rules"]
   red --> sel{"Select<br/>deterministic, no model"}
   sel -- "nothing qualifies" --> quiet["Zero model calls"]
@@ -36,7 +36,11 @@ Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana das
 
 Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
 
-Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`).
+Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`). `watcher check` warns when the window or `catch_up` does not fit the schedule (0.16.0).
+
+Complete digest and new-group alerts (spec 018, 0.17.0): the digest lists every group flagged at `selection.min_level` or higher, including groups outside `selection.top_m` (those are marked `not analysed`) and below-threshold findings as minor lines. A long digest is sent as several messages with `part i/n` headers. A group that first appears at `min_level` (error by default) is also sent once, out of turn, in the run that sees it, before that run's digest (`alerts.new_groups`, default `true`; `false` keeps the digest only).
+
+Same-slot baselines (0.16.0): `baseline.mode` `same_slot_yesterday` and `same_slot_last_week` compare with the snapshot at the same wall-clock boundary one or seven days earlier.
 
 Kubernetes events (spec 008) were removed in 0.7.0: the `kubernetes` and `events` sections and `source.driver: kubernetes` fail at load. Export cluster events to your log backend and read them through `loki` or `datadog`.
 
@@ -50,15 +54,17 @@ Nothing new to report means zero model calls. The first run only records a basel
 
 | Area | Supported today |
 |---|---|
-| Log sources | Loki, Datadog, Kubernetes pod events (read-only queries only) |
-| Model providers | Anthropic, OpenAI, Gemini; each step (triage, analyze, escalate) can use a different one |
-| Notifications | Slack, Telegram, Discord, or `none`; event sinks for `log`, `file`, `http` and a Prometheus textfile ([observability](docs/observability.md)) |
+| Log sources | Loki or Datadog (read-only queries only) |
+| Model providers | OpenAI or Gemini; each step (triage, analyze, escalate) can use a different one |
+| Notifications | Slack, Telegram, Discord, or `none`; immediate alerts for log matches (`alerts.immediate`); out-of-turn alerts for new error groups (`alerts.new_groups`); event sinks for `log` (on by default), `file`, `http` and a Prometheus textfile ([observability](docs/observability.md)) |
+| Digest | Every flagged group, in as many `part i/n` messages as needed; `not analysed` and minor lines; `notify.days` limits the days |
 | State | Redis (default), any PDO database, or a file (single runner only) |
-| Schedule | Once at `schedule.run_at`, every `PT1H` to `PT12H`, or a list of times; catch-up after an outage |
-| Several services | One fleet file; each service keeps its own window, lock and digest; a consumer's finding can point at its origin |
-| Operations | `check`, `status`, `run --dry-run`, `state:get`, `hygiene`, a read-only MCP server with optional actions (run, health check, test message) |
+| Schedule | Once at `schedule.run_at`, every `PT1H` to `PT12H`, or a list of times; catch-up after an outage; `notify.days` and the health summary windows |
+| Several services | One fleet file; each service keeps its own window, lock and digest; a combined digest is optional |
+| Probes | Certificate and secret expiry checks (`probes`, 0.11.0) |
+| Host health | Hourly `watcher:health` reads one snapshot from the host's Redis; version and up/down changes, daily summary, STALE and broken-check notices |
+| Operations | `run`, `check`, `status`, `state:get`, `hygiene`, `fleet:run`, `fleet:check`, `fleet:status`, `watcher:health`, and a read-only MCP server with optional actions |
 | Privacy | Allowlisted fields only, redaction in code, no raw line persisted; the model never chooses its input |
-| Unreleased | Certificate and secret expiry probes (`probes`), see [CHANGELOG](CHANGELOG.md) |
 
 ## How a run works
 
@@ -210,14 +216,66 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [006](specs/006-log-hygiene/spec.md) | Log hygiene | Implemented |
 | [007](specs/007-code-aware-analysis/spec.md) | Code-aware analysis | Spec written, blocked on a constitution amendment |
 | [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Removed in 0.7.0 |
-| [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Not released (branch `feat/metrics-e009-030`) |
+| [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Implemented (shipped in 0.3.0) |
 | [010](specs/010-api-context/spec.md) | API context | Implemented, off by default |
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
 | [012](specs/012-feature-flags/spec.md) | Feature flags and environments | Implemented (changelog) |
 | [013](specs/013-observability-sink/spec.md) | Observability sink | Implemented (changelog) |
-| [014](specs/014-schedule-periods/spec.md) | Schedule periods | Phases 1–2 implemented (periods, catch-up, DST, caps); same-slot baselines and roll-up open |
+| [014](specs/014-schedule-periods/spec.md) | Schedule periods | Phases 1–2 implemented (periods, catch-up, DST, caps); same-slot baselines released in 0.16.0; roll-up open |
 | [015](specs/015-mcp-readonly/spec.md) | Read-only MCP server, onboarding and Q&A | Implemented (read-only tools, setup and Q&A); docs and some tests open |
+| [016](specs/016-model-providers/spec.md) | Model providers | Implemented: OpenAI and Gemini (Anthropic removed in 0.7.0) |
+| [017](specs/017-remove-budgets/spec.md) | Remove budgets and cost accounting | Implemented in 0.5.0 |
+| [018](specs/018-complete-digest-new-groups/spec.md) | Complete digest and out-of-turn new-group alerts | Implemented in 0.17.0 |
 <!-- docs:end -->
+
+## Architecture
+
+One package, one run at a time per service and window. `Watcher::run()` is the entry point; it is split into small
+collaborators, with no pipeline framework and no plugin system. The shape of the code (one directory per concern under `src/`):
+
+| Stage | Code | What it does |
+|---|---|---|
+| Entry points | `bin/watcher`, Laravel and Lumen commands, `Mcp`, `Health` | CLI (`run`, `check`, `status`, `state:get`, `hygiene`, `fleet:*`), `watcher:health`, the MCP server |
+| Read | `Source` (Loki, Datadog), `Source\LogEvent`, caps | Reads one window; `source.event_cap` and `source.group_cap` bound memory and the volume read |
+| Reduce | `Reduce`, `Privacy`, `Metrics`, `Issues` (Sentry) | Fingerprints and groups events, counts per group, applies mute and watch rules; optional metric and Sentry context |
+| Compare | `Baseline`, `Schedule` | Growth against the previous window, a rolling mean, a weekday median or the same slot; windows across DST and multi-run schedules |
+| Select | `Select` | Deterministic choice of candidates (`min_level`, `top_n`, growth, watch rules, new groups); no model involved |
+| Analyse | `Analyze` (router, providers, validation), `Privacy`, `Context` | Triage, analysis of `top_m`, escalation; redaction before any model call; input limits; output validated |
+| Deliver | `Notify`, `Alert`, `Incident` | Digest and parts, immediate alerts, out-of-turn new-group alerts, known issues, routes, drafts; channels split messages to their limits |
+| Record | `State`, `RunLedger`, `Observe`, `Operate` | Run record, snapshots, verdict cache, heartbeat, event sinks, `check` and `status` |
+
+Configuration is read once into `WatchConfig` (`Config`), which validates every key before the first network call. Every
+external system is reached through an interface chosen by config: source drivers, model providers (OpenAI, Gemini),
+notifiers (Slack, Telegram, Discord, none), state drivers (Redis, PDO, file). The fleet runner (`Fleet`) runs each
+service with its own config and state; a combined digest is optional. Diagrams and the per-run walk-through are in
+[docs/architecture.md](docs/architecture.md) and [docs/how-it-works.md](docs/how-it-works.md).
+
+## Security
+
+The package is built to run next to production systems and to leave as little as possible behind:
+
+- **Read-only toward monitored systems.** Log and metric sources are only queried (Loki and Datadog query endpoints; Datadog
+  searches are POSTs that read). Nothing writes to a service. The MCP server is read-only by default; its optional actions
+  need `confirm: true` for anything that sends, default to a dry run, are rate limited and audited.
+- **Data minimisation.** Only allowlisted fields leave the process. Every line is redacted in code before any model call and
+  before any message: emails, identifiers, tokens and hosts become placeholders, and templates are normalised. Raw log lines are
+  never stored. The model never chooses its own input.
+- **Model output is validated.** Replies that do not match the expected schema are rejected (`InvalidModelOutput`), and command-like
+  text in a suggestion is filtered before it is shown.
+- **Secrets stay out of messages and logs.** Errors name the configuration key path, never the value. Credentials are masked
+  everywhere (`WatchConfig::secrets()`), and the example configs read them from environment variables.
+- **Outbound URLs are checked.** `https` by default; redirects are not followed for event sinks; the internal-address guard refuses
+  metadata and private targets unless a specific setting opts in (`observe.http.allow_private_network`, `api_context`).
+- **Event sinks are opt-in for text.** `include_text` is off for every sink, `log` included, because a log shipper can forward stderr
+  to a third party. Even when it is on, the text is redacted first, and there is no switch that turns the sanitiser off.
+- **Nothing runs unless enabled.** The master switch `enabled` defaults to off, and a disabled run touches no source, state, model or
+  notifier, even with a broken config.
+- **Health snapshots carry no response bodies.** The host's health command stores only `success`, `version` and `checked_at`, because bodies
+  contain infrastructure details.
+- **Release guards.** A release tag must be annotated, sit on the tip of `main`, match `VERSION` and have a `CHANGELOG` heading
+  (`scripts/check-release.sh`).
+
+The full list of what is stored, what is sent and why is in [docs/privacy.md](docs/privacy.md).
 
 ## Configuration
 
@@ -229,6 +287,39 @@ Configuration is validated once, before any network call. A bad value throws `In
 (never the value), and the process exits with code 2. Unknown top-level keys are rejected.
 Required: `service`, `schedule.run_at`, a source driver with its credentials, a key for every provider the steps use
 (`analysis.api_keys`), all three `analysis.models`, a state driver with its settings, `notify.digest.webhook`.
+
+### Sections at a glance
+
+Every top-level key is listed here; the keys, defaults and environment variables of each are in
+[docs/configuration.md](docs/configuration.md). Feature switches (`enabled` per feature, `WATCHER_*` variables) are listed in
+[Feature flags](docs/configuration.md#feature-flags-spec-012).
+
+| Section | Controls | Reference |
+|---|---|---|
+| `service`, `environment`, `enabled` | Name of the service, the environment label in state keys and messages, the master switch | [service, schedule](docs/configuration.md#service-schedule) |
+| `schedule` | When a run happens: `run_at`, `every`, `catch_up`, `window`, `ingestion_delay`, `timezone` | [service, schedule](docs/configuration.md#service-schedule) |
+| `source` | Log backend (`loki` or `datadog`), stream labels, read caps, read level | [source](docs/configuration.md#source) |
+| `selection`, `watch_rules`, `mute` | Which groups qualify, watch rules that always qualify, mute rules that hide | [selection](docs/configuration.md#selection-and-noise-control) |
+| `grouping`, `baseline` | Message templates and their memory limits; the comparison mode | [baseline, grouping](docs/configuration.md#baseline-and-grouping-optional) |
+| `analysis` | Model provider per step, models, API keys, input limits | [analysis](docs/configuration.md#analysis-models) |
+| `redaction` | Extra redaction patterns, minimum group size for message text | [redaction](docs/configuration.md#redaction) |
+| `state` | Driver (Redis, PDO, file), retention, lock settings | [state](docs/configuration.md#state) |
+| `notify` | Digest and notice destinations, `days` (days of the week), digest thread | [notify](docs/configuration.md#notify) |
+| `alerts` | Immediate alerts for log matches (`immediate`), new-group alerts (`new_groups`) | [immediate alerts](docs/configuration.md#immediate-alerts) |
+| `observe` | Event sinks: `log`, `file`, `http`, Prometheus textfile, top groups | [observe](docs/configuration.md#observe-event-sinks-spec-013) |
+| `health_check` | Host health snapshot: Redis source and key, summary times and days, staleness | [health check](docs/configuration.md#health-check) |
+| `heartbeat` | Liveness and weekly summary | [heartbeat](docs/configuration.md#heartbeat-optional) |
+| `metrics`, `sentry` | Numbers next to the findings; Sentry issues as groups | [metrics and sentry](docs/configuration.md#metrics-and-sentry-optional-spec-009) |
+| `api_context` | OpenAPI endpoint documentation for findings | [api_context](docs/configuration.md#api_context-openapi-endpoint-documentation-spec-010) |
+| `probes` | Certificate and secret expiry checks | [probes](docs/configuration.md#probes-certificate-and-secret-expiry) |
+| `links`, `repo`, `deploy` | Log, trace and code links; release and commit information | [context](docs/configuration.md#context-all-optional) |
+| `service_context`, `dependencies`, `dependency_domains`, `dependency_read_cap` | Reading of the services a finding depends on | [context](docs/configuration.md#context-all-optional) |
+| `level_anomaly`, `purge` | Level totals in the window; purge of expired state files | [feature flags](docs/configuration.md#feature-flags-spec-012) |
+| `known_issues`, `drafts` | Known issues shown and suppressed, paste-ready ticket text per finding | [feature flags](docs/configuration.md#feature-flags-spec-012) |
+| `notify.routes` | Routing of findings to other destinations (with `notify.routes_enabled`) | [notify](docs/configuration.md#notify) |
+| `hygiene` | Log hygiene reports (privacy, shape, proposals) | [log hygiene](docs/configuration.md#log-hygiene-spec-006) |
+| `mcp` | Read-only MCP server and optional actions | [mcp](docs/configuration.md#mcp-optional-read-only-by-default) |
+| Fleet file (separate, `watcher fleet:run --config=<file or directory>`) | Several services with their own config, combined digest, correlation | [fleet](docs/configuration.md#fleet-configuration) |
 
 ## Log sources
 
@@ -263,13 +354,22 @@ same window does nothing, and a failed run leaves no record so the next trigger 
 ## Host health check
 
 `watcher:health` is separate from the daily run: no run gate and no digest. Once per hour it reads the host app's
-health snapshot from the host's Redis, one JSON object `{"<service>": {"success": bool, "version": string|null,
-"checked_at": ISO-8601}}`, and sends an immediate notice when a service's version changes. Once a day, at `health_check.summary_at`
-(09:00 by default), it also sends a summary of every service. Both go out only on `health_check.summary_days` (weekdays by
-default) and are judged in `health_check.timezone` (UTC by default; set `Europe/Berlin` for CET). Only those four fields are
-kept, one copy per service under `health:<watcher service>:<snapshot service>` in the watcher's Redis. A `null` or
-`Version not defined` version is unknown and never alerts; the first sighting stores silently. A failed read or send
-exits this command with 1 and writes to the host log; the daily run and the digest are not affected.
+health snapshot from the host's Redis at `health_check.source.key` (required, no default). The snapshot is one JSON object
+`{"<service>": {"success": bool, "version": string|null, "checked_at": ISO-8601}}` written by the host in one write, so the
+watcher never sees a partial run. That shape is the contract between the two: a test in the package reads a fixture of it.
+
+What it sends:
+- an immediate notice when a service's version changes, and when a service goes up or down (`health_check.notify_transitions`, off by default);
+- when `health_check.problems_hourly` is on (default), every hour inside the working hours a list of the services that are DOWN or STALE;
+- once a day, at `health_check.summary_at` (09:00 by default), a summary of every service;
+- a notice when the snapshot itself is missing, empty or unusable, a reminder once a day while it stays broken, and a notice when it recovers.
+
+A service is STALE when its `checked_at` is older than `health_check.stale_after_hours` (3 by default), is not ISO-8601, or is
+more than an hour in the future. Everything goes out only on `health_check.summary_days` (weekdays by default) and is judged in
+`health_check.timezone` (UTC by default; set `Europe/Berlin` for CET). Only those four fields are kept, one copy per service
+under `health:<watcher service>:<snapshot service>` in the watcher's Redis. A `null` or `Version not defined` version is unknown
+and never alerts; the first sighting stores silently. A failed read or send exits this command with 1 and writes to the host
+log; the daily run and the digest are not affected.
 
 Off by default. Enable it with `health_check.enabled` (the watcher's `enabled` must be on too); the host must schedule
 the command hourly:
@@ -353,6 +453,10 @@ One message per service per run: a header (service, environment, window), findin
 notices. A finding shows title, event count and trend (`new` or `up from N`), a 12-character
 fingerprint, evidence, a hypothesis (always labelled as such), a suggested next step, a `Check:` line saying what to look at to confirm or refute the hypothesis (never reproduction steps) and, when useful, a `Related:` line naming other groups or declared dependencies to look at next. `analysis.advice.enabled=false` turns the last two off and saves their output tokens.
 
+Since 0.17.0 the digest lists every group flagged at `selection.min_level` or higher. A group the analysis did not look at (outside `selection.top_m`) gets its own line under `not analysed`, with its count and log link; a below-threshold finding is a minor line with its title, count and fingerprint. When the digest is long it is sent as several messages with a `part i/n` header and no cap on their number; each message stays within the chat limits. A retry in the same window sends only the parts that did not go out.
+
+A new error group is also announced on its own, once, before the digest of the run that finds it (`alerts.new_groups`). That message names the service, environment, group, count and log link and carries no log line.
+
 ## Several services (fleet)
 
 One job can watch several services, including ones that cannot host the package (no CLI, no scheduler): list them in a
@@ -384,8 +488,8 @@ decided in code from names, placeholders and times; it makes no model call and w
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
 - Only Slack, Telegram, Discord, OpenAI, Gemini, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
-- Metrics and Sentry (spec 009) and the weekly report (spec 005) are not released yet.
-- Same-slot baselines for several runs a day and the daily roll-up digest (spec 014) are not released yet.
+- Same-slot baselines are released (0.16.0). The daily roll-up digest that spec 014 mentions is not in any release yet; see [CHANGELOG](CHANGELOG.md).
+- Metrics and Sentry (spec 009) read one backend each and are checked against recorded fixtures only, as are the other sources.
 
 ## Development
 
