@@ -293,7 +293,8 @@ final class WatchConfig implements \JsonSerializable
             $environment === null ? $service : $service . '_' . $environment,
             $source['driver'] === 'datadog' ? 'api.' . ($source['datadog']['site'] ?? 'datadoghq.com') : ($source['loki']['url'] ?? null),
         );
-        if ($observe->anyEnabled()) {
+        // The log sink is on by default and cannot refuse a name it would only lose: Factory skips it instead. The other sinks refuse here.
+        if ($observe->file['enabled'] || $observe->http['enabled'] || $observe->prometheus['enabled']) {
             // The event sanitizer nulls a name outside its pattern, and a null service turns every Prometheus label into "unset": refuse it here.
             if (preg_match(EventSchema::PATTERNS['service'], $service) !== 1) {
                 throw new InvalidConfig('service must match [A-Za-z0-9][A-Za-z0-9._@-]{0,63} when an observe sink is enabled');
@@ -302,7 +303,7 @@ final class WatchConfig implements \JsonSerializable
                 throw new InvalidConfig('environment must match [A-Za-z0-9][A-Za-z0-9._-]{0,31} when an observe sink is enabled');
             }
         }
-        if (!$observe->anyEnabled() && ($notify['digest']['driver'] === 'none' || $notify['notice']['driver'] === 'none')) {
+        if (!$observe->delivers($service, $environment) && ($notify['digest']['driver'] === 'none' || $notify['notice']['driver'] === 'none')) {
             throw new InvalidConfig('notify.' . ($notify['digest']['driver'] === 'none' ? 'digest' : 'notice') . '.driver none needs at least one enabled observe sink');
         }
 

@@ -49,13 +49,24 @@ final class ObserveEnvConfigTest extends TestCase
         return ['config/watcher.example.php'];
     }
 
-    public function testEverySinkIsOffByDefaultInEveryShippedConfig(): void
+    public function testTheLogSinkIsOnByDefaultAndTheOtherSinksStayOff(): void
     {
-        foreach (['config/watcher.example.php', 'docs/examples/orders-api.loki.config.php', 'docs/examples/smoke.config.php'] as $file) {
+        $c = WatchConfig::fromArray(self::load('config/watcher.example.php', []));
+
+        self::assertTrue($c->observe->log['enabled']);
+        self::assertFalse($c->observe->log['include_text'], 'text is opt-in even for the log sink');
+        self::assertFalse($c->observe->file['enabled']);
+        self::assertFalse($c->observe->http['enabled']);
+        self::assertFalse($c->observe->prometheus['enabled']);
+        self::assertSame(20, $c->observe->topGroups);
+    }
+
+    public function testEverySinkIsOffByDefaultInTheExamples(): void
+    {
+        foreach (['docs/examples/orders-api.loki.config.php', 'docs/examples/smoke.config.php'] as $file) {
             $c = WatchConfig::fromArray(self::load($file, []));
 
             self::assertFalse($c->observe->anyEnabled(), $file);
-            self::assertFalse($c->observe->log['include_text'], $file . ': text is opt-in even for the log sink');
             self::assertSame(20, $c->observe->topGroups, $file);
         }
         self::assertStringContainsString("'observe'", (string) file_get_contents(self::ROOT . '/config/watcher.php'));

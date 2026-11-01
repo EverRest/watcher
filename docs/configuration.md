@@ -140,7 +140,7 @@ path, never a value. Redaction and the event sanitizer have no switch.
 | Key | Default | Notes |
 |---|---|---|
 | `observe.top_groups` | `20` | 0..100 `group` events per run; `0` emits none. |
-| `observe.log.enabled` | `false` | One JSON object per line. |
+| `observe.log.enabled` | `true` | One JSON object per line. |
 | `observe.log.stream` | `stderr` | `stderr` or `stdout`; under `--json` stdout is replaced by stderr so the summary stays one line. |
 | `observe.log.include_text` | `false` | Opt in to put the (redacted) finding text on the stream; stderr is often forwarded by a shipper to a third party. |
 | `observe.file.enabled` | `false` | JSON lines file, mode 0600. |
@@ -279,7 +279,7 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 
 | Key | Default | Notes |
 |---|---|---|
-| `heartbeat.stale_after` | 1.5 x `schedule.window` | ISO-8601 duration (> 0). `watcher status` reports `stale` and exits non-zero when the last reported/quiet/baselined run is older than this. |
+| `heartbeat.stale_after` | `ceil(1.5 x period)` with `schedule.every`; 1.5 x the longest gap for a `run_at` list (spec 014) | ISO-8601 duration (> 0). `watcher status` reports `stale` and exits non-zero when the last reported/quiet/baselined run is older than this. |
 | `heartbeat.weekly_summary` | `false` | `true` sends one line per ISO week (service timezone) to the notice destination, from the first due run of the next week: counts of reported, quiet, baselined, failed and skipped runs. Nothing is sent for a week with no run. |
 
 ### Immediate alerts
@@ -324,7 +324,7 @@ Its window is only recorded after a successful send, so the next read retries it
 
 | Key | Default | Notes |
 |---|---|---|
-| `baseline.mode` | `previous` | `previous`, `rolling` (mean of the last N windows) or `weekday` (median of the same weekday). `previous` is the old behaviour. Message: `baseline.mode must be one of previous, rolling, weekday`. |
+| `baseline.mode` | `previous` | `previous`, `rolling` (mean of the last N windows), `weekday` (median of the same weekday), `same_slot_yesterday` or `same_slot_last_week` (the snapshot at the same wall-clock boundary one day or seven days earlier; `windows` is ignored). A missing slot falls back to the previous window and the digest says so. `previous` is the old behaviour. Message: `baseline.mode must be one of previous, rolling, weekday, same_slot_yesterday, same_slot_last_week`. |
 | `baseline.windows` | 7 (rolling) / 4 (weekday) | Integer >= 2 (rolling) or >= 3 (weekday). Ignored for `previous`. |
 | `baseline.max_age` | `P7D` | ISO-8601. Oldest snapshot a missing previous window may fall back to; must not exceed `state.retention`. |
 | `baseline.exclude` | `[]` | Dates `YYYY-MM-DD` (local date of a window end) left out of rolling/weekday values. |
@@ -522,7 +522,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_SERVICE_CONTEXT` | `service_context` |
 | `WATCHER_RELEASE*`, `WATCHER_COMMIT*` | `deploy.release`, `deploy.commit` |
 | `WATCHER_GRAFANA_URL`, `WATCHER_LOKI_DS_UID` | `links.grafana.*` |
-| `WATCHER_OBSERVE_TOP_GROUPS`, `WATCHER_OBSERVE_{LOG,FILE,HTTP,PROMETHEUS}_*` | `observe.*`, one variable per key above (`..._ENABLED`, `..._PATH`, `..._URL`, `..._AUTH_TOKEN`, `..._ALLOWED_HOSTS` as a comma list, ...), all sinks off by default |
+| `WATCHER_OBSERVE_TOP_GROUPS`, `WATCHER_OBSERVE_{LOG,FILE,HTTP,PROMETHEUS}_*` | `observe.*`, one variable per key above (`..._ENABLED`, `..._PATH`, `..._URL`, `..._AUTH_TOKEN`, `..._ALLOWED_HOSTS` as a comma list, ...), every sink but `log` off by default |
 | `WATCHER_DIGEST_DRIVER` | `notify.digest.driver` (`none` is dashboard-only mode; leave `WATCHER_SLACK_WEBHOOK` unset then, because a webhook under `none` is rejected) |
 | `WATCHER_REPO_URL` | `repo.web_url` |
 

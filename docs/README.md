@@ -11,6 +11,7 @@ Back to the [project README](../README.md).
 | [kubernetes.md](kubernetes.md) | whoever used the removed pod-events source | Removed in 0.7.0, and what to use instead |
 | [observability.md](observability.md) | whoever builds the dashboard | sinks, the event schema, Loki and Prometheus queries, the shipped Grafana dashboard |
 | [privacy.md](privacy.md) | security / data-protection reviewers | approving what leaves the service |
+| [mcp.md](mcp.md) | whoever connects an assistant to watcher | the MCP server: setup mode, the tool groups, the actions rules, what is never returned |
 | [development.md](development.md) | contributors | running tests in parallel, coverage, badges, hooks, supported versions, CI |
 | [publishing.md](publishing.md) | maintainers | cutting a release and publishing to Packagist |
 | [repository-settings.md](repository-settings.md) | maintainers | checking the GitHub repository settings |

@@ -9,6 +9,7 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Watcher\Config\WatchConfig;
 use Watcher\Observe\EventSanitizer;
+use Watcher\Observe\EventSchema;
 use Watcher\Observe\FileSink;
 use Watcher\Observe\HttpSink;
 use Watcher\Observe\LogSink;
@@ -35,8 +36,16 @@ final class ObserveFactory
         if (!$o->anyEnabled()) {
             return null;
         }
+        // The log sink is on by default: a name it cannot carry skips it (the warning names no value), it never fails the run.
+        $logFits = EventSchema::namesFitEvents($c->service, $c->environment);
+        if ($o->log['enabled'] && !$logFits) {
+            $log?->warning('observe.log is not built: the service or environment name does not match the event pattern');
+            if (!$o->file['enabled'] && !$o->http['enabled'] && !$o->prometheus['enabled']) {
+                return null;
+            }
+        }
         $sinks = [];
-        if ($o->log['enabled']) {
+        if ($o->log['enabled'] && $logFits) {
             $stream = $logStream ?? fopen(self::logTarget($o->log['stream'], $stdoutToStderr), 'w');
             if ($stream !== false) {
                 $sinks['log'] = [new LogSink($stream), $o->log['include_text']];

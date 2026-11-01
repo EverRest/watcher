@@ -119,7 +119,7 @@ final class Heartbeat
      * Sends last ISO week's counts once (first call of the new week wins); false when nothing was sent. A week
      * with no reported/quiet/baselined/failed run sends nothing (the heartbeat alert covers that case).
      */
-    public function sendWeeklySummary(Notifier $notifier, Destination $to, NoticeRenderer $notices, string $environment): bool
+    public function sendWeeklySummary(Notifier $notifier, Destination $to, NoticeRenderer $notices, string $environment, ?int $runsPerDay = null): bool
     {
         $week = $this->now()->modify('-7 days')->format('o-\WW');
         $owner = null;
@@ -141,7 +141,7 @@ final class Heartbeat
                 'baselined' => (int) $counts['baselined'],
                 'failed' => (int) $counts['failed'],
                 'skipped' => (int) ($counts['skipped_done'] + $counts['skipped_locked']),
-            ]), $to);
+            ], $runsPerDay), $to);
 
             return true;
         } catch (Throwable $e) {
