@@ -74,6 +74,17 @@ final class NoticeRenderer
         return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
     }
 
+    /** Spec 018 US2: an out-of-turn line for a group that first appeared at selection.min_level or higher. Escaped like the digest; carries no log line. */
+    public function newGroup(string $service, string $environment, string $level, string $fingerprint, int $count, ?string $link): Message
+    {
+        $text = sprintf("🆕 new %s group in %s · %s\n%s× %s", $level, SlackText::escape($service), SlackText::escape($environment), number_format($count), SlackText::escape($fingerprint));
+        if ($link !== null) {
+            $text .= "\nlog: " . SlackText::escape($link);
+        }
+
+        return new Message(SlackText::plain($text), [['kind' => 'notice', 'text' => $text]]);
+    }
+
     /** Immediate alert from the host health check: the greppable prefix, then both versions. Versions go through reason() like any other host text. */
     public function versionChanged(string $service, string $environment, string $old, string $new, string $checkedAt): Message
     {

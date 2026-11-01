@@ -92,6 +92,8 @@ final class FleetHarness
 
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent']],
+            // Spec 018 out-of-turn alerts are off here, as in Harness: the fleet scenarios predate them.
+            'alerts' => ['new_groups' => false],
             'notify' => $name === 'bff-b' ? [] : ['digest' => ['webhook' => 'https://hooks.invalid/' . $name]],
         ], $this->servicePatches[$name] ?? []);
     }

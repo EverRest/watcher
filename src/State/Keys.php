@@ -143,6 +143,11 @@ final class Keys
         return self::join(self::ALERT, $service, $identity);
     }
 
+    public static function newGroupAlert(string $service, string $fingerprint): string
+    {
+        return self::join(self::ALERT, $service, 'new', $fingerprint);
+    }
+
     /** Consecutive windows in which the source returned nothing at all (A4-08). */
     public static function zeroRead(string $service): string
     {

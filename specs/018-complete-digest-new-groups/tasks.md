@@ -18,24 +18,24 @@ Order is TDD: each red test is written and seen to fail before its code. Gates r
 
 ## Phase 2: a new group is sent out of turn, once (spec US2)
 
-- [ ] T012 Red: `DayGate::allowsNow()` is true on an allowed day and false outside `notify.days`; `send` still drops as before.
-- [ ] T013 Green: add `DayGate::allowsNow()`; `send` uses it.
-- [ ] T014 Red: `NewGroupAlerts` sends one message for a new `error` group, and none for a new `warning` group when `min_level` is `error` (US2 scenario 3).
-- [ ] T015 Red: the same fingerprint seen in a second run sends nothing (SC-003).
-- [ ] T016 Red: a failed send writes no record, so the next run retries it (FR-006).
-- [ ] T017 Red: outside `notify.days` nothing is sent and nothing is written (FR-007).
-- [ ] T018 Red: with `alerts.new_groups: false` nothing is sent (FR-009).
-- [ ] T019 Green: `Keys::newGroupAlert()`, `NewGroupAlerts` class, `NoticeRenderer::newGroup()` (escaping as the digest, no log line; FR-008).
-- [ ] T020 Red: config key `alerts.new_groups` loads, defaults to `true`, rejects non-bool (catalog test).
-- [ ] T021 Green: `AlertsSection` and `CoreKeys` entry.
-- [ ] T022 Green: `Watcher::run` calls `NewGroupAlerts` after `Tier::select` and before the digest.
-- [ ] T023 Red: end-to-end — one run sends the out-of-turn message before the digest (order check via the recording notifier) (FR-004, FR-005, SC-002).
-- [ ] T024 Gates: test, stan, style, length exit 0; commit.
+- [x] T012 Red: `DayGate::allowsNow()` is true on an allowed day and false outside `notify.days`; `send` still drops as before.
+- [x] T013 Green: add `DayGate::allowsNow()`; `send` uses it.
+- [x] T014 Red: `NewGroupAlerts` sends one message for a new `error` group, and none for a new `warning` group when `min_level` is `error` (US2 scenario 3).
+- [x] T015 Red: the same fingerprint seen in a second run sends nothing (SC-003).
+- [x] T016 Red: a failed send writes no record, so the next run retries it (FR-006).
+- [x] T017 Red: outside `notify.days` nothing is sent and nothing is written (FR-007).
+- [x] T018 Red: with `alerts.new_groups: false` nothing is sent (FR-009).
+- [x] T019 Green: `Keys::newGroupAlert()`, `NewGroupAlerts` class, `NoticeRenderer::newGroup()` (escaping as the digest, no log line; FR-008).
+- [x] T020 Red: config key `alerts.new_groups` loads, defaults to `true`, rejects non-bool (catalog test).
+- [x] T021 Green: `AlertsSection` and `CoreKeys` entry.
+- [x] T022 Green: `Watcher::run` calls `NewGroupAlerts` after `Tier::select` and before the digest.
+- [x] T023 Red: end-to-end — one run sends the out-of-turn message before the digest (order check via the recording notifier) (FR-004, FR-005, SC-002).
+- [x] T024 Gates: test, stan, style, length exit 0; commit.
 
 ## Phase 3: docs
 
-- [ ] T025 `docs/configuration.md`: `alerts.new_groups`, and the digest parts behaviour.
-- [ ] T026 `docs/operations.md` or the digest docs: out-of-turn messages arrive in the run that reads the logs; faster needs `schedule.every`.
+- [x] T025 `docs/configuration.md`: `alerts.new_groups`, and the digest parts behaviour.
+- [x] T026 `docs/operations.md` or the digest docs: out-of-turn messages arrive in the run that reads the logs; faster needs `schedule.every`.
 - [ ] T027 Gates; commit.
 
 ## Not in this feature

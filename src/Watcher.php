@@ -10,6 +10,7 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Baseline\BaselineResolver;
 use Watcher\Alert\ImmediateAlerts;
+use Watcher\Alert\NewGroupAlerts;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\AnalysisResult;
@@ -127,6 +128,7 @@ final class Watcher
 
     /** The notifier for the digest and immediate alerts only: it drops them outside notify.days. Notices and probes use $notifier. */
     private readonly Notifier $dayGated;
+    private readonly ?DayGate $dayGate;
 
     /** The unwrapped store: a dry run reads the real "already done" record through it. */
     private readonly StateStore $realState;
@@ -209,6 +211,8 @@ final class Watcher
         }
         $this->notifier = $notifier;
         $this->dayGated = $this->options->dryRun ? $notifier : DayGate::wrap($notifier, $config->notify['days'], new \DateTimeZone($config->schedule['timezone'] ?? 'UTC'), $this->clock, $hostLog);
+        // Spec 018: the new-group alerts ask whether today is allowed before they send or store anything.
+        $this->dayGate = $this->options->dryRun || $config->notify['days'] === null ? null : new DayGate($notifier, $config->notify['days'], new \DateTimeZone($config->schedule['timezone'] ?? 'UTC'), $this->clock->now(...), $hostLog);
         $publisher = $sinks === null ? null : new RunPublisher($sinks, $config->observe, $this->clock, $this->options->dryRun ? null : $counters, $hostLog);
         $heartbeat = $this->options->dryRun || !$config->on('heartbeat') ? null : Factory::heartbeat($config, $state, $this->clock, $hostLog);
         $this->ledger = new RunLedger(config: $config, state: $state, clock: $this->clock, heartbeat: $heartbeat, notifier: $notifier, hostLog: $hostLog, publisher: $publisher, topGroups: $config->observe->topGroups);
@@ -960,6 +964,31 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
+        // Spec 018 US2: a new group is announced now, in this run, before the digest. Links need the redacted group, so they are built here.
+        $redacted = [];
+        foreach ($analysis->redacted as $g) {
+            $redacted[$g->fingerprint] = $g;
+        }
+        $logLinks = $c->on('links.logs') ? new LogLinkBuilder($c->links, $c->source['stream_tags']) : null;
+        (new NewGroupAlerts(
+            state: $this->state,
+            stateKey: $c->stateKey,
+            minLevel: $c->selection['min_level'],
+            retention: $c->state['retention'],
+            enabled: $c->alerts['new_groups'] && !$this->options->dryRun,
+            days: $this->dayGate,
+            send: fn (Message $m) => $this->dayGated->send($m, $this->noticeDestination()),
+            failed: function (DeliveryFailed $e) use ($service): void {
+                $this->hostLog?->warning('new group alert failed: ' . $this->notices()->describe($e), ['service' => $service]);
+            },
+            notices: $this->notices(),
+        ))->deliver(
+            $selection->candidates,
+            fn (string $fp): ?string => $logLinks !== null && isset($redacted[$fp]) ? $logLinks->forGroup($redacted[$fp], $window) : null,
+            $service,
+            $environment,
+            $this->clock->now(),
+        );
         Delivery::run(
             $c,
             $read,

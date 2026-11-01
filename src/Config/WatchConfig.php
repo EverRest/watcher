@@ -102,8 +102,8 @@ final class WatchConfig implements \JsonSerializable
         public readonly \Watcher\Incident\IncidentSettings $incident,
         /** @var array<string, mixed>|null the validated `api_context` section (spec 010), null when absent; not a feature flag */
         public readonly ?array $apiContext = null,
-        /** @var array{window: int, fields: list<string>, immediate: array<string, array{level: Level, message: ?string, action: ?string}>} alerts; window in seconds */
-        public readonly array $alerts = ['window' => 900, 'fields' => [], 'immediate' => []],
+        /** @var array{window: int, fields: list<string>, immediate: array<string, array{level: Level, message: ?string, action: ?string}>, new_groups: bool} alerts; window in seconds */
+        public readonly array $alerts = ['window' => 900, 'fields' => [], 'immediate' => [], 'new_groups' => true],
         /** The validated `probes` section, null when absent; not a feature flag (its own `enabled` is the switch). */
         public readonly ?ProbeSettings $probes = null,
     ) {
