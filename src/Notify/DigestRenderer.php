@@ -272,6 +272,14 @@ final class DigestRenderer
                 $c->requestedMode === 'weekday' ? $weekday . 's' : 'windows',
                 $c->found,
             );
+        } elseif ($c->reason === 'slot_missing' && $c->slotEnd !== null) {
+            $parts[] = sprintf('No snapshot for the same slot (%s); compared with the previous window instead.', $at($c->slotEnd));
+        } elseif (str_starts_with($c->usedMode, 'same_slot_') && $c->ends !== []) {
+            $parts[] = sprintf(
+                'Compared with the same slot %s (%s).',
+                $c->usedMode === 'same_slot_last_week' ? 'last week' : 'yesterday',
+                $at($c->ends[0]),
+            );
         } elseif ($c->usedMode !== 'previous' && $c->ends !== []) {
             $n = count($c->ends);
             $span = sprintf('(%s to %s)', $at($c->ends[0]), $at($c->ends[$n - 1]));

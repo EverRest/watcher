@@ -18,7 +18,8 @@ final class Comparison
      * @param array<string, float>               $values       fingerprint => comparison value, for fingerprints seen in a used snapshot
      * @param array<string, true>                $rare         fingerprints whose typical value is 0 but that were seen (value is then the maximum)
      * @param array{float, float}|null           $lengthChange [hours of an earlier window, hours of this one] when they differ
-     * @param string|null                        $reason       'short_history' when the requested mode had too little history
+     * @param string|null                        $reason       'short_history' or 'slot_missing' when the requested mode had too little history
+     * @param DateTimeImmutable|null             $slotEnd      the same-slot boundary that was looked for, when the reason is 'slot_missing'
      */
     public function __construct(
         public readonly string $requestedMode,
@@ -32,6 +33,7 @@ final class Comparison
         public readonly array $rare,
         public readonly float $growthFactor,
         public readonly ?array $lengthChange = null,
+        public readonly ?DateTimeImmutable $slotEnd = null,
     ) {
     }
 

@@ -44,11 +44,18 @@ final class BaselineResolver
         $found = 0;
         $excluded = 0;
 
+        $sameSlot = str_starts_with($mode, 'same_slot_');
+        $slotEnd = null;
         if ($mode !== 'previous') {
-            $step = $mode === 'weekday' ? 7 : max(1, (int) round($seconds / 86400));
-            $candidates = $this->baseline['windows'];
+            $step = match ($mode) {
+                'weekday', 'same_slot_last_week' => 7,
+                'same_slot_yesterday' => 1,
+                default => max(1, (int) round($seconds / 86400)),
+            };
+            $candidates = $sameSlot ? 1 : $this->baseline['windows'];
             for ($k = 1; $k <= $candidates; ++$k) {
                 $end = $this->gate->endBack($window->end, $k * $step);
+                $slotEnd ??= $end;
                 $local = $end->setTimezone($this->timezone)->format('Y-m-d');
                 if ($this->baseline['since'] !== null && $local < $this->baseline['since']) {
                     continue;
@@ -64,9 +71,14 @@ final class BaselineResolver
                 $used[] = [$end, $doc];
             }
             $found = count($used);
-            if ($found < ($mode === 'weekday' ? 3 : 2)) {
+            $needed = match ($mode) {
+                'weekday' => 3,
+                'same_slot_yesterday', 'same_slot_last_week' => 1,
+                default => 2,
+            };
+            if ($found < $needed) {
                 $used = [];
-                $reason = 'short_history';
+                $reason = $sameSlot ? 'slot_missing' : 'short_history';
             }
         }
 
@@ -125,6 +137,7 @@ final class BaselineResolver
             $rare,
             $this->growthFactor,
             $lengthChange,
+            $sameSlot ? $slotEnd : null,
         );
     }
 

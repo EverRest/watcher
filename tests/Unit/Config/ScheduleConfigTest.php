@@ -73,4 +73,24 @@ final class ScheduleConfigTest extends TestCase
             'schedule' => ['run_at' => ['06:00', '06:30']],
         ]));
     }
+
+    /** Spec 014 US8-1: the stale limit follows the period (1.5 x), not the trigger window. */
+    public function testHeartbeatStaleDefaultFollowsThePeriodNotTheWindow(): void
+    {
+        $c = WatchConfig::fromArray(array_replace_recursive(self::base(), [
+            'schedule' => ['every' => 'PT1H', 'window' => 'PT30M', 'run_at' => null],
+        ]));
+
+        self::assertSame(5400, $c->heartbeat['stale_after']);
+    }
+
+    /** Spec 014 contract: for a run_at list the stale limit is 1.5 x the longest gap. */
+    public function testHeartbeatStaleDefaultForARunAtListUsesTheLongestGap(): void
+    {
+        $c = WatchConfig::fromArray(array_replace_recursive(self::base(), [
+            'schedule' => ['run_at' => ['06:00', '18:00']],
+        ]));
+
+        self::assertSame(64800, $c->heartbeat['stale_after']); // longest gap 12 h
+    }
 }
