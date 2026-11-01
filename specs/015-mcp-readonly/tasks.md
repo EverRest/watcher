@@ -96,7 +96,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   unchanged; add a test that the extracted pure function (`CommandFilter::withhold(string): string`) is the one the
   validator calls. Extract the span-replacing logic into a small class and call it from both places (no second copy).
   Re-run T005. (FR-022, plan risk 3)
-- [ ] T018 [US1] **Touches `src/Config/WatchConfig.php`, `Factory.php`.** `tests/Unit/Config/McpConfigTest.php` (red):
+- [X] T018 [US1] **Touches `src/Config/WatchConfig.php`, `Factory.php`.** `tests/Unit/Mcp/McpConfigTest.php` (green; the section is read by `src/Mcp/McpSettings.php`, not `WatchConfig`, see its INTEGRATOR note) (red):
   `mcp.allow_dry_run` default false; strict boolean naming `mcp.allow_dry_run`; `WATCHER_MCP_ALLOW_DRY_RUN` via `Env`; any other `mcp` key
   rejected naming `mcp.<key>`; no secret in the section. Then the config and the factory path that builds the read-only
   store, `Spend`, `VerdictCache`, `Doctor` for the server. Rebase on the current files first. (FR-040)
@@ -165,7 +165,7 @@ Nothing else may edit these files in this spec. `src/Mcp/*` is new and owned by 
   in "What is stored", the injection limit (R2a, R2c) under "Limits you must know". `docs/configuration.md`: `mcp.allow_dry_run`
   row and env. `README.md`: spec table row 015, command list. `docs/roadmap.md`: row 015. `CHANGELOG.md`: entry under
   Unreleased. (Principle I: a change touching what leaves the service extends the privacy docs)
-- [ ] T031 [P] `docs/mcp.md` from `quickstart.md`: setup, one entry per service, store hardening, assistant profile advice
+- [X] T031 [P] `docs/mcp.md` from `quickstart.md` (written and checked against the code; the budget and cost text of this spec is superseded by spec 017, see the Dry run section): setup, one entry per service, store hardening, assistant profile advice
   (no shell/file tools or per-call approval), what the tools return, how to read `untrusted_data`, cost of the dry run.
 - [X] T032 End-to-end smoke (`tests/EndToEnd/McpProcessTest.php`): start `bin/watcher mcp` with `proc_open` and a fake
   config on a temp file store, send initialize/list/status, assert one JSON line per response, exit 0 on EOF, nothing on

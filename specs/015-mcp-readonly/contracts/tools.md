@@ -197,7 +197,7 @@ Without a code: `codes[]` of `{code, kind, severity}` (all registered, bounded).
 `watcher-docs://<path>` for the allowlist of FR-080 (`README.md`, `CHANGELOG.md`, `SECURITY.md`, `docs/README.md`,
 `docs/configuration.md`, `docs/operations.md`, `docs/privacy.md`, `docs/observability.md`, `docs/smoke-test.md`,
 `docs/mcp.md`, `docs/examples/orders-api.loki.config.php`, `docs/examples/smoke.config.php`, `docs/examples/watcher-fleet.php`,
-`docs/schema/watcher.event.v1.schema.json`, `config/watcher.example.php`, `config/watcher.php`). `resources/read` returns the
+`docs/schema/watcher.event.v2.schema.json`, `config/watcher.example.php`, `config/watcher.php`). `resources/read` returns the
 file's text unchanged (<= 512 KB). Not envelope-wrapped (the protocol shape is fixed) and not log-derived.
 
 ## Prompts (group docs)
