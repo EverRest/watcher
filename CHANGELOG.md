@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.0 — 2026-11-01 — Contract test for the host health snapshot
+
+- **New (test only):** `HealthSnapshotContractTest` reads a fixture in the exact shape the host writes under `m-seq:health`: one JSON object of `service => {success, version, checked_at}`, with `version` `null` for a service that reports none and `checked_at` in `+00:00` form. If the host changes that shape, the test fails in this repo first.
+- No runtime behaviour changes.
+
 ## 0.17.0 — 2026-11-01 — Complete digest and out-of-turn new-group alerts
 
 - **Behaviour change (spec 018):** the digest lists every group flagged at `selection.min_level` or higher. Groups the analysis did not look at (outside `selection.top_m`) get a line of their own, marked `not analysed`, with their log link. Below-threshold findings are listed as minor lines instead of only counted.
