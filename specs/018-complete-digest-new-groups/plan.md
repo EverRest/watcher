@@ -39,3 +39,7 @@
 - `Watcher.php` is 1596 lines, already over the length limit. New logic goes into a new class, and `Watcher` only calls it (2 to 3 lines each).
 - The number of digest parts is unbounded (approved). A very large window means many messages. Measure with a fixture of 500 groups before release.
 - Out-of-turn messages depend on the schedule: they arrive in the run that reads the logs (documented, not changed here).
+
+## Decision: part limits (2026-11-01, approved)
+
+`MessageSplitter::MAX_PARTS` (10, spec 011) and Slack's 50-block cap would hide digest groups with "… N more sections not shown". The owner chose to lift the limit **for the digest only**. The digest is therefore built as several `Message`s, each within 49 sections and about 3500 characters. Each Message is one Slack post and at most one or two Telegram/Discord posts, so no channel cap is reached. `MessageSplitter` and the other messages keep their current limits.

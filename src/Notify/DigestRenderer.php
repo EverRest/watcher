@@ -53,6 +53,61 @@ final class DigestRenderer
         );
     }
 
+    /** Spec 018: one part holds at most this many sections (Slack posts 50 blocks at most) and about this many characters (Telegram posts 4000). */
+    public const PART_SECTIONS = 49;
+    public const PART_CHARS = 3500;
+
+    /**
+     * Spec 018: every flagged group is listed, in as many messages as the digest needs; there is no cap on the number of parts.
+     *
+     * @return list<Message>
+     */
+    public function renderParts(DigestData $d, float $confidenceThreshold): array
+    {
+        $shown = [];
+        $minor = 0;
+        foreach ($d->findings as $i => $f) {
+            if (self::isMinor($f, $confidenceThreshold)) {
+                ++$minor;
+                continue;
+            }
+            $shown[] = ['f' => $f, 'n' => self::count($f, $d), 'i' => $i];
+        }
+        usort($shown, fn (array $a, array $b): int => [self::rank($b['f']->severity), $b['n'], $a['i']]
+            <=> [self::rank($a['f']->severity), $a['n'], $b['i']]);
+
+        $sections = DigestSections::build($d, $shown, $minor);
+        $header = array_shift($sections) ?? ['kind' => 'header', 'text' => ''];
+        $room = self::PART_CHARS - mb_strlen($header['text']);
+        $chunks = [];
+        $chunk = [];
+        $chars = 0;
+        foreach ($sections as $s) {
+            $len = mb_strlen($s['text']);
+            if ($chunk !== [] && (count($chunk) >= self::PART_SECTIONS - 2 || $chars + $len > $room)) {
+                $chunks[] = $chunk;
+                $chunk = [];
+                $chars = 0;
+            }
+            $chunk[] = $s;
+            $chars += $len;
+        }
+        $chunks[] = $chunk;
+
+        $counts = count($shown) . ' findings' . ($minor > 0 ? ", $minor minor" : '');
+        $n = count($chunks);
+        $messages = [];
+        foreach ($chunks as $i => $part) {
+            $title = $header['text'] . ($n > 1 ? sprintf(' · part %d/%d', $i + 1, $n) : '');
+            $messages[] = new Message(
+                SlackText::cap(SlackText::plain($title) . "\n" . $counts, self::MAX_TEXT_CHARS),
+                [['kind' => 'header', 'text' => $title], ...$part],
+            );
+        }
+
+        return $messages;
+    }
+
     public function renderBaseline(string $service, string $environment, int $groups, int $events): Message
     {
         $text = sprintf(

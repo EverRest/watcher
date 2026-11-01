@@ -4,16 +4,16 @@ Order is TDD: each red test is written and seen to fail before its code. Gates r
 
 ## Phase 1: the digest lists every flagged group (spec US1)
 
-- [ ] T001 Red: `DigestRendererTest` — 60 unanalysed candidates become 60 group lines across the parts, no duplicate, no missing fingerprint (SC-001).
-- [ ] T002 Red: a part that would exceed `MAX_SECTIONS` or `MAX_TEXT_CHARS` is split at a section boundary; every part is within both limits; a single group line is never cut (FR-002).
-- [ ] T003 Red: a single part gets no `part i/n` header; n > 1 gets `part 1/2`, `part 2/2`, … (FR-002).
+- [x] T001 Red: `DigestRendererTest` — 60 unanalysed candidates become 60 group lines across the parts, no duplicate, no missing fingerprint (SC-001).
+- [x] T002 Red: a part that would exceed `MAX_SECTIONS` or `MAX_TEXT_CHARS` is split at a section boundary; every part is within both limits; a single group line is never cut (FR-002).
+- [x] T003 Red: a single part gets no `part i/n` header; n > 1 gets `part 1/2`, `part 2/2`, … (FR-002).
 - [ ] T004 Red: a group below the confidence threshold is still listed as a minor line with its counts (User Story 1, scenario 3).
-- [ ] T005 Green: add `DigestData::unanalysedGroups`; `DigestSections` renders one line per entry, with count and log link, marked as not analysed (FR-001, FR-003).
-- [ ] T006 Green: `DigestRenderer::renderParts()`; `render()` delegates for the one-part case.
-- [ ] T007 Red: `Watcher` builds `unanalysedGroups` from `Selection::candidates` minus analysed fingerprints (test in the end-to-end suite with a 60-group window).
-- [ ] T008 Green: `Watcher::buildDigest` fills `unanalysedGroups`.
-- [ ] T009 Red: `Delivery` sends each part in order; a failed part is reported and the next parts still go out (Edge Cases).
-- [ ] T010 Green: `Delivery::run` loops over parts.
+- [x] T005 Green: add `DigestData::unanalysedGroups`; `DigestSections` renders one line per entry, with count and log link, marked as not analysed (FR-001, FR-003).
+- [x] T006 Green: `DigestRenderer::renderParts()`; `render()` delegates for the one-part case.
+- [x] T007 Red: `Watcher` builds `unanalysedGroups` from `Selection::candidates` minus analysed fingerprints (test in the end-to-end suite with a 60-group window).
+- [x] T008 Green: `Watcher::buildDigest` fills `unanalysedGroups`.
+- [x] T009 Red: `Delivery` sends each part in order; a failed part is reported and the next parts still go out (Edge Cases).
+- [x] T010 Green: `Delivery::run` loops over parts.
 - [ ] T011 Gates: test, stan, style, length exit 0; commit.
 
 ## Phase 2: a new group is sent out of turn, once (spec US2)

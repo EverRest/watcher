@@ -968,7 +968,8 @@ final class Watcher
             $this->state,
             $this->dayGated,
             $this->options,
-            function (array $findings, ?string $routedNotice, int $draftsSkipped) use ($read, $analysis, $selection, $environment): Message {
+            /** @return list<Message> */
+            function (array $findings, ?string $routedNotice, int $draftsSkipped) use ($read, $analysis, $selection, $environment): array {
                 return $this->buildDigest($read, $analysis, $selection, $environment, $findings, $routedNotice, $draftsSkipped);
             },
             $this->out,
@@ -981,7 +982,7 @@ final class Watcher
             $analysis->byFingerprint,
             self::DELIVERED_TTL,
             $this->clock->now(),
-            fn (Message $m): Message => $this->digestMessage($m, $keys),
+            fn (Message $m, int $k): Message => $this->digestMessage($m, $keys, $k),
         );
 
         $now = $this->clock->now()->format(DATE_ATOM);
@@ -1128,11 +1129,13 @@ final class Watcher
         }
     }
 
-    /** The digest message: findings, what was left out and why, links. */
     /**
+     * The digest, as its messages (spec 018: several when it is long): findings, what was left out and why, links.
+     *
      * @param list<\Watcher\Analyze\Finding>|null $findingsOverride
+     * @return list<Message>
      */
-    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment, ?array $findingsOverride = null, ?string $routedNotice = null, int $draftsSkipped = 0): Message
+    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment, ?array $findingsOverride = null, ?string $routedNotice = null, int $draftsSkipped = 0): array
     {
         $c = $this->config;
         $service = $c->service;
@@ -1169,7 +1172,22 @@ final class Watcher
         }
         $this->ledger->observation()->newAfterRelease = array_map('strval', array_keys($afterRelease));
 
-        return (new DigestRenderer())->render(new DigestData(
+        // Spec 018 US1: every flagged group that analysis did not look at gets its own line. Routed-away groups were analysed, so they are not listed here.
+        $analysed = [];
+        foreach ($routed->findings as $f) {
+            foreach ($f->fingerprints as $fp) {
+                $analysed[$fp] = true;
+            }
+        }
+        $unanalysed = [];
+        foreach ($selection->candidates as $candidate) {
+            $g = $candidate->group;
+            if (!isset($analysed[$g->fingerprint]) && $g->level->atLeast($c->selection['min_level'])) {
+                $unanalysed[] = ['fingerprint' => $g->fingerprint, 'level' => $g->level, 'count' => $g->count];
+            }
+        }
+
+        return (new DigestRenderer())->renderParts(new DigestData(
             service: $service,
             environment: $environment,
             windowStart: $window->start,
@@ -1198,6 +1216,7 @@ final class Watcher
             annotations: $annotations,
             comparison: $comparison,
             mining: $collector->mining(),
+            unanalysedGroups: $unanalysed,
             readDiagnostics: ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->ledger->stats()->oversizedLines > 0 ? ['oversized_lines' => $this->ledger->stats()->oversizedLines] : []) + ($this->ledger->stats()->unscannableEvents > 0 ? ['unscannable_events' => $this->ledger->stats()->unscannableEvents] : []),
             reusedGroups: $routed->reused,
             triageDropped: $routed->triageDropped,
@@ -1219,12 +1238,12 @@ final class Watcher
         ), $c->analysis['confidence_threshold']);
     }
 
-    private function digestMessage(Message $message, WindowKeys $keys): Message
+    private function digestMessage(Message $message, WindowKeys $keys, int $index): Message
     {
         if ($this->options->dryRun) {
             return $message;
         }
-        $partsKey = $keys->deliveredParts();
+        $partsKey = $keys->digestPartProgress($index);
         $skip = (int) ($this->state->get($partsKey)['n'] ?? 0);
 
         return new Message($message->text, $message->sections, new DeliveryProgress($skip, function (int $n) use ($partsKey): void {

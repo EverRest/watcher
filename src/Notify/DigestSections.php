@@ -59,6 +59,13 @@ final class DigestSections
             }
         }
 
+        if ($d->unanalysedGroups !== []) {
+            $out[] = ['kind' => 'severity', 'text' => sprintf('⚪ *not analysed* (%d)', count($d->unanalysedGroups))];
+            foreach ($d->unanalysedGroups as $g) {
+                $out[] = ['kind' => 'finding', 'text' => sprintf('• %s %s× %s', strtolower($g['level']->name), number_format($g['count']), $g['fingerprint']) . FindingLines::groupLinksLine($g['fingerprint'], $d)];
+            }
+        }
+
         if ($d->knownLine !== null && $d->knownLine !== '') {
             $out[] = ['kind' => 'minor', 'text' => $d->knownLine];
         }

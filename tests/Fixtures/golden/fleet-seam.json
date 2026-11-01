@@ -156,6 +156,9 @@
         "hbweek:fleet%2Fplatform:2026-W41:quiet": {
             "total": 1
         },
+        "sent:api:2026-10-09T06%3A00%3A00Z:p0": {
+            "at": "2026-10-09T06:00:00+00:00"
+        },
         "sent:api:2026-10-09T06%3A00%3A00Z": {
             "at": "2026-10-09T06:00:00+00:00"
         },
@@ -272,6 +275,7 @@
         "hbweek:api:2026-W41:baselined": 1123200,
         "hb:fleet%2Fplatform": 7776000,
         "hbweek:fleet%2Fplatform:2026-W41:quiet": 1123200,
+        "sent:api:2026-10-09T06%3A00%3A00Z:p0": 21600,
         "sent:api:2026-10-09T06%3A00%3A00Z": 21600,
         "verdict:api:ed1c1517d685": 2592000,
         "verdict:api:5384e0c68f57": 2592000,
