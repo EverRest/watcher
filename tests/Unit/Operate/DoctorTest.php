@@ -125,7 +125,7 @@ final class DoctorTest extends TestCase
     {
         $r = $this->doctor()->run();
 
-        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_keys(self::byName($r)));
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier', 'observe'], array_keys(self::byName($r)));
         self::assertTrue($r->ok());
         self::assertSame(0, $r->exitCode());
         self::assertSame([], $this->notifier->sent);

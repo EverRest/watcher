@@ -8,6 +8,7 @@ use Psr\Clock\ClockInterface;
 use Watcher\ApiContext\ApiContextReader;
 use Throwable;
 use Watcher\Config\WatchConfig;
+use Watcher\Observe\EventSchema;
 use Watcher\Issues\IssueSource;
 use Watcher\Metrics\MetricSource;
 use Watcher\Notify\Destination;
@@ -295,7 +296,11 @@ final class Doctor
         $ok = [];
         $bad = [];
         if ($o->log['enabled']) {
-            $ok[] = 'log ok';
+            if (EventSchema::namesFitEvents($this->config->service, $this->config->environment)) {
+                $ok[] = 'log ok';
+            } else {
+                $bad[] = 'log skipped: service or environment name does not match the event pattern';
+            }
         }
         if ($o->file['enabled']) {
             $dir = dirname($o->file['path']);

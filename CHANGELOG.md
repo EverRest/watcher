@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.0 — 2026-11-01 — Observe log sink on by default
+
+Behaviour change (spec 013 contract updated): `observe.log` is on by default (`WATCHER_OBSERVE_LOG_ENABLED` defaults to true), so every run writes one JSON line per event to stderr. The text of findings stays off (`observe.log.include_text` is still false). A service or environment name that does not match the event pattern no longer fails the load when only the log sink is on: the log sink is skipped and each run logs one warning that names no value, and `watcher check` reports the `observe` row as a failure (`log skipped`). File, http and prometheus sinks still refuse such a name at load. To keep the old silence, set `WATCHER_OBSERVE_LOG_ENABLED=0` or `observe.log.enabled => false`.
+
 ## 0.14.0 — 2026-10-31 — Health check: problems every hour, and a broken check is no longer silent
 
 - **New:** `health_check.problems_hourly` (default `true`). Every hour inside `summary_hours` on an allowed day a `HEALTH PROBLEMS` message lists the services that are DOWN or STALE, and nothing is sent when all are up. The full `HEALTH SUMMARY` still goes out once a day at `summary_at`.

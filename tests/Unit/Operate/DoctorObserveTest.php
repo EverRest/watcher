@@ -43,10 +43,10 @@ final class DoctorObserveTest extends TestCase
     }
 
     /** @param array<string, mixed> $observe */
-    private function config(array $observe, bool $none = false): WatchConfig
+    private function config(array $observe, bool $none = false, string $service = 'orders'): WatchConfig
     {
         return WatchConfig::fromArray([
-            'service' => 'orders',
+            'service' => $service,
             'enabled' => true,
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test'], 'stream_tags' => ['app' => 'orders']],
@@ -75,7 +75,15 @@ final class DoctorObserveTest extends TestCase
 
     public function testNoSinkAddsNoCheck(): void
     {
-        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_keys(self::byName($this->doctor($this->config([]))->run())));
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_keys(self::byName($this->doctor($this->config(['log' => ['enabled' => false]]))->run())));
+    }
+
+    public function testALogSkippedForItsNameIsAFailNotAGreenLogOk(): void
+    {
+        $by = self::byName($this->doctor($this->config(['log' => ['enabled' => true]], false, 'orders api'))->run());
+
+        self::assertSame('fail', $by['observe']->status);
+        self::assertSame('log skipped: service or environment name does not match the event pattern', $by['observe']->reason);
     }
 
     public function testEachEnabledSinkIsCheckedLocallyAndDriverNoneIsNamed(): void

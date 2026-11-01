@@ -40,6 +40,12 @@ final class ObserveSettings implements \JsonSerializable
         return $this->log['enabled'] || $this->file['enabled'] || $this->http['enabled'] || $this->prometheus['enabled'];
     }
 
+    /** Whether a sink will write events for these names. The log sink is on by default but skipped when its names cannot be carried. */
+    public function delivers(string $service, ?string $environment): bool
+    {
+        return $this->file['enabled'] || $this->http['enabled'] || $this->prometheus['enabled'] || ($this->log['enabled'] && EventSchema::namesFitEvents($service, $environment));
+    }
+
     /** The validated URL of the http sink, or null when none is configured. Only the sink factory should call this. */
     public function httpTarget(): ?HttpTarget
     {
@@ -102,7 +108,7 @@ final class ObserveSettings implements \JsonSerializable
 
         $l = $sink('log');
         self::only($l, ['enabled', 'stream', 'include_text'], 'observe.log');
-        $log = ['enabled' => self::bool($l, 'enabled', false, 'observe.log.enabled'), 'stream' => $l['stream'] ?? 'stderr', 'include_text' => self::bool($l, 'include_text', false, 'observe.log.include_text')];
+        $log = ['enabled' => self::bool($l, 'enabled', true, 'observe.log.enabled'), 'stream' => $l['stream'] ?? 'stderr', 'include_text' => self::bool($l, 'include_text', false, 'observe.log.include_text')];
         if (!in_array($log['stream'], ['stderr', 'stdout'], true)) {
             throw new InvalidConfig('observe.log.stream must be stderr or stdout');
         }
