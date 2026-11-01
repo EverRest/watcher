@@ -35,6 +35,12 @@ final class CheckResult
         return new self($name, 'skip', $reason);
     }
 
+    /** Shown, but does not fail the check (exit code stays 0). */
+    public static function warn(string $name, string $reason): self
+    {
+        return new self($name, 'warn', $reason);
+    }
+
     /** @return array{name: string, status: string, reason: string} */
     public function toArray(): array
     {

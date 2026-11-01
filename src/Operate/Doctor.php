@@ -71,6 +71,41 @@ final class Doctor
         return $self;
     }
 
+    /**
+     * Schedule shapes that run but read less, or more, than they should (spec 014). Warnings only: the check still passes.
+     *
+     * @return list<string>
+     */
+    private function scheduleWarnings(): array
+    {
+        $s = $this->config->schedule;
+        $period = (int) $s['period_seconds'];
+        $warnings = [];
+        if ($s['every'] !== null && is_string($s['window'])) {
+            $window = (new \DateTimeImmutable('@0'))->add(new \DateInterval($s['window']))->getTimestamp();
+            if ($window < $period) {
+                $warnings[] = sprintf('schedule.window (%s) is shorter than the period (%s): %d minutes of each period are not read.', self::iso($window), self::iso($period), intdiv($period - $window, 60));
+            } elseif ($window > $period) {
+                $warnings[] = sprintf('schedule.window (%s) is longer than the period (%s): windows overlap; each event is counted once (see operations.md).', self::iso($window), self::iso($period));
+            }
+        }
+        $cap = $this->config->analysis['max_runs_per_day'] ?? null;
+        if (is_int($cap) && $cap < (int) $s['runs_per_day']) {
+            $warnings[] = sprintf('analysis.max_runs_per_day (%d) is below the nominal runs per day (%d): the last runs of the day will be capped.', $cap, $s['runs_per_day']);
+        }
+        // catch_up 1 is the default, so it warns only where an outage gap is likely (several runs a day), not on every check.
+        if ((int) $s['catch_up'] === 1 && (int) $s['runs_per_day'] > 1) {
+            $warnings[] = 'schedule.catch_up is 1: an outage longer than one period leaves a gap, reported in the next digest.';
+        }
+
+        return $warnings;
+    }
+
+    private static function iso(int $seconds): string
+    {
+        return $seconds % 3600 === 0 ? 'PT' . intdiv($seconds, 3600) . 'H' : 'PT' . intdiv($seconds, 60) . 'M';
+    }
+
     /** The report when the config could not even be loaded: nothing else can be built, so the rest are skipped. */
     public static function configFailure(string $reason): CheckReport
     {
@@ -90,6 +125,10 @@ final class Doctor
             return new CheckReport([CheckResult::pass('config', 'disabled (enabled=false)'), ...array_map(static fn (string $n): CheckResult => CheckResult::skip($n, 'disabled'), array_slice(self::NAMES, 1))]);
         }
         $results = [CheckResult::pass('config')];
+        $schedule = $this->scheduleWarnings();
+        if ($schedule !== []) {
+            $results[] = CheckResult::warn('schedule', implode(' ', $schedule));
+        }
         $results[] = $this->guard('source', fn (): CheckResult => $this->source());
         [$auth, $models] = $this->provider();
         $results[] = $auth;
