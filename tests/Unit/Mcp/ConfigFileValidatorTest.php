@@ -128,11 +128,11 @@ final class ConfigFileValidatorTest extends TestCase
     {
         $lit = 'LITERAL' . 'SECRETVALUE0123';
         $code = str_replace("Env::string('WATCHER_SLACK_WEBHOOK')", "'https://hooks.slack.com/services/T0/B0/$lit'", $this->snippet());
-        $code = str_replace("Env::string('WATCHER_ANTHROPIC_KEY')", "'sk-$lit'", $code);
+        $code = str_replace("Env::string('WATCHER_GEMINI_KEY')", "'sk-$lit'", $code);
         $code = str_replace("'token' => Env::string('WATCHER_LOKI_TOKEN')", "'token' => '$lit'", $code);
         $d = $this->validate($this->write('secrets.php', $code));
         $codes = array_column(array_filter($d['problems'], static fn (array $p): bool => $p['code'] === 'plain_text_secret'), 'key');
-        self::assertEqualsCanonicalizing(['analysis.api_key', 'notify.digest.webhook', 'source.loki.auth.token'], $codes);
+        self::assertEqualsCanonicalizing(['analysis.api_keys.gemini', 'notify.digest.webhook', 'source.loki.auth.token'], $codes);
         self::assertFalse($d['valid']);
         self::assertStringNotContainsString($lit, json_encode($d) ?: '');
     }

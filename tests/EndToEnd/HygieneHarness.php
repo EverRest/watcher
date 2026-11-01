@@ -44,7 +44,7 @@ final class HygieneHarness
                 'stream_tags' => ['app' => 'svc', 'env' => 'stg'],
             ],
             'analysis' => [
-                'api_key' => 'k',
+                'api_keys' => ['gemini' => 'k'],
                 'models' => ['triage' => 'm-t', 'analyze' => 'm-a', 'escalate' => 'm-e'],
 
             ],

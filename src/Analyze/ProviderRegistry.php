@@ -16,7 +16,7 @@ final class ProviderRegistry
     }
 
     /** One provider for every step (tests and single-provider wiring). */
-    public static function single(ModelProvider $provider, string $name = 'anthropic'): self
+    public static function single(ModelProvider $provider, string $name = 'gemini'): self
     {
         return new self([$name => $provider], ['triage' => $name, 'analyze' => $name, 'escalate' => $name]);
     }

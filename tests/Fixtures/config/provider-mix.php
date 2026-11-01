@@ -6,7 +6,7 @@ use Watcher\Config\Env;
 
 /*
  * Mixed-provider config for the offline checks (specs/016-model-providers/quickstart.md, section 4): triage on Gemini, the
- * other steps on Anthropic. Keys come from the environment; the model ids and prices are placeholders, not real values.
+ * other steps on OpenAI. Keys come from the environment; the model ids are placeholders, not real values.
  */
 return [
     'enabled' => true,
@@ -18,10 +18,10 @@ return [
         'stream_tags' => ['app' => 'fixture-service'],
     ],
     'analysis' => [
-        'provider' => 'anthropic',
+        'provider' => 'openai',
         'providers' => ['triage' => 'gemini'],
         'api_keys' => [
-            'anthropic' => Env::string('WATCHER_ANTHROPIC_KEY'),
+            'openai' => Env::string('WATCHER_OPENAI_KEY'),
             'gemini' => Env::string('WATCHER_GEMINI_KEY'),
         ],
         'models' => ['triage' => 'placeholder-triage-model', 'analyze' => 'placeholder-analyze-model', 'escalate' => 'placeholder-escalate-model'],

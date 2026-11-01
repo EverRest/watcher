@@ -87,6 +87,13 @@ final class EventSchema
     ];
 
     /** Entries of list fields: field => pattern. */
+    /** Whether the event stream can carry these names: the sanitizer nulls any other, so a sink would lose them. */
+    public static function namesFitEvents(string $service, ?string $environment): bool
+    {
+        return preg_match(self::PATTERNS['service'], $service) === 1
+            && ($environment === null || preg_match(self::PATTERNS['environment'], $environment) === 1);
+    }
+
     public const LIST_PATTERNS = [
         'fingerprints' => self::FP,
         'watch_rules' => '/^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/D',

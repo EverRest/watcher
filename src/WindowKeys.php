@@ -56,6 +56,11 @@ final class WindowKeys
         return Keys::reported($this->stateKey, $fingerprint);
     }
 
+    public function finding(string $fingerprint): string
+    {
+        return Keys::finding($this->stateKey, $fingerprint);
+    }
+
     /** Marker that this window's digest reached the channel. */
     public function delivered(): string
     {

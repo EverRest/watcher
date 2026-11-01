@@ -47,13 +47,14 @@ final class MetricsSentryDryRunTest extends TestCase
         $events = Harness::events(Level::Error, 'Alpha service exploded badly', 5, 'AlphaException');
         $source = new FakeLogSource(Harness::totalsOf($events), $events);
         $config = WatchConfig::fromArray($h->config());
-        $make = function (?RunOptions $o, mixed $out = null) use ($h, $source, $config): Watcher {
+        $make = function (?RunOptions $o, mixed $out = null, ?FakeLogSource $log = null) use ($h, $source, $config): Watcher {
             $http = $this->http();
             $clock = new FrozenClock($h->clock->now());
 
-            return new Watcher($config, $source, $h->state, $h->analyzer, $h->notifier, $h->clock, null, $o, $out, metrics: new PrometheusSource($http, 'https://prom.invalid'), issues: new SentryIssueSource($http, 'https://sentry.io', 'acme', 'orders', 'tok-sentry-1234', clock: $clock));
+            return new Watcher($config, $log ?? $source, $h->state, $h->analyzer, $h->notifier, $h->clock, null, $o, $out, metrics: new PrometheusSource($http, 'https://prom.invalid'), issues: new SentryIssueSource($http, 'https://sentry.io', 'acme', 'orders', 'tok-sentry-1234', clock: $clock));
         };
-        $make(null)->run(); // the real baseline
+        $warning = Harness::events(Level::Warning, 'Alpha service exploded badly', 5, 'AlphaException'); // below Error: the baseline only records (FR-035)
+        $make(null, null, new FakeLogSource(Harness::totalsOf($warning), $warning))->run(); // the real baseline
         $h->nextWindow();
         $posted = count($h->notifier->sent);
         $stateBefore = serialize($h->state);

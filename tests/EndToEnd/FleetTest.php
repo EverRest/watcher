@@ -23,6 +23,16 @@ final class FleetTest extends TestCase
         return Harness::events(Level::Error, 'Alpha failed in a unique way', $n, 'Alpha');
     }
 
+    /**
+     * Warning only: a first run with an Error group now reports (FR-035), so baseline setups use this.
+     *
+     * @return list<\Watcher\Source\LogEvent>
+     */
+    private static function alphaWarning(int $n = 5): array
+    {
+        return Harness::events(Level::Warning, 'Alpha failed in a unique way', $n, 'Alpha');
+    }
+
     /** @param list<\Watcher\Source\LogEvent> $e */
     private static function source(array $e): FakeLogSource
     {
@@ -121,7 +131,7 @@ final class FleetTest extends TestCase
         $h = new FleetHarness();
         $h->crash['bff-a'] = new \RuntimeException('boom with secret hunter2');
         foreach (array_keys($h->sources) as $n) {
-            $h->logs($n, self::alpha());
+            $h->logs($n, self::alphaWarning());
         }
 
         $result = $h->runner()->run(null, RunOptions::default());
@@ -136,7 +146,7 @@ final class FleetTest extends TestCase
     {
         $h = new FleetHarness(['api', 'bff-a'], [], ['bff-a' => ['schedule' => ['run_at' => '07:00']]]);
         foreach (array_keys($h->sources) as $n) {
-            $h->logs($n, self::alpha());
+            $h->logs($n, self::alphaWarning());
         }
 
         $r = $h->runner()->run(null, RunOptions::default());
@@ -168,7 +178,7 @@ final class FleetTest extends TestCase
     {
         $h = new FleetHarness(fleetPatch: ['time_budget' => 'PT1S']);
         foreach (array_keys($h->sources) as $n) {
-            $h->logs($n, self::alpha());
+            $h->logs($n, self::alphaWarning());
         }
         $h->afterService = function (string $n) use ($h): void {
             $h->clock->advance('+5 seconds');
@@ -196,7 +206,7 @@ final class FleetTest extends TestCase
     {
         $h = new FleetHarness();
         foreach (array_keys($h->sources) as $n) {
-            $h->logs($n, self::alpha());
+            $h->logs($n, self::alphaWarning());
         }
 
         $r = $h->runner()->run(null, RunOptions::default(), ['bff-b']);
@@ -212,7 +222,7 @@ final class FleetTest extends TestCase
     {
         $h = new FleetHarness();
         foreach (array_keys($h->sources) as $n) {
-            $h->logs($n, self::alpha());
+            $h->logs($n, self::alphaWarning());
         }
         $h->runner()->run(null, RunOptions::default());
         $hb = $h->state->get(Keys::heartbeat('fleet/platform'));
@@ -222,6 +232,9 @@ final class FleetTest extends TestCase
         $failing = new FailingStateStore($h->state);
         $failing->failOn('put');
         $h->nextWindow();
+        foreach (array_keys($h->sources) as $n) {
+            $h->logs($n, self::alpha());
+        }
         $r = $h->runner($failing)->run(null, RunOptions::default());
 
         self::assertSame(0, $r->exitCode());

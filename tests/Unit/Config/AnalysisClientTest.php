@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Tests\Unit\Config;
 
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\AnthropicAnalyzer;
+use Watcher\Analyze\ProviderAnalyzer;
 use Watcher\Config\Factory;
 use Watcher\Config\InvalidConfig;
 use Watcher\Config\WatchConfig;
@@ -19,7 +19,7 @@ final class AnalysisClientTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki', 'auth' => ['type' => 'bearer', 'token' => 'tok-secret']]],
-            'analysis' => ['api_key' => 'sk-secret-key', 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
+            'analysis' => ['api_keys' => ['gemini' => 'sk-secret-key'], 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
                 ]
                 + ($client === null ? [] : ['client' => $client]),
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/w']],
@@ -38,7 +38,7 @@ final class AnalysisClientTest extends TestCase
     {
         $c = WatchConfig::fromArray(self::config('http'));
 
-        self::assertInstanceOf(AnthropicAnalyzer::class, Factory::analyzer($c));
+        self::assertInstanceOf(ProviderAnalyzer::class, Factory::analyzer($c));
     }
 
     public function testSdkIsRefusedAtConfigLoadNamingTheReplacement(): void
@@ -47,7 +47,7 @@ final class AnalysisClientTest extends TestCase
             WatchConfig::fromArray(self::config('sdk'));
             self::fail('expected InvalidConfig');
         } catch (InvalidConfig $e) {
-            self::assertSame('analysis.client is no longer a transport choice; the Anthropic transport is the official SDK. Delete the key.', $e->getMessage());
+            self::assertSame('analysis.client is no longer a transport choice; every provider uses the package HTTP client. Delete the key.', $e->getMessage());
         }
     }
 

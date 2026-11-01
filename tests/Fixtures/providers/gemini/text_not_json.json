@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "finishReason": "STOP",
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Sorry, here is some prose instead of JSON."
+          }
+        ]
+      }
+    }
+  ],
+  "modelVersion": "gemini-fixture-model",
+  "usageMetadata": {
+    "promptTokenCount": 100,
+    "candidatesTokenCount": 10,
+    "totalTokenCount": 110,
+    "cachedContentTokenCount": 0
+  }
+}

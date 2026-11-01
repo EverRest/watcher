@@ -74,7 +74,7 @@ final class PredisClientTest extends TestCase
             'service' => 'svc',
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.test', 'auth' => ['type' => 'bearer', 'token' => 't']]],
-            'analysis' => ['api_key' => 'k', 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
+            'analysis' => ['api_keys' => ['gemini' => 'k'], 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'], ],
             'state' => ['driver' => 'redis', 'redis' => ['client' => 'predis', 'password' => 'hunter2']],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/X']],
         ]);

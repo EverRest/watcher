@@ -27,13 +27,14 @@ final class DstTest extends TestCase
     public function testNoNewBaselineAcrossTheChange(array $days): void
     {
         $h = new Harness(['schedule' => ['run_at' => '06:00', 'timezone' => 'Europe/Kyiv']]);
+        // The first run is Warning-only: an Error first run now reports instead of baselining (FR-035).
         $events = Harness::events(Level::Error, 'Alpha service exploded badly', 5, 'AlphaException');
-        $source = new FakeLogSource(Harness::totalsOf($events), $events);
-
+        $baseline = Harness::events(Level::Warning, 'Alpha service exploded badly', 5, 'AlphaException');
         $outcomes = [];
-        foreach ($days as $day) {
+        foreach ($days as $i => $day) {
             $h->clock->set((new DateTimeImmutable("{$day} 06:10", new DateTimeZone('Europe/Kyiv'))));
-            $outcomes[] = $h->watcher($source)->run()->outcome;
+            $run = $i === 0 ? $baseline : $events;
+            $outcomes[] = $h->watcher(new FakeLogSource(Harness::totalsOf($run), $run))->run()->outcome;
         }
 
         self::assertSame(RunOutcome::Baselined, $outcomes[0]);

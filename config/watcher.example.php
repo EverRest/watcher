@@ -92,10 +92,10 @@ return [
     ],
 
     'analysis' => [
-        'provider' => 'anthropic',                       // only anthropic is available
+        'provider' => 'gemini',                          // openai or gemini
         'triage' => ['enabled' => Env::bool('WATCHER_TRIAGE_ENABLED', true)], // false: no triage call, candidates go straight to analysis (top_m still applies)
         'advice' => ['enabled' => Env::bool('WATCHER_ADVICE_ENABLED', true)], // false: no how_to_check / related_checks (fewer output tokens)
-        'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),    // required
+        'api_keys' => ['gemini' => getenv('WATCHER_GEMINI_KEY')], // required for the provider in use
         'models' => [                                    // required: one id per tier, no defaults in code
             'triage' => getenv('WATCHER_MODEL_TRIAGE'),
             'analyze' => getenv('WATCHER_MODEL_ANALYZE'),

@@ -16,7 +16,7 @@ Secrets and model ids are never defaults in code: they come from the environment
 
 The master switch `enabled` (`WATCHER_ENABLED`) defaults to **false**: set it to true (per environment) or `run` reports `disabled` and does nothing. See [Feature flags](#feature-flags-spec-012).
 
-`service`, `schedule.run_at`, `source.driver` with that driver's credentials, `analysis.api_key`,
+`service`, `schedule.run_at`, `source.driver` with that driver's credentials, `analysis.api_keys.<provider>`,
 `analysis.models.{triage,analyze,escalate}`, `state.driver` with its
 settings, `notify.digest.webhook`.
 
@@ -76,12 +76,11 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 
 | Key | Default | Notes |
 |---|---|---|
-| `analysis.provider` | `anthropic` | `anthropic`, `openai` or `gemini`: the provider of every step unless `analysis.providers` names another. |
-| `analysis.providers.{triage,analyze,escalate}` | `analysis.provider` | Optional per-step provider. Mix freely, e.g. triage on `gemini`, the rest on `anthropic`. |
-| `analysis.api_keys.{anthropic,openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key fails at load, naming the key path. |
-| `analysis.api_key` | required | The Anthropic key, kept for compatibility; same as `analysis.api_keys.anthropic`. |
-| `analysis.providers_options.{anthropic,openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` 0 to 3 for Anthropic (the SDK retries on its own); must be 0 for OpenAI and Gemini, which do not retry (the analyzer's second attempt is their retry). |
-| `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused: the Anthropic transport is the official SDK. Delete the key. |
+| `analysis.provider` | `gemini` | `openai` or `gemini`: the provider of every step unless `analysis.providers` names another. |
+| `analysis.providers.{triage,analyze,escalate}` | `analysis.provider` | Optional per-step provider. Mix freely, e.g. triage on `openai`, the rest on `gemini`. |
+| `analysis.api_keys.{openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key fails at load, naming the key path. |
+| `analysis.providers_options.{openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` 0 to 3: a transient failure (429, 500, 502, 503, 504, a timeout) is retried within the call timeout; a refusal or an invalid reply is not. |
+| `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused. Delete the key. |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |
 | `analysis.max_input_tokens` | triage 20000, analyze 30000, escalate 15000 | Per-step input limit; lowest-priority candidates are dropped first, with a note in the digest. The estimate (UTF-8 bytes / 3) includes the step's system prompt and the `service_context`, not only the groups. Enforced for `triage` (candidates), `analyze` (dependency context shrinks first) and `escalate`: an escalation sends the one finding's groups plus the dependency context that refers to them; over the limit, dependency context is trimmed first, then the groups' stack frames, and if it still does not fit the escalation is skipped (the first-pass finding is reported as it is; the digest says `N escalation(s) skipped`). |
 | `analysis.max_output_tokens` | triage 1500, analyze 4000, escalate 2000 | A floor, not a ceiling: triage uses `max(configured, 30 * groups + 500)` because the verdict list grows with the groups; analyze and escalate use `max(configured, 450 * groups + 300)` while `analysis.advice.enabled` is on (a finding with `how_to_check` and `related_checks` is about 450 output tokens at its text limits, so a full `top_m` of long findings is not cut off and retried). With advice off the configured value is used as it is. |
@@ -120,18 +119,17 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 | `notify.digest.chat_id` | required for telegram | Integer or `@channel` name; a supergroup id is negative. |
 | `notify.digest.thread_id` | none | Telegram forum topic id (positive integer). Discord has no equivalent. |
 | `notify.notice` | null | Separate destination (same shape, any driver) for failures and baseline messages; null uses the digest destination. |
+| `notify.days` | `null` | Days (`mon`..`sun`, in `schedule.timezone`) on which the digest and immediate alerts are sent; `null` = every day. Outside them a message is dropped, not queued. Example for working days only: `['mon','tue','wed','thu','fri']`. The run still reads and analyses on those days. Failure notices, probes and the heartbeat are not affected. |
 
 A key of another driver (`webhook` on a Telegram entry) is an error that names the key path, never the value. In a fleet
 file, a service's `notify.digest` or `notify.notice` **replaces** the fleet default as a whole (it is not merged key by
 key), and `digest: combined` needs a fleet `notify.digest` of any driver.
 
-### `kubernetes` and `events` (optional, spec 008)
+### Removed in 0.7.0: `kubernetes`, `events` and `source.driver: kubernetes`
 
-Pod events from the Kubernetes API as a second source. Setup, RBAC and limits: [kubernetes.md](kubernetes.md). `events` is
-`['driver' => 'kubernetes']`, beside `source`; settings live in `kubernetes`: `enabled` (flag, default true),
-`api` (`in_cluster`, or `server` + exactly one of `token` / `token_file` [+ `ca_file`], https, or http under `allow_insecure` for a trusted network; `token_file` is an absolute path read at call time so a rotated token works, a regular file of at most 16 KB that is not world-writable; `ca_file` is an absolute path to a readable, non-empty PEM bundle with at least one certificate; an unreadable token or CA is never used and never replaced by a weaker one: the read fails with the reason `credential unreadable`. That does **not** fail the run: the earlier hourly reads are replayed from the ledger with the note "latest read failed (credential unreadable)", and only a ledger that was never filled gives "Pod events were not read". Messages name the key, never the path; the token, or the current content of `token_file`, is masked everywhere like every other secret), `api.allow_insecure` (default false; the same rule as `source.loki.allow_insecure`: `server` must be `https`, plain `http` only for a loopback, private-network or cluster-local host and only with `allow_insecure: true`; a loopback server such as `kubectl proxy` also needs it; a metadata address is always refused), `namespaces` (required), `label_selector`, `involved_kinds`,
-`critical_reasons`, `min_repeat_for_probe_failures` (3), `event_cap` (5000), `tolerance` (120 s), `event_ttl` (3600 s),
-`ledger_ttl`, `allow` (`registries`, `images` kept in image text), `exporter` (true: warn in `check`).
+The Kubernetes event source (spec 008) is gone. A configuration that still has the top-level `kubernetes` section, the
+top-level `events` section or `source.driver: kubernetes` fails at load, and the message says to delete it. Read the events
+from your log backend instead, through `source.driver: loki` or `datadog`. See [kubernetes.md](kubernetes.md).
 
 ### `observe` (event sinks, spec 013)
 
@@ -205,6 +203,55 @@ Failures are one fixed word in the digest (`API context unavailable (<token>)`) 
 [--post-test] [--json]`, `bin/watcher status --config=<file> [--json]`, `bin/watcher state:get <key> --config=<file>`. `--estimate` requires `--dry-run`. See
 [operations](operations.md) for what each prints and its exit codes.
 
+### Health check
+
+`php artisan watcher:health` (Lumen/Laravel adapter only) reads the host app's health snapshot from the host's Redis, once per hour, and
+alerts at once when a service's version changes. It is separate from the daily run: no run gate, no digest. The host schedules it hourly
+(`$schedule->command('watcher:health')->hourly()`). The snapshot is one JSON object, `{"<service>": {"success": bool, "version": string|null,
+"checked_at": ISO-8601}}`. Only those four fields are stored, one copy per service, under `health:<watcher service>:<snapshot service>` in the watcher's Redis (prefix
+included). A `null` or `Version not defined` version is unknown and never alerts. The first time a service is seen, its copy is stored silently.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `health_check.enabled` | `false` | Off by default. The watcher's `enabled` (master switch) must be on as well. |
+| `health_check.source.host` | required | Redis host of the host app. |
+| `health_check.source.port` | `6379` | Redis port. |
+| `health_check.source.database` | `0` | Database index of the host app (read only). |
+| `health_check.source.username` | none | Redis ACL user, when the host app uses one. |
+| `health_check.source.password` | none | A secret: masked everywhere. |
+| `health_check.source.key` | required | Full raw key of the snapshot, for example `m-seq:health`. No watcher prefix is added. |
+| `health_check.ttl_days` | `14` | 1..365. A stored copy lives this long; every hourly write refreshes it. |
+| `health_check.notify_transitions` | `false` | Also alert once when a service flips between up and down. Never on every failing hour. |
+| `health_check.timezone` | `UTC` | IANA zone (for CET/CEST set `Europe/Berlin`) for `summary_at`, `summary_hours` and `summary_days`. Independent of `schedule.timezone`. |
+| `health_check.summary_at` | `09:00` | `HH:MM` in `health_check.timezone`, or `null` for no daily summary. Once a day a summary of every service (name, version, up/down, `checked_at`) is sent, even when nothing changed. Only the hour counts, because the check runs hourly. |
+| `health_check.summary_hours` | `09-18` | `HH-HH` working hours (start included, end excluded) the summary may be sent in; `null` = all day. |
+| `health_check.summary_days` | `['mon','tue','wed','thu','fri']` | Days health messages may be sent on (`mon`..`sun`), both the summary and the version and up/down alerts. Outside these days nothing is sent or stored; a change made on a weekend is sent on the first allowed day. `null` = every day. |
+| `health_check.problems_hourly` | `true` | Every hour inside `summary_hours` on an allowed day, a `HEALTH PROBLEMS` message lists only the services that are DOWN or STALE. Nothing is sent when all are up. In the `summary_at` hour the full summary is sent instead. A service that went down in this very run (with `notify_transitions`) is not listed again in the same hour. While a service stays down it is listed every working hour, so for a quieter channel set this to `false` and keep only the daily summary. |
+| `health_check.stale_after_hours` | `3` | `1`..`168`, or `null` to turn it off. A service whose `checked_at` is older than this, is not an ISO-8601 timestamp (`now` or `+1 day` do not count), or is more than an hour in the future is shown as `STALE`, even if its last status was up: the host stopped updating it. |
+
+A failed summary send is logged (`health: summary not sent`) and does not change the exit code or the version alerts.
+
+**When the check itself cannot tell anything.** A missing or unreadable snapshot, an unreachable Redis, or a snapshot without one valid service entry (including `{}`) sends `HEALTH CHECK BROKEN` with the reason at once, a reminder once every 24 hours while it lasts, and `HEALTH CHECK RECOVERED` once when it works again. A notice that fails to send is retried the next hour. This covers a broken source, not a watcher that does not run at all: if the host stops calling `watcher:health`, nothing can be sent, so watch the schedule from outside (for example a dead-man heartbeat).
+
+Alerts go through `notify.notice` (the digest destination when it is not set). A failed send keeps the old copy, so the next hour retries.
+A failed read or send exits this command with 1 and writes to the host log; the daily run and the digest are not affected.
+
+Example for m-seq (test11), in the watcher's configuration:
+
+```php
+'health_check' => [
+    'enabled' => true,
+    'source' => [
+        'host' => 'ew-redis',
+        'database' => 0,            // the m-seq app's Redis database, not the watcher's (3)
+        'password' => env('WATCHER_HEALTH_REDIS_PASSWORD'),
+        'key' => 'm-seq:health',
+    ],
+    'ttl_days' => 14,
+    'notify_transitions' => false,
+],
+```
+
 ### Fleet configuration
 
 A fleet file returns an array (or a directory: `_fleet.php` with the fleet keys, plus one `*.php` per service, loaded in
@@ -216,7 +263,7 @@ Validation covers the whole fleet before any call; the first error names the ent
 |---|---|---|
 | `fleet` | required | Name (`A-Za-z0-9._-`); part of the shared keys and messages. |
 | `services[]` | required | Entries. `priority` (int, default 0, higher first) and `provides` (names other services use for this one, default `[service]`) are fleet-only. Order: priority, then name, then dependencies first. Names must be unique and must not contain `/`. |
-| `defaults` | `[]` | Any single-service key, merged under every entry. `state` and `analysis.api_key` must end up identical in all entries. |
+| `defaults` | `[]` | Any single-service key, merged under every entry. `state` and `analysis.api_keys` must end up identical in all entries. |
 | `digest` | `per_service` | `per_service` posts each digest to the entry's `notify.digest`; `combined` posts one message to the fleet `notify.digest`. |
 | `notify` | `[]` | Fleet default destinations, merged under each entry's; also where the combined digest and the correlated finding go. |
 | `timezone` | `UTC` | Day boundary of the fleet counters. |
@@ -234,6 +281,43 @@ Commands: `bin/watcher fleet:run --config=<file|dir> [--now=<ISO-8601>] [--only=
 |---|---|---|
 | `heartbeat.stale_after` | 1.5 x `schedule.window` | ISO-8601 duration (> 0). `watcher status` reports `stale` and exits non-zero when the last reported/quiet/baselined run is older than this. |
 | `heartbeat.weekly_summary` | `false` | `true` sends one line per ISO week (service timezone) to the notice destination, from the first due run of the next week: counts of reported, quiet, baselined, failed and skipped runs. Nothing is sent for a week with no run. |
+
+### Immediate alerts
+
+Off by default. A log line that matches a rule is sent at once, not in the digest, to `notify.notice` (or `notify.digest`
+when that is unset), as a line that starts with `🚨 ALERT [critical] <service>: <message>`, then the context fields you
+allow in `alerts.fields`, the environment and the time. The alert is checked on every read of the window, using the same
+read as the digest, so it is only as early as the run that reads it. Source truncation (`source.event_cap`) can hide a
+line from the alert as well as from the digest. Mute entries do not suppress alerts. Repeats within one read become one
+message with `(×N)`. At most 5 alert messages go out per read; the rest are not recorded, so a later read sends them, and
+one line says how many were held back.
+
+| Key | Default | Notes |
+|---|---|---|
+| `alerts.enabled` | `false` | Master switch. Environment variable `WATCHER_ALERTS_ENABLED`. |
+| `alerts.window` | `PT15M` | ISO-8601 duration (> 0). At most one alert per rule, message and affected service per window. Kept in the state store as a hash, so it survives a restart. |
+| `alerts.fields` | `[]` | Context names an alert may show: any of `service`, `http_code`, `error`, `services`. Empty means no context values leave the service. Each listed value is masked: emails, tokens, URLs and numbers are replaced. `http_code` is kept only as three digits. `error` text is shown only for a group as large as `redaction.min_group_events_for_text`; `service` and `services` are identifiers and always shown, masked. |
+| `alerts.immediate` | `[]` | Map of `name => ['level' => 'critical', 'message' => '...', 'action' => '...']`. Every given condition must hold. `level` (default `critical`) is a minimum and accepts any level name; `message` is a plain, case-sensitive substring of the log message; `action` must equal the event's `action` field exactly. A rule with only `level` matches every line at that level. |
+
+The raw message is only matched in memory and never sent. The shown text is the rule's own `message` literal when it has one. Without a literal, the masked event text is shown only for a group as large as `redaction.min_group_events_for_text` (the digest's threshold); a smaller group shows `[withheld]`. Enabling `alerts.fields` sends masked field values to the
+notice destination, which `docs/privacy.md` does not yet describe: the owner must update that page before you enable it.
+
+Example for m-seq, whose health check logs `level: critical`, `message: "health check failed"` and a `context.service`
+per failed service. The `fields` line is optional and is the privacy decision above:
+
+```php
+'alerts' => [
+    'enabled' => true,
+    'window' => 'PT15M',
+    'fields' => ['service', 'http_code', 'error'],
+    'immediate' => [
+        'health-check' => ['level' => 'critical', 'message' => 'health check failed'],
+    ],
+],
+```
+
+A failed alert send is written to the host log (`immediate alert failed`) and does not fail the run or delay the digest.
+Its window is only recorded after a successful send, so the next read retries it.
 
 ### `baseline` and `grouping` (optional)
 
@@ -298,6 +382,39 @@ Sentry in RFC 1918 space (`10/8`, `172.16/12`, `192.168/16`) or a cluster-local 
 (cloud credentials), CGNAT, metadata and the reserved ranges stay refused whatever is allowed, in every numeric spelling; a ClusterIP in CGNAT or
 unique-local IPv6 space cannot be configured, use the service's `*.svc` name. Host names are not resolved to check them (a documented limit). Redirects
 are never followed; every call has a 60 s wall-clock budget and stops when the run deadline is reached.
+### `probes` (certificate and secret expiry)
+
+Deterministic checks, no model call, off by default (`probes.enabled`; the master `enabled` must also be true). They warn before a TLS certificate or a declared secret expires and alert through the notice destination.
+
+| Key | Default | Notes |
+|---|---|---|
+| `probes.enabled` (`WATCHER_PROBES_ENABLED`) | `false` | The section's own switch. Off: nothing is read, nothing is stored, nothing is sent; the section is still validated. |
+| `schedule.probe_every` (`WATCHER_PROBE_EVERY`) | `PT1H` | ISO-8601, at least `PT5M`. Probes run on the first run trigger after this interval has passed (a due key with the same TTL). A host that triggers the run less often, for example once a day with `run_at`, runs them that often. |
+| `probes.warn_days` (`WATCHER_PROBES_WARN_DAYS`) | `30` | Warn when at most this many days are left. |
+| `probes.fail_days` (`WATCHER_PROBES_FAIL_DAYS`) | `7` | Fail when at most this many days are left, or when already expired. Must be below `warn_days`. |
+| `probes.hosts` (`WATCHER_PROBES_HOSTS`) | `[]` | Host names. The TLS handshake on port 443 reads the leaf certificate's `validTo`. Verification is off so an expired certificate still yields its date. A host that cannot be reached is `unknown`: it never alerts and never changes the stored status. |
+| `probes.secrets` | `[]` | List of `['name' => 'DB_PASSWORD', 'expires' => '2027-01-31', 'owner' => 'team-x']`. A secret is valid through its `expires` day (UTC). Only the date is compared; no secret value, environment variable or credential file is read. Config file only. |
+
+Alerts: one short message per subject, when its status changes (a return to `ok` is announced too) or when a warning or failure still stands and its dedupe key has expired (24 hours). Messages name the subject and the days left, never a secret value, DSN, password or token.
+
+Limit: the stored status lives 24 hours. A warning or failure that stood with no run for more than 24 hours has lost its record, so its return to `ok` is not announced. Keep the run trigger at least as often as `probe_every` to avoid it.
+
+### `mcp` (optional, read-only by default)
+
+The MCP server (`watcher mcp`, over stdio) reads from the same state. Only the groups named here are served.
+
+| Key | Default | Env | Notes |
+|---|---|---|---|
+| `mcp.groups` | `['inspect','onboarding','docs']` | `WATCHER_MCP_GROUPS` | Any of `inspect`, `onboarding`, `docs`, `actions`. `actions` is off unless named. |
+| `mcp.allow_dry_run` | `false` | `WATCHER_MCP_ALLOW_DRY_RUN` | Adds `watcher_dry_run`. |
+| `mcp.artisan` | none | `WATCHER_MCP_ARTISAN` | Absolute path to the artisan file. Required when `actions` is on; checked at startup. |
+
+With `actions` on, the tools `watcher_run_digest`, `watcher_health_check` and `watcher_test_message` run the artisan
+commands `watcher:fleet` or `watcher:run`, `watcher:health` and `watcher:check --post-test`. A sending action needs
+`confirm: true`; a digest is a dry run unless `dry_run: false`; `now` is for dry runs only. Each action runs at most once
+per 5 minutes per session and is logged as `watcher [audit] <tool> exit=<code>`. `confirm` is a flag the client sends,
+not a human approval.
+
 ## Log hygiene (spec 006)
 
 `hygiene` section; every key optional. `enabled` (default **false**, `WATCHER_HYGIENE_ENABLED` in the shipped configs) switches on the privacy, shape and proposal reports. Keys: `read_min_level` (`info`), `event_cap` (200000, more is sampled and said so), `max_line_length` (2000), `noisy_share` (0.20), `variable_distinct` (20), `repeat_days` (7), `growth_factor` (2.0), `min_history_days` (14), `mute_min_daily` (100), `watch_lead` (1800 s), `decline_days` (90), `spike_factor` (2.0), `max_seconds` (900, time budget of one pass), `site_allow_dirs` (`[]`, directory names such as `data` that are accepted below a `repo.path_map` root although the privacy report's deny list names them). `variable_distinct` must be at least 5. Invalid values fail at start naming `hygiene.<key>`. Contract: `specs/006-log-hygiene/contracts/config.md`. `allow_constant_labels` (false) lets a message that never varies keep its label and a watch proposal (it may be one person's name; the privacy floor of [privacy.md](privacy.md#log-hygiene-reports-spec-006) otherwise withholds it), `literal_min_sites` (5, at least 2): a literal word of a shown template must be common log vocabulary or seen at that many different sites in the pass, else it is shown as `<w>`.
@@ -323,6 +440,7 @@ environment variable NAME must be true or false`, naming the variable and never 
 
 | Flag | Config key | Environment variable | Default | When false |
 |---|---|---|---|---|
+| immediate alerts | `alerts.enabled` | `WATCHER_ALERTS_ENABLED` | false | `alerts.immediate` is not matched, no alert is sent and no alert window is stored |
 | master switch | `enabled` | `WATCHER_ENABLED` | **false** | `run` reads only this raw key first, **before validating anything**: only the boolean `true` turns the package on, so missing, `null`, `false`, `0`, `'0'`, `'false'`, `''`, `'yes'` or any other value is off (fail-safe; `check` still reports a non-boolean as invalid). With the switch off, `run` (also with `--dry-run`/`--estimate`) returns outcome `disabled` even on a broken or half-filled config (exit 0, `watcher: disabled (set enabled=true / WATCHER_ENABLED=1)` on stderr); the Disabled JSON summary still carries `service` and `environment` when they look like names; no source, state, model or notifier access, not even a heartbeat. The same short-circuit applies to every other entry point: `watcher check` / `Factory::doctor` (reports `disabled`; validates nothing, builds nothing), `watcher status` / heartbeat (no store read; validates nothing), `watcher hygiene` / `Hygiene::fromConfig`, fleet `FleetRunner::fromConfig` when the fleet switch is off, and MCP inspect tools (`watcher_status`, `watcher_latest_report`, `watcher_finding`, `watcher_hygiene_report`; `watcher_dry_run` is not offered). `check` reads the switch first too, so a broken config is reported `disabled` (exit 0), not invalid |
 | environment name | `environment` (optional string) | `WATCHER_ENVIRONMENT` | unset | not a flag: state keys become `<service>@<environment>`; shown in the digest header and the JSON summary (`environment`) |
 | heartbeat | `heartbeat.enabled` | `WATCHER_HEARTBEAT_ENABLED` | true | no liveness record, trigger record or weekly counter is written; `status` reports `disabled` |
@@ -390,7 +508,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_SOURCE` | `source.driver` |
 | `WATCHER_LOKI_URL*`, `WATCHER_LOKI_TOKEN*`, `WATCHER_LOKI_TENANT` | `source.loki.*` |
 | `WATCHER_DD_SITE`, `WATCHER_DD_API_KEY*`, `WATCHER_DD_APP_KEY*` | `source.datadog.*` |
-| `WATCHER_ANTHROPIC_KEY*` | `analysis.api_key` |
+| `WATCHER_GEMINI_KEY*` | `analysis.api_keys.gemini` |
 | `WATCHER_MODEL_TRIAGE*`, `WATCHER_MODEL_ANALYZE*`, `WATCHER_MODEL_ESCALATE*` | `analysis.models.*` |
 | `WATCHER_STATE`, `WATCHER_STATE_PATH` | `state.driver`, `state.file.path` |
 | `WATCHER_RUN_DEADLINE` | `schedule.run_deadline` (seconds; shipped `config/watcher.php` only) |

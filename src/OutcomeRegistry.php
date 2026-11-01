@@ -51,8 +51,6 @@ final class OutcomeRegistry
     public const CHECK_TEST = 'check_test';
     // counters of the JSON run summary
     public const STATE_UNREADABLE = 'state_unreadable';
-    // reserved by a spec that is not implemented yet
-    public const K8S_INGEST_FAILED = 'k8s_ingest_failed';
     // MCP errors
     public const STATE_UNAVAILABLE = 'state_unavailable';
     public const BUSY = 'busy';
@@ -104,7 +102,6 @@ final class OutcomeRegistry
         self::add($e, self::ANALYSIS_PARTIAL, 'event_code', 'warn', null, 'Some flagged groups were not analysed (`top_m` or an input limit).', 'More groups than `selection.top_m`, or the per-step input limit was reached.', ['The digest notice.'], ['Raise `selection.top_m` or the input limits if needed.'], [], $c('digest-notices-counts-only-never-raw-content'));
         self::add($e, self::CHECK_TEST, 'event_code', 'info', null, 'A test event sent by `watcher check --post-test`.', 'A deliberate test.', [], ['None.'], [], self::doc('docs/observability.md', '6-sinks-that-never-break-the-run'));
         self::add($e, self::STATE_UNREADABLE, 'counter', 'warn', null, 'The count of stored entries the run could not read in the JSON summary.', 'A shared store holds a value of the wrong shape, or the store was unreachable.', ['`watcher state:get` for the key.'], ['Repair or clear the offending entries.'], [self::STATE_UNAVAILABLE], self::doc('docs/observability.md', '8-the-run-summary-line-zero-dependencies'));
-        self::add($e, self::K8S_INGEST_FAILED, 'reason', 'error', 1, 'Reserved: Kubernetes ingest failed (`k8s_ingest_failed:<reason>`). Not emitted by this version.', 'Specified by spec 008; the code is registered so the documentation of that spec is already explainable.', [], ['See the documentation of spec 008 when it ships.'], [], self::doc('docs/operations.md', 'kubernetes-cronjob-any-language-of-host-app'), 'spec-008', true);
         $mcp = static fn (string $meaning, string $cause, string $fix, array $related = []): array => [$meaning, $cause, $fix, $related];
         foreach ([
             self::STATE_UNAVAILABLE => $mcp('The state store could not be read by the MCP server.', 'Store down, wrong credentials, or an unreadable file state directory.', 'Run `watcher check` and repair the state store.', [self::STATE_UNREADABLE]),
@@ -155,7 +152,4 @@ final class OutcomeRegistry
 
         return str_contains($code, ':') && ($all[$base]['family'] ?? false) ? $all[$base] : null;
     }
-
-    /** Codes that name a spec that is not implemented yet. */
-    public const RESERVED = [self::K8S_INGEST_FAILED => 'spec-008'];
 }

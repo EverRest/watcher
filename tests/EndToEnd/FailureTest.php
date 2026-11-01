@@ -37,10 +37,10 @@ final class FailureTest extends TestCase
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }
 
-    /** First window done, so the next run is a real one. */
+    /** First window done, so the next run is a real one. Below Error: a first run with Error groups now reports (FR-035). */
     private static function baselined(Harness $h): void
     {
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::source(Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha')))->run();
         $h->nextWindow();
     }
 
@@ -200,7 +200,7 @@ final class FailureTest extends TestCase
     public function testNoNoticeEverCarriesAKeyOrAWebhook(): void
     {
         $h = new Harness([
-            'analysis' => ['api_key' => self::API_KEY],
+            'analysis' => ['api_keys' => ['gemini' => self::API_KEY]],
             'notify' => ['digest' => ['webhook' => self::DIGEST_HOOK], 'notice' => ['driver' => 'slack', 'webhook' => self::NOTICE_HOOK]],
         ]);
         self::baselined($h);

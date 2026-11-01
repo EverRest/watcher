@@ -43,7 +43,8 @@ final class ErrorGroupLevelTest extends TestCase
     {
         $h = new Harness();
         $analyzer = new HostileAnswer(self::ANSWER, $verdict, $severity, $kind, $confidence);
-        self::runWindow($h, $analyzer, $h->notifier, Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha'));
+        // Warning baseline: an Error first run now reports (FR-035) and would count as a second digest below.
+        self::runWindow($h, $analyzer, $h->notifier, Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha'));
         $h->nextWindow();
         self::runWindow($h, $analyzer, $h->notifier, Harness::events(Level::Error, 'Alpha failed in a unique way', 9, 'Alpha'));
 

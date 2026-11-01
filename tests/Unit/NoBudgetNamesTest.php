@@ -23,11 +23,15 @@ final class NoBudgetNamesTest extends TestCase
         'src/Watcher.php' => ['budget'], // time_budget share of a fleet, the page budget note, the run deadline
         'src/Metrics/PrometheusSource.php' => ['budget'], // retryBudget, budgetSeconds: per-call wait limits
         'src/Issues/SentryIssueSource.php' => ['budget'], // retryBudget, budgetSeconds: per-call wait limits
-        'src/Notify/DigestRenderer.php' => ['budget'], // budgetExhausted: the clustering comparison cap was hit (a notice, no money)
+        'src/Notify/DigestSections.php' => ['budget'], // budgetExhausted: the clustering cap was hit and the grouping time budget notice (no money)
         'src/Schedule/RunGuard.php' => ['budget'], // the run time budget (deadline reason)
         'src/Config/Factory.php' => ['budget'], // SOURCE_BUDGET_SECONDS: the wall-clock limit of one source call
-        'src/Config/WatchConfig.php' => ['budget'], // grouping.memory_budget_mb
-        'src/Config/KeyCatalog.php' => ['budget'], // time_budget, service_time_budget, memory_budget_mb keys and their summaries
+        'src/Config/Build/SourceFactory.php' => ['budget'], // budgetSeconds: the wall-clock limit of one metrics or Sentry call
+        'src/Config/WatchConfig.php' => ['budget'], // grouping.memory_budget_mb (the constructor's shape)
+        'src/Config/Section/GroupingSection.php' => ['budget'], // grouping.memory_budget_mb and its validation
+        'src/Config/Catalog/CoreKeys.php' => ['budget'], // summaries that name a time or size budget
+        'src/Config/Catalog/ObserveKeys.php' => ['budget'], // time_budget, service_time_budget, grouping.memory_budget_mb keys and their summaries
+        'src/Config/Catalog/IntegrationKeys.php' => ['budget'], // summaries that name a time or size budget
         'src/Fleet/FleetConfig.php' => ['budget'], // time_budget keys, and the removed-section check that reads the removed-keys table
         'src/Fleet/FleetRunner.php' => ['budget'],
         'src/Reduce/EventCollector.php' => ['budget'], // memory_budget_mb passed to the miner
@@ -37,8 +41,6 @@ final class NoBudgetNamesTest extends TestCase
         'src/Source/GuardedRequest.php' => ['budget'], // the per-call wall-clock budget of one source call
         'src/Source/LokiSource.php' => ['budget'], // page/time budget of one read
         'src/Source/DatadogSource.php' => ['budget'], // page/time budget of one read
-        'src/Source/Kubernetes/KubeApi.php' => ['budget'], // two-minute request budget of one ingest
-        'src/Source/Kubernetes/EventLedger.php' => ['budget'], // the state store's size and structure limits
         'src/Hygiene/Hygiene.php' => ['budget'], // hygiene time budget and the store's size limits
         'src/Hygiene/DayRecord.php' => ['budget'], // the store's size and structure limits
         'src/State/StateCodec.php' => ['budget'], // the state value size and structure limits
@@ -51,7 +53,6 @@ final class NoBudgetNamesTest extends TestCase
         'docs/configuration.md' => ['budget'], // time_budget, service_time_budget, memory_budget_mb, max_seconds and clustering limits
         'docs/operations.md' => ['budget', 'spend'], // time/page budgets, clustering budget, store size budget; 'spend' only inside 'suspend' (CronJob)
         'docs/privacy.md' => ['budget'], // comparison budget of clustering
-        'docs/kubernetes.md' => ['budget'], // two-minute request budget and the store's codec budgets
         'docs/examples/watcher-fleet.php' => ['budget'], // time_budget key
     ];
 

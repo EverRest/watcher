@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "finishReason": "STOP",
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "{\"verdicts\":[{\"g\":\"fp-aaa\",\"v\":\"interesting\"}]}"
+          }
+        ]
+      }
+    }
+  ],
+  "modelVersion": "gemini-fixture-model",
+  "usageMetadata": {
+    "promptTokenCount": 300,
+    "candidatesTokenCount": 20,
+    "totalTokenCount": 320,
+    "cachedContentTokenCount": 50
+  }
+}

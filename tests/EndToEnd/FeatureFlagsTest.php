@@ -30,6 +30,16 @@ final class FeatureFlagsTest extends TestCase
         return Harness::events(Level::Error, 'Alpha failed in a unique way', $n, 'Alpha');
     }
 
+    /**
+     * Warning only: a first run with an Error group now reports (FR-035); these baselines must stay baselines.
+     *
+     * @return list<LogEvent>
+     */
+    private static function baselineAlpha(int $n = 5): array
+    {
+        return Harness::events(Level::Warning, 'Alpha failed in a unique way', $n, 'Alpha');
+    }
+
     /** @return list<LogEvent> */
     private static function beta(int $n = 5): array
     {
@@ -52,7 +62,7 @@ final class FeatureFlagsTest extends TestCase
     {
         $h = new Harness($patch);
         $h->state = $rec = new RecordingStateStore($h->state);
-        $h->watcher(self::src(self::alpha()))->run();
+        $h->watcher(self::src(self::baselineAlpha()))->run();
         $h->nextWindow();
         $rec->calls = [];
         $h->notifier->sent = [];
@@ -109,7 +119,7 @@ final class FeatureFlagsTest extends TestCase
         self::assertSame(RunOutcome::Reported, $r->outcome);
         foreach ($rec->calls as [, $key]) {
             self::assertStringNotContainsString('@', $key);
-            self::assertMatchesRegularExpression('/^(' . implode('|', [Keys::SNAP, Keys::LOCK, Keys::RUN, Keys::VERDICT, Keys::TRIAGE, Keys::REPORTED, Keys::HEARTBEAT, Keys::HIGH_WATER, Keys::WEEK, Keys::DELIVERED, Keys::ZERO, Keys::FAILNOTICE]) . '):/', $key);
+            self::assertMatchesRegularExpression('/^(' . implode('|', [Keys::SNAP, Keys::LOCK, Keys::RUN, Keys::VERDICT, Keys::TRIAGE, Keys::REPORTED, Keys::FINDING, Keys::HEARTBEAT, Keys::HIGH_WATER, Keys::WEEK, Keys::DELIVERED, Keys::ZERO, Keys::FAILNOTICE]) . '):/', $key);
         }
         self::assertStringContainsString('Beta', self::digest($h) . json_encode($h->analyzer->requests, JSON_PARTIAL_OUTPUT_ON_ERROR));
     }
@@ -285,7 +295,7 @@ final class FeatureFlagsTest extends TestCase
         $texts = [];
         foreach ([true, false] as $on) {
             $h = new Harness(['grouping' => ['enabled' => $on], 'redaction' => ['min_group_events_for_text' => 1]]);
-            $h->watcher(self::src(self::alpha()))->run();
+            $h->watcher(self::src(self::baselineAlpha()))->run();
             $h->nextWindow();
             $h->watcher(self::src([...self::alpha(), ...$events]))->run();
             $texts[(int) $on] = json_encode($h->analyzer->triageRequests[0]->groups, JSON_PARTIAL_OUTPUT_ON_ERROR);
@@ -314,7 +324,7 @@ final class FeatureFlagsTest extends TestCase
     {
         $h = new Harness(['notify' => ['notice' => ['enabled' => false]], 'heartbeat' => ['weekly_summary' => true]]);
         $h->state = $rec = new RecordingStateStore($h->state);
-        $r = $h->watcher(self::src(self::alpha()))->run();
+        $r = $h->watcher(self::src(self::baselineAlpha()))->run();
 
         self::assertSame(RunOutcome::Baselined, $r->outcome);
         self::assertSame(0, $h->notifier->attempts);

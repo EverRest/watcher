@@ -12,7 +12,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use GuzzleHttp\ClientInterface;
 use Watcher\Analyze\AnalyzerFailed;
-use Watcher\Analyze\AnthropicSdkProvider;
 use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\ModelProvider;
 use Watcher\Analyze\ModelReply;
@@ -31,7 +30,6 @@ final class ModelProviderContractTest extends TestCase
     public static function providers(): array
     {
         return [
-            'anthropic' => ['anthropic', static fn (ClientInterface $h): ModelProvider => new AnthropicSdkProvider($h, self::KEY, self::BASE, 60, 0), 'claude-fixture-model-1', 'anthropic'],
             'openai' => ['openai', static fn (ClientInterface $h): ModelProvider => new OpenAiProvider($h, self::KEY, self::BASE, 60, 0), 'gpt-fixture-model', 'openai'],
             'gemini' => ['gemini', static fn (ClientInterface $h): ModelProvider => new GeminiProvider($h, self::KEY, self::BASE, 60, 0), 'gemini-fixture-model', 'gemini'],
         ];
@@ -45,7 +43,7 @@ final class ModelProviderContractTest extends TestCase
         self::assertInstanceOf(ModelReply::class, $reply);
         self::assertNotNull($reply->text);
         self::assertSame('end', $reply->stopReason);
-        // Anthropic reports input_tokens without the cached part; OpenAI and Gemini count the cached part inside the prompt.
+        // OpenAI and Gemini count the cached part inside the prompt.
         self::assertStringContainsString($model, $reply->model);
     }
 

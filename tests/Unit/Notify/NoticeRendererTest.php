@@ -119,6 +119,40 @@ final class NoticeRendererTest extends TestCase
         self::assertStringContainsString('reported 0, quiet 0, baselined 0, failed 0, skipped 0', $m->text);
     }
 
+    public function testHealthSummaryListsEveryServiceWithVersionStatusAndCheckTime(): void
+    {
+        $m = (new NoticeRenderer())->healthSummary('a<b>', 'test11', [
+            ['name' => 'orders', 'version' => '1.2.0', 'success' => true, 'checked_at' => '2026-10-29T09:00:00+00:00'],
+            ['name' => 'crm', 'version' => null, 'success' => false, 'checked_at' => '2026-10-29T08:59:00+00:00'],
+        ]);
+
+        self::assertStringStartsWith('📋 HEALTH SUMMARY a&lt;b&gt; · test11', $m->text);
+        self::assertStringContainsString("\norders · 1.2.0 · UP · checked 2026-10-29T09:00:00+00:00", $m->text);
+        self::assertStringContainsString("\ncrm · unknown · DOWN · checked 2026-10-29T08:59:00+00:00", $m->text);
+        self::assertSame($m->text, $m->sections[0]['text']);
+    }
+
+    public function testHealthBrokenRecoveredAndProblemsNotices(): void
+    {
+        $r = new NoticeRenderer();
+
+        self::assertSame('⚠️ HEALTH CHECK BROKEN svc · stg — health snapshot is missing', $r->healthBroken('svc', 'stg', 'health snapshot is missing', false)->text);
+        self::assertStringContainsString('still broken', $r->healthBroken('svc', 'stg', 'x', true)->text);
+        self::assertSame('✅ HEALTH CHECK RECOVERED svc · stg', $r->healthRecovered('svc', 'stg')->text);
+
+        $m = $r->healthProblems('svc', 'stg', [['name' => 'crm', 'version' => '2.0', 'success' => true, 'checked_at' => 'T', 'stale' => true]]);
+        self::assertStringStartsWith('⚠️ HEALTH PROBLEMS svc · stg', $m->text);
+        self::assertStringContainsString("\ncrm · 2.0 · STALE · checked T", $m->text);
+    }
+
+    public function testBrokenReasonIsMasked(): void
+    {
+        $text = (new NoticeRenderer(['hunter2-secret-value']))->healthBroken('svc', 'stg', 'failed password=abc hunter2-secret-value', false)->text;
+
+        self::assertStringNotContainsString('hunter2-secret-value', $text);
+        self::assertStringNotContainsString('abc', $text);
+    }
+
     public function testDescribeIsTheClassNameAndAMaskedMessage(): void
     {
         $r = new NoticeRenderer(['hunter2-secret-value']);

@@ -29,6 +29,14 @@ final class DryRunTest extends TestCase
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }
 
+    /** The first window of a harness: below Error, so it only records a baseline (FR-035). */
+    private static function baselineSource(): FakeLogSource
+    {
+        $events = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
+
+        return new FakeLogSource(Harness::totalsOf($events), $events);
+    }
+
     /**
      * A harness whose first window is baselined, standing at the second window with a spy on the store.
      *
@@ -39,7 +47,7 @@ final class DryRunTest extends TestCase
     private function ready(array $patch = []): array
     {
         $h = new Harness(array_replace_recursive(self::AT_SIX, $patch));
-        $h->watcher(self::source(5))->run();
+        $h->watcher(self::baselineSource())->run();
         $h->nextWindow();
         $h->state = $spy = new RecordingStateStore($h->state);
 
@@ -115,10 +123,10 @@ final class DryRunTest extends TestCase
         self::assertSame(RunOutcome::Quiet, $this->dry($h, new FakeLogSource([], []))->outcome);
         self::assertSame([], $spy->writes());
 
-        // baselined: nothing in the store yet
+        // first run with an Error group: reported, not baselined (FR-035), yet a dry run still writes nothing
         $fresh = new Harness(self::AT_SIX);
         $fresh->state = $spy = new RecordingStateStore($fresh->state);
-        self::assertSame(RunOutcome::Baselined, $this->dry($fresh, self::source())->outcome);
+        self::assertSame(RunOutcome::Reported, $this->dry($fresh, self::source())->outcome);
         self::assertSame([], $spy->writes());
         self::assertCount(0, $fresh->notifier->sent);
 

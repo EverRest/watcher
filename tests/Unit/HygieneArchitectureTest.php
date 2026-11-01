@@ -47,8 +47,8 @@ final class HygieneArchitectureTest extends TestCase
 
     public function testNoCodeReachesAModelProviderOrAnHttpClient(): void
     {
-        self::assertSame([], self::grep('/^use (Anthropic|GuzzleHttp|Psr\\\\Http)/'));
-        self::assertSame([], self::grep('/AnthropicAnalyzer|->triage\(|->analyze\(/'));
+        self::assertSame([], self::grep('/^use (GuzzleHttp|Psr\\\\Http)/'));
+        self::assertSame([], self::grep('/ProviderAnalyzer|->triage\(|->analyze\(/'));
     }
 
     public function testTheRunPathIsNotInvolvedExceptThroughItsStaticKeys(): void

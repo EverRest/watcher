@@ -16,7 +16,7 @@ final class PromptCatalog implements DocsEndpoint
     private const SOURCES = ['loki', 'datadog'];
     private const NOTIFIERS = ['slack', 'telegram', 'discord'];
     private const STATES = ['file', 'pdo', 'redis'];
-    private const WHICH = ['slack', 'telegram', 'discord', 'loki', 'datadog', 'anthropic', 'redis', 'pdo'];
+    private const WHICH = ['slack', 'telegram', 'discord', 'loki', 'datadog', 'gemini', 'openai', 'redis', 'pdo'];
 
     /** @var array<string, array{description: string, args: array<string, array{values: list<string>, default: string|null}>, tools: list<string>}> */
     private const PROMPTS = [

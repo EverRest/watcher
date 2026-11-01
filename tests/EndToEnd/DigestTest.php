@@ -22,6 +22,16 @@ final class DigestTest extends TestCase
         return Harness::events(Level::Error, 'Alpha service exploded badly', $n, 'AlphaException');
     }
 
+    /**
+     * Warning only: a first run with an Error group now reports (FR-035), which these tests do not cover.
+     *
+     * @return list<\Watcher\Source\LogEvent>
+     */
+    private static function alphaWarning(int $n = 5): array
+    {
+        return Harness::events(Level::Warning, 'Alpha service exploded badly', $n, 'AlphaException');
+    }
+
     /** @return list<\Watcher\Source\LogEvent> */
     private static function beta(int $n): array
     {
@@ -41,7 +51,7 @@ final class DigestTest extends TestCase
     {
         $h = new Harness();
         // Totals jumped, but there is no previous snapshot: no second pass (FR-035).
-        $source = self::source(self::alpha(5), ['error' => 5, 'info' => 6000]);
+        $source = self::source(self::alphaWarning(5), ['error' => 5, 'info' => 6000]);
 
         $result = $h->watcher($source)->run();
 
@@ -55,7 +65,7 @@ final class DigestTest extends TestCase
     public function testScenario0LevelAnomalyRunsASecondCappedPassForThatLevelOnly(): void
     {
         $h = new Harness();
-        $h->watcher(self::source(self::alpha(), ['error' => 5, 'info' => 1000]))->run();
+        $h->watcher(self::source(self::alphaWarning(), ['error' => 5, 'info' => 1000]))->run();
         $h->nextWindow();
 
         $info = Harness::events(Level::Info, 'Cache warmed up again', 4);
@@ -77,7 +87,7 @@ final class DigestTest extends TestCase
     public function testScenario2NewErrorGroupIsReportedWithFingerprintAndHypothesis(): void
     {
         $h = new Harness();
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::source(self::alphaWarning()))->run();
         $h->nextWindow();
 
         $result = $h->watcher(self::source([...self::alpha(), ...self::beta(2)]))->run();
@@ -90,20 +100,22 @@ final class DigestTest extends TestCase
         self::assertCount(1, $h->analyzer->requests);
     }
 
-    public function testScenario3SameInputNextWindowIsQuietWithNoAnalysisAndNoMessage(): void
+    public function testScenario3SameInputNextWindowRepeatsStoredFindingWithNoAnalysis(): void
     {
         $h = new Harness();
         $events = [...self::alpha(), ...self::beta(2)];
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::source(self::alphaWarning()))->run();
         $h->nextWindow();
         $h->watcher(self::source($events))->run();
         $h->nextWindow();
 
         $result = $h->watcher(self::source($events))->run();
 
-        self::assertSame(RunOutcome::Quiet, $result->outcome);
+        // Already reported and unchanged: the stored finding is sent again with no model call (FR-008 repeat).
+        self::assertSame(RunOutcome::Reported, $result->outcome);
         self::assertCount(1, $h->analyzer->requests);
-        self::assertCount(2, $h->notifier->sent);
+        self::assertCount(3, $h->notifier->sent);
+        self::assertStringContainsString(substr($this->fingerprintOf($h, 'BetaException'), 0, 12), $h->sentTexts()[2]);
     }
 
     public function testScenario4GroupGrowingFourfoldIsReportedAgainWithTrend(): void

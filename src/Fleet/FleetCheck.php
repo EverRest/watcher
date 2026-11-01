@@ -45,8 +45,6 @@ final class FleetCheck
             Factory::modelCatalog($e->config, $http),
             $notifier,
             $clock,
-            events: Factory::events($e->config, $http, $clock),
-            kubernetes: getenv('KUBERNETES_SERVICE_HOST') !== false && getenv('KUBERNETES_SERVICE_HOST') !== '',
             metrics: Factory::metricSource($e->config, $http),
             issues: Factory::issueSource($e->config, $http, $clock),
         ))->run($postTest));

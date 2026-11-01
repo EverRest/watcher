@@ -66,7 +66,7 @@ return [
     ],
 
     'analysis' => [
-        'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),
+        'api_keys' => ['gemini' => getenv('WATCHER_GEMINI_KEY')],
         'models' => [
             'triage' => getenv('WATCHER_MODEL_TRIAGE'),
             'analyze' => getenv('WATCHER_MODEL_ANALYZE'),

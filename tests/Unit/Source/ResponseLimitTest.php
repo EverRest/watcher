@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Watcher\Source\ResponseLimit;
 use Watcher\Source\SourceUnavailable;
 
-/** The streaming cap every backend gets from ResponseLimit::options() (Loki, Datadog, Kubernetes). */
+/** The streaming cap every backend gets from ResponseLimit::options() (Loki, Datadog). */
 final class ResponseLimitTest extends TestCase
 {
     public function testTheSinkRefusesTheWriteThatCrossesTheCapAndNamesTheCause(): void

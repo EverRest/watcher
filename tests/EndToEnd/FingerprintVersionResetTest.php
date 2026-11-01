@@ -18,8 +18,9 @@ final class FingerprintVersionResetTest extends TestCase
     public function testStaleFpVersionTriggersBaselineResetNotice(): void
     {
         $h = new Harness();
-        $events = Harness::events(Level::Error, 'Alpha service exploded badly', 5, 'AlphaException');
-        $source = static fn (int $n) => new FakeLogSource(Harness::totalsOf($events), Harness::events(Level::Error, 'Alpha service exploded badly', $n, 'AlphaException'));
+        // Warning only: a baseline run with an Error group now reports (FR-035), and this test is about the reset notice.
+        $events = Harness::events(Level::Warning, 'Alpha service exploded badly', 5, 'AlphaException');
+        $source = static fn (int $n) => new FakeLogSource(Harness::totalsOf($events), Harness::events(Level::Warning, 'Alpha service exploded badly', $n, 'AlphaException'));
 
         self::assertSame(RunOutcome::Baselined, $h->watcher($source(5))->run()->outcome);
         $h->nextWindow();

@@ -28,9 +28,9 @@ final class RunSummaryTest extends TestCase
 {
     private const AT_SIX = ['schedule' => ['run_at' => '06:00']];
 
-    private static function source(int $n = 9): FakeLogSource
+    private static function source(int $n = 9, Level $level = Level::Error): FakeLogSource
     {
-        $events = Harness::events(Level::Error, 'Alpha failed in a unique way', $n, 'Alpha');
+        $events = Harness::events($level, 'Alpha failed in a unique way', $n, 'Alpha');
 
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }
@@ -45,7 +45,7 @@ final class RunSummaryTest extends TestCase
     private static function ready(): Harness
     {
         $h = new Harness(self::AT_SIX);
-        $h->watcher(self::source(5))->run();
+        $h->watcher(self::source(5, Level::Warning))->run(); // a Warning baseline: an Error first run would post (FR-035)
         $h->nextWindow();
 
         return $h;
@@ -79,7 +79,7 @@ final class RunSummaryTest extends TestCase
     public function testBaselinedAndQuietRunsHaveSummariesWithZeroModelCalls(): void
     {
         $h = new Harness(self::AT_SIX);
-        $b = $h->watcher(self::source(5))->run();
+        $b = $h->watcher(self::source(5, Level::Warning))->run();
         self::assertSame(RunOutcome::Baselined, self::data($b)->outcome);
         self::assertSame(5, self::data($b)->stats?->eventsRead);
         self::assertSame(['triage' => 0, 'analyze' => 0, 'escalate' => 0], self::data($b)->stats->calls);

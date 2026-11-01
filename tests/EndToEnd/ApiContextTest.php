@@ -72,13 +72,14 @@ final class ApiContextTest extends TestCase
     {
         $config = WatchConfig::fromArray(array_replace_recursive($h->config(), $api === null ? [] : ['api_context' => $api]));
         $window = 0;
-        $make = function (?RunOptions $o) use (&$window, $events, $config, $h): Watcher {
-            $ev = $events instanceof \Closure ? $events($window) : $events;
+        $make = function (?RunOptions $o, ?array $ev = null) use (&$window, $events, $config, $h): Watcher {
+            $ev ??= $events instanceof \Closure ? $events($window) : $events;
 
-            return new Watcher($config, new FakeLogSource(Harness::totalsOf($ev), $ev), $h->state, $h->analyzer, $h->notifier, $h->clock, $h->hostLog, $o, static function (string $s): void {
+            return new Watcher($config, new FakeLogSource(Harness::totalsOf(array_values($ev)), array_values($ev)), $h->state, $h->analyzer, $h->notifier, $h->clock, $h->hostLog, $o, static function (string $s): void {
             }, apiContext: static fn (StateStore $s, Redactor $r): ?ApiContextReader => Factory::apiContextReader(config: $config, http: Factory::http(), state: $s, redactor: $r, clock: $h->clock));
         };
-        $make(null)->run(); // baseline window
+        // baseline window below Error (FR-035): the first Error window is then analysed like any other
+        $make(null, Harness::events(Level::Warning, 'baseline noise', 4, 'ApiException'))->run();
         $result = null;
         for ($i = 0; $i < $windows; ++$i) {
             ++$window;
@@ -281,8 +282,8 @@ final class ApiContextTest extends TestCase
         self::assertIsResource($stream);
         $wc = WatchConfig::fromArray(array_replace_recursive($h->config(), ['api_context' => ['source' => $file]]));
         $sinks = Factory::observe($wc, $h->clock, $log, new \Watcher\Observe\ObserveCounters($h->state, 'svc', 2592000), logStream: $stream);
-        $make = fn () => new Watcher($wc, new FakeLogSource(Harness::totalsOf($events), $events), $h->state, $h->analyzer, $h->notifier, $h->clock, $log, null, null, sinks: $sinks, counters: null, apiContext: static fn (StateStore $s, Redactor $r): ?ApiContextReader => Factory::apiContextReader(config: $wc, http: Factory::http(), state: $s, redactor: $r, clock: $h->clock));
-        $make()->run();
+        $make = fn (?array $ev = null) => new Watcher($wc, new FakeLogSource(Harness::totalsOf(array_values($ev ?? $events)), array_values($ev ?? $events)), $h->state, $h->analyzer, $h->notifier, $h->clock, $log, null, null, sinks: $sinks, counters: null, apiContext: static fn (StateStore $s, Redactor $r): ?ApiContextReader => Factory::apiContextReader(config: $wc, http: Factory::http(), state: $s, redactor: $r, clock: $h->clock));
+        $make(Harness::events(Level::Warning, 'baseline noise', 4, 'ApiException'))->run(); // baseline below Error (FR-035)
         $h->nextWindow();
         $result = $make()->run();
 

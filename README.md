@@ -8,41 +8,119 @@
 <!-- badges:end -->
 
 Scheduled, model-routed log analysis. Once per window (default 24 h) it reads one service's logs from
-Loki or Datadog (or its Kubernetes pod events), groups errors into fingerprinted clusters, decides in plain code which ones deserve
-attention, asks Anthropic models to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
+Loki or Datadog, groups errors into fingerprinted clusters, decides in plain code which ones deserve
+attention, asks the model provider (OpenAI or Gemini) to judge only those, and posts one digest to Slack, Telegram or Discord. It is read-only:
 it never acts on a service, opens tickets, or stores raw log lines.
 
-**Pipeline at a glance**
+## How it works
 
-```
-LogSource -> Reducer -> Redactor -> Selector -> Triage -> Analyze -> (Escalate) -> Dedupe -> Notifier
-(per env)    fingerprint  allowlist  anomaly     cheap     mid        strong       StateStore  Slack
-             + counters   + normalise rules(code) model     model      model, once
-             + vs yesterday
-   all steps share: StateStore (fingerprints, verdicts, run records, heartbeat)
+```mermaid
+flowchart LR
+  host["Host trigger<br/>cron, CronJob or Laravel schedule"] --> run["watcher run"]
+  run --> src[("Log backend<br/>Loki, Datadog or pod events")]
+  src --> red["Reduce<br/>fingerprint, counters,<br/>mute and watch rules"]
+  red --> sel{"Select<br/>deterministic, no model"}
+  sel -- "nothing qualifies" --> quiet["Zero model calls"]
+  sel --> tri["Triage<br/>cheap model, one batch"]
+  tri --> ana["Analyze<br/>mid model, top M"]
+  ana --> esc["Escalate<br/>strong model, once per finding"]
+  esc --> dd["Dedupe and digest"]
+  ana --> dd
+  dd --> out[("Slack, Telegram<br/>or Discord")]
+  red <-. "fingerprints, verdicts, run records" .-> st[("StateStore<br/>Redis, PDO or file")]
 ```
 
 Every feature has an on/off flag in the config and a `WATCHER_*` environment variable, so one package can run in int, prod and dev with different settings; the master switch `enabled` (`WATCHER_ENABLED`) defaults to off and `environment` (`WATCHER_ENVIRONMENT`) prefixes the state keys (see [docs/configuration.md](docs/configuration.md#feature-flags-spec-012) and [docs/operations.md](docs/operations.md#enabling-and-disabling-per-environment)). Redaction has no switch.
 
-Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label.
+Also: event sinks (`log`, `file`, `http`, Prometheus textfile) and a Grafana dashboard so results can be read without a chat channel (driver `none`; [docs/observability.md](docs/observability.md)), `check`, `status` and `run --dry-run` / `--json` for operating it, a heartbeat for staleness alerts, fleet mode for several services, baselines and similarity grouping to cut noise, and per-feature flags with an `environment` label. An hourly health check (`watcher:health`) reads a host app's health snapshot from its Redis and alerts at once when a service's version changes; it is off by default ([Host health check](#host-health-check)).
 
 Log hygiene (spec 006): `vendor/bin/watcher hygiene --config=...` reports which log call sites write personal data, which are noisy or badly shaped, which mute/watch rules the history justifies, from counts and masked templates only (see [docs/operations.md](docs/operations.md#log-hygiene-reports-spec-006) and [docs/privacy.md](docs/privacy.md#log-hygiene-reports-spec-006)).
 
 Several runs a day (spec 014): `schedule.every` (`PT1H` to `PT12H`) or a list of `schedule.run_at` times gives contiguous windows, a high-water mark so nothing is reported twice, catch-up of missed windows after an outage (`schedule.catch_up`).
 
-Kubernetes events (spec 008): `source.driver: kubernetes` reads pod-level problems (crash loops, OOM kills, image pull failures, probes, restarts) through an hourly ledger; see [docs/kubernetes.md](docs/kubernetes.md).
+Kubernetes events (spec 008) were removed in 0.7.0: the `kubernetes` and `events` sections and `source.driver: kubernetes` fail at load. Export cluster events to your log backend and read them through `loki` or `datadog`.
 
-Read-only MCP server (spec 015): `watcher mcp` over stdio lets an assistant read status, the latest report, one finding, the hygiene report and an optional confirmed dry run, and `--setup` helps to write and validate a first config. It never writes to a monitored system.
+Read-only MCP server (spec 015): `watcher mcp` over stdio lets an assistant read status, the latest report, one finding, the hygiene report and an optional confirmed dry run, and `--setup` helps to write and validate a first config. It never writes to a monitored system. The optional `actions` group (off unless named in `mcp.groups`) runs the digest, the health check and a test message with parameters: a sending action needs `confirm: true`, a digest is a dry run unless `dry_run: false`, and each action is rate limited and audited. See [docs/how-it-works.md](docs/how-it-works.md#run-it-by-hand-from-the-server-or-from-an-mcp-client).
 
 Master switch: when `enabled` is not the boolean `true` the package does nothing at all (no source, state, model or notifier access), in every entry point, even with a broken or partial config.
 
 Nothing new to report means zero model calls. The first run only records a baseline. Growth can be measured against the previous window (default), the average of the last N windows, or the median of the same weekday (`baseline.mode`).
 
+## At a glance
+
+| Area | Supported today |
+|---|---|
+| Log sources | Loki, Datadog, Kubernetes pod events (read-only queries only) |
+| Model providers | Anthropic, OpenAI, Gemini; each step (triage, analyze, escalate) can use a different one |
+| Notifications | Slack, Telegram, Discord, or `none`; event sinks for `log`, `file`, `http` and a Prometheus textfile ([observability](docs/observability.md)) |
+| State | Redis (default), any PDO database, or a file (single runner only) |
+| Schedule | Once at `schedule.run_at`, every `PT1H` to `PT12H`, or a list of times; catch-up after an outage |
+| Several services | One fleet file; each service keeps its own window, lock and digest; a consumer's finding can point at its origin |
+| Operations | `check`, `status`, `run --dry-run`, `state:get`, `hygiene`, a read-only MCP server with optional actions (run, health check, test message) |
+| Privacy | Allowlisted fields only, redaction in code, no raw line persisted; the model never chooses its input |
+| Unreleased | Certificate and secret expiry probes (`probes`), see [CHANGELOG](CHANGELOG.md) |
+
+## How a run works
+
+The host may trigger the command more often than once a window. Only the trigger inside the due hour does work; the others exit 0 and do nothing.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant H as Host trigger
+  participant W as watcher
+  participant S as StateStore
+  participant L as Log backend
+  participant M as Model provider
+  participant N as Notifier
+  H->>W: run
+  alt not due, or this window already has a run record
+    W-->>H: exit 0, nothing done
+  else due
+    W->>S: take lock
+    W->>L: read window (queries only)
+    W->>W: reduce, redact, select
+    opt candidates exist
+      W->>M: triage, analyze, escalate (allowlisted input)
+      M-->>W: findings, checked against the schema
+    end
+    W->>S: snapshot, run record, reported markers
+    W->>N: digest (only when something is reportable)
+    W-->>H: exit 0 (failure: exit 1 and a notice)
+  end
+```
+
+The first run of a service only records a baseline (`baselined`): it sends no analysis, and the next run compares against it.
+
+## Example digest
+
+Shortened from the golden test fixture (`tests/Fixtures/golden/`); a live digest will differ.
+
+```text
+🔎 svc · stg · 2026-10-08 06:00 → 2026-10-09 06:00 (UTC)
+2 findings
+
+🟠 error (1)
+• Problem <ID> — 5×  `922a8ce78cec`
+  Evidence: seen repeatedly; dependency payments shows 6 errors
+  Hypothesis: a dependency may be failing  Next: inspect the dependency
+
+🟡 warn (1)
+• Problem <ID> — 8× (new)  `9ab3237802d9`
+  Evidence: seen repeatedly; dependency payments shows 6 errors
+  Hypothesis: a dependency may be failing  Next: inspect the dependency
+
+1 muted
+📈 info ×6 vs previous window
+```
+
+Every hypothesis is labelled as one. A finding's level is never lowered by the model.
+
 ## Requirements
 
 - PHP ^8.2. Support matrix: CI tests PHP 8.2 to 8.5. PHP 8.2 security support ends in December 2026; use 8.3 or newer in production. PHP 8.1 support was dropped in 0.1.2.
 - Optional: `ext-redis` or `predis/predis` (Redis state, the default driver), `ext-zlib` (compresses large Redis values), `ext-pdo` plus a driver (PDO state).
-- A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an Anthropic API key, read-only credentials for Loki or Datadog.
+- A notification channel (Slack incoming webhook, Telegram bot token and chat id, or Discord webhook), an OpenAI or Gemini API key, read-only credentials for Loki or Datadog.
 - Laravel is optional (`illuminate/support`, `illuminate/console` ^10 or ^11; CI tests the oldest and the newest versions Composer resolves, on top of the locked set); the core has no framework dependency. Laravel 10 no longer receives security fixes upstream, prefer 11. Lumen is unmaintained upstream: the adapter has no Lumen-specific test, so treat Lumen as best effort.
 
 ## Installation
@@ -79,7 +157,7 @@ Laravel and Lumen: the service provider is auto-discovered (`extra.laravel.provi
 
    With `--json`, stdout is exactly one JSON line and every human line goes to stderr. A dry run never posts, writes
    state. Laravel/Lumen: `watcher:run {--now=} {--dry-run} {--estimate} {--json}`, `watcher:check
-   {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`.
+   {--post-test} {--json}`, `watcher:status {--json}`, `watcher:state-get {key}`, `watcher:health` (hourly host health check, see below).
 
 3. Lumen/Laravel: the service provider (`Watcher\Laravel\WatcherServiceProvider`) registers the
    `watcher:run` command and merges `config/watcher.php`, which reads `WATCHER_*` environment variables.
@@ -102,6 +180,7 @@ archive via `.gitattributes`; they remain in the repository.
 |---|---|
 | [docs/README.md](docs/README.md) | Index of every document in `docs/` |
 | [docs/smoke-test.md](docs/smoke-test.md) | First live run, step by step |
+| [docs/how-it-works.md](docs/how-it-works.md) | A map: where the watcher runs, where its configuration lives, what runs when, and the traps |
 | [docs/operations.md](docs/operations.md) | Running it: scheduling, alerting, dry run, heartbeat, fleet, troubleshooting |
 | [docs/configuration.md](docs/configuration.md) | Every key and environment variable, feature flags |
 | [docs/privacy.md](docs/privacy.md) | What leaves the service |
@@ -130,7 +209,7 @@ Development is spec-driven. Status is from [docs/roadmap.md](docs/roadmap.md) an
 | [005](specs/005-incident-workflow/spec.md) | Incident workflow | Phases 1–3 implemented (known issues, severity routing, ticket drafts); weekly report deferred |
 | [006](specs/006-log-hygiene/spec.md) | Log hygiene | Implemented |
 | [007](specs/007-code-aware-analysis/spec.md) | Code-aware analysis | Spec written, blocked on a constitution amendment |
-| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Implemented |
+| [008](specs/008-kubernetes-events/spec.md) | Kubernetes events | Removed in 0.7.0 |
 | [009](specs/009-metrics-and-sentry/spec.md) | Metrics and Sentry | Not released (branch `feat/metrics-e009-030`) |
 | [010](specs/010-api-context/spec.md) | API context | Implemented, off by default |
 | [011](specs/011-more-notifiers/spec.md) | More notifiers (Telegram, Discord) | Implemented |
@@ -148,8 +227,8 @@ The contract is `specs/001-scheduled-log-watch/contracts/configuration.md`.
 
 Configuration is validated once, before any network call. A bad value throws `InvalidConfig` naming the key
 (never the value), and the process exits with code 2. Unknown top-level keys are rejected.
-Required: `service`, `schedule.run_at`, a source driver with its credentials, `analysis.api_key`, all three
-`analysis.models`, a state driver with its settings, `notify.digest.webhook`.
+Required: `service`, `schedule.run_at`, a source driver with its credentials, a key for every provider the steps use
+(`analysis.api_keys`), all three `analysis.models`, a state driver with its settings, `notify.digest.webhook`.
 
 ## Log sources
 
@@ -181,6 +260,27 @@ is due from `schedule.run_at` (in `schedule.timezone`) for one hour; with `sched
 Inside it, a lock (`schedule.lock_ttl`) and a per-window run record make the run idempotent: a second trigger in the
 same window does nothing, and a failed run leaves no record so the next trigger retries.
 
+## Host health check
+
+`watcher:health` is separate from the daily run: no run gate and no digest. Once per hour it reads the host app's
+health snapshot from the host's Redis, one JSON object `{"<service>": {"success": bool, "version": string|null,
+"checked_at": ISO-8601}}`, and sends an immediate notice when a service's version changes. Once a day, at `health_check.summary_at`
+(09:00 by default), it also sends a summary of every service. Both go out only on `health_check.summary_days` (weekdays by
+default) and are judged in `health_check.timezone` (UTC by default; set `Europe/Berlin` for CET). Only those four fields are
+kept, one copy per service under `health:<watcher service>:<snapshot service>` in the watcher's Redis. A `null` or
+`Version not defined` version is unknown and never alerts; the first sighting stores silently. A failed read or send
+exits this command with 1 and writes to the host log; the daily run and the digest are not affected.
+
+Off by default. Enable it with `health_check.enabled` (the watcher's `enabled` must be on too); the host must schedule
+the command hourly:
+
+```php
+$schedule->command('watcher:health')->hourly();
+```
+
+Keys, the optional up/down transitions (`health_check.notify_transitions`) and the rest are in
+[docs/configuration.md](docs/configuration.md#health-check).
+
 ## Privacy
 
 Enforced in code, not by the model. The model never redacts and never chooses its own input.
@@ -195,9 +295,20 @@ Enforced in code, not by the model. The model never redacts and never chooses it
 - The model cannot lower an error-or-higher group: its findings are never shown below the group's level, and a cached verdict below that level is not reused (see `docs/privacy.md`).
 - No raw log line is persisted. Field values used by `watch_rules` and `mute` are matched in memory and dropped.
 
-What leaves the service: (1) to Anthropic, the compact payload above plus `service_context` (up to 1000 chars,
+What leaves the service: (1) to the model provider (OpenAI or Gemini), the compact payload above plus `service_context` (up to 1000 chars,
 written by you); (2) to the notification channel (Slack, Telegram or Discord), the digest (titles, evidence, hypotheses, counts, short fingerprints) and
 failure notices; (3) queries to your log backend. Nothing else is sent anywhere.
+
+```mermaid
+flowchart TB
+  raw["Raw log lines<br/>stay in the backend"] -->|read-only query| allow["Allowlist<br/>level, template, error type,<br/>5 frames, counts, timestamps"]
+  allow --> red["Redaction<br/>emails, ids, tokens, hosts become placeholders"]
+  red -->|a field that cannot be scanned is dropped| model["Model provider<br/>compact payload only"]
+  model --> scrub["Output scrubbed again<br/>before cache or display"]
+  scrub --> digest["Digest<br/>titles, evidence, counts, short fingerprints"]
+  digest --> chan["Notification channel"]
+  red -.->|groups under 3 events| text["No message text sent"]
+```
 
 ## Model calls
 
@@ -229,7 +340,7 @@ the lowest-priority groups and the digest says so.
 | 2 | Invalid configuration, bad arguments or bad `--now` (`--estimate` without `--dry-run`) |
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
-exits 0 when `ok`, 1 when `degraded` (the last run worked but the pod events could not be read), `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store).
+exits 0 when `ok`, 1 when `degraded`, `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store). No source sets `degraded` in 0.7.0.
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to
@@ -252,13 +363,13 @@ reference a service that has a new or grown finding in the same window, the cons
 `likely caused by the <origin> finding <fingerprint> (hypothesis)` and one additional message names the origin. It is
 decided in code from names, placeholders and times; it makes no model call and withholds nothing. See
 [docs/examples/watcher-fleet.php](docs/examples/watcher-fleet.php), [operations](docs/operations.md#fleet) and the
-[configuration reference](docs/configuration.md#fleet-configuration).
+[configuration reference](docs/configuration.md#fleet-configuration). `notify.days` is set per service, so each service in a fleet can have its own send days.
 
 ## Known limits
 
 - The Grafana Explore URL shape and the Datadog response shapes are not verified against live systems; sources are
   tested against recorded fixtures only.
-- The request format of the built-in Anthropic client (`x-api-key`, structured output) was tested against recorded fixtures only, not the live API.
+- The request formats of the built-in OpenAI and Gemini clients were tested against recorded fixtures only, not the live APIs.
 - At most `source.group_cap` (5000) distinct problem groups are held per run; on a day with more distinct messages the rest
   is grouped as one "other" group per level and the digest says so. Watch-rule matches are exempt up to twice the cap.
 - Cluster templates group by word similarity, not exact shape (`grouping.similarity`); two different problems with very similar wording can still share a template, and fingerprints do not depend on it. A name identical in every event of a cluster is not detectable (see `docs/privacy.md`).
@@ -272,7 +383,7 @@ decided in code from names, placeholders and times; it makes no model call and w
   threshold again or on the next day.
 - Loki's server-side filter works per physical line, so stack-trace lines are not returned and frames come from the
   head line of a record; a record that straddles a Loki page boundary stays split.
-- Only Slack, Telegram, Discord, Anthropic, Loki, Datadog, Kubernetes events and the three state drivers exist. There is no remediation and no ticketing.
+- Only Slack, Telegram, Discord, OpenAI, Gemini, Loki, Datadog and the three state drivers exist. There is no remediation and no ticketing.
 - Metrics and Sentry (spec 009) and the weekly report (spec 005) are not released yet.
 - Same-slot baselines for several runs a day and the daily roll-up digest (spec 014) are not released yet.
 

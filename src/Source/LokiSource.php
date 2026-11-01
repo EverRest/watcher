@@ -23,23 +23,6 @@ final class LokiSource implements LogSource, ReadDiagnostics
     /** Most backward pages the newest-share read may take (A4-03). */
     private const TAIL_PAGES = 20;
     private const VERSION_STEP = 3600;
-    private const LEVEL_WORDS = [
-        'debug' => ['debug'],
-        'info' => ['info'],
-        'notice' => ['notice'],
-        'warning' => ['warn', 'warning'],
-        'error' => ['err', 'error'],
-        'critical' => ['crit', 'critical'],
-        'alert' => ['alert'],
-        'emergency' => ['emerg', 'emergency', 'fatal'],
-    ];
-    /** Extra spellings seen in a `level` stream label (not as words in the text). */
-    private const LABEL_WORDS = ['info' => ['information'], 'emergency' => ['panic']];
-    /**
-     * LogQL `|~` alternation (RE2): stack-trace continuation lines with no level word (H5). Kept in sync with
-     * {@see LineParser::continues()} shapes, not the full CONTINUATION regex.
-     */
-    private const TRACE_CONTINUATION_FILTER = '(?:^\\s|^#\\d{1,4}\\b|^at\\s|^Caused by:|^Stack trace:|^PHP (?:Stack trace:|\\d+\\.)|^Traceback|^goroutine \\d+ \\[|^created by |^exit status \\d|^stack backtrace:)';
 
     private readonly string $baseUrl;
     /** @var \Closure(): array<string, string> request headers incl. the credential: a closure, so var_export shows no value */
@@ -106,13 +89,13 @@ final class LokiSource implements LogSource, ReadDiagnostics
     {
         $seconds = $window->end->getTimestamp() - $window->start->getTimestamp();
         $data = $this->get('/loki/api/v1/query', [
-            'query' => sprintf('sum by (level) (count_over_time(%s[%ds]))', $this->selector($selector), $seconds),
-            'time' => $this->ns($window->end),
+            'query' => sprintf('sum by (level) (count_over_time(%s[%ds]))', LokiQuery::selector($selector), $seconds),
+            'time' => LokiQuery::ns($window->end),
         ]);
 
         $totals = [];
         $bad = 0;
-        $results = $this->results($data);
+        $results = LokiResponse::results($data);
         foreach ($results as $series) {
             $count = is_array($series) && is_array($series['value'] ?? null) ? RemoteValue::count($series['value'][1] ?? null) : null;
             if ($count === null) {
@@ -137,9 +120,9 @@ final class LokiSource implements LogSource, ReadDiagnostics
         $this->malformed = 0;
         $this->parser = new LineParser();
         $labelled = $this->levelMode === 'label' && $filter->watchPatterns === [];
-        $query = $this->selector($selector, $labelled ? $this->levelMatcher($filter) : '') . $this->lineFilter($filter);
-        $start = $this->nsInt($window->start);
-        $end = $this->ns($window->end);
+        $query = LokiQuery::selector($selector, $labelled ? LokiQuery::levelMatcher($filter) : '') . LokiQuery::lineFilter($filter, $this->levelMode);
+        $start = LokiQuery::nsInt($window->start);
+        $end = LokiQuery::ns($window->end);
         $seenAtStart = []; // entries already yielded or dropped at exactly $start (Loki's start is inclusive)
         $kept = 0;
         $lastTs = $start;
@@ -180,7 +163,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
                 }
                 $freshEntries[] = [$ts, $line, $labels];
             }
-            foreach ($this->records($freshEntries) as [$ts, $line, $labels]) {
+            foreach (LokiResponse::records($freshEntries, $this->parser) as [$ts, $line, $labels]) {
                 $event = $this->event($ts, $line, $labels);
                 if (!$this->wanted($event, $filter)) {
                     continue;
@@ -253,12 +236,12 @@ final class LokiSource implements LogSource, ReadDiagnostics
             $overlap = array_values(array_filter($fresh, static fn (array $e): bool => $e[0] <= $seen));
             $orphans = $this->parser->orphanTraceLines;
             if ($overlap !== []) {
-                $this->records($overlap);
+                LokiResponse::records($overlap, $this->parser);
                 $overlapOrphans = $this->parser->orphanTraceLines - $orphans;
                 $this->parser->orphanTraceLines = $orphans;
             }
             $batch = [];
-            foreach ($this->records($fresh) as [$ts, $line, $labels]) {
+            foreach (LokiResponse::records($fresh, $this->parser) as [$ts, $line, $labels]) {
                 $event = $this->event($ts, $line, $labels);
                 if ($this->wanted($event, $filter)) {
                     $batch[] = $event;
@@ -306,18 +289,18 @@ final class LokiSource implements LogSource, ReadDiagnostics
     public function versions(Window $window, StreamSelector $selector, string $label): array
     {
         $data = $this->get('/loki/api/v1/query_range', [
-            'query' => sprintf('count by (%s) (count_over_time(%s[1h]))', $this->name($label), $this->selector($selector)),
-            'start' => $this->ns($window->start),
-            'end' => $this->ns($window->end),
+            'query' => sprintf('count by (%s) (count_over_time(%s[1h]))', LokiQuery::name($label), LokiQuery::selector($selector)),
+            'start' => LokiQuery::ns($window->start),
+            'end' => LokiQuery::ns($window->end),
             'step' => (string) self::VERSION_STEP,
         ]);
 
         // ponytail: sample time is the end of the 1h step that first saw the version; exact first-seen needs a log read.
         $versions = [];
         $bad = 0;
-        $results = $this->results($data);
+        $results = LokiResponse::results($data);
         foreach ($results as $series) {
-            $points = is_array($series) ? self::points($series['values'] ?? null) : null;
+            $points = is_array($series) ? LokiResponse::points($series['values'] ?? null) : null;
             if ($points === null) {
                 ++$bad;
                 continue;
@@ -343,28 +326,6 @@ final class LokiSource implements LogSource, ReadDiagnostics
         return $versions;
     }
 
-    /**
-     * The [epoch seconds, count] pairs of one series, or null when a pair is unusable (the series is then counted as one bad entry).
-     *
-     * @return list<array{int, int}>|null
-     */
-    private static function points(mixed $values): ?array
-    {
-        if (!is_array($values)) {
-            return null;
-        }
-        $points = [];
-        foreach ($values as $point) {
-            $at = is_array($point) ? RemoteValue::seconds($point[0] ?? null) : null;
-            $count = is_array($point) ? RemoteValue::count($point[1] ?? null) : null;
-            if ($at === null || $count === null) {
-                return null;
-            }
-            $points[] = [$at, $count];
-        }
-
-        return $points;
-    }
 
     /**
      * One page (forward = oldest first, backward = the newest of the range), merged across streams and ordered by timestamp.
@@ -397,7 +358,7 @@ final class LokiSource implements LogSource, ReadDiagnostics
         $entries = [];
         $bad = 0;
         $total = 0;
-        foreach ($this->results($data) as $stream) {
+        foreach (LokiResponse::results($data) as $stream) {
             // Non-scalar stream labels are dropped: a label is metadata, not an entry.
             $labels = is_array($stream) && is_array($stream['stream'] ?? null) ? array_map('strval', array_filter($stream['stream'], 'is_scalar')) : [];
             $values = is_array($stream) && is_array($stream['values'] ?? null) ? $stream['values'] : null;
@@ -424,35 +385,6 @@ final class LokiSource implements LogSource, ReadDiagnostics
         return $entries;
     }
 
-    /**
-     * Loki returns one entry per physical line: join continuation lines to the record they follow,
-     * per stream, so interleaved streams never mix. A record split by a page edge stays split.
-     *
-     * @param list<array{int, string, array<string, string>}> $entries time-ordered
-     *
-     * @return list<array{int, string, array<string, string>}> records ordered by their first line
-     */
-    private function records(array $entries): array
-    {
-        $parser = $this->parser;
-        $out = [];
-        $open = []; // stream key => index into $out
-        foreach ($entries as [$ts, $line, $labels]) {
-            $stream = json_encode($labels);
-            if (!isset($open[$stream]) && $parser->isOrphanTrace($line, isset($labels['level']))) {
-                continue;
-            }
-            if (isset($open[$stream]) && $parser->continues($line, $out[$open[$stream]][1], isset($labels['level']))) {
-                [$firstTs, $text, $firstLabels] = $out[$open[$stream]];
-                $out[$open[$stream]] = [$firstTs, $text . "\n" . $line, $firstLabels];
-                continue;
-            }
-            $open[$stream] = count($out);
-            $out[] = [$ts, $line, $labels];
-        }
-
-        return $out;
-    }
 
     /** @param array<string, string> $labels */
     private function event(int $ts, string $line, array $labels): LogEvent
@@ -474,96 +406,14 @@ final class LokiSource implements LogSource, ReadDiagnostics
         return $filter->matchesWatch($event->message, $event->errorType);
     }
 
-    /** @return list<string> */
-    private function words(Level $min, bool $labelSpellings): array
-    {
-        $words = [];
-        foreach (Level::cases() as $level) {
-            if ($level->atLeast($min)) {
-                $key = strtolower($level->name);
-                array_push($words, ...self::LEVEL_WORDS[$key], ...($labelSpellings ? self::LABEL_WORDS[$key] ?? [] : []));
-            }
-        }
 
-        return $words;
-    }
 
-    /** Stream matcher for the `level` label (all case variants), '' when every level is wanted. */
-    private function levelMatcher(ReadFilter $filter): string
-    {
-        return $filter->minLevel === Level::Debug ? '' : 'level=~' . $this->quote('(?i)(?:' . implode('|', $this->words($filter->minLevel, true)) . ')');
-    }
 
-    private function lineFilter(ReadFilter $filter): string
-    {
-        if ($this->levelMode !== 'text') {
-            return '';
-        }
-        $parts = [];
-        if ($filter->minLevel !== Level::Debug) {
-            $parts[] = '(?:\b(?:' . implode('|', $this->words($filter->minLevel, false)) . ')\b|' . self::TRACE_CONTINUATION_FILTER . ')';
-        }
-        foreach ($filter->watchPatterns as $re) {
-            $parts[] = '(?:' . $re . ')';
-        }
-        if ($parts === []) {
-            return '';
-        }
 
-        return ' |~ ' . $this->quote('(?i)' . implode('|', $parts));
-    }
 
-    private function selector(StreamSelector $selector, string $extra = ''): string
-    {
-        $matchers = [];
-        foreach ($selector->tags as $key => $value) {
-            $matchers[] = $this->name((string) $key) . '=' . $this->quote($value);
-        }
-        if ($matchers === []) {
-            throw new InvalidArgumentException('A Loki query needs at least one stream tag.');
-        }
-        if ($extra !== '') {
-            $matchers[] = $extra;
-        }
 
-        return '{' . implode(', ', $matchers) . '}';
-    }
 
-    private function name(string $name): string
-    {
-        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/D', $name) !== 1) {
-            throw new InvalidArgumentException("Invalid Loki label name '{$name}'.");
-        }
 
-        return $name;
-    }
-
-    private function quote(string $value): string
-    {
-        return '"' . strtr($value, ['\\' => '\\\\', '"' => '\\"', "\n" => '\\n', "\r" => '\\r', "\t" => '\\t']) . '"';
-    }
-
-    private function ns(DateTimeImmutable $t): string
-    {
-        return (string) $this->nsInt($t);
-    }
-
-    private function nsInt(DateTimeImmutable $t): int
-    {
-        return $t->getTimestamp() * 1_000_000_000 + (int) $t->format('u') * 1000;
-    }
-
-    /**
-     * @param array<mixed> $data
-     *
-     * @return list<mixed> each item is one reply entry as sent: the readers check its shape
-     */
-    private function results(array $data): array
-    {
-        $result = $data['data']['result'] ?? [];
-
-        return is_array($result) ? array_values($result) : [];
-    }
 
     /**
      * @param array<string, string> $query

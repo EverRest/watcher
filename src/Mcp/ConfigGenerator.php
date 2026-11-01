@@ -63,7 +63,8 @@ final class ConfigGenerator
         $L[] = "        'level_mode' => " . self::q($a['level_mode'] ?? 'text') . ',';
         $L[] = '    ],';
         $L[] = "    'analysis' => [";
-        $L[] = "        'api_key' => " . $str('anthropic_key') . ',';
+        $L[] = "        'provider' => 'gemini',";
+        $L[] = "        'api_keys' => ['gemini' => " . $str('gemini_key') . '],';
         $L[] = "        'models' => ['triage' => " . $str('model_triage') . ", 'analyze' => " . $str('model_analyze') . ", 'escalate' => " . $str('model_escalate') . '],';
         $L[] = '    ],';
         $L[] = "    'state' => " . match ($a['state']) {

@@ -5,6 +5,7 @@ parameters:
         - tests
     scanFiles:
         - scripts/badges.php
+        - scripts/check-file-length.php
     excludePaths:
         - tests/Fixtures
     ignoreErrors:
@@ -31,16 +32,4 @@ parameters:
         -
             identifier: method.notFound
             path: src/Source/Retry.php
-            reportUnmatched: false
-        # KubeApi: ConnectException::getHandlerContext() exists on Guzzle 7 only; the method_exists check keeps Guzzle 8 working.
-        # Reported only when analysed against Guzzle 7 (always true there), hence reportUnmatched: false.
-        -
-            identifier: function.alreadyNarrowedType
-            path: src/Source/Kubernetes/KubeApi.php
-            reportUnmatched: false
-        # KubeApiTest::timeout(): ConnectTimeoutException exists on Guzzle 8 only, so is_subclass_of is always true there and false on Guzzle 7.
-        # Reported only when analysed against Guzzle 8, hence reportUnmatched: false.
-        -
-            identifier: function.alreadyNarrowedType
-            path: tests/Unit/Source/Kubernetes/KubeApiTest.php
             reportUnmatched: false

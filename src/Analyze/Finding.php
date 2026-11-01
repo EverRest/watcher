@@ -44,6 +44,46 @@ final class Finding
         return new self($fingerprints, $kind, $severity, $this->title, $this->evidence, $this->suspectedCause, $this->suggestedAction, $this->confidence, $this->escalated, $this->howToCheck, $this->relatedChecks);
     }
 
+    /**
+     * The stored form, kept so a repeat can be sent without a model call (FR-008).
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+            'fingerprints' => $this->fingerprints,
+            'kind' => $this->kind->value,
+            'severity' => $this->severity->value,
+            'title' => $this->title,
+            'evidence' => $this->evidence,
+            'suspectedCause' => $this->suspectedCause,
+            'suggestedAction' => $this->suggestedAction,
+            'confidence' => $this->confidence,
+            'escalated' => $this->escalated,
+            'howToCheck' => $this->howToCheck,
+            'relatedChecks' => $this->relatedChecks,
+        ];
+    }
+
+    /** @param array<string, mixed> $d */
+    public static function fromArray(array $d): self
+    {
+        return new self(
+            array_values((array) $d['fingerprints']),
+            FindingKind::from((string) $d['kind']),
+            Severity::from((string) $d['severity']),
+            (string) $d['title'],
+            (string) $d['evidence'],
+            (string) $d['suspectedCause'],
+            (string) $d['suggestedAction'],
+            (float) $d['confidence'],
+            (bool) $d['escalated'],
+            (string) $d['howToCheck'],
+            array_values((array) $d['relatedChecks']),
+        );
+    }
+
     public function escalated(): self
     {
         return new self(

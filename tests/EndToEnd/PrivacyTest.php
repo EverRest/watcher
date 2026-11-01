@@ -15,8 +15,10 @@ use Watcher\Analyze\TriageRequest;
 use Watcher\Analyze\TriageResult;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Config\WatchConfig;
+use Watcher\Level;
 use Watcher\RunOutcome;
 use Watcher\Source\LineParser;
+use Watcher\Source\LogEvent;
 use Watcher\Tests\Fakes\FakeLogSource;
 use Watcher\Tests\Fakes\InMemoryStateStore;
 use Watcher\Tests\Fakes\RoutedLogSource;
@@ -39,8 +41,13 @@ final class PrivacyTest extends TestCase
         }
         self::assertNotSame([], $events);
 
+        // The first run only records a baseline when nothing is at Error or above (FR-035), so those lines are read as Warning.
+        $baseline = array_map(static fn (LogEvent $e): LogEvent => $e->level->atLeast(Level::Error)
+            ? new LogEvent($e->time, Level::Warning, $e->message, $e->errorType, $e->frames, $e->fields, $e->labels, $e->occurrences)
+            : $e, $events);
+
         $h = new Harness(); // serviceContext stays empty: its redaction scan arrives with US6
-        $first = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $first = $h->watcher(new FakeLogSource(Harness::totalsOf($baseline), $baseline))->run();
         $h->nextWindow();
         $second = $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
 

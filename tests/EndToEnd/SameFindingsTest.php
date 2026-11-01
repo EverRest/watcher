@@ -9,8 +9,7 @@ use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
-use Watcher\Analyze\AnthropicAnalyzer;
-use Watcher\Analyze\AnthropicSdkProvider;
+use Watcher\Analyze\ProviderAnalyzer;
 use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\OpenAiProvider;
 use Watcher\Analyze\ProviderRegistry;
@@ -22,7 +21,8 @@ use Watcher\Watcher;
 /**
  * Findings are the same before and after 0.5.0 for each provider's recorded reply (plan 017, decision B). The digest text is
  * compared line by line, except the footer line that carried tokens and cost (it starts with "— tokens"), which is removed from
- * both sides. The baseline was recorded from the 0.4.1 code (tests/Fixtures/findings-baseline-017.json).
+ * both sides. The baseline was recorded from the 0.4.1 code (tests/Fixtures/findings-baseline-017.json). Since then a group that
+ * rises from Warning to Error is a new group (its fingerprint includes the level), so its line reads "(new)".
  */
 final class SameFindingsTest extends TestCase
 {
@@ -32,7 +32,7 @@ final class SameFindingsTest extends TestCase
     public function testFindingsMatchTheBaselineForEachProvider(): void
     {
         $baseline = json_decode((string) file_get_contents(self::BASELINE), true, 512, JSON_THROW_ON_ERROR);
-        foreach (['anthropic', 'openai', 'gemini'] as $provider) {
+        foreach (['openai', 'gemini'] as $provider) {
             self::assertSame(self::strip($baseline[$provider]), self::strip(self::digestFor($provider)), $provider);
         }
     }
@@ -51,22 +51,23 @@ final class SameFindingsTest extends TestCase
     private static function digestFor(string $provider): array
     {
         $harness = new Harness(['analysis' => ['triage' => ['enabled' => false]]]);
+        // The first window is Warning so it only records a baseline (FR-035); the second window is the Error group the reply names.
+        $baseline = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
+        (new Watcher(WatchConfig::fromArray($harness->config()), new FakeLogSource(Harness::totalsOf($baseline), $baseline), $harness->state, $harness->analyzer, $harness->notifier, $harness->clock))->run();
+        $harness->nextWindow();
         $events = Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
         $source = new FakeLogSource(Harness::totalsOf($events), $events);
-        (new Watcher(WatchConfig::fromArray($harness->config()), $source, $harness->state, $harness->analyzer, $harness->notifier, $harness->clock))->run();
-        $harness->nextWindow();
 
         // The recorded reply names the fingerprint the analyzer really derives for this window (3ba2fceef742).
         $raw = str_replace('fp-aaa', '3ba2fceef742', (string) file_get_contents(__DIR__ . '/../Fixtures/providers/' . $provider . '/ok.json'));
         $stack = HandlerStack::create(new MockHandler([new Response(200, ['Content-Type' => 'application/json'], $raw)]));
         $http = new Client(['handler' => $stack]);
         $adapter = match ($provider) {
-            'anthropic' => new AnthropicSdkProvider($http, 'sk-test-key', 'https://anthropic.example.test', 60, 0),
             'openai' => new OpenAiProvider($http, 'sk-test-key', 'https://openai.example.test', 60, 0),
             'gemini' => new GeminiProvider($http, 'sk-test-key', 'https://gemini.example.test', 60, 0),
             default => throw new \LogicException("no adapter for $provider"),
         };
-        $analyzer = new AnthropicAnalyzer(ProviderRegistry::single($adapter, $provider));
+        $analyzer = new ProviderAnalyzer(ProviderRegistry::single($adapter, $provider));
         (new Watcher(WatchConfig::fromArray($harness->config()), $source, $harness->state, $analyzer, $harness->notifier, $harness->clock))->run();
 
         return $harness->sentTexts();

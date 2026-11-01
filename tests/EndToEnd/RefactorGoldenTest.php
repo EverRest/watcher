@@ -37,10 +37,21 @@ final class RefactorGoldenTest extends TestCase
         return Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
     }
 
+    /**
+     * Alpha is Warning in every window: the fingerprint includes the level, so a level change would read as a new group.
+     * At Warning the first window only records a baseline (FR-035), and the later windows keep Alpha out of the digest.
+     *
+     * @return list<LogEvent>
+     */
+    private static function warnAlpha(): array
+    {
+        return Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
+    }
+
     /** @return list<LogEvent> */
     private static function withBeta(): array
     {
-        return [...self::alpha(), ...Harness::events(Level::Error, 'Beta broke', 3, 'Beta')];
+        return [...self::warnAlpha(), ...Harness::events(Level::Error, 'Beta broke', 3, 'Beta')];
     }
 
     /** @param list<LogEvent> $events */
@@ -52,7 +63,7 @@ final class RefactorGoldenTest extends TestCase
     /** A harness that has baselined the first window and stands at the second, with a spy on the store. */
     private static function ready(Harness $h): RecordingStateStore
     {
-        $h->watcher(self::source(self::alpha()))->run();
+        $h->watcher(self::source(self::warnAlpha()))->run();
         $h->nextWindow();
         $h->state = $spy = new RecordingStateStore($h->state);
 
@@ -139,7 +150,7 @@ final class RefactorGoldenTest extends TestCase
     {
         $h = new Harness();
         $h->state = $spy = new RecordingStateStore($h->state);
-        $r = $h->watcher(self::source(self::alpha()))->run();
+        $r = $h->watcher(self::source(self::warnAlpha()))->run();
 
         self::assertGolden('baselined', self::capture($h, $r, $spy), RunOutcome::Baselined);
     }
@@ -247,7 +258,7 @@ final class RefactorGoldenTest extends TestCase
         ]);
         $at = new \DateTimeImmutable('2026-10-07T12:00:00', new \DateTimeZone('UTC'));
         $muted = array_map(static fn (): LogEvent => new LogEvent($at, Level::Error, 'Tenant import failed', 'ImportException', [], ['tenant' => 't-muted'], []), range(1, 5));
-        $own = Harness::events(Level::Error, 'GET http://core-api/api/items returned 500', 5);
+        $own = Harness::events(Level::Warning, 'GET http://core-api/api/items returned 500', 5); // Warning: a baseline at Error would post (FR-035)
         $quota = Harness::events(Level::Info, 'QuotaTracking drifted again', 4);
         $depEvents = Harness::events(Level::Error, 'Pool exhausted', 6);
         $routed = static fn (array $events, array $totals): RoutedLogSource => new RoutedLogSource(['core-api' => new FakeLogSource(Harness::totalsOf($depEvents), $depEvents)], new FakeLogSource($totals, array_values($events)));
@@ -263,7 +274,7 @@ final class RefactorGoldenTest extends TestCase
     public function testFleetSeam(): void
     {
         $h = new FleetHarness(['api']);
-        $h->logs('api', self::alpha());
+        $h->logs('api', self::warnAlpha());
         $h->runner()->run(null, RunOptions::default());
         $h->nextWindow();
         $h->logs('api', self::withBeta());

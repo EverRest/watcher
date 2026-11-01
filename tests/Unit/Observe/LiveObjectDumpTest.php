@@ -39,7 +39,7 @@ final class LiveObjectDumpTest extends TestCase
         return [
             'service' => 'svc', 'enabled' => true, 'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.example.com', 'auth' => ['type' => 'bearer', 'token' => 'CANARY-loki-token-1']]],
-            'analysis' => ['api_key' => 'CANARY-model-key-2', 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
+            'analysis' => ['api_keys' => ['gemini' => 'CANARY-model-key-2'], 'models' => ['triage' => 'a', 'analyze' => 'b', 'escalate' => 'c'], ],
             'state' => ['driver' => 'file', 'file' => ['path' => $this->dir]],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.example/CANARY-hook-3']],
             'observe' => ['http' => ['enabled' => true, 'url' => 'https://ingest.example.com/CANARY-url-4', 'auth_token' => 'CANARY-obs-token-5']],
@@ -64,7 +64,6 @@ final class LiveObjectDumpTest extends TestCase
             'renderer' => new NoticeRenderer($c->secrets()),
             'loki' => Factory::source($c, Factory::http(), $clock),
             'datadog' => new \Watcher\Source\DatadogSource(Factory::http(), 'datadoghq.com', 'CANARY-model-key-2', 'CANARY-loki-token-1'),
-            'catalog' => new \Watcher\Operate\AnthropicModelCatalog(Factory::http(), 'CANARY-model-key-2'),
             default => Factory::notifier(Factory::http(), 900),
         };
     }

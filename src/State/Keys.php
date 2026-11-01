@@ -12,6 +12,7 @@ final class Keys
     public const VERDICT = 'verdict';
     public const TRIAGE = 'triage';
     public const REPORTED = 'reported';
+    public const FINDING = 'finding';
     public const RUN = 'run';
     public const LOCK = 'lock';
     public const HEARTBEAT = 'hb';
@@ -32,6 +33,11 @@ final class Keys
     public const KNOWN = 'known';
     public const DRAFT = 'draft';
     public const REPORTSENT = 'rsent';
+    public const PROBE = 'probe';
+    public const PROBE_DUE = 'probedue';
+    public const HEALTH = 'health';
+    public const HEALTH_BROKEN = 'healthbroken';
+    public const ALERT = 'alert';
 
     private const NOTICE_TTL = 172800;
     private const WEEK_TTL = 1209600;
@@ -69,6 +75,39 @@ final class Keys
         return self::join(self::REPORTED, $service, $fingerprint);
     }
 
+    /** The finding last sent for one group, so a repeat sends the same text without a model call (FR-008). */
+    public static function finding(string $service, string $fingerprint): string
+    {
+        return self::join(self::FINDING, $service, $fingerprint);
+    }
+
+    /** Last alerted status of one probe subject (for example `certificate:api.example.com`); expires so a standing problem repeats. */
+    public static function probe(string $service, string $subject): string
+    {
+        return self::join(self::PROBE, $service, $subject);
+    }
+
+    /** Set while the probes are due: their interval is the TTL, so the next run after it runs them again. */
+    public static function probeDue(string $service): string
+    {
+        return self::join(self::PROBE_DUE, $service);
+    }
+
+    /**
+     * Last seen {success, version, checked_at} of one service of a host's health snapshot, per watcher service: two watchers
+     * sharing a prefix and a host must not share a copy, or one of them never sees the change. Refreshed on every hourly write.
+     */
+    public static function healthcheck(string $watcherService, string $service): string
+    {
+        return self::join(self::HEALTH, $watcherService, $service);
+    }
+
+    /** Whether the health check itself is broken and when that was last announced; one per watcher service. */
+    public static function healthBroken(string $watcherService): string
+    {
+        return self::join(self::HEALTH_BROKEN, $watcherService);
+    }
+
     public static function run(string $service, string $windowEnd): string
     {
         return self::join(self::RUN, $service, $windowEnd);
@@ -97,6 +136,11 @@ final class Keys
     public static function trigger(string $service): string
     {
         return self::join(self::TRIGGER, $service);
+    }
+
+    public static function immediateAlert(string $service, string $identity): string
+    {
+        return self::join(self::ALERT, $service, $identity);
     }
 
     /** Consecutive windows in which the source returned nothing at all (A4-08). */

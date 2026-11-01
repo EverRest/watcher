@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "finishReason": "STOP",
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "{\"findings\":[{\"fingerprints\":[\"fp-zzz\"],\"kind\":\"bug\",\"severity\":\"warn\",\"title\":\"t\",\"evidence\":\"e\",\"suspected_cause\":\"c\",\"suggested_action\":\"a\",\"confidence\":0.5}]}"
+          }
+        ]
+      }
+    }
+  ],
+  "modelVersion": "gemini-fixture-model",
+  "usageMetadata": {
+    "promptTokenCount": 100,
+    "candidatesTokenCount": 10,
+    "totalTokenCount": 110,
+    "cachedContentTokenCount": 0
+  }
+}

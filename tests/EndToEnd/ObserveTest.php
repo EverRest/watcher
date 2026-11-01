@@ -42,11 +42,11 @@ final class ObserveTest extends TestCase
     }
 
     /** 40 groups; the first three grew (6 events against 2 in the baseline window), the rest are unchanged, so exactly three reach the model. */
-    private static function source(int $groups = 40, int $each = 6): LogSource
+    private static function source(int $groups = 40, int $each = 6, Level $level = Level::Error): LogSource
     {
         $events = [];
         foreach (self::words($groups) as $i => $w) {
-            $events = [...$events, ...Harness::events(Level::Error, $w . ' broke in a unique way', $i < 3 ? $each : 2, $w)];
+            $events = [...$events, ...Harness::events($level, $w . ' broke in a unique way', $i < 3 ? $each : 2, $w)];
         }
 
         return new FakeLogSource(Harness::totalsOf($events), $events);
@@ -62,10 +62,10 @@ final class ObserveTest extends TestCase
         return new Watcher(WatchConfig::fromArray($h->config()), $source, $h->state, $h->analyzer, $notifier ?? $h->notifier, $h->clock, $h->hostLog, $options, $out, sinks: $sinks, counters: $counters);
     }
 
-    /** A baselined first window, then the window under test. */
+    /** A baselined first window, then the window under test. The baseline is Warning: an Error first run would post (FR-035). */
     private static function ready(Harness $h): void
     {
-        self::watcher($h, self::source(40, 2), null)->run();
+        self::watcher($h, self::source(40, 2, Level::Warning), null)->run();
         $h->nextWindow();
     }
 
@@ -147,7 +147,9 @@ final class ObserveTest extends TestCase
             self::watcher($h, self::source(40, 2), null, notifier: $router)->run();
             $h->nextWindow();
             self::watcher($h, self::source(), self::dispatcher(new RecordingEventSink()), notifier: $router)->run();
-            $calls[$driver] = [count($h->analyzer->triageRequests), count($h->analyzer->requests), count(self::keys($h))];
+            // Model calls only: the top_m tie-break is random by design (a fingerprint cannot be ground to sort first), so which
+            // groups reach the model varies per run, and with them the number of stored state keys.
+            $calls[$driver] = [count($h->analyzer->triageRequests), count($h->analyzer->requests)];
         }
 
         self::assertSame($calls['slack'], $calls['none']);

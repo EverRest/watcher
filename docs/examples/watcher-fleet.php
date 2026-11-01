@@ -47,7 +47,7 @@ return [
             'prometheus' => ['enabled' => Env::bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false), 'dir' => Env::string('WATCHER_OBSERVE_PROMETHEUS_DIR')],
         ],
         'analysis' => [
-            'api_key' => getenv('WATCHER_ANTHROPIC_KEY'),
+            'api_keys' => ['gemini' => getenv('WATCHER_GEMINI_KEY')],
             'models' => [
                 'triage' => getenv('WATCHER_MODEL_TRIAGE'),
                 'analyze' => getenv('WATCHER_MODEL_ANALYZE'),

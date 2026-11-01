@@ -81,12 +81,12 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         $data = $this->post('/api/v2/logs/analytics/aggregate', [
             'compute' => [['aggregation' => 'count', 'type' => 'total']],
             'group_by' => [['facet' => 'status', 'limit' => 20]],
-            'filter' => $this->filter($window, $this->tagQuery($selector)),
+            'filter' => DatadogQuery::filter($window, DatadogQuery::tagQuery($selector)),
         ]);
 
         $totals = [];
         $bad = 0;
-        $buckets = $this->buckets($data);
+        $buckets = DatadogResponse::buckets($data);
         foreach ($buckets as $bucket) {
             $status = $bucket['by']['status'] ?? '';
             $name = strtolower(Level::parse(is_string($status) ? $status : '')->name);
@@ -110,7 +110,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         $this->malformed = 0;
         $limit = self::PAGE_LIMIT;
         $this->parser = new LineParser();
-        $query = $this->tagQuery($selector) . $this->readQuery($filter);
+        $query = DatadogQuery::tagQuery($selector) . DatadogQuery::readQuery($filter, $this->levelMode);
         $cursor = null;
         $kept = 0;
         $buffer = [];
@@ -139,14 +139,14 @@ final class DatadogSource implements LogSource, ReadDiagnostics
                 }
                 if ($kept >= $cap) {
                     yield from array_reverse($buffer);
-                    $rawAt = $this->time(is_string($raw['attributes']['timestamp'] ?? null) ? $raw['attributes']['timestamp'] : '');
+                    $rawAt = DatadogResponse::time(is_string($raw['attributes']['timestamp'] ?? null) ? $raw['attributes']['timestamp'] : '');
                     // The event that tripped the cap shares its millisecond with the last one kept: the newest read starts after that millisecond and cannot see it.
                     yield from $this->newest($window, $query, $lastRaw, $filter, 'cap', $limit, $rawAt !== null && $rawAt->format('Uv') <= $lastRaw->format('Uv'));
 
                     return;
                 }
                 ++$kept;
-                $lastRaw = $this->time(is_string($raw['attributes']['timestamp'] ?? null) ? $raw['attributes']['timestamp'] : '') ?? $lastRaw;
+                $lastRaw = DatadogResponse::time(is_string($raw['attributes']['timestamp'] ?? null) ? $raw['attributes']['timestamp'] : '') ?? $lastRaw;
                 if ($this->newestFirst) {
                     $buffer[] = $event;
                 } else {
@@ -181,7 +181,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         while (true) {
             try {
                 return $this->screen($this->post('/api/v2/logs/events/search', [
-                    'filter' => $this->filter($window, $query),
+                    'filter' => DatadogQuery::filter($window, $query),
                     'sort' => $sort,
                     'page' => ['limit' => $limit] + ($cursor === null ? [] : ['cursor' => $cursor]),
                 ]));
@@ -234,7 +234,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         }
         $ts = $raw['attributes']['timestamp'] ?? '';
 
-        return is_string($ts) && ($ts === '' || $this->time($ts) !== null);
+        return is_string($ts) && ($ts === '' || DatadogResponse::time($ts) !== null);
     }
 
     /**
@@ -307,13 +307,13 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         $data = $this->post('/api/v2/logs/analytics/aggregate', [
             'compute' => [['aggregation' => 'count', 'type' => 'timeseries', 'interval' => '1h']],
             'group_by' => [['facet' => $label, 'limit' => self::FACET_LIMIT]],
-            'filter' => $this->filter($window, $this->tagQuery($selector)),
+            'filter' => DatadogQuery::filter($window, DatadogQuery::tagQuery($selector)),
         ]);
 
         // ponytail: first-seen is the end of the first 1h bucket with a non-zero count; exact time needs a log read.
         $versions = [];
         $bad = 0;
-        $buckets = $this->buckets($data);
+        $buckets = DatadogResponse::buckets($data);
         foreach ($buckets as $bucket) {
             $value = $bucket['by'][$label] ?? null;
             if (!is_string($value) || $value === '') {
@@ -323,7 +323,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
             $unusable = false;
             foreach (is_array($series) ? $series : [] as $point) {
                 $count = is_array($point) ? RemoteValue::count($point['value'] ?? null) : null;
-                $at = is_array($point) && is_string($point['time'] ?? null) ? $this->time($point['time']) : null;
+                $at = is_array($point) && is_string($point['time'] ?? null) ? DatadogResponse::time($point['time']) : null;
                 if ($count === null || $at === null) {
                     $unusable = true;
                     continue;
@@ -350,7 +350,7 @@ final class DatadogSource implements LogSource, ReadDiagnostics
     {
         $attrs = is_array($raw['attributes'] ?? null) ? $raw['attributes'] : [];
         $rawTs = is_string($attrs['timestamp'] ?? null) ? $attrs['timestamp'] : '';
-        $time = $this->time($rawTs);
+        $time = DatadogResponse::time($rawTs);
         if ($time === null) {
             if ($rawTs !== '') {
                 return null;
@@ -384,88 +384,12 @@ final class DatadogSource implements LogSource, ReadDiagnostics
         return $filter->matchesWatch($event->message, $event->errorType);
     }
 
-    /**
-     * `AND (status:(...) OR "term" ...)`, or '' when it cannot narrow. A watch pattern that is not a plain
-     * literal cannot be expressed in Datadog search, so it disables the server filter (client side still applies).
-     */
-    private function readQuery(ReadFilter $filter): string
-    {
-        if ($filter->minLevel === Level::Debug || $this->levelMode === 'all') {
-            return '';
-        }
-        $statuses = [];
-        foreach (Level::cases() as $level) {
-            if ($level->atLeast($filter->minLevel)) {
-                $statuses[] = $level === Level::Warning ? 'warn' : strtolower($level->name);
-            }
-        }
-        $parts = ['status:(' . implode(' OR ', $statuses) . ')'];
-        foreach ($filter->watchPatterns as $re) {
-            $literal = $this->literal($re);
-            if ($literal === null) {
-                return '';
-            }
-            $parts[] = '*' . $literal . '*';
-        }
 
-        return ' AND (' . implode(' OR ', $parts) . ')';
-    }
 
-    /** The text of a pattern that is a plain alphanumeric/underscore word (usable as a `*word*` wildcard), else null. */
-    private function literal(string $re): ?string
-    {
-        $body = str_starts_with($re, '(?i)') ? substr($re, 4) : $re;
 
-        return preg_match('/^\w+$/D', $body) === 1 ? $body : null;
-    }
 
-    private function tagQuery(StreamSelector $selector): string
-    {
-        $terms = [];
-        foreach ($selector->tags as $key => $value) {
-            if (preg_match('/^[A-Za-z0-9_.@\/-]+$/D', (string) $key) !== 1) {
-                throw new InvalidArgumentException("Invalid Datadog tag key '{$key}'.");
-            }
-            $terms[] = $key . ':' . (preg_match('/^[A-Za-z0-9_.\/-]+$/D', $value) === 1 ? $value : $this->quote($value));
-        }
-        if ($terms === []) {
-            throw new InvalidArgumentException('A Datadog query needs at least one stream tag.');
-        }
 
-        return implode(' ', $terms);
-    }
 
-    private function quote(string $value): string
-    {
-        return '"' . strtr($value, ['\\' => '\\\\', '"' => '\\"']) . '"';
-    }
-
-    /** @return array{from: string, to: string, query: string} */
-    private function filter(Window $window, string $query): array
-    {
-        return ['from' => $window->start->format('Y-m-d\TH:i:s.v\Z'), 'to' => $window->end->format('Y-m-d\TH:i:s.v\Z'), 'query' => $query];
-    }
-
-    private function time(string $iso): ?DateTimeImmutable
-    {
-        try {
-            return $iso === '' ? null : (new DateTimeImmutable($iso))->setTimezone(new DateTimeZone('UTC'));
-        } catch (\Exception) {
-            return null;
-        }
-    }
-
-    /**
-     * @param array<mixed> $data
-     *
-     * @return list<array<string, mixed>>
-     */
-    private function buckets(array $data): array
-    {
-        $buckets = $data['data']['buckets'] ?? [];
-
-        return is_array($buckets) ? array_values(array_filter($buckets, 'is_array')) : [];
-    }
 
     /**
      * @param array<string, mixed> $body

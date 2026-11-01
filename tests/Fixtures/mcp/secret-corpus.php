@@ -6,7 +6,6 @@ declare(strict_types=1);
 $z = "\u{200B}";
 
 $secrets = [
-    'anthropic' => 'sk-' . 'ant-api03-' . 'AbCdEfGhIjKlMnOpQrStUvWx',
     'openai' => 'sk-' . 'proj1234567890abcdefghij',
     'github pat' => 'ghp_' . 'abcdefghijklmnopqrstuvwxyz0123456789',
     'github fine' => 'github_pat_' . '11ABCDEFG0abcdefghijkl_mnopqrstuvwxyz',

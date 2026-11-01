@@ -42,7 +42,7 @@ final class MetricsSentryConfigTest extends TestCase
             'schedule' => ['run_at' => '06:00'],
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki']],
             'analysis' => [
-                'api_key' => 'sk-secret-key',
+                'api_keys' => ['gemini' => 'sk-secret-key'],
                 'models' => ['triage' => 'm1', 'analyze' => 'm2', 'escalate' => 'm3'],
 
             ],

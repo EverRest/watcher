@@ -64,9 +64,9 @@ final class ContextTest extends TestCase
         self::assertSame([0], $dep->referencedByTemplateIndexes);
         self::assertStringContainsString('dependency core-api shows 6 errors', self::digest($h));
 
-        // Quiet day: nothing new for the service; the dependency costs one totals query and no line read.
+        // Quiet day: nothing new for the service (its reported group is gone, so it is not repeated, FR-008); the dependency costs one totals query and no line read.
         $h->nextWindow();
-        [$s3, $depSource] = self::source($own, Harness::events(Level::Error, 'Pool exhausted', 6));
+        [$s3, $depSource] = self::source([], Harness::events(Level::Error, 'Pool exhausted', 6));
         self::assertSame(RunOutcome::Quiet, self::go($h, $s3)->outcome);
         self::assertCount(1, $depSource->callsTo('totals'));
         self::assertSame([], $depSource->callsTo('lines'));

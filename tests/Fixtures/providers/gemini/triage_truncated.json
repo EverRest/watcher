@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "finishReason": "MAX_TOKENS",
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "{\"verdicts\":[{\"g\":\"fp-aaa\",\"v\":\"inter"
+          }
+        ]
+      }
+    }
+  ],
+  "modelVersion": "gemini-fixture-model",
+  "usageMetadata": {
+    "promptTokenCount": 300,
+    "candidatesTokenCount": 20,
+    "totalTokenCount": 320,
+    "cachedContentTokenCount": 50
+  }
+}

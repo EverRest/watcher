@@ -26,7 +26,7 @@ final class Retry
     private int $waited = 0;
 
     /** @param (callable(int): void)|null $sleeper whole seconds to wait; defaults to sleep() */
-    public function __construct(?callable $sleeper = null, private readonly int $budget = 120)
+    public function __construct(?callable $sleeper = null, private readonly int $budget = 120, private readonly int $attempts = self::ATTEMPTS)
     {
         $this->sleeper = $sleeper === null ? static function (int $s): void {
             sleep($s);
@@ -50,14 +50,14 @@ final class Retry
                 if ($tripped !== null && isset($tripped['large'])) {
                     throw new SourceUnavailable($name . ' response too large', true);
                 }
-                if ($attempt >= self::ATTEMPTS || $this->carriesResponse($e) || !$this->wait($attempt, null)) {
+                if ($attempt >= $this->attempts || $this->carriesResponse($e) || !$this->wait($attempt, null)) {
                     throw new SourceUnavailable($name . ' request failed (' . $e::class . ')'); // not chained: Guzzle's message carries the URL (a bot token, a query)
                 }
                 continue;
             }
             $status = $response->getStatusCode();
             $transient = in_array($status, [429, 502, 503, 504], true) || ($retryOn500 && $status === 500);
-            if (!$transient || $attempt >= self::ATTEMPTS || !$this->wait($attempt, $status === 429 ? $response : null)) {
+            if (!$transient || $attempt >= $this->attempts || !$this->wait($attempt, $status === 429 ? $response : null)) {
                 return $response;
             }
         }
@@ -95,7 +95,7 @@ final class Retry
             } catch (GuzzleException $e) {
                 throw new SourceUnavailable($name . ' request failed (' . $e::class . ')'); // not chained: Guzzle's message carries the URL (a bot token, a query)
             }
-            if ($response->getStatusCode() !== 429 || $attempt >= self::ATTEMPTS) {
+            if ($response->getStatusCode() !== 429 || $attempt >= $this->attempts) {
                 return $response;
             }
             $asked = $hint === null ? null : $hint($response);

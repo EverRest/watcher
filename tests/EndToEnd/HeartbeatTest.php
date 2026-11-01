@@ -29,6 +29,14 @@ final class HeartbeatTest extends TestCase
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }
 
+    /** Warning only: a first run with an Error group now reports (FR-035), and these tests need a baseline. */
+    private static function warningSource(): LogSource
+    {
+        $events = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
+
+        return new FakeLogSource(Harness::totalsOf($events), $events);
+    }
+
     private static function quietSource(): LogSource
     {
         return new FakeLogSource([], []);
@@ -43,7 +51,7 @@ final class HeartbeatTest extends TestCase
     public function testBaselinedThenReportedThenQuietRunsWriteTheRightRecords(): void
     {
         $h = new Harness(self::AT_SIX);
-        $h->watcher(self::source())->run();
+        $h->watcher(self::warningSource())->run();
         self::assertSame('baselined', self::hb($h)['outcome']);
         self::assertNotNull(self::hb($h)['lastOkAt']);
 
@@ -60,7 +68,7 @@ final class HeartbeatTest extends TestCase
     public function testFailedRunKeepsTheLastOkInstantAndStoresAShortCode(): void
     {
         $h = new Harness(self::AT_SIX);
-        $h->watcher(self::source())->run();
+        $h->watcher(self::warningSource())->run();
         $okAt = self::hb($h)['lastOkAt'];
         $h->nextWindow();
         $h->analyzer->failure = new AnalyzerFailed('bad output sk-ant-api03-SECRETSECRETSECRETSECRET');
@@ -113,7 +121,7 @@ final class HeartbeatTest extends TestCase
         $spy->failWritesTo('hb');
         $h->hostLog = $log = new SpyLogger();
 
-        $result = $h->watcher(self::source())->run();
+        $result = $h->watcher(self::warningSource())->run();
 
         self::assertSame(RunOutcome::Baselined, $result->outcome);
         self::assertSame(0, $result->exitCode());

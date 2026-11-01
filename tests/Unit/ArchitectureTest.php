@@ -90,8 +90,8 @@ final class ArchitectureTest extends TestCase
         $sources = array_map('basename', glob(self::ROOT . '/src/Source/*Source.php') ?: []);
         sort($sources);
 
-        // LogSource is the contract; a new adapter needs its own read-only rule (Kubernetes: Architecture/KubernetesReadOnlyTest).
-        self::assertSame(['DatadogSource.php', 'KubernetesEventsSource.php', 'LogSource.php', 'LokiSource.php'], $sources);
+        // LogSource is the contract; a new adapter needs its own read-only rule.
+        self::assertSame(['DatadogSource.php', 'LogSource.php', 'LokiSource.php'], $sources);
     }
 
     /**
@@ -195,7 +195,7 @@ final class ArchitectureTest extends TestCase
     {
         $env = [
             'WATCHER_LOKI_URL' => 'https://loki.example.com', 'WATCHER_LOKI_TOKEN' => 't',
-            'WATCHER_ANTHROPIC_KEY' => 'k', 'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example.com/x',
+            'WATCHER_GEMINI_KEY' => 'k', 'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example.com/x',
             'WATCHER_MODEL_TRIAGE' => 'model-a', 'WATCHER_MODEL_ANALYZE' => 'model-b', 'WATCHER_MODEL_ESCALATE' => 'model-c',
             'WATCHER_PRICE_TRIAGE_IN' => '1', 'WATCHER_PRICE_TRIAGE_OUT' => '5',
             'WATCHER_PRICE_ANALYZE_IN' => '3', 'WATCHER_PRICE_ANALYZE_OUT' => '15',
@@ -238,7 +238,7 @@ final class ArchitectureTest extends TestCase
     {
         $env = [
             'WATCHER_LOKI_URL' => 'https://grafana.example.com/api/datasources/proxy/uid/loki', 'WATCHER_LOKI_TOKEN' => 't',
-            'WATCHER_ANTHROPIC_KEY' => 'k', 'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example.com/x',
+            'WATCHER_GEMINI_KEY' => 'k', 'WATCHER_SLACK_WEBHOOK' => 'https://hooks.example.com/x',
             'WATCHER_MODEL_TRIAGE' => 'model-a', 'WATCHER_MODEL_ANALYZE' => 'model-b', 'WATCHER_MODEL_ESCALATE' => 'model-c',
             'WATCHER_PRICE_TRIAGE_IN' => '1', 'WATCHER_PRICE_TRIAGE_OUT' => '5',
             'WATCHER_PRICE_ANALYZE_IN' => '3', 'WATCHER_PRICE_ANALYZE_OUT' => '15',

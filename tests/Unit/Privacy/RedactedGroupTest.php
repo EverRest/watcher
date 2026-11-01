@@ -40,8 +40,8 @@ final class RedactedGroupTest extends TestCase
             (new ReflectionClass(RedactedGroup::class))->getProperties(),
         );
         sort($names);
-        $expected = ['count', 'errorType', 'fingerprint', 'firstSeen', 'frames', 'lastSeen', 'level', 'origin', 'pods',
-            'previousCount', 'status', 'template', 'watchMatches', 'workloadKind'];
+        $expected = ['count', 'errorType', 'fingerprint', 'firstSeen', 'frames', 'lastSeen', 'level',
+            'previousCount', 'status', 'template', 'watchMatches'];
         self::assertSame($expected, $names);
         self::assertTrue((new ReflectionClass(RedactedGroup::class))->isFinal());
     }
@@ -63,75 +63,6 @@ final class RedactedGroupTest extends TestCase
         self::assertSame('error', $a['lvl']);
         self::assertSame('grown', $a['st']);
         self::assertSame(7, $a['n']);
-    }
-
-    public function testPodEventKeysAppearOnlyForPodEventGroups(): void
-    {
-        $g = new RedactedGroup(
-            'fp1',
-            'OOMKilled: x',
-            Level::Error,
-            'OOMKilled',
-            [],
-            14,
-            null,
-            GroupStatusLabel::New,
-            [],
-            new DateTimeImmutable('2026-01-01T00:00:00+00:00'),
-            new DateTimeImmutable('2026-01-01T01:00:00+00:00'),
-            'k8s-events',
-            3,
-            'Deployment'
-        );
-
-        $a = $g->toArray();
-        self::assertSame(['fp', 'tpl', 'lvl', 'err', 'frames', 'n', 'prev', 'st', 'watch', 'first', 'last', 'src', 'pods', 'wk'], array_keys($a));
-        self::assertSame('k8s', $a['src']);
-        self::assertSame(3, $a['pods']);
-        self::assertSame('Deployment', $a['wk']);
-    }
-
-    public function testFreeTextCannotRideInTheOriginOrKindFields(): void
-    {
-        $g = new RedactedGroup(
-            'fp1',
-            'x',
-            Level::Error,
-            null,
-            [],
-            1,
-            null,
-            GroupStatusLabel::New,
-            [],
-            new DateTimeImmutable('2026-01-01T00:00:00+00:00'),
-            new DateTimeImmutable('2026-01-01T01:00:00+00:00'),
-            'jsmith@example.com',
-            3,
-            'Olena'
-        );
-
-        self::assertNull($g->origin);
-        self::assertNull($g->pods);
-        self::assertNull($g->workloadKind);
-        self::assertSame(11, count($g->toArray()));
-
-        $k = new RedactedGroup(
-            'fp1',
-            'x',
-            Level::Error,
-            null,
-            [],
-            1,
-            null,
-            GroupStatusLabel::New,
-            [],
-            new DateTimeImmutable('2026-01-01T00:00:00+00:00'),
-            new DateTimeImmutable('2026-01-01T01:00:00+00:00'),
-            'k8s-events',
-            3,
-            'Olena Shevchenko'
-        );
-        self::assertNull($k->toArray()['wk']);
     }
 
     public function testNullTemplateMeansWithheld(): void

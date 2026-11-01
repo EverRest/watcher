@@ -18,7 +18,8 @@ final class FleetFlagsTest extends TestCase
     {
         $h = new FleetHarness(servicePatches: ['bff-a' => ['enabled' => false]]);
         foreach (array_keys($h->sources) as $n) {
-            $h->logs($n, Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha'));
+            // Warning baseline: an Error first run now reports (FR-035); this test is about the disabled flag.
+            $h->logs($n, Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha'));
         }
 
         $r = $h->runner()->run(null, RunOptions::default());

@@ -14,9 +14,9 @@ use Watcher\Tests\Fakes\InMemoryStateStore;
 /** H6: a skipped or failed day must not silently become "baseline recorded". */
 final class SnapshotFallbackTest extends TestCase
 {
-    private static function source(int $n = 5): FakeLogSource
+    private static function source(int $n = 5, Level $level = Level::Error): FakeLogSource
     {
-        $events = Harness::events(Level::Error, 'Alpha service exploded badly', $n, 'AlphaException');
+        $events = Harness::events($level, 'Alpha service exploded badly', $n, 'AlphaException');
 
         return new FakeLogSource(Harness::totalsOf($events), $events);
     }
@@ -24,7 +24,7 @@ final class SnapshotFallbackTest extends TestCase
     public function testSkippedDayIsComparedWithTheLastGoodRunAndSaysSo(): void
     {
         $h = new Harness();
-        self::assertSame(RunOutcome::Baselined, $h->watcher(self::source())->run()->outcome); // 2026-10-08
+        $h->watcher(self::source())->run(); // 2026-10-08: the snapshot is what the skipped day falls back to
         $h->clock->advance('+48 hours'); // 2026-10-09 never ran
 
         $result = $h->watcher(self::source(20))->run();
@@ -37,23 +37,36 @@ final class SnapshotFallbackTest extends TestCase
         self::assertStringContainsString('↑ from 5', $text, 'growth is measured against the older snapshot');
     }
 
-    public function testNoSnapshotAtAllIsStillABaseline(): void
+    public function testNoSnapshotAtAllIsStillABaselineWhenNothingIsAtErrorLevel(): void
     {
         $h = new Harness();
 
-        $result = $h->watcher(self::source())->run();
+        $result = $h->watcher(self::source(5, Level::Warning))->run();
 
         self::assertSame(RunOutcome::Baselined, $result->outcome);
         self::assertStringContainsString('baseline', implode("\n", $h->sentTexts()));
     }
 
+    public function testFirstRunWithErrorGroupsReportsThemInsteadOfBaselining(): void
+    {
+        $h = new Harness();
+
+        $result = $h->watcher(self::source())->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        $text = implode("\n", $h->sentTexts());
+        self::assertStringContainsString('5× (new)', $text);
+        self::assertStringNotContainsString('baseline recorded', $text);
+        self::assertNotNull($h->state->get(Keys::snapshot('svc', \Watcher\Watcher::windowKey($h->windowEnd()))), 'the baseline is still recorded for tomorrow');
+    }
+
     public function testAPointerOlderThanSevenDaysIsABaseline(): void
     {
         $h = new Harness();
-        $h->watcher(self::source())->run();
+        $h->watcher(self::source(5, Level::Warning))->run();
         $h->clock->advance('+8 days');
 
-        self::assertSame(RunOutcome::Baselined, $h->watcher(self::source())->run()->outcome);
+        self::assertSame(RunOutcome::Baselined, $h->watcher(self::source(5, Level::Warning))->run()->outcome);
     }
 
     public function testExactlySevenDaysStillCompares(): void
@@ -62,7 +75,7 @@ final class SnapshotFallbackTest extends TestCase
         $h->watcher(self::source())->run();
         $h->clock->advance('+7 days');
 
-        self::assertSame(RunOutcome::Reported, $h->watcher(self::source())->run()->outcome);
+        self::assertSame(RunOutcome::Reported, $h->watcher(self::source(20))->run()->outcome);
         self::assertStringContainsString('7 days ago', implode("\n", $h->sentTexts()));
     }
 

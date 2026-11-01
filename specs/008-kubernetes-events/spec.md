@@ -1,5 +1,7 @@
 # Feature Specification: Kubernetes Events Source
 
+> **Removed in 0.6.0.** The Kubernetes event source and its `kubernetes` / `events` configuration were removed. This spec is kept as history; see `CHANGELOG.md`.
+
 **Feature Branch**: `008-kubernetes-events`
 
 **Created**: 2026-10-24

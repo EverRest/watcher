@@ -1,8 +1,165 @@
 # Changelog
 
-## 0.6.0 — 2026-11-01 — Observe log sink on by default
+## 0.15.0 — 2026-11-01 — Observe log sink on by default
 
 Behaviour change (spec 013 contract updated): `observe.log` is on by default (`WATCHER_OBSERVE_LOG_ENABLED` defaults to true), so every run writes one JSON line per event to stderr. The text of findings stays off (`observe.log.include_text` is still false). A service or environment name that does not match the event pattern no longer fails the load when only the log sink is on: the log sink is skipped and each run logs one warning that names no value, and `watcher check` reports the `observe` row as a failure (`log skipped`). File, http and prometheus sinks still refuse such a name at load. To keep the old silence, set `WATCHER_OBSERVE_LOG_ENABLED=0` or `observe.log.enabled => false`.
+
+## 0.14.0 — 2026-10-31 — Health check: problems every hour, and a broken check is no longer silent
+
+- **New:** `health_check.problems_hourly` (default `true`). Every hour inside `summary_hours` on an allowed day a `HEALTH PROBLEMS` message lists the services that are DOWN or STALE, and nothing is sent when all are up. The full `HEALTH SUMMARY` still goes out once a day at `summary_at`.
+- **New:** `health_check.stale_after_hours` (default `3`, `null` = off). A service whose `checked_at` is older, is not an ISO-8601 timestamp (`now` or `+1 day` do not count) or is more than an hour ahead is shown as `STALE` in the summary and in the problem list.
+- **Behaviour change:** a health check that cannot tell anything now says so in the notice destination: a missing or unreadable snapshot, an unreachable source Redis, or a snapshot without one valid service entry (`{}` too) sends `HEALTH CHECK BROKEN`, then a reminder every 24 hours, then `HEALTH CHECK RECOVERED`. Before, this only reached the host log, and an empty snapshot exited 0. An empty snapshot now exits 1.
+- A service whose DOWN alert (`notify_transitions`) went out in the same run is not listed again in that hour. A break soon after a recovery is announced again.
+- **Behaviour change:** with the defaults a service that is down is listed every working hour. Set `problems_hourly` to `false` to keep only the daily summary.
+
+## 0.13.2 — 2026-10-31 — Run digest and checks from MCP
+
+- **New `actions` MCP group** (off unless named in `mcp.groups` or `WATCHER_MCP_GROUPS`): `watcher_run_digest` (`watcher:fleet` or `watcher:run`, with `dry_run`, `now`, `only`, `fleet`), `watcher_health_check` (`watcher:health`), `watcher_test_message` (`watcher:check --post-test`).
+- `mcp.artisan` (or `WATCHER_MCP_ARTISAN`): absolute path to the artisan file. Required when `actions` is enabled; the path is never taken from the working directory.
+- `now` is accepted only for a dry run (`dry_run: true`); a real run at a chosen instant is refused (`now_needs_dry_run`).
+- Only the exit code comes back from a command; the JSON last line is returned only when the command ran with `--json`.
+- Actions that send need `confirm: true`; a digest run is a dry run unless `dry_run` is false. Each action runs at most once per 5 minutes per session, and every run is logged as `watcher [audit] ...`.
+- Actions run the artisan commands in a child process with an argument list. `src/Mcp/ArtisanCommand.php` is the only file in `src/Mcp` allowed to start a process (the static guard exempts it).
+- `mcp.groups` default is still the read-only three; `actions` must be named.
+- Tool annotations: `actions` tools are `readOnlyHint: false`, `destructiveHint: true`.
+
+## 0.13.1 — 2026-10-31 — Health summary on weekdays in its own zone, one schedule
+
+- **Removed:** `health_check.summary_every_hours`. The summary has one schedule: `summary_at`, inside `summary_hours`. A config that still sets it is rejected with an error, instead of quietly falling back to the daily summary.
+- **New:** `health_check.timezone` (default `UTC`; set `Europe/Berlin` for CET/CEST) sets the zone for `summary_at`, `summary_hours` and `summary_days`. It is independent of `schedule.timezone`, so the daily run keeps its zone.
+- **Changed:** `summary_days` defaults to `mon..fri` again; `null` still means every day. The default summary time is 09:00 in the new zone (UTC unless set).
+- **Behaviour change:** in 0.13.0 the summary followed `schedule.timezone`. A watcher whose `schedule.timezone` is not UTC now sends it at a different hour. Set `health_check.timezone` (for example `Europe/Berlin`) to keep its zone.
+- Health messages, both the summary and version/up-down alerts, are sent only on `summary_days` (default `mon..fri`). Nothing is sent or stored on a weekend; a change made then is sent on the first allowed day.
+- Version-change alerts are not limited to working hours; only the summary uses `summary_hours`.
+- New `notify.days` (default `null`, every day): the digest and immediate alerts are sent only on the listed days, in `schedule.timezone`. Outside them a message is dropped, not queued. The run still reads and analyses those days. Failure notices, probes and the weekly heartbeat are not affected and go out on any day. In a fleet each service uses its own `notify.days`.
+
+## 0.13.0 — 2026-10-31 — Health summary in working hours, with a period
+
+- `health_check.summary_every_hours` (`1`..`24`): send the health summary every N hours instead of once a day, counted from the start of the working window. Cannot be set together with `summary_at`.
+- `health_check.summary_hours` (default `09-18`) and `health_check.summary_days` (default `mon`..`fri`): the summary is only sent inside these working hours of working days. `null` turns each limit off.
+- **Behaviour change:** `summary_at` and the new keys use `schedule.timezone` (UTC when it is not set). In 0.12.0 `summary_at` was always UTC, so a watcher with another timezone sees its 09:00 summary move. The daily summary is no longer sent on Saturday and Sunday; set `summary_days` to `null` to keep it every day.
+
+## 0.12.0 — 2026-10-31 — Daily health summary
+
+- `health_check.summary_at` (`HH:MM` UTC, default `09:00`, `null` = off): once a day the health check sends a summary of every service in the host snapshot (name, version, up/down, `checked_at`), even when no version changed. Only the hour is used, because the check runs hourly. A failed summary send is logged (`health: summary not sent`) and does not change the exit code or the version alerts.
+
+## 0.11.1 — 2026-10-30 — Test fixes, no runtime change
+
+- The MCP process test runs its child with `XDEBUG_MODE=off`, so an Xdebug banner on stderr no longer fails it.
+- The driver equivalence test compares model calls only. Which groups reach the model varies per run by design (the `top_m` tie-break is random), and so does the stored state key count.
+
+## 0.11.0 — 2026-10-30 — Certificate and secret expiry probes; errors are reported on the first run and repeated daily
+
+- New `probes` section, off by default: TLS certificate expiry of `probes.hosts` and declared secret expiry of `probes.secrets`, with `probes.warn_days` (30) and `probes.fail_days` (7). Deterministic, no model call, no secret value read.
+- `schedule.probe_every` (`WATCHER_PROBE_EVERY`, default `PT1H`, at least `PT5M`): probes run on the first run trigger after it has passed. A host that triggers less often runs them less often. A non-string value is refused.
+- Alerts go to the notice destination on a status change, or once a day while a warning or failure stands. An unreachable host is `unknown` and never alerts.
+- Behaviour change (FR-035): a first run with no previous snapshot posts a digest when a group is at Error or above, with only those groups. It used to record a baseline only, so a day with errors on the first run looked silent. Warning and lower levels are not in the first digest.
+- Behaviour change (FR-008): a group already reported that has not grown and is still in today's read is sent again with its stored finding, with no model call. A stored finding that cannot be read makes the group analysed again.
+- A probe that fails no longer stops the other probes in the same interval. `probes` enabled while `notify.notice` is off logs a warning.
+- Known ceiling: certificate hosts are connected one after another, up to 5 s each, before the run guard exists.
+
+- New `probes` section, off by default: TLS certificate expiry of `probes.hosts` and declared secret expiry of `probes.secrets`, with `probes.warn_days` (30) and `probes.fail_days` (7). Deterministic, no model call, no secret value read.
+- `schedule.probe_every` (`WATCHER_PROBE_EVERY`, default `PT1H`, at least `PT5M`): probes run on the first run trigger after it has passed. A host that triggers less often runs them less often.
+- Alerts go to the notice destination on a status change, or once a day while a warning or failure stands. An unreachable host is `unknown` and never alerts.
+
+## 0.10.0 — 2026-10-29 — Hourly host health check
+
+- `watcher:health` (Laravel adapter): reads the host app's `{app}:health` snapshot from its Redis once per hour and alerts at once when a service's version changes. Opt-in (`health_check.enabled`); separate from the daily run. Optional up/down transitions (`health_check.notify_transitions`).
+
+### Fixed
+- Immediate alerts (0.9.0 review): a noisy rule can no longer hold back every other rule for a whole read, `http_code` is kept only as three digits, and free text in `error` follows `redaction.min_group_events_for_text`.
+
+## 0.9.0 — 2026-10-29 — Immediate alerts for matching log lines
+
+### Added
+- `alerts.immediate`: a notice is sent as soon as a log line matches a rule during the read, not at the next digest. A rule has a `level` (a minimum, default `critical`), a plain `message` substring and an exact `action`. Off by default: `alerts.enabled`, environment `WATCHER_ALERTS_ENABLED`.
+- `alerts.window` (default `PT15M`): at most one alert per rule, message and affected service per window. The window is kept in the state store, so a restart does not repeat an alert.
+- `alerts.fields`: the context values an alert may show (`service`, `http_code`, `error`, `services`). Empty by default. Numbers are masked except `http_code`.
+- At most 5 alert messages per read. The rest are not recorded and go out on a later read, with one line saying how many were held back.
+
+### Notes
+- Context values stay off the notice unless listed in `alerts.fields`. Enabling it sends masked values to the notice destination, which `docs/privacy.md` does not yet describe.
+
+
+## 0.8.0 — 2026-10-28 — Retry transient provider failures (OpenAI, Gemini)
+
+### Added
+- OpenAI and Gemini retry transient failures (429, 500, 502, 503, 504, a timeout or a connection error), up to `analysis.providers_options.{openai,gemini}.retries` (0 to 3, default 0). Each attempt gets the time left of the call timeout, and a wait that would end past the deadline is not taken. `Retry-After` is honoured, capped per wait.
+- A refusal or an invalid reply is never retried.
+
+### Changed
+- `analysis.providers_options.{openai,gemini}.retries` may be 0 to 3 (it was refused above 0 in 0.7.0). Anthropic is not part of this change.
+
+## 0.7.0 — 2026-10-28 — Remove the Kubernetes event source and Anthropic
+
+Breaking: Anthropic is no longer a provider. The providers are OpenAI and Gemini, and the default is Gemini. A configuration
+that still names Anthropic **fails at load**; nothing is converted.
+
+### Removed configuration (each fails at load with its message; `watcher check` lists them all)
+
+| Key | Message |
+|---|---|
+| `analysis.api_key` | analysis.api_key was removed in 0.7.0; use analysis.api_keys.gemini or analysis.api_keys.openai (the provider in use). |
+| `analysis.api_keys.anthropic` | analysis.api_keys.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use analysis.api_keys.gemini or analysis.api_keys.openai. |
+| `analysis.providers_options.anthropic` | analysis.providers_options.anthropic was removed in 0.7.0; Anthropic is no longer a provider. Delete this section. |
+| `analysis.provider = anthropic` | analysis.provider = anthropic was removed in 0.7.0; Anthropic is no longer a provider. Use gemini or openai. |
+| `analysis.providers.<step> = anthropic` | the same, naming the step (`analysis.providers.triage = anthropic was removed in 0.7.0; ...`). |
+
+`WATCHER_ANTHROPIC_KEY` is no longer read by the setup catalog (MCP) and is replaced by `WATCHER_GEMINI_KEY`. The package reads no environment variables itself; the message is not repeated for it.
+
+### Changed
+- The default provider is `gemini` (was `anthropic`). A configuration that names no provider now uses Gemini and needs `analysis.api_keys.gemini`.
+- `analysis.providers_options.{openai,gemini}.retries` must be 0 (neither adapter retries).
+- `watcher check`: `provider_auth` and `models` show SKIP for every provider. The Anthropic models-list probe is gone and no other provider has one.
+- Generated configuration (`watcher_generate_config`) writes `provider => gemini` and `api_keys.gemini`, and the setup catalog asks for `WATCHER_GEMINI_KEY`.
+- The `rotate-credentials` prompt lists `gemini` and `openai` in place of `anthropic`.
+
+### Removed
+- Dependencies: `anthropic-ai/sdk`, and `php-http/discovery` (nothing else used it), with its `allow-plugins` entry. `anthropic` and `claude` are no longer keywords.
+- The Anthropic SDK adapter, the Anthropic model catalog and the Anthropic fixtures.
+- Internal: `AnthropicAnalyzer` is `ProviderAnalyzer`. Its logic is unchanged.
+
+### What operators do
+1. Set `analysis.provider` to `gemini` (or delete the key: gemini is the default), or to `openai`.
+2. Replace `analysis.api_key` and `analysis.api_keys.anthropic` with `analysis.api_keys.gemini` (or `openai`), and set that key from the environment.
+3. Delete `analysis.providers_options.anthropic`. Change any `analysis.providers.<step>` set to `anthropic` to `gemini` or `openai`.
+4. Replace the model ids. A Claude model id is not valid for either provider; set `models.triage`, `models.analyze` and `models.escalate` to ids the chosen provider serves.
+5. In Kubernetes or your environment, replace `WATCHER_ANTHROPIC_KEY` with `WATCHER_GEMINI_KEY`.
+6. Run `watcher check`: `provider_auth` and `models` are SKIP, so check the key and the model ids on the first run.
+
+### Kubernetes event source removed
+
+Breaking: a configuration that still has a removed key **fails at load**. Nothing is converted and no replacement exists.
+The Kubernetes event source (spec 008) is gone. Pod-level problems are not read from the cluster any more; see "What to do instead".
+
+### Removed configuration (each fails at load with its message; `watcher check` lists them all)
+
+| Key | Message |
+|---|---|
+| `kubernetes` (whole section, including `kubernetes.enabled`) | kubernetes section was removed in 0.7.0; there is no replacement. Delete this section. |
+| `events` (whole section) | events section was removed in 0.7.0; there is no replacement. Delete this section. |
+| `source.driver: kubernetes` | source.driver kubernetes was removed in 0.7.0; there is no replacement. Use a log source (loki or datadog). Delete the kubernetes settings. |
+
+`source.driver` values are now `loki` or `datadog` only. The feature flag `kubernetes` is gone with the section.
+`WATCHER_KUBERNETES_ENABLED` is no longer read; it produces no message.
+
+### Removed behaviour
+- No cluster read on any trigger, and no `--dry-run` read of the cluster. The hourly ledger and its `evt:` state records are gone; records left in a state store expire on their own TTL and nothing reads them.
+- `KUBERNETES_SERVICE_HOST` is no longer read. The in-cluster flag is gone, so `watcher check` no longer warns that `state.driver=file` is used inside Kubernetes.
+- Heartbeat: no `events` field. Nothing sets `degraded` any more (the value stays in the status vocabulary, so exit codes do not change).
+- Digest: no pod-event lines and no `k8s_*` read-quality counters.
+- Outcome code `k8s_ingest_failed` (reserved, never emitted) is no longer registered.
+- `watcher check`: no `events` check.
+- JSON run summary: no `events` key.
+- Model payload: the `src`, `pods` and `wk` keys of a group are gone. Only a pod-event group ever carried them, and none is produced now, so every payload is unchanged.
+- Internal: the event origin, pod id and workload kind fields on log events and groups are removed. Groups from Loki and Datadog are unchanged.
+
+### What to do instead
+1. Delete the `kubernetes` and `events` sections, and `source.driver: kubernetes`, from every service configuration (and from the fleet file).
+2. Remove the RBAC role and binding that let watcher read `events` and `pods`, if nothing else uses them.
+3. To keep crash loops, OOM kills, image pull failures, failing probes and restarts in the digest, export the cluster events to the log backend your service already reads, and read them through `source.driver: loki` or `datadog` with a stream selector for them. Watcher then reads them like any other log line and redacts them the same way.
+
+[`docs/kubernetes.md`](docs/kubernetes.md) is kept as a short pointer. Spec 008 stays in `specs/` as history.
 
 ## 0.5.0 — 2026-10-27 — Remove budgets and token and cost accounting
 

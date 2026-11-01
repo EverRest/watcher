@@ -134,10 +134,9 @@ final class DocsIndexTest extends TestCase
         self::assertSame('float', $c['type']);
         $u = (new ExplainConfigTool())->call(['key' => 'selection.min_levl']);
         self::assertSame(['found' => false, 'did_you_mean' => ['selection.min_level']], $u);
-        self::assertTrue((new ExplainConfigTool())->call(['key' => 'analysis.api_key'])['secret']);
+        self::assertTrue((new ExplainConfigTool())->call(['key' => 'analysis.api_keys.gemini'])['secret']);
         $o = (new ExplainOutcomeTool())->call(['code' => 'skipped_done']);
         self::assertSame(0, $o['exit_code']);
-        self::assertSame('spec-008', (new ExplainOutcomeTool())->call(['code' => 'k8s_ingest_failed:oomkilled'])['reserved_by']);
         self::assertSame(['found' => false], (new ExplainOutcomeTool())->call(['code' => 'made_up']));
         $all = (new ExplainOutcomeTool())->call([]);
         self::assertGreaterThan(30, count($all['codes']));

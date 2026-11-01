@@ -7,44 +7,15 @@ namespace Watcher\Source;
 use DateTimeImmutable;
 use DateTimeZone;
 use Psr\Clock\ClockInterface;
-use Throwable;
 use Watcher\Level;
-use Watcher\Schedule\SystemClock;
 
 /** Parses one log line into a LogEvent. Text vs JSON is decided per line, so mixed streams work. */
 final class LineParser
 {
-    private const TEXT = '/^\[(?<dt>[^\]]+)\] (?<ch>[\w.-]+)\.(?<lvl>[A-Z]+)(?: \[(?<app>[^\]]*)\])?: (?<msg>.*?)(?<ctx> \{.*\})?+(?<extra> \[.*\]|\{.*\})?+$/';
-
-    private const OBJECT_FORM = '/\[object\] \((?<t>[A-Za-z_][\w\\\\]*)\(code: [^)]*\):(?:.* at (?<f>(?:[A-Za-z]:)?[\\\\\/][\w.\-\\\\\/]*\.[A-Za-z0-9]{1,5}):(?<l>\d+)\))?/';
-    private const MESSAGE_FORM = '/^(?<t>[A-Za-z_][\w\\\\]*(?:Exception|Error)): .* in (?<f>(?:[A-Za-z]:)?[\\\\\/][\w.\-\\\\\/]*\.[A-Za-z0-9]{1,5}):(?<l>\d+)$/';
-    private const TRACE_LINE = '/^#\d+ (?<f>(?:[A-Za-z]:)?[\\\\\/][\w.\-\\\\\/]*\.[A-Za-z0-9]{1,5})\((?<l>\d+)\): /m';
-
     /** An exception type is a PHP class name (max 120 chars); anything else is free text and never leaves. */
     public const CLASS_NAME = '/^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*$/D';
     public const CLASS_NAME_MAX = 120;
 
-    /**
-     * How an unstructured line announces its level (only at the start, optionally after an ISO-like timestamp):
-     * a level word (`ERROR x`, `Fatal error: x`, `[error] x`, `<WARN>`), a syslog `<PRI>` or logfmt `level=`/`lvl=`.
-     */
-    private const PLAIN_LEVEL = '/^(?:\d{4}[-\/]\d\d[-\/]\d\d[T ]\d\d:\d\d:\d\d\S*\s+)?(?:PHP\s+)?[\[<(]?(?<w>trace|debug|info|notice|warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal|panic)(?!\w)/i';
-    private const LOGFMT_LEVEL = '/(?:^|\s)(?:level|lvl)="?(?<w>\w+)/i';
-    private const SYSLOG_PRI = '/^<(?<n>\d{1,3})>/';
-    /**
-     * A line that can only be the tail of a record: indented (Node/Go/Rust frames), `#0 frame`, `at x`, `Caused by:`,
-     * `Stack trace:`, `Traceback`, `...`, a closer, `Foo\BarException: x`, `module.Class: x`, Go `goroutine N [state]:`,
-     * `pkg.func(0x..)`, `created by x`, `exit status N`, Rust `stack backtrace:`.
-     */
-    private const CONTINUATION = '/^(?:$|\s|#\d|at\s|Caused by:|Stack trace:|PHP\s+(?:Stack trace:|\d+\.)|Traceback|\.\.\.|[})\]]|[\w.\\$]*(?:Error|Exception)\b(?::|$)|[a-z_]\w*(?:\.\w+)*\.[A-Z]\w*: |goroutine \d+ \[|[\w.\/*()-]+\((?:0x[0-9a-f]+|\.\.\.)|created by |exit status \d|stack backtrace:)/';
-    /**
-     * A head that announces a crash: everything up to the next record is its trace, whatever shape the frames take.
-     * Anchored to the START of the message (after an optional timestamp, `PHP ` and level prefix), so crash words
-     * inside user-controlled text (`ERROR payment failed: panic: x`) never open trace mode.
-     */
-    private const TRACE_HEAD = '/^(?:\d{4}[-\/]\d\d[-\/]\d\d[T ]\d\d:\d\d:\d\d\S*\s+)?(?:PHP\s+)?(?:[\[<(]?(?i:trace|debug|info|notice|warn|warning|err|error|crit|critical|alert|emerg|emergency|fatal|panic)(?!\w)[\]>)]?[:\s-]*)?(?:Traceback|panic:|goroutine \d+|(?:PHP )?Fatal error|fatal error:|Exception in thread|thread \'[^\']*\' panicked|Stack trace:|Caused by:)/';
-    /** Lines that carry nothing beyond a stack frame: dropped (and counted) when no record is open to hold them. */
-    private const FRAME_ONLY = '/^(?:#\d+ |\s+at\s|\s+\/\S*:\d+|\s+\d+: |goroutine \d+ \[|[\w.\/*-]+(?:\([^)]*\))?\((?:0x[0-9a-f]+|\.\.\.))/';
 
     /** Every physical line is cut here before any regex runs on it (a line longer than a few KB is never log structure). */
     public const MAX_LINE = 8192;
@@ -53,8 +24,6 @@ final class LineParser
     public const MAX_RECORD_LINES = 200; // also what a crash trace may absorb beyond its head
     /** Longest JSON line decoded whole (json_decode is linear; the cap bounds memory). */
     private const MAX_JSON_BYTES = ReadFilter::MAX_LINE_BYTES;
-    /** Tail of a Laravel record whose context JSON holds raw line breaks: `[stacktrace]` and the line that closes the string (`"} []`). */
-    private const STRUCTURED_TAIL = '/^(?:\[stacktrace\]|"\s*[}\],])/';
 
     private const LEVEL_KEYS = ['level', 'severity', 'status'];
     private const MESSAGE_KEYS = ['message', 'msg'];
@@ -92,8 +61,11 @@ final class LineParser
     /** @var array<string, bool> */
     private array $structuredCache = [];
 
-    public function __construct(private readonly ?ClockInterface $clock = null)
+    private readonly LogTime $times;
+
+    public function __construct(?ClockInterface $clock = null)
     {
+        $this->times = new LogTime($clock);
     }
 
     /** @return array{unknown_levels: int, orphan_trace_lines: int, message_tails_dropped: int, truncated_lines?: int, regex_failures?: int, truncated_structured?: int} the last three only when non-zero */
@@ -167,7 +139,7 @@ final class LineParser
     public function isOrphanTrace(string $line, bool $labelled = false): bool
     {
         // Structure is judged on the RAW line (a `{` line is a record start whatever its size); the cut form only feeds the regexes.
-        if ($labelled || trim($line) === '' || $this->structured($line) || $this->plainLevel($line) !== null || !$this->re(self::FRAME_ONLY, $this->capLine($line))) {
+        if ($labelled || trim($line) === '' || $this->structured($line) || $this->plainLevel($line) !== null || !$this->re(LineShapes::FRAME_ONLY, $this->capLine($line))) {
             return false;
         }
         ++$this->orphanTraceLines;
@@ -202,7 +174,7 @@ final class LineParser
         $head = $nl === false ? $open : substr($open, 0, $nl);
         // Only a line that looks like the tail of a record continues it, whatever the head is: a plain message line
         // after a JSON / Monolog record is a record of its own (it must not vanish into the one before it).
-        if ($this->re(self::CONTINUATION, $cut) || ($this->structured($head) && $this->re(self::STRUCTURED_TAIL, $cut))) {
+        if ($this->re(LineShapes::CONTINUATION, $cut) || ($this->structured($head) && $this->re(LineShapes::STRUCTURED_TAIL, $cut))) {
             return true;
         }
         if ($labelled || $this->structured($head)) {
@@ -210,7 +182,7 @@ final class LineParser
         }
 
         // Trace mode: only a record whose first line is a crash head takes unrecognised lines, up to the cap.
-        if (!$this->re(self::TRACE_HEAD, $head)) {
+        if (!$this->re(LineShapes::TRACE_HEAD, $head)) {
             return false;
         }
         return true;
@@ -229,7 +201,7 @@ final class LineParser
         }
         $m = $this->text($line);
 
-        return $this->structuredCache[$line] = $m !== null && $this->time($m['dt']) !== null;
+        return $this->structuredCache[$line] = $m !== null && $this->times->parse($m['dt']) !== null;
     }
 
     /** @return mixed decoded array or null */
@@ -289,7 +261,7 @@ final class LineParser
                 $m = $whole;
             }
         }
-        $time = $m === null ? null : $this->time($m['dt']);
+        $time = $m === null ? null : $this->times->parse($m['dt']);
         if ($m !== null && $time !== null) {
             $ctx = $this->ctx($m['ctx'] ?? '');
 
@@ -300,7 +272,7 @@ final class LineParser
                 rtrim(explode("\n", $m['msg'], 2)[0]),
                 null,
                 [],
-                $ctx !== null ? $this->flatten($ctx, '', []) : [],
+                $ctx !== null ? JsonFields::flatten($ctx, '', []) : [],
                 [],
             ), $rest);
         }
@@ -383,10 +355,10 @@ final class LineParser
     private function plainLevel(string $line): ?Level
     {
         $line = $this->capLine($line);
-        if ($this->re(self::SYSLOG_PRI, $line, $m)) {
+        if ($this->re(LineShapes::SYSLOG_PRI, $line, $m)) {
             return Level::fromSyslog((int) $m['n'] % 8);
         }
-        if ($this->re(self::PLAIN_LEVEL, $line, $m) || $this->re(self::LOGFMT_LEVEL, $line, $m)) {
+        if ($this->re(LineShapes::PLAIN_LEVEL, $line, $m) || $this->re(LineShapes::LOGFMT_LEVEL, $line, $m)) {
             return Level::tryParse($m['w']);
         }
 
@@ -399,7 +371,7 @@ final class LineParser
         // A record spanning lines (the `s` form) is cut at MAX_LINE too: its context JSON is then unreadable, the event is not lost.
         $line = $this->capLine($line);
 
-        return $this->re(self::TEXT . $flags, $line, $m) ? $m : null;
+        return $this->re(LineShapes::TEXT . $flags, $line, $m) ? $m : null;
     }
 
     /**
@@ -418,17 +390,17 @@ final class LineParser
         $frames = [];
 
         $exception = $this->capLine($exception);
-        if ($this->re(self::OBJECT_FORM, $exception, $m)) {
+        if ($this->re(LineShapes::OBJECT_FORM, $exception, $m)) {
             $type = $m['t'];
             if (isset($m['f'], $m['l'])) {
                 $frames[] = $m['f'] . ':' . $m['l'];
             }
-        } elseif ($this->re(self::MESSAGE_FORM, $this->capLine($e->message), $m)) {
+        } elseif ($this->re(LineShapes::MESSAGE_FORM, $this->capLine($e->message), $m)) {
             $type = $m['t'];
             $frames[] = $m['f'] . ':' . $m['l'];
         }
         $traceText = substr($exception . "\n" . $rest, 0, self::MAX_RECORD_BYTES);
-        if (preg_match_all(self::TRACE_LINE, $traceText, $t, PREG_SET_ORDER) > 0) {
+        if (preg_match_all(LineShapes::TRACE_LINE, $traceText, $t, PREG_SET_ORDER) > 0) {
             foreach ($t as $x) {
                 $frames[] = $x['f'] . ':' . $x['l'];
             }
@@ -459,12 +431,12 @@ final class LineParser
         $keys = isset($data['status']) && (!is_string($data['status']) || is_numeric($data['status']))
             ? array_values(array_diff(self::LEVEL_KEYS, ['status']))
             : self::LEVEL_KEYS;
-        $level = $this->pick($data, $keys, $used);
+        $level = JsonFields::pick($data, $keys, $used);
         $levelKey = $used[0] ?? null;
-        $message = $this->pick($data, self::MESSAGE_KEYS, $used);
-        $type = $this->pick($data, self::TYPE_KEYS, $used);
-        $trace = $this->pick($data, self::TRACE_KEYS, $used);
-        $time = $this->pick($data, self::TIME_KEYS, $used);
+        $message = JsonFields::pick($data, self::MESSAGE_KEYS, $used);
+        $type = JsonFields::pick($data, self::TYPE_KEYS, $used);
+        $trace = JsonFields::pick($data, self::TRACE_KEYS, $used);
+        $time = JsonFields::pick($data, self::TIME_KEYS, $used);
 
         $frames = is_string($trace) ? explode("\n", $trace) : (is_array($trace) ? $trace : []);
         $frames = array_values(array_filter(
@@ -473,107 +445,17 @@ final class LineParser
         ));
 
         return new LogEvent(
-            $this->time($time) ?? $fallback,
+            $this->times->parse($time) ?? $fallback,
             $this->jsonLevel($level, $levelKey),
             is_scalar($message) ? (string) $message : '',
             is_scalar($type) ? self::classNameOrNull((string) $type) : null,
             $frames,
-            $this->flatten($data, '', $used),
+            JsonFields::flatten($data, '', $used),
             [],
         );
     }
 
-    /**
-     * First present key wins; accepts a literal dotted key or a nested path. Records the path as used.
-     *
-     * @param array<mixed>  $data
-     * @param list<string>  $keys
-     * @param list<string>  $used
-     */
-    private function pick(array $data, array $keys, array &$used): mixed
-    {
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $data)) {
-                $used[] = $key;
 
-                return $data[$key];
-            }
-            $node = $data;
-            foreach (explode('.', $key) as $part) {
-                if (!is_array($node) || !array_key_exists($part, $node)) {
-                    continue 2;
-                }
-                $node = $node[$part];
-            }
-            $used[] = $key;
 
-            return $node;
-        }
 
-        return null;
-    }
-
-    /**
-     * @param array<mixed>  $data
-     * @param list<string>  $skip dotted paths already consumed
-     *
-     * @return array<string, scalar|null>
-     */
-    private function flatten(array $data, string $prefix, array $skip): array
-    {
-        $out = [];
-        foreach ($data as $k => $v) {
-            $path = $prefix . $k;
-            if (in_array($path, $skip, true)) {
-                continue;
-            }
-            if (is_array($v)) {
-                $out += $this->flatten($v, $path . '.', $skip);
-            } elseif (is_scalar($v) || $v === null) {
-                $out[$path] = $v;
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * ISO string, or an epoch in seconds, milliseconds, microseconds or nanoseconds (int, float or numeric
-     * string; told apart by magnitude). Anything outside 2000-01-01 .. now+1 day is null, never year 55000.
-     */
-    private function time(mixed $raw): ?DateTimeImmutable
-    {
-        try {
-            $utc = new DateTimeZone('UTC');
-            if (is_string($raw) && is_numeric($raw)) {
-                $raw = (float) $raw;
-            }
-            if (is_int($raw) || is_float($raw)) {
-                $n = (float) $raw;
-                $seconds = $n / match (true) {
-                    abs($n) < 1e11 => 1.0,
-                    abs($n) < 1e14 => 1e3,
-                    abs($n) < 1e17 => 1e6,
-                    default => 1e9,
-                };
-
-                return $this->inRange($seconds) ? (new DateTimeImmutable('@' . (int) floor($seconds)))->setTimezone($utc) : null;
-            }
-            if (is_string($raw) && $raw !== '') {
-                $t = (new DateTimeImmutable($raw, $utc))->setTimezone($utc);
-
-                return $this->inRange($t->getTimestamp()) ? $t : null;
-            }
-        } catch (Throwable) {
-        }
-
-        return null;
-    }
-
-    private function inRange(float|int $seconds): bool
-    {
-        $now = ($this->clock ?? new SystemClock())->now()->getTimestamp();
-
-        return $seconds >= 946_684_800 && $seconds <= $now + 86_400;
-    }
 }
