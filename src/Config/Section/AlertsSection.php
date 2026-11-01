@@ -14,11 +14,15 @@ final class AlertsSection
     /**
      * @param array<string, mixed> $a
      *
-     * @return array{window: int, fields: list<string>, immediate: array<string, array{level: Level, message: ?string, action: ?string}>}
+     * @return array{window: int, fields: list<string>, immediate: array<string, array{level: Level, message: ?string, action: ?string}>, new_groups: bool}
      */
     public static function alerts(array $a): array
     {
-        SectionFields::only($a, ['enabled', 'window', 'immediate', 'fields'], 'alerts');
+        SectionFields::only($a, ['enabled', 'window', 'immediate', 'fields', 'new_groups'], 'alerts');
+        $newGroups = $a['new_groups'] ?? true;
+        if (!is_bool($newGroups)) {
+            throw new InvalidConfig('alerts.new_groups must be true or false');
+        }
         $window = $a['window'] ?? 'PT15M';
         $seconds = is_string($window) ? SectionFields::seconds($window) : null;
         if ($seconds === null || $seconds < 1) {
@@ -62,6 +66,6 @@ final class AlertsSection
             throw new InvalidConfig('alerts.enabled needs at least one alerts.immediate rule');
         }
 
-        return ['window' => $seconds, 'fields' => $fields, 'immediate' => $immediate];
+        return ['window' => $seconds, 'fields' => $fields, 'immediate' => $immediate, 'new_groups' => $newGroups];
     }
 }

@@ -143,6 +143,11 @@ final class Keys
         return self::join(self::ALERT, $service, $identity);
     }
 
+    public static function newGroupAlert(string $service, string $fingerprint): string
+    {
+        return self::join(self::ALERT, $service, 'new', $fingerprint);
+    }
+
     /** Consecutive windows in which the source returned nothing at all (A4-08). */
     public static function zeroRead(string $service): string
     {
@@ -176,9 +181,14 @@ final class Keys
     }
 
     /** Parts of a digest already posted when a later part failed (same window, same TTL as delivered). */
-    public static function deliveredParts(string $service, string $windowEnd): string
+    public static function digestPart(string $service, string $windowEnd, int $index): string
     {
-        return self::join(self::DELIVERED, $service, $windowEnd, 'parts');
+        return self::join(self::DELIVERED, $service, $windowEnd, 'p' . $index);
+    }
+
+    public static function digestPartProgress(string $service, string $windowEnd, int $index): string
+    {
+        return self::join(self::DELIVERED, $service, $windowEnd, 'pp' . $index);
     }
 
     /** Failure notices sent for one window (a counter, at most FAIL_NOTICES_PER_WINDOW are sent). */

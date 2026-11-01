@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Watcher\Notify;
 
 use DateTimeImmutable;
+use Watcher\Level;
 use Watcher\Analyze\Finding;
 use Watcher\ApiContext\EndpointContext;
 use Watcher\Baseline\Comparison;
@@ -87,6 +88,8 @@ final class DigestData
         public readonly ?DateTimeImmutable $gapTo = null,
         public readonly ?int $gapWindows = null,
         public readonly ?int $catchUpBatch = null,
+        /** @var list<array{fingerprint: string, level: Level, count: int}> flagged groups no analysis looked at (spec 018): each gets its own line */
+        public readonly array $unanalysedGroups = [],
     ) {
     }
 }

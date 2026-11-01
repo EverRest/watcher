@@ -33,10 +33,11 @@ final class DigestSections
 
     /**
      * @param list<array{f: Finding, n: int, i: int}> $shown
+     * @param list<array{f: Finding, n: int}>         $minorFindings below-threshold findings, each listed as a minor line (spec 018)
      *
      * @return list<array{kind: string, text: string}>
      */
-    public static function build(DigestData $d, array $shown, int $minor): array
+    public static function build(DigestData $d, array $shown, int $minor, array $minorFindings = []): array
     {
         $out = [['kind' => 'header', 'text' => self::header($d)]];
         if ($d->extras?->metricsLine !== null) {
@@ -59,6 +60,13 @@ final class DigestSections
             }
         }
 
+        if ($d->unanalysedGroups !== []) {
+            $out[] = ['kind' => 'severity', 'text' => sprintf('⚪ *not analysed* (%d)', count($d->unanalysedGroups))];
+            foreach ($d->unanalysedGroups as $g) {
+                $out[] = ['kind' => 'finding', 'text' => sprintf('• %s %s× %s', strtolower($g['level']->name), number_format($g['count']), $g['fingerprint']) . FindingLines::groupLinksLine($g['fingerprint'], $d)];
+            }
+        }
+
         if ($d->knownLine !== null && $d->knownLine !== '') {
             $out[] = ['kind' => 'minor', 'text' => $d->knownLine];
         }
@@ -75,6 +83,9 @@ final class DigestSections
         }
         if ($parts !== []) {
             $out[] = ['kind' => 'minor', 'text' => implode(' · ', $parts)];
+        }
+        foreach ($minorFindings as $m) {
+            $out[] = ['kind' => 'minor', 'text' => sprintf('• %s — %s× %s', SlackText::escape($m['f']->title), number_format($m['n']), SlackText::escape($m['f']->fingerprints[0] ?? ''))];
         }
 
         foreach ($d->mutePartial as $fp => [$matched, $events, $index]) {

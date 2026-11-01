@@ -27,11 +27,11 @@ final class Delivery
     /**
      * @param list<Finding>                              $findings
      * @param array<string, \Watcher\Privacy\RedactedGroup> $groups
-     * @param callable(list<Finding>, ?string, int): Message $buildDigest
+     * @param callable(list<Finding>, ?string, int): list<Message> $buildDigest
      * @param callable(string): void                     $out
      * @param callable(DeliveryFailed): void             $onDigestFailure
      * @param callable(string): void|null              $observerKind
-     * @param callable(Message): Message|null            $digestProgress wraps the default digest only (resumable parts); routed batches have their own marker
+     * @param callable(Message, int): Message|null       $digestProgress wraps each digest part (resumable); routed batches have their own marker
      */
     public static function run(
         WatchConfig $c,
@@ -41,7 +41,7 @@ final class Delivery
         StateStore $state,
         Notifier $notifier,
         RunOptions $options,
-        callable $buildDigest,
+        callable $buildDigest, // list<Message>: the digest in parts
         callable $out,
         callable $onDigestFailure,
         ?callable $observerKind,
@@ -82,7 +82,9 @@ final class Delivery
                     if ($observerKind !== null) {
                         $observerKind('digest');
                     }
-                    $notifier->send($buildDigest($batch, null, 0), $dest);
+                    foreach ($buildDigest($batch, null, 0) as $routed) {
+                        $notifier->send($routed, $dest);
+                    }
                     if (!$options->dryRun) {
                         $state->put($keys->routeDelivered($idx), ['at' => $at], $deliveredTtl);
                     }
@@ -106,15 +108,24 @@ final class Delivery
         if ($c->on('drafts') && $c->incident->draftsEnabled) {
             $draftsSkipped = self::draftsSkipped($c, $defaultFindings, $keys, $state, $groups);
         }
-        $message = $buildDigest($defaultFindings, $routedNotice, $draftsSkipped);
-        if ($digestProgress !== null) {
-            $message = $digestProgress($message);
-        }
+        $messages = $buildDigest($defaultFindings, $routedNotice, $draftsSkipped);
         try {
-            if ($observerKind !== null) {
-                $observerKind('digest');
+            // Spec 018: the digest is several messages. A part that was sent is recorded, so a retry in the same window skips it.
+            foreach ($messages as $k => $message) {
+                if (!$options->dryRun && $state->get($keys->digestPart($k)) !== null) {
+                    continue;
+                }
+                if ($digestProgress !== null) {
+                    $message = $digestProgress($message, $k);
+                }
+                if ($observerKind !== null) {
+                    $observerKind('digest');
+                }
+                $notifier->send($message, $digestDest);
+                if (!$options->dryRun) {
+                    $state->put($keys->digestPart($k), ['at' => $at], $deliveredTtl);
+                }
             }
-            $notifier->send($message, $digestDest);
             if ($options->dryRun && $c->on('drafts') && $c->incident->draftsEnabled) {
                 $out('== DRY RUN drafts ==');
             }

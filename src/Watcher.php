@@ -10,6 +10,7 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 use Watcher\Baseline\BaselineResolver;
 use Watcher\Alert\ImmediateAlerts;
+use Watcher\Alert\NewGroupAlerts;
 use Watcher\Analyze\AnalysisRequest;
 use Watcher\Analyze\Finding;
 use Watcher\Analyze\AnalysisResult;
@@ -127,6 +128,7 @@ final class Watcher
 
     /** The notifier for the digest and immediate alerts only: it drops them outside notify.days. Notices and probes use $notifier. */
     private readonly Notifier $dayGated;
+    private readonly ?DayGate $dayGate;
 
     /** The unwrapped store: a dry run reads the real "already done" record through it. */
     private readonly StateStore $realState;
@@ -209,6 +211,8 @@ final class Watcher
         }
         $this->notifier = $notifier;
         $this->dayGated = $this->options->dryRun ? $notifier : DayGate::wrap($notifier, $config->notify['days'], new \DateTimeZone($config->schedule['timezone'] ?? 'UTC'), $this->clock, $hostLog);
+        // Spec 018: the new-group alerts ask whether today is allowed before they send or store anything.
+        $this->dayGate = $this->options->dryRun || $config->notify['days'] === null ? null : new DayGate($notifier, $config->notify['days'], new \DateTimeZone($config->schedule['timezone'] ?? 'UTC'), $this->clock->now(...), $hostLog);
         $publisher = $sinks === null ? null : new RunPublisher($sinks, $config->observe, $this->clock, $this->options->dryRun ? null : $counters, $hostLog);
         $heartbeat = $this->options->dryRun || !$config->on('heartbeat') ? null : Factory::heartbeat($config, $state, $this->clock, $hostLog);
         $this->ledger = new RunLedger(config: $config, state: $state, clock: $this->clock, heartbeat: $heartbeat, notifier: $notifier, hostLog: $hostLog, publisher: $publisher, topGroups: $config->observe->topGroups);
@@ -960,6 +964,9 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
+        // Spec 018 US2: a new group is announced now, before this run's digest.
+        NewGroupAlerts::fromRun($c, $this->state, $this->dayGate, fn (Message $m) => $this->dayGated->send($m, $this->noticeDestination()), fn (DeliveryFailed $e) => $this->hostLog?->warning('new group alert failed: ' . $this->notices()->describe($e), ['service' => $service]), $this->notices(), $this->options->dryRun)
+            ->deliver($selection->candidates, $analysis->redacted, $window, $environment, $this->clock->now());
         Delivery::run(
             $c,
             $read,
@@ -968,7 +975,8 @@ final class Watcher
             $this->state,
             $this->dayGated,
             $this->options,
-            function (array $findings, ?string $routedNotice, int $draftsSkipped) use ($read, $analysis, $selection, $environment): Message {
+            /** @return list<Message> */
+            function (array $findings, ?string $routedNotice, int $draftsSkipped) use ($read, $analysis, $selection, $environment): array {
                 return $this->buildDigest($read, $analysis, $selection, $environment, $findings, $routedNotice, $draftsSkipped);
             },
             $this->out,
@@ -981,7 +989,7 @@ final class Watcher
             $analysis->byFingerprint,
             self::DELIVERED_TTL,
             $this->clock->now(),
-            fn (Message $m): Message => $this->digestMessage($m, $keys),
+            fn (Message $m, int $k): Message => $this->digestMessage($m, $keys, $k),
         );
 
         $now = $this->clock->now()->format(DATE_ATOM);
@@ -1128,11 +1136,13 @@ final class Watcher
         }
     }
 
-    /** The digest message: findings, what was left out and why, links. */
     /**
+     * The digest, as its messages (spec 018: several when it is long): findings, what was left out and why, links.
+     *
      * @param list<\Watcher\Analyze\Finding>|null $findingsOverride
+     * @return list<Message>
      */
-    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment, ?array $findingsOverride = null, ?string $routedNotice = null, int $draftsSkipped = 0): Message
+    private function buildDigest(WindowRead $read, Analysis $analysis, SelectionResult $selection, string $environment, ?array $findingsOverride = null, ?string $routedNotice = null, int $draftsSkipped = 0): array
     {
         $c = $this->config;
         $service = $c->service;
@@ -1169,7 +1179,22 @@ final class Watcher
         }
         $this->ledger->observation()->newAfterRelease = array_map('strval', array_keys($afterRelease));
 
-        return (new DigestRenderer())->render(new DigestData(
+        // Spec 018 US1: every flagged group that analysis did not look at gets its own line. Routed-away groups were analysed, so they are not listed here.
+        $analysed = [];
+        foreach ($routed->findings as $f) {
+            foreach ($f->fingerprints as $fp) {
+                $analysed[$fp] = true;
+            }
+        }
+        $unanalysed = [];
+        foreach ($selection->candidates as $candidate) {
+            $g = $candidate->group;
+            if (!isset($analysed[$g->fingerprint]) && $g->level->atLeast($c->selection['min_level'])) {
+                $unanalysed[] = ['fingerprint' => $g->fingerprint, 'level' => $g->level, 'count' => $g->count];
+            }
+        }
+
+        return (new DigestRenderer())->renderParts(new DigestData(
             service: $service,
             environment: $environment,
             windowStart: $window->start,
@@ -1198,6 +1223,7 @@ final class Watcher
             annotations: $annotations,
             comparison: $comparison,
             mining: $collector->mining(),
+            unanalysedGroups: $unanalysed,
             readDiagnostics: ($this->source instanceof ReadDiagnostics ? $this->source->readDiagnostics() : []) + ($this->ledger->stats()->oversizedLines > 0 ? ['oversized_lines' => $this->ledger->stats()->oversizedLines] : []) + ($this->ledger->stats()->unscannableEvents > 0 ? ['unscannable_events' => $this->ledger->stats()->unscannableEvents] : []),
             reusedGroups: $routed->reused,
             triageDropped: $routed->triageDropped,
@@ -1219,12 +1245,12 @@ final class Watcher
         ), $c->analysis['confidence_threshold']);
     }
 
-    private function digestMessage(Message $message, WindowKeys $keys): Message
+    private function digestMessage(Message $message, WindowKeys $keys, int $index): Message
     {
         if ($this->options->dryRun) {
             return $message;
         }
-        $partsKey = $keys->deliveredParts();
+        $partsKey = $keys->digestPartProgress($index);
         $skip = (int) ($this->state->get($partsKey)['n'] ?? 0);
 
         return new Message($message->text, $message->sections, new DeliveryProgress($skip, function (int $n) use ($partsKey): void {

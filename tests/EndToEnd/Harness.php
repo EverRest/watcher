@@ -62,6 +62,8 @@ final class Harness
 
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/nonexistent']],
+            // Spec 018 out-of-turn alerts are off here, so the scenarios written before them keep their messages; their own tests switch them on.
+            'alerts' => ['new_groups' => false],
             'notify' => ['digest' => ['driver' => 'slack', 'webhook' => 'https://hooks.invalid/x']],
         ], $this->configPatch);
         // A destination in the patch replaces the default wholesale (a Telegram entry must not inherit the Slack webhook).

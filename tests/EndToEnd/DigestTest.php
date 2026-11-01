@@ -396,9 +396,64 @@ final class DigestTest extends TestCase
         }
         $h->watcher(self::source($events))->run();
 
-        self::assertMatchesRegularExpression('/Grouping limit reached: \d+ messages were not clustered/', $h->sentTexts()[1]);
+        // Spec 018: the digest is several messages; the notices are in whichever part they fall.
+        $digest = implode("\n", array_slice($h->sentTexts(), 1));
+        self::assertMatchesRegularExpression('/Grouping limit reached: \d+ messages were not clustered/', $digest);
         // 1000 unrelated messages in one bucket also spend the whole comparison budget (1000 token operations x message_cap)
-        self::assertStringContainsString('Grouping time budget reached: some groups show no message text.', $h->sentTexts()[1]);
+        self::assertStringContainsString('Grouping time budget reached: some groups show no message text.', $digest);
+    }
+
+    public function testEveryFlaggedGroupIsInTheDigestWhenTopMCutsTheAnalysis(): void
+    {
+        // Spec 018 US1: 15 error groups, selection.top_m is 10, so five are not analysed. All fifteen must still be in the digest.
+        $h = new Harness();
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+
+        $events = [];
+        for ($i = 0; $i < 15; ++$i) {
+            for ($r = 0; $r < 3; ++$r) {
+                $events[] = new \Watcher\Source\LogEvent(new \DateTimeImmutable('2026-10-07T12:00:00Z'), Level::Error, 'k' . strtr((string) $i, '0123456789', 'abcdefghij') . ' distinct failure', null, [], [], []);
+            }
+        }
+        $h->watcher(self::source($events))->run();
+
+        $digest = implode("\n", array_slice($h->sentTexts(), 1));
+        self::assertStringContainsString('not analysed', $digest);
+        preg_match_all('/\b[0-9a-f]{12}\b/', $digest, $fingerprints);
+        self::assertGreaterThanOrEqual(15, count(array_unique($fingerprints[0])));
+    }
+
+    public function testAFailedDigestPartIsResentWithoutRepeatingThePartsThatWereSent(): void
+    {
+        // Spec 018 FR-002: a part that was sent is recorded, so a retry in the same window sends only the rest.
+        $h = new Harness();
+        $h->watcher(self::source(self::alpha()))->run();
+        $h->nextWindow();
+
+        $events = [];
+        for ($i = 0; $i < 60; ++$i) {
+            for ($r = 0; $r < 3; ++$r) {
+                $events[] = new \Watcher\Source\LogEvent(new \DateTimeImmutable('2026-10-07T12:00:00Z'), Level::Error, 'q' . strtr((string) $i, '0123456789', 'abcdefghij') . ' parted failure', null, [], [], []);
+            }
+        }
+        $base = count($h->notifier->sent);
+        $h->notifier->failSendAfter(2);
+        try {
+            $h->watcher(self::source($events))->run();
+        } catch (\Throwable) {
+        }
+        $first = array_slice($h->notifier->sent, $base);
+        self::assertStringContainsString('part 1/', $first[0]['message']->text);
+        self::assertStringNotContainsString('part 2/', implode("\n", array_map(static fn (array $s): string => $s['message']->text, $first)));
+
+
+        $h->watcher(self::source($events))->run();
+
+        $after = array_slice($h->notifier->sent, $base + count($first));
+        $texts = array_map(static fn (array $s): string => $s['message']->text, $after);
+        self::assertSame(0, count(array_filter($texts, static fn (string $t): bool => str_contains($t, 'part 1/'))), 'part 1 is not sent again');
+        self::assertStringContainsString('part 2/', implode("\n", $texts));
     }
 
     public function testDefaultConfigHasNoGroupingLines(): void

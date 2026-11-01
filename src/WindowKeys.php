@@ -67,9 +67,14 @@ final class WindowKeys
         return Keys::delivered($this->stateKey, $this->end);
     }
 
-    public function deliveredParts(): string
+    public function digestPart(int $index): string
     {
-        return Keys::deliveredParts($this->stateKey, $this->end);
+        return Keys::digestPart($this->stateKey, $this->end, $index);
+    }
+
+    public function digestPartProgress(int $index): string
+    {
+        return Keys::digestPartProgress($this->stateKey, $this->end, $index);
     }
 
     /** Failed analysis attempts of this window. */
