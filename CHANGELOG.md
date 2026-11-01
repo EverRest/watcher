@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0 — 2026-11-01 — Complete digest and out-of-turn new-group alerts
+
+- **Behaviour change (spec 018):** the digest lists every group flagged at `selection.min_level` or higher. Groups the analysis did not look at (outside `selection.top_m`) get a line of their own, marked `not analysed`, with their log link. Below-threshold findings are listed as minor lines instead of only counted.
+- **Behaviour change:** a long digest is sent as several messages with a `part i/n` header. There is no cap on their number; each message stays within 49 sections and about 3500 characters. A retry in the same window sends only the parts that did not go out.
+- **New:** a group that first appears at `selection.min_level` or higher (`error` by default) is sent once, out of turn, in the run that sees it, before that run's digest. The record is written only after a successful send. Nothing is sent or stored on a day outside `notify.days`; dry runs send nothing.
+- **New config:** `alerts.new_groups` (bool, default `true`). `false` keeps new groups in the digest only.
+- **Upgrade note:** the out-of-turn alerts are on by default, so a service that had only a digest now gets one extra message per new error group. Set `alerts.new_groups: false` to keep the old behaviour. Long digests now take more messages; on Telegram or Discord that is more posts per day.
+- `DayGate::allowsNow()` is public; the fake notifier gets `failSendAfter(n)` for tests.
+
 ## 0.16.0 — 2026-11-01 — Same-slot baselines, multi-run weekly line, schedule warnings
 
 - **New:** `baseline.mode` `same_slot_yesterday` and `same_slot_last_week` now compare with the snapshot at the same wall-clock boundary one day or seven days earlier (`windows` is ignored). A missing slot falls back to the previous window and the digest says so (`No snapshot for the same slot ...`). The config accepted these modes before; the comparison did not run them.
