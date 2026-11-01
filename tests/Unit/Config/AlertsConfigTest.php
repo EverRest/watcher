@@ -35,7 +35,19 @@ final class AlertsConfigTest extends TestCase
         $c = WatchConfig::fromArray(self::config());
 
         self::assertFalse($c->on('alerts'));
-        self::assertSame(['window' => 900, 'fields' => [], 'immediate' => []], $c->alerts);
+        self::assertSame(['window' => 900, 'fields' => [], 'immediate' => [], 'new_groups' => true], $c->alerts);
+    }
+
+    public function testNewGroupAlertsAreOnByDefaultAndCanBeSwitchedOff(): void
+    {
+        self::assertTrue(WatchConfig::fromArray(self::config())->alerts['new_groups']);
+        self::assertFalse(WatchConfig::fromArray(self::config(['new_groups' => false]))->alerts['new_groups']);
+    }
+
+    public function testNewGroupsMustBeTrueOrFalse(): void
+    {
+        $this->expectExceptionMessage('alerts.new_groups must be true or false');
+        WatchConfig::fromArray(self::config(['new_groups' => 'no']));
     }
 
     public function testRuleWithDefaultLevelAndWindow(): void

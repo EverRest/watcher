@@ -28,11 +28,17 @@ final class DayGate implements Notifier
     ) {
     }
 
-    public function send(Message $message, Destination $to): void
+    /** True on a day notify.days allows (in the schedule timezone). Nothing is sent or dropped by this call. */
+    public function allowsNow(): bool
     {
         $local = ($this->now)()->setTimezone($this->zone);
-        $allowed = in_array((int) $local->format('N'), array_map(static fn (string $d): int => self::ISO_DAYS[$d], $this->days), true);
-        if (!$allowed) {
+
+        return in_array((int) $local->format('N'), array_map(static fn (string $d): int => self::ISO_DAYS[$d], $this->days), true);
+    }
+
+    public function send(Message $message, Destination $to): void
+    {
+        if (!$this->allowsNow()) {
             $this->log?->info('notify: day not allowed, message dropped');
 
             return;

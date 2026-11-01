@@ -66,6 +66,15 @@ final class FindingLines
      * Links are built by us from config and redacted data, so they stay clickable (never passed through escape());
      * the labels are fixed text and a URL that could break out of Slack's `<url|label>` syntax is dropped.
      */
+    /** The links of a group that has no finding (spec 018); empty when none is known. */
+    public static function groupLinksLine(string $fingerprint, DigestData $d): string
+    {
+        $set = $d->links[$fingerprint] ?? null;
+        $parts = $set === null ? [] : array_values(array_filter([self::link($set['log'], 'log'), self::link($set['trace'] ?? null, 'trace')]));
+
+        return $parts === [] ? '' : "\n  Links: " . implode(' · ', $parts);
+    }
+
     public static function linksLine(Finding $f, DigestData $d): string
     {
         $g = self::primaryGroup($f, $d);

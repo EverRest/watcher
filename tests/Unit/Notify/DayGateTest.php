@@ -19,6 +19,16 @@ final class DayGateTest extends TestCase
 {
     private const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
 
+    /** Spec 018 FR-007: a caller that stores state must know whether a message would go out today. */
+    public function testAllowsNowSaysWhetherTheDayIsAllowed(): void
+    {
+        $saturday = new DayGate(new RecordingNotifier(), self::WEEKDAYS, new DateTimeZone('UTC'), static fn (): DateTimeImmutable => new DateTimeImmutable('2026-10-31T10:00:00Z'));
+        $monday = new DayGate(new RecordingNotifier(), self::WEEKDAYS, new DateTimeZone('UTC'), static fn (): DateTimeImmutable => new DateTimeImmutable('2026-11-02T10:00:00Z'));
+
+        self::assertFalse($saturday->allowsNow());
+        self::assertTrue($monday->allowsNow());
+    }
+
     public function testNothingIsSentOnTheWeekend(): void
     {
         $inner = new RecordingNotifier();
