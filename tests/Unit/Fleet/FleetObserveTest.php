@@ -57,12 +57,12 @@ final class FleetObserveTest extends TestCase
     {
         $f = FleetConfig::fromArray(self::fleet(
             [FleetConfigTest::service('api', ['observe' => ['file' => ['enabled' => true, 'path' => '/var/log/w/api.jsonl']]]), FleetConfigTest::service('bff')],
-            ['defaults' => ['observe' => ['log' => ['enabled' => true]]]],
+            ['defaults' => ['observe' => ['log' => ['enabled' => false]]]],
         ));
 
-        self::assertFalse($f->services[0]->config->observe->log['enabled'], 'not merged with the shared log sink');
+        self::assertTrue($f->services[0]->config->observe->log['enabled'], 'own observe replaces the shared one as a whole: log is back to its default');
         self::assertTrue($f->services[0]->config->observe->file['enabled']);
-        self::assertTrue($f->services[1]->config->observe->log['enabled']);
+        self::assertFalse($f->services[1]->config->observe->log['enabled']);
     }
 
     public function testAFixedPrometheusNameIsRejectedInAFleet(): void
@@ -99,7 +99,7 @@ final class FleetObserveTest extends TestCase
 
         self::assertSame(
             'notify.digest.driver none needs at least one enabled observe sink',
-            self::message(self::fleet($services, ['digest' => 'combined', 'notify' => ['digest' => $none]])),
+            self::message(self::fleet($services, ['digest' => 'combined', 'notify' => ['digest' => $none], 'defaults' => ['observe' => ['log' => ['enabled' => false]]]])),
         );
 
         $f = FleetConfig::fromArray(self::fleet($services, ['digest' => 'combined', 'notify' => ['digest' => $none], 'defaults' => ['observe' => ['log' => ['enabled' => true]]]]));

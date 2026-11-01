@@ -1,7 +1,7 @@
 # Contract: configuration
 
 Same pattern as spec 012: every key is settable in the config array and through a `WATCHER_*` variable read with
-`Watcher\Config\Env` in the shipped config files. **Every sink is off by default** and is switched on by its own
+`Watcher\Config\Env` in the shipped config files. **Every sink is off by default except `observe.log`** (on, owner decision) and is switched on by its own
 `enabled` flag; with all sinks off the package behaves as before this feature. The master switch `enabled` and
 `environment` of spec 012 are unchanged: `enabled` false means no sink is built, touched or written, not even a
 heartbeat event. Flags must be real booleans in an array config (`'false'` is rejected naming the key path).
@@ -20,7 +20,7 @@ heartbeat event. Flags must be real booleans in an array config (`'false'` is re
 | Key | Default | Env | Notes |
 |---|---|---|---|
 | `observe.top_groups` | `20` | `WATCHER_OBSERVE_TOP_GROUPS` | integer 0..100; `0` emits no `group` events |
-| `observe.log.enabled` | **false** | `WATCHER_OBSERVE_LOG_ENABLED` | |
+| `observe.log.enabled` | **true** | `WATCHER_OBSERVE_LOG_ENABLED` | |
 | `observe.log.stream` | `stderr` | `WATCHER_OBSERVE_LOG_STREAM` | `stderr` or `stdout`; with `--json` stdout is forced to stderr for that call |
 | `observe.log.include_text` | **false** | `WATCHER_OBSERVE_LOG_INCLUDE_TEXT` | owner decision: opt-in like every sink (was true, research R4) |
 | `observe.file.enabled` | **false** | `WATCHER_OBSERVE_FILE_ENABLED` | |
@@ -49,13 +49,15 @@ heartbeat event. Flags must be real booleans in an array config (`'false'` is re
 
 There is no `include_text` for `prometheus` (no text) and no flag that disables the sanitizer (FR-045).
 
+`observe.log` is on by default, so its name rule cannot refuse a config that never asked for logs. When `service` or `environment` does not match the event pattern (`EventSchema::PATTERNS`) and `log` is the only sink enabled, the load succeeds, the `log` sink is not built, and each run writes one warning line through the run logger naming no value, and `watcher check` reports the `observe` row as `fail` with `log skipped` (a skipped sink is never shown as `log ok`). A non-log sink (`file`, `http`, `prometheus`) enabled with a non-matching name is still refused at load, because its events would lose the service name.
+
 Config array shape:
 
 ```php
 'notify' => ['digest' => ['driver' => Env::string('WATCHER_DIGEST_DRIVER', 'slack')]],
 'observe' => [
     'top_groups' => Env::int('WATCHER_OBSERVE_TOP_GROUPS', 20),
-    'log'        => ['enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false), 'stream' => 'stderr', 'include_text' => false],
+    'log'        => ['enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', true), 'stream' => 'stderr', 'include_text' => false],
     'file'       => ['enabled' => Env::bool('WATCHER_OBSERVE_FILE_ENABLED', false), 'path' => Env::string('WATCHER_OBSERVE_FILE_PATH')],
     'http'       => ['enabled' => Env::bool('WATCHER_OBSERVE_HTTP_ENABLED', false), 'url' => Env::string('WATCHER_OBSERVE_HTTP_URL'), 'auth_token' => Env::string('WATCHER_OBSERVE_HTTP_AUTH_TOKEN')],
     'prometheus' => ['enabled' => Env::bool('WATCHER_OBSERVE_PROMETHEUS_ENABLED', false), 'dir' => Env::string('WATCHER_OBSERVE_PROMETHEUS_DIR')],

@@ -337,7 +337,11 @@ final class Doctor
         $ok = [];
         $bad = [];
         if ($o->log['enabled']) {
-            $ok[] = 'log ok';
+            if (WatchConfig::namesFitEvents($this->config->service, $this->config->environment)) {
+                $ok[] = 'log ok';
+            } else {
+                $bad[] = 'log skipped: service or environment name does not match the event pattern';
+            }
         }
         if ($o->file['enabled']) {
             $dir = dirname($o->file['path']);

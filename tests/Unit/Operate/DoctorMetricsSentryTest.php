@@ -48,7 +48,7 @@ final class DoctorMetricsSentryTest extends TestCase
 
     public function testNoRowsWithoutTheSources(): void
     {
-        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier'], array_keys($this->by($this->doctor(null, null))));
+        self::assertSame(['config', 'source', 'provider_auth', 'models', 'state', 'notifier', 'observe'], array_keys($this->by($this->doctor(null, null))));
     }
 
     public function testBothPassOnAnswersAndRunNoConfiguredQuery(): void

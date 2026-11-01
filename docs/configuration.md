@@ -142,7 +142,7 @@ path, never a value. Redaction and the event sanitizer have no switch.
 | Key | Default | Notes |
 |---|---|---|
 | `observe.top_groups` | `20` | 0..100 `group` events per run; `0` emits none. |
-| `observe.log.enabled` | `false` | One JSON object per line. |
+| `observe.log.enabled` | `true` | One JSON object per line. |
 | `observe.log.stream` | `stderr` | `stderr` or `stdout`; under `--json` stdout is replaced by stderr so the summary stays one line. |
 | `observe.log.include_text` | `false` | Opt in to put the (redacted) finding text on the stream; stderr is often forwarded by a shipper to a third party. |
 | `observe.file.enabled` | `false` | JSON lines file, mode 0600. |
@@ -401,7 +401,7 @@ with an asterisk through `getenv()`; the rest are set in the array.
 | `WATCHER_SERVICE_CONTEXT` | `service_context` |
 | `WATCHER_RELEASE*`, `WATCHER_COMMIT*` | `deploy.release`, `deploy.commit` |
 | `WATCHER_GRAFANA_URL`, `WATCHER_LOKI_DS_UID` | `links.grafana.*` |
-| `WATCHER_OBSERVE_TOP_GROUPS`, `WATCHER_OBSERVE_{LOG,FILE,HTTP,PROMETHEUS}_*` | `observe.*`, one variable per key above (`..._ENABLED`, `..._PATH`, `..._URL`, `..._AUTH_TOKEN`, `..._ALLOWED_HOSTS` as a comma list, ...), all sinks off by default |
+| `WATCHER_OBSERVE_TOP_GROUPS`, `WATCHER_OBSERVE_{LOG,FILE,HTTP,PROMETHEUS}_*` | `observe.*`, one variable per key above (`..._ENABLED`, `..._PATH`, `..._URL`, `..._AUTH_TOKEN`, `..._ALLOWED_HOSTS` as a comma list, ...), every sink but `log` off by default |
 | `WATCHER_DIGEST_DRIVER` | `notify.digest.driver` (`none` is dashboard-only mode; leave `WATCHER_SLACK_WEBHOOK` unset then, because a webhook under `none` is rejected) |
 | `WATCHER_REPO_URL` | `repo.web_url` |
 

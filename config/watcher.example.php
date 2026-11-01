@@ -199,7 +199,7 @@ return [
     'observe' => [
         'top_groups' => Env::int('WATCHER_OBSERVE_TOP_GROUPS', 20),   // 0..100 group events per run
         'log' => [
-            'enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', false),
+            'enabled' => Env::bool('WATCHER_OBSERVE_LOG_ENABLED', true),
             'stream' => Env::string('WATCHER_OBSERVE_LOG_STREAM', 'stderr'),           // stderr | stdout (stderr under --json)
             'include_text' => Env::bool('WATCHER_OBSERVE_LOG_INCLUDE_TEXT', false),
         ],

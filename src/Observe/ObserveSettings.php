@@ -102,7 +102,7 @@ final class ObserveSettings implements \JsonSerializable
 
         $l = $sink('log');
         self::only($l, ['enabled', 'stream', 'include_text'], 'observe.log');
-        $log = ['enabled' => self::bool($l, 'enabled', false, 'observe.log.enabled'), 'stream' => $l['stream'] ?? 'stderr', 'include_text' => self::bool($l, 'include_text', false, 'observe.log.include_text')];
+        $log = ['enabled' => self::bool($l, 'enabled', true, 'observe.log.enabled'), 'stream' => $l['stream'] ?? 'stderr', 'include_text' => self::bool($l, 'include_text', false, 'observe.log.include_text')];
         if (!in_array($log['stream'], ['stderr', 'stdout'], true)) {
             throw new InvalidConfig('observe.log.stream must be stderr or stdout');
         }
