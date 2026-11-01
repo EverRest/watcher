@@ -84,6 +84,25 @@ final class DigestPartsTest extends TestCase
         }
     }
 
+    public function testAMinorFindingIsListedNotOnlyCounted(): void
+    {
+        // Spec 018 US1 scenario 3: a below-threshold group is still in the digest, as a minor line with its counts.
+        $low = new \Watcher\Analyze\Finding([$this->fp(9)], \Watcher\Analyze\FindingKind::Bug, \Watcher\Analyze\Severity::Warn, 'quiet slow query', 'e', 'c', 'a', 0.1);
+        $parts = (new DigestRenderer())->renderParts(new DigestData(
+            service: 'svc',
+            environment: 'stg',
+            windowStart: new DateTimeImmutable('2026-10-22T03:00:00Z'),
+            windowEnd: new DateTimeImmutable('2026-10-23T03:00:00Z'),
+            timezone: 'Europe/Kyiv',
+            findings: [$low],
+            groups: [$this->fp(9) => new RedactedGroup($this->fp(9), 'tpl', Level::Warning, null, [], 4, null, GroupStatusLabel::Unchanged, [], new DateTimeImmutable('2026-10-23T01:00:00Z'), new DateTimeImmutable('2026-10-23T01:00:00Z'))],
+        ), 0.5);
+
+        $minor = implode("\n", array_column(array_filter($parts[0]->sections, static fn (array $s): bool => $s['kind'] === 'minor'), 'text'));
+        self::assertStringContainsString('quiet slow query', $minor);
+        self::assertStringContainsString($this->fp(9), $minor);
+    }
+
     public function testASingleMessageHasNoPartHeader(): void
     {
         $parts = (new DigestRenderer())->renderParts($this->data([1, 2]), 0.5);

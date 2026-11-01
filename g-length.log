@@ -1,0 +1,6 @@
+Warning: You should avoid overwriting already defined auth settings for gitlab.wiz-team.com.
+The "php-http/discovery" plugin was not loaded as it is not listed in allow-plugins and is not required by the root package anymore.
+src/Config/WatchConfig.php: 506 lines, 22870 bytes (limit 500 lines, 40960 bytes)
+src/Watcher.php: 1622 lines, 79145 bytes (limit 500 lines, 40960 bytes)
+2 file(s) over the limit
+Script php scripts/check-file-length.php handling the length event returned with error code 1

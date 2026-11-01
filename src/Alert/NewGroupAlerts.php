@@ -6,10 +6,14 @@ namespace Watcher\Alert;
 
 use Closure;
 use DateTimeImmutable;
+use Watcher\Config\WatchConfig;
+use Watcher\Context\LogLinkBuilder;
 use Watcher\Level;
 use Watcher\Notify\DayGate;
 use Watcher\Notify\DeliveryFailed;
 use Watcher\Notify\NoticeRenderer;
+use Watcher\Privacy\RedactedGroup;
+use Watcher\Schedule\Window;
 use Watcher\Select\Candidate;
 use Watcher\Select\CandidateReason;
 use Watcher\State\Keys;
@@ -24,6 +28,7 @@ final class NewGroupAlerts
 {
     public function __construct(
         private readonly StateStore $state,
+        private readonly string $service,
         private readonly string $stateKey,
         private readonly Level $minLevel,
         private readonly int $retention,
@@ -32,17 +37,40 @@ final class NewGroupAlerts
         private readonly Closure $send,
         private readonly Closure $failed,
         private readonly NoticeRenderer $notices,
+        private readonly ?LogLinkBuilder $links = null,
     ) {
     }
 
+    /** The alerts of one run, built from its config. Disabled by notify switch, by dry run, or by the switch alerts.new_groups. */
+    public static function fromRun(WatchConfig $c, StateStore $state, ?DayGate $days, Closure $send, Closure $failed, NoticeRenderer $notices, bool $dryRun): self
+    {
+        return new self(
+            state: $state,
+            service: $c->service,
+            stateKey: $c->stateKey,
+            minLevel: $c->selection['min_level'],
+            retention: $c->state['retention'],
+            enabled: $c->alerts['new_groups'] && !$dryRun,
+            days: $days,
+            send: $send,
+            failed: $failed,
+            notices: $notices,
+            links: $c->on('links.logs') ? new LogLinkBuilder($c->links, $c->source['stream_tags']) : null,
+        );
+    }
+
     /**
-     * @param list<Candidate>                 $candidates
-     * @param Closure(string): ?string        $linkFor log link of a group by fingerprint, or null
+     * @param list<Candidate>    $candidates
+     * @param list<RedactedGroup> $redacted the redacted groups of this run, for their log links
      */
-    public function deliver(array $candidates, Closure $linkFor, string $service, string $environment, DateTimeImmutable $now): void
+    public function deliver(array $candidates, array $redacted, ?Window $window, string $environment, DateTimeImmutable $now): void
     {
         if (!$this->enabled) {
             return;
+        }
+        $byFingerprint = [];
+        foreach ($redacted as $g) {
+            $byFingerprint[$g->fingerprint] = $g;
         }
         foreach ($candidates as $candidate) {
             $group = $candidate->group;
@@ -57,7 +85,10 @@ final class NewGroupAlerts
                 if ($this->state->get($key) !== null) {
                     continue;
                 }
-                ($this->send)($this->notices->newGroup($service, $environment, strtolower($group->level->name), $group->fingerprint, $group->count, $linkFor($group->fingerprint)));
+                $link = $this->links !== null && $window !== null && isset($byFingerprint[$group->fingerprint])
+                    ? $this->links->forGroup($byFingerprint[$group->fingerprint], $window)
+                    : null;
+                ($this->send)($this->notices->newGroup($this->service, $environment, strtolower($group->level->name), $group->fingerprint, $group->count, $link));
                 $this->state->put($key, ['at' => $now->format(DATE_ATOM)], $this->retention);
             } catch (DeliveryFailed $e) {
                 ($this->failed)($e);

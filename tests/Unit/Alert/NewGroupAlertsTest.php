@@ -49,6 +49,7 @@ final class NewGroupAlertsTest extends TestCase
     {
         return new NewGroupAlerts(
             state: $this->state,
+            service: 'svc',
             stateKey: 'svc',
             minLevel: Level::Error,
             retention: 86400,
@@ -67,7 +68,7 @@ final class NewGroupAlertsTest extends TestCase
     /** @param list<Candidate> $candidates */
     private function deliver(NewGroupAlerts $alerts, array $candidates): void
     {
-        $alerts->deliver($candidates, static fn (string $fp): ?string => null, 'svc', 'stg', $this->clock->now());
+        $alerts->deliver($candidates, [], null, 'stg', $this->clock->now());
     }
 
     public function testANewErrorGroupIsSentOnceAndRecorded(): void

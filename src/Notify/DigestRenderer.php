@@ -65,10 +65,10 @@ final class DigestRenderer
     public function renderParts(DigestData $d, float $confidenceThreshold): array
     {
         $shown = [];
-        $minor = 0;
+        $minorFindings = [];
         foreach ($d->findings as $i => $f) {
             if (self::isMinor($f, $confidenceThreshold)) {
-                ++$minor;
+                $minorFindings[] = ['f' => $f, 'n' => self::count($f, $d)];
                 continue;
             }
             $shown[] = ['f' => $f, 'n' => self::count($f, $d), 'i' => $i];
@@ -76,7 +76,7 @@ final class DigestRenderer
         usort($shown, fn (array $a, array $b): int => [self::rank($b['f']->severity), $b['n'], $a['i']]
             <=> [self::rank($a['f']->severity), $a['n'], $b['i']]);
 
-        $sections = DigestSections::build($d, $shown, $minor);
+        $sections = DigestSections::build($d, $shown, count($minorFindings), $minorFindings);
         $header = array_shift($sections) ?? ['kind' => 'header', 'text' => ''];
         $room = self::PART_CHARS - mb_strlen($header['text']);
         $chunks = [];
@@ -94,6 +94,7 @@ final class DigestRenderer
         }
         $chunks[] = $chunk;
 
+        $minor = count($minorFindings);
         $counts = count($shown) . ' findings' . ($minor > 0 ? ", $minor minor" : '');
         $n = count($chunks);
         $messages = [];
