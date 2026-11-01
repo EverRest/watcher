@@ -20,6 +20,8 @@ final class Comparison
      * @param array{float, float}|null           $lengthChange [hours of an earlier window, hours of this one] when they differ
      * @param string|null                        $reason       'short_history' when the requested mode had too little history
      * @param int                                $unreadable   snapshots found but not usable (corrupt values), treated as missing
+     * @param string|null                        $reason       'short_history' or 'slot_missing' when the requested mode had too little history
+     * @param DateTimeImmutable|null             $slotEnd      the same-slot boundary that was looked for, when the reason is 'slot_missing'
      */
     public function __construct(
         public readonly string $requestedMode,
@@ -34,6 +36,7 @@ final class Comparison
         public readonly float $growthFactor,
         public readonly ?array $lengthChange = null,
         public readonly int $unreadable = 0,
+        public readonly ?DateTimeImmutable $slotEnd = null,
     ) {
     }
 

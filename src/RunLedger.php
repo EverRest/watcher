@@ -243,7 +243,7 @@ final class RunLedger
                 $this->heartbeat->recordSkip($outcome);
             }
             if ($this->config->heartbeat['weekly_summary'] && $this->config->on('notice')) {
-                $this->heartbeat->sendWeeklySummary($this->notifier, $this->config->destination('notice'), $notices, $environment);
+                $this->heartbeat->sendWeeklySummary($this->notifier, $this->config->destination('notice'), $notices, $environment, $this->config->schedule['runs_per_day']);
             }
         } catch (Throwable $e) {
             $this->hostLog?->warning('heartbeat failed: ' . $e::class, ['service' => $this->config->service]);
