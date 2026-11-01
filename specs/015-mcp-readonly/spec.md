@@ -358,7 +358,7 @@ test, SC-012); for every code the run, heartbeat, notices and checks can emit, `
 2. **Given** a key that no validator accepts (`selection.min_levl`), **Then** `found: false` with up to three closest known
    keys; the input is not echoed. A free-form map entry (`source.stream_tags.app`) is explained as the map's entry.
 3. **Given** `watcher_explain_outcome` with `lock_lost`, `disabled`, `skipped_done`, `baselined`, `zero_events`,
-   `analysis_refused`, `state_unavailable` or `k8s_ingest_failed:oomkilled`, **Then** meaning, severity, likely cause, what to
+   `analysis_refused` or `state_unavailable`, **Then** meaning, severity, likely cause, what to
    check and the fix are returned. A code with a family suffix (`k8s_ingest_failed:<reason>`, `truncated:<reason>`) resolves
    to its family entry and names the reason class. A code that is not registered is `found: false`.
 4. **Given** no `code`, **Then** the list of registered codes (code, kind, severity only) is returned, bounded.

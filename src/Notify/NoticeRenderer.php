@@ -33,11 +33,20 @@ final class NoticeRenderer
      *
      * @param array<string, int> $counts reported, quiet, baselined, failed, skipped (missing = 0)
      */
-    public function weekly(string $service, string $environment, string $isoWeek, array $counts): Message
+    /**
+     * A multi-run schedule (`runsPerDay` above 1) shows runs per day instead of skips: its 15-minute triggers skip by design.
+     *
+     * @param array<string, int> $counts
+     */
+    public function weekly(string $service, string $environment, string $isoWeek, array $counts, ?int $runsPerDay = null): Message
     {
+        $multi = $runsPerDay !== null && $runsPerDay > 1;
         $parts = [];
-        foreach (['reported', 'quiet', 'baselined', 'failed', 'skipped'] as $name) {
+        foreach (['reported', 'quiet', 'baselined', 'failed', ...($multi ? [] : ['skipped'])] as $name) {
             $parts[] = $name . ' ' . (int) ($counts[$name] ?? 0);
+        }
+        if ($multi) {
+            $parts[] = 'runs/day ' . $runsPerDay;
         }
 
         return $this->notice('📊', $service, $environment, sprintf('week %s: %s', SlackText::escape($isoWeek), implode(', ', $parts)));

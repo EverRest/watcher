@@ -62,7 +62,7 @@ Input: none. Output `data`:
 | Field | Class | Form |
 |---|---|---|
 | `state` | typed | `ok`, `stale`, `failed`, `unknown`, `disabled` (as `watcher status`) |
-| `last_run` | object or null | `outcome` (enum), `at`, `duration_seconds` (int), `cost_usd` (float), `reason` (**text**, cap 200, the masked heartbeat warning) |
+| `last_run` | object or null | `outcome` (enum), `at`, `duration_seconds` (int), `reason` (**text**, cap 200, the masked heartbeat warning) |
 | `last_ok_at`, `last_trigger_at`, `now` | typed | ISO-8601 UTC `Z` or null |
 | `age_seconds`, `limit_seconds` | typed | int or null |
 
@@ -84,7 +84,6 @@ Input: `limit` (integer 1..20, default 10). Output `data`:
 | `window_start`, `window_end`, `at` | typed | ISO-8601 UTC `Z` |
 | `outcome` | typed | `reported`, `quiet`, `baselined`, `failed` |
 | `counts` | typed | `events`, `groups`, `candidates`, `findings` (ints) |
-| `tokens`, `cost_usd` | typed | `{in,out,cached}` ints; float; only from `watcher_dry_run` (the stored record has no figures) |
 | `findings[]` | list | `fp`, `severity` typed; `title` **text** (80). Kind and status come from `watcher_finding`. |
 | `truncated` | typed | bool, only when set |
 | `dry_run` | typed | bool, only from `watcher_dry_run` |
@@ -110,8 +109,8 @@ unless estimate_only is true. Requires confirm_model_calls=true and is refused a
 Order of checks (each refusal makes zero model calls, SC-004): arguments valid -> `busy` -> (full run only)
 `confirm_model_calls === true` else `model_calls_not_confirmed` -> `previous_run_failed` -> run. Refusals carry the error code and its fixed message only.
 
-Output `data` (estimate only): `estimate`: per step `{step, groups, tokens_in, tokens_out_max, cost_usd}` and `total_usd`.
-Output `data` (full run): the `watcher_latest_report` shape with `dry_run: true`, plus `estimate_usd` (the upper bound including the escalation allowance, added to the session counter). The rendered digest text is not returned.
+Output `data` (estimate only): `estimate`: per step `{step, groups}`. No model call and no token or cost figures (spec 017 removed cost accounting).
+Output `data` (full run): the `watcher_latest_report` shape with `dry_run: true`. The rendered digest text is not returned.
 
 ## Secret rule (all onboarding and docs tools, FR-063..FR-066)
 
@@ -152,7 +151,7 @@ Input (all strings patterned, FR-072): `service` (`^[A-Za-z0-9][A-Za-z0-9._@-]{0
 `^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`), `run_at` (`HH:MM`), `timezone` (`^[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}$`, then checked
 against the IANA list), `host`, `source`, `notifier`, `state` (enumerations as above), `stream_tags` (object, <= 8 entries,
 label `^[a-zA-Z_][a-zA-Z0-9_]{0,62}$`, value `^[A-Za-z0-9._-]{1,63}$`), `level_mode` (`text`, `label`, `all`),
-`daily_budget_usd` (0..100, default 0.50), `env_names` (optional object of logical name -> `WATCHER_*` name). Output `data`:
+`env_names` (optional object of logical name -> `WATCHER_*` name). Output `data`:
 `php_snippet` (`x-generated`, <= 8000), `env_vars[]` of `{name, purpose, secret, required}` (no value field), `notes[]` (static),
 `next_steps[]` (tool names).
 
@@ -197,7 +196,7 @@ Without a code: `codes[]` of `{code, kind, severity}` (all registered, bounded).
 `watcher-docs://<path>` for the allowlist of FR-080 (`README.md`, `CHANGELOG.md`, `SECURITY.md`, `docs/README.md`,
 `docs/configuration.md`, `docs/operations.md`, `docs/privacy.md`, `docs/observability.md`, `docs/smoke-test.md`,
 `docs/mcp.md`, `docs/examples/orders-api.loki.config.php`, `docs/examples/smoke.config.php`, `docs/examples/watcher-fleet.php`,
-`docs/schema/watcher.event.v1.schema.json`, `config/watcher.example.php`, `config/watcher.php`). `resources/read` returns the
+`docs/schema/watcher.event.v2.schema.json`, `config/watcher.example.php`, `config/watcher.php`). `resources/read` returns the
 file's text unchanged (<= 512 KB). Not envelope-wrapped (the protocol shape is fixed) and not log-derived.
 
 ## Prompts (group docs)
@@ -206,7 +205,6 @@ file's text unchanged (<= 512 KB). Not envelope-wrapped (the protocol shape is f
 |---|---|---|
 | `onboard-new-service` | `host` (laravel), `source` (loki), `notifier` (slack), `state` (redis) | `watcher_setup_plan`, `watcher_generate_config`, `watcher_validate_config`, `watcher_rollout_check`, `watcher_first_day`, `watcher_explain_outcome` |
 | `why-is-the-digest-quiet` | none | `watcher_status`, `watcher_check`, `watcher_latest_report`, `watcher_explain_outcome`, `watcher_explain_config` |
-| `cost-too-high` | none | `watcher_status`, `watcher_explain_config`, `watcher_dry_run` (`estimate_only`; only if enabled), `watcher_search_docs` |
 | `rotate-credentials` | `which` (`slack`, `telegram`, `discord`, `loki`, `datadog`, `anthropic`, `redis`, `pdo`; required) | `watcher_explain_config`, `watcher_check`, `watcher_status` |
 
 `prompts/get` result: `{description, messages: [{role: "user", content: {type: "text", text}}]}`. Every text contains the
