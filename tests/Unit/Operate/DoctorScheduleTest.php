@@ -27,9 +27,8 @@ final class DoctorScheduleTest extends TestCase
 
     /**
      * @param array<string, mixed> $schedule
-     * @param array<string, mixed> $analysis
      */
-    private function report(array $schedule, array $analysis = []): \Watcher\Operate\CheckReport
+    private function report(array $schedule): \Watcher\Operate\CheckReport
     {
         $config = WatchConfig::fromArray([
             'service' => 'orders',
@@ -37,10 +36,8 @@ final class DoctorScheduleTest extends TestCase
             'schedule' => $schedule,
             'source' => ['driver' => 'loki', 'loki' => ['url' => 'https://loki.test', 'auth' => ['type' => 'bearer', 'token' => 'T']], 'stream_tags' => ['app' => 'orders']],
             'analysis' => [
-                'api_key' => 'sk-test',
+                'api_keys' => ['gemini' => 'sk-test'],
                 'models' => ['triage' => 'm-small', 'analyze' => 'm-mid', 'escalate' => 'm-big'],
-                'prices' => ['m-small' => [1, 5, 0.1, 1.25], 'm-mid' => [3, 15, 0.3, 3.75], 'm-big' => [5, 25, 0.5, 6.25]],
-                ...$analysis,
             ],
             'state' => ['driver' => 'file', 'file' => ['path' => '/tmp/x']],
             'notify' => ['digest' => ['webhook' => 'https://hooks.slack.test/services/T0/B0/X']],
@@ -90,11 +87,4 @@ final class DoctorScheduleTest extends TestCase
         self::assertStringContainsString('is longer than the period (PT1H): windows overlap', $row->reason);
     }
 
-    public function testCapBelowNominalRunsWarns(): void
-    {
-        $row = self::row($this->report(['every' => 'PT1H', 'run_at' => null], ['max_runs_per_day' => 10]), 'schedule');
-
-        self::assertNotNull($row);
-        self::assertStringContainsString('analysis.max_runs_per_day (10) is below the nominal runs per day (24)', $row->reason);
-    }
 }

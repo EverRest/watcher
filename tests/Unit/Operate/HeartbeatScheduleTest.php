@@ -25,7 +25,7 @@ final class HeartbeatScheduleTest extends TestCase
         $clock = new FrozenClock(new DateTimeImmutable('2026-10-21T06:00:40+00:00')); // W43
         $store = new InMemoryStateStore($clock);
         $hb = new Heartbeat($store, $clock, 'svc', new DateTimeZone('UTC'), self::RETENTION);
-        $hb->recordRun(RunOutcome::Reported, new DateTimeImmutable('2026-10-21T05:00Z'), new DateTimeImmutable('2026-10-21T06:00Z'), new DateTimeImmutable('2026-10-21T06:00:01Z'), 0.0, null);
+        $hb->recordRun(RunOutcome::Reported, new DateTimeImmutable('2026-10-21T05:00Z'), new DateTimeImmutable('2026-10-21T06:00Z'), new DateTimeImmutable("2026-10-21T06:00:01Z"), null);
         // Triggers every 15 minutes after the hour's run was already done: these are skips, not runs.
         for ($i = 0; $i < 3; ++$i) {
             $hb->recordSkip(RunOutcome::SkippedDone);

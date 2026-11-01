@@ -89,10 +89,6 @@ final class Doctor
                 $warnings[] = sprintf('schedule.window (%s) is longer than the period (%s): windows overlap; each event is counted once (see operations.md).', self::iso($window), self::iso($period));
             }
         }
-        $cap = $this->config->analysis['max_runs_per_day'] ?? null;
-        if (is_int($cap) && $cap < (int) $s['runs_per_day']) {
-            $warnings[] = sprintf('analysis.max_runs_per_day (%d) is below the nominal runs per day (%d): the last runs of the day will be capped.', $cap, $s['runs_per_day']);
-        }
         // catch_up 1 is the default, so it warns only where an outage gap is likely (several runs a day), not on every check.
         if ((int) $s['catch_up'] === 1 && (int) $s['runs_per_day'] > 1) {
             $warnings[] = 'schedule.catch_up is 1: an outage longer than one period leaves a gap, reported in the next digest.';
