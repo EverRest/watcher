@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.1 — 2026-11-02 — Grafana Explore links without a severity filter
+
+- **Fix:** `LogLinkBuilder` no longer appends `|~ "(?i)error|critical|alert|emergency"` to Grafana Explore LogQL. Sparse JSON app logs often omit those words, so digest Explore links returned empty for real findings. Links still use stream tags and the template literal.
+- Product release label **v0.18.1** (root VERSION).
+
 ## 0.18.0 — 2026-11-01 — Contract test for the host health snapshot
 
 - **New (test only):** `HealthSnapshotContractTest` reads a fixture in the exact shape the host writes under `m-seq:health`: one JSON object of `service => {success, version, checked_at}`, with `version` `null` for a service that reports none and `checked_at` in `+00:00` form. If the host changes that shape, the test fails in this repo first.
