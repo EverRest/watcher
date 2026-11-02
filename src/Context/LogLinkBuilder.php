@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Watcher\Context;
 
-use Watcher\Level;
 use Watcher\Privacy\RedactedGroup;
 use Watcher\Schedule\Window;
 
@@ -32,7 +31,7 @@ final class LogLinkBuilder
         $datadog = $this->links['datadog'] ?? null;
 
         if (is_array($grafana) && self::set($grafana['base_url'] ?? null) && self::set($grafana['datasource_uid'] ?? null)) {
-            return $this->grafana((string) $grafana['base_url'], (string) $grafana['datasource_uid'], $g->level, $literal, $window);
+            return $this->grafana((string) $grafana['base_url'], (string) $grafana['datasource_uid'], $literal, $window);
         }
         if (is_array($datadog) && self::set($datadog['app_url'] ?? null)) {
             return $this->datadog((string) $datadog['app_url'], $literal, $window);
@@ -45,7 +44,7 @@ final class LogLinkBuilder
      * UNVERIFIED: the Grafana Explore URL shape (`schemaVersion=1&panes=<json>`) is version dependent; this is the
      * only place that knows it. Pinned by a golden test, not by a live instance.
      */
-    private function grafana(string $base, string $uid, Level $level, ?string $literal, Window $window): string
+    private function grafana(string $base, string $uid, ?string $literal, Window $window): string
     {
         $expr = '{' . implode(',', array_map(
             fn (string $k, string $v): string => $k . '="' . self::esc($v) . '"',
@@ -55,9 +54,7 @@ final class LogLinkBuilder
         if ($literal !== null) {
             $expr .= ' |= "' . self::esc($literal) . '"';
         }
-        if ($level->atLeast(Level::Error)) {
-            $expr .= ' |~ "(?i)error|critical|alert|emergency"';
-        }
+        // No severity |~ filter: sparse JSON logs often lack the word "error", which emptied Explore.
 
         $panes = json_encode(['a' => [
             'datasource' => $uid,
