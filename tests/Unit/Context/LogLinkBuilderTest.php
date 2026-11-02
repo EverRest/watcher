@@ -48,7 +48,7 @@ final class LogLinkBuilderTest extends TestCase
     /** Golden: the Grafana Explore URL shape is version dependent (UNVERIFIED against a live instance). */
     public function testGrafanaGoldenUrl(): void
     {
-        $logql = '{app="shop",env="prod"} |= "Lock wait timeout exceeded" |~ "(?i)error|critical|alert|emergency"';
+        $logql = '{app="shop",env="prod"} |= "Lock wait timeout exceeded"';
         $panes = '{"a":{"datasource":"loki-1","queries":[{"refId":"A","expr":' . json_encode($logql, JSON_UNESCAPED_SLASHES)
             . ',"datasource":{"type":"loki","uid":"loki-1"}}],"range":{"from":"1772323200000","to":"1772409600000"}}}';
 
