@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.2 — 2026-11-03 — Repeat run in a finished `every` window no longer fails
+
+- **Fix:** with `schedule.every`, a live run after a successful one in the same window crashed with `Undefined array key 0` (a `TypeError` in `RunLedger::started()`). Once the high-water mark covers every due window, `attempt()` now returns `skipped_not_due`. Dry runs never reached this branch, so they looked fine.
+- Product release label **v0.18.2** (root VERSION).
+
 ## 0.18.1 — 2026-11-02 — Grafana Explore links without a severity filter
 
 - **Fix:** `LogLinkBuilder` no longer appends `|~ "(?i)error|critical|alert|emergency"` to Grafana Explore LogQL. Sparse JSON app logs often omit those words, so digest Explore links returned empty for real findings. Links still use stream tags and the template literal.

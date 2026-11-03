@@ -61,4 +61,14 @@ final class CatchUpTest extends TestCase
         self::assertSame(RunOutcome::Quiet, $r->outcome);
         self::assertStringContainsString('not analysed', implode("\n", $h->sentTexts()));
     }
+
+    public function testRepeatRunInSameWindowIsSkippedNotDue(): void
+    {
+        $h = self::hourly();
+        $h->clock->set(new DateTimeImmutable('2026-10-08T09:30:00+00:00'));
+        $events = Harness::events(Level::Error, 'repeat seed', 2);
+        $h->watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $r = $h->watcher(new FakeLogSource([], []))->run();
+        self::assertSame(RunOutcome::SkippedNotDue, $r->outcome);
+    }
 }
