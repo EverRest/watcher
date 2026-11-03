@@ -362,6 +362,9 @@ final class Watcher
             $todo[] = $candidate;
         }
         if ($todo === []) {
+            if ($pending === []) { // every window is at or below the high-water mark
+                return new RunResult(RunOutcome::SkippedNotDue);
+            }
             $this->ledger->started($pending[0]);
 
             return new RunResult(RunOutcome::SkippedDone);
