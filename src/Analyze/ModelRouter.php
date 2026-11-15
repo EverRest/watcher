@@ -87,6 +87,7 @@ final class ModelRouter
         $findings = [];
         $dropped = 0;
         $escalations = 0;
+        $escalationSkip = null; // spec 019: set by a refused escalation; no further escalation is sent in this run
         $skippedSize = 0;
         $notAnalysed = 0;
         $unreported = 0;
@@ -116,7 +117,7 @@ final class ModelRouter
             $detached = [];
             $out = [];
             foreach ($this->vet($res->findings, $byFp, $detached) as [$f, $weak]) {
-                if ($escalations < $this->s->escalationCap && $this->needsEscalation($f, $byFp)) {
+                if ($escalationSkip === null && $escalations < $this->s->escalationCap && $this->needsEscalation($f, $byFp)) {
                     $sub = array_values(array_filter(array_map(static fn (string $fp): ?RedactedGroup => $byFp[$fp] ?? null, $f->fingerprints)));
                     $fit = $this->fitEscalation($sub, self::remap($dependencyContext, $groups, $sub));
                     if ($fit === null) {
@@ -131,7 +132,17 @@ final class ModelRouter
                     }
                     $escalateCap = ProviderAnalyzer::analysisOutputCap($this->s->escalateMaxTokens, count($sub), $this->s->advice);
                     ++$escalations;
-                    $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext, $this->s->metrics, $subEndpoints, 'escalate'));
+                    try {
+                        $again = $this->analyzer->analyze(new AnalysisRequest($sub, $this->s->serviceContext, $this->s->escalateModel, $escalateCap, $subContext, $this->s->metrics, $subEndpoints, 'escalate'));
+                    } catch (AnalyzerFailed $e) {
+                        if ($e->skip === null) {
+                            throw $e;
+                        }
+                        // Spec 019 partial run: the analysis finding stands, and the reason is reported.
+                        $escalationSkip = $e->skip;
+                        $out[] = [$f, $weak];
+                        continue;
+                    }
                     if ($again->findings !== []) {
                         foreach ($this->vet($again->findings, $byFp, $detached) as [$e, $w]) {
                             $out[] = [$e->escalated(), $w];
@@ -175,7 +186,7 @@ final class ModelRouter
             }
         }
 
-        return new RouterResult($findings, $escalations, $reused, count($fresh), $dropped, $notAnalysed, $skippedSize, $unreported, $triageDropped, $coerced, $newOverflow);
+        return new RouterResult($findings, $escalations, $reused, count($fresh), $dropped, $notAnalysed, $skippedSize, $unreported, $triageDropped, $coerced, $newOverflow, $escalationSkip);
     }
 
     /**

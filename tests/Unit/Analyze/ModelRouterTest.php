@@ -236,6 +236,49 @@ final class ModelRouterTest extends TestCase
         self::assertFalse($byFp['c']->escalated);
     }
 
+    /**
+     * Spec 019 FR-011 (partial run): the escalation is refused for quota. The analysis findings stand, the reason is reported,
+     * and no further escalation goes to that provider in this run.
+     */
+    public function testAnEscalationRefusedForQuotaKeepsTheAnalysisFindingsAndLatches(): void
+    {
+        $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting']);
+        $this->fake->analysis = self::analysis([self::finding('a', Severity::Error, 0.3), self::finding('b', Severity::Error, 0.3)]);
+        $inner = $this->fake;
+        $analyzer = new class ($inner) implements Analyzer {
+            public int $escalateCalls = 0;
+
+            public function __construct(private readonly FakeAnalyzer $inner)
+            {
+            }
+
+            public function triage(TriageRequest $req): TriageResult
+            {
+                return $this->inner->triage($req);
+            }
+
+            public function analyze(AnalysisRequest $req): AnalysisResult
+            {
+                if ($req->step === 'escalate') {
+                    ++$this->escalateCalls;
+
+                    throw new AnalyzerFailed('provider unavailable (quota exhausted)', false, 'quota exhausted', 'openai');
+                }
+
+                return $this->inner->analyze($req);
+            }
+        };
+
+        $r = $this->router(analyzer: $analyzer)->route([self::group('a'), self::group('b')]);
+
+        self::assertSame(1, $analyzer->escalateCalls, 'the second escalation is not sent to the provider this run');
+        self::assertSame('quota exhausted', $r->escalationSkip);
+        self::assertCount(2, $r->findings);
+        foreach ($r->findings as $f) {
+            self::assertFalse($f->escalated);
+        }
+    }
+
     public function testEscalationIsCappedPerRun(): void
     {
         $this->fake->triage = self::triage(['a' => 'interesting', 'b' => 'interesting', 'c' => 'interesting']);

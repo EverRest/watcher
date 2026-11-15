@@ -960,7 +960,7 @@ final class Watcher
         $findings = [...$routed->findings, ...$repeatFindings]; // already scrubbed by the decorator, before the router cached them; repeats come from the stored, scrubbed text
         $dropped = $analysis->truncation->droppedCount + $routed->droppedByTopM;
 
-        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->escalationsSkippedSize === 0 && $patternFailures === 0 && $routed->unreported === 0 && $routed->triageCoerced === 0 && $analysis->skipped === null) {
+        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->escalationsSkippedSize === 0 && $patternFailures === 0 && $routed->unreported === 0 && $routed->triageCoerced === 0 && $analysis->skipped === null && $routed->escalationSkip === null) {
             $analysis->checkpoint->clear();
             $analysis->buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->ledger->snapshot($window, $allGroups, $totals);
@@ -1030,6 +1030,12 @@ final class Watcher
     private static function aiSkippedLine(?AnalyzerFailed $e): ?string
     {
         return $e === null ? null : sprintf('⚠️ AI analysis skipped: %s %s; groups shown without AI summary', $e->provider ?? 'provider', $e->skip ?? 'unavailable');
+    }
+
+    /** Spec 019 FR-011: a refused escalation; the analysis findings are shown as first analysed. */
+    private static function escalationSkippedLine(?string $reason): ?string
+    {
+        return $reason === null ? null : sprintf('⚠️ escalation skipped: %s; findings shown as first analysed', $reason);
     }
 
     /** Spec 019 FR-008: one notice per service, provider, reason and UTC day (the notice-once key carries the day). */
@@ -1275,7 +1281,7 @@ final class Watcher
             knownLine: $read->knownLine,
             findingLabels: $read->knownResult !== null ? $read->knownResult->labels : [],
             routedNotice: $routedNotice,
-            aiSkipped: self::aiSkippedLine($analysis->skipped),
+            aiSkipped: self::aiSkippedLine($analysis->skipped) ?? self::escalationSkippedLine($routed->escalationSkip),
             draftsSkipped: $draftsSkipped,
             knownCount: $read->knownResult !== null ? $read->knownResult->knownCount : 0,
             knownGrownCount: $read->knownResult !== null ? $read->knownResult->knownGrownCount : 0,
