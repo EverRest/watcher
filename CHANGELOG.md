@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Analysis without the model
+## 0.19.0 — 2026-11-15 — Analysis without the model
 
 - **Behaviour change (spec 019):** when the model provider cannot be used, the run no longer fails. A missing key, a rejected key (401/403) or exhausted credit or quota (OpenAI billing codes, Gemini 402) sends the digest without AI, with the line `⚠️ AI analysis skipped: <provider> <reason>; groups shown without AI summary`, one notice per service, provider, reason and UTC day, and exit 0. Groups shown without AI keep no verdict.
 - **Config:** a provider in use without a key is no longer an `InvalidConfig`; `watcher check` warns `no key for <provider>: AI analysis off`. Unknown provider names and bad model ids still fail at load.
