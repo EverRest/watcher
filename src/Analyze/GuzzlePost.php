@@ -74,7 +74,7 @@ final class GuzzlePost
         };
 
         try {
-            $response = (new Retry($wait, (int) ceil($timeout), $retries + 1))->send($send, $name, true, $tripped);
+            $response = (new Retry($wait, (int) ceil($timeout), $retries + 1))->send($send, $name, true, $tripped, static fn (ResponseInterface $r): bool => self::billing($r));
         } catch (Throwable $e) {
             if (isset($tripped['large'])) {
                 throw new AnalyzerFailed('provider unavailable (invalid reply)'); // oversized
@@ -100,7 +100,10 @@ final class GuzzlePost
         }
 
         if ($status === 401 || $status === 403) {
-            throw new AnalyzerFailed('authentication failed');
+            throw new AnalyzerFailed('authentication failed', false, 'authentication failed');
+        }
+        if ($status === 402 || ($status !== 200 && self::billing($response))) {
+            throw new AnalyzerFailed('provider unavailable (quota exhausted)', false, 'quota exhausted');
         }
         if ($status !== 200) {
             throw new AnalyzerFailed("provider unavailable (HTTP $status)");
@@ -108,4 +111,44 @@ final class GuzzlePost
 
         return [$status, $data];
     }
+
+    /**
+     * Spec 019 FR-010: true when a non-200 body names a billing or quota exhaustion. Reads only `error.code`, `error.type` and
+     * `error.status`, compared with a closed list; the body is never kept. A body that is not JSON, or has no such field, is not billing.
+     */
+    private static function billing(ResponseInterface $response): bool
+    {
+        if ($response->getStatusCode() === 200) {
+            return false;
+        }
+        try {
+            $data = ResponseLimit::decode($response, 'provider');
+        } catch (Throwable) {
+            return false;
+        }
+        $error = $data['error'] ?? null;
+        if (!is_array($error)) {
+            return false;
+        }
+        foreach (['code', 'type', 'status'] as $field) {
+            if (is_string($error[$field] ?? null) && in_array($error[$field], self::BILLING, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Codes that mean the account is out of credit or quota (OpenAI: error.code / error.type; Gemini: 402 payment_required).
+     * Verified on 2026-11-15 against the provider error pages; see specs/019-analysis-without-model/research.md.
+     */
+    private const BILLING = [
+        'insufficient_quota',
+        'credit_balance_exhausted',
+        'organization_spend_limit_exceeded',
+        'project_spend_limit_exceeded',
+        'organization_usage_limit_exceeded',
+        'payment_required',
+    ];
 }

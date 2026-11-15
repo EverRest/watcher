@@ -152,6 +152,9 @@ final class DigestSections
         if ($d->patternFailures > 0) {
             $out[] = ['kind' => 'notice', 'text' => sprintf('⚠️ %s pattern evaluation failures: rules may have been skipped', number_format($d->patternFailures))];
         }
+        if ($d->aiSkipped !== null) {
+            $out[] = ['kind' => 'notice', 'text' => $d->aiSkipped];
+        }
         if ($d->routedNotice !== null && $d->routedNotice !== '') {
             $out[] = ['kind' => 'notice', 'text' => 'ℹ️ ' . SlackText::escape($d->routedNotice)];
         }

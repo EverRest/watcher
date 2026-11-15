@@ -78,7 +78,7 @@ text is withheld never matches a `template` matcher. Regexes need PCRE delimiter
 |---|---|---|
 | `analysis.provider` | `gemini` | `openai` or `gemini`: the provider of every step unless `analysis.providers` names another. |
 | `analysis.providers.{triage,analyze,escalate}` | `analysis.provider` | Optional per-step provider. Mix freely, e.g. triage on `openai`, the rest on `gemini`. |
-| `analysis.api_keys.{openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key fails at load, naming the key path. |
+| `analysis.api_keys.{openai,gemini}` | none | One key per provider in use (secret). A provider used by a step without a key does not stop the run: the digest goes out without AI, `watcher check` warns, and the run exits 0 (see [AI analysis skipped](operations.md#ai-analysis-skipped)). An unknown provider name or a bad model id still fails at load. |
 | `analysis.providers_options.{openai,gemini}` | the provider's host, `retries` 0 | `base_url` (must be `https`). `retries` 0 to 3: a transient failure (429, 500, 502, 503, 504, a timeout) is retried within the call timeout; a refusal or an invalid reply is not. |
 | `analysis.client` | absent | No longer a transport choice. Absent or `http` is accepted and ignored. Any other value is refused. Delete the key. |
 | `analysis.models.{triage,analyze,escalate}` | required | One id per tier. Cheapest model for triage, strongest for escalation. |

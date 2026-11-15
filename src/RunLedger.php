@@ -214,11 +214,13 @@ final class RunLedger
     }
 
     /** The run record: its presence is what makes the next trigger for the same window a "skipped_done". */
-    public function runRecord(string $key, RunOutcome $outcome, DateTimeImmutable $started, ?string $code = null): void
+    public function runRecord(string $key, RunOutcome $outcome, DateTimeImmutable $started, ?string $code = null, ?string $analysisSkipped = null): void
     {
         $this->state->put($key, [
             'outcome' => $outcome->value,
             ...($code === null ? [] : ['code' => $code]),
+            // Spec 019: internal run record only; the public event schema has no such field yet (unevaluatedProperties: false).
+            ...($analysisSkipped === null ? [] : ['analysis_skipped' => $analysisSkipped]),
             'startedAt' => $started->format(DATE_ATOM),
             'finishedAt' => $this->clock->now()->format(DATE_ATOM),
         ], $this->config->state['retention']);

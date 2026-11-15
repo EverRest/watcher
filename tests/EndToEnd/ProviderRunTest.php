@@ -33,7 +33,7 @@ final class ProviderRunTest extends TestCase
     public static function failures(): array
     {
         return [
-            'gemini 401' => ['gemini', 'unauthorised.json'],
+            // spec 019: a 401 no longer fails the run; see AnalysisWithoutModelTest
             'openai 500' => ['openai', 'server_error.json'],
             'gemini 429' => ['gemini', 'rate_limited.json'],
         ];

@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "payment_required",
+    "message": "Your prepaid credit balance is depleted."
+  }
+}

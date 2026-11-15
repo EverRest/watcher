@@ -55,7 +55,7 @@ Nothing new to report means zero model calls. The first run only records a basel
 | Area | Supported today |
 |---|---|
 | Log sources | Loki or Datadog (read-only queries only) |
-| Model providers | OpenAI or Gemini; each step (triage, analyze, escalate) can use a different one |
+| Model providers | OpenAI or Gemini; each step (triage, analyze, escalate) can use a different one. A missing, rejected or exhausted key does not stop the run: the digest goes out without AI ([operations](docs/operations.md#ai-analysis-skipped)) |
 | Notifications | Slack, Telegram, Discord, or `none`; immediate alerts for log matches (`alerts.immediate`); out-of-turn alerts for new error groups (`alerts.new_groups`); event sinks for `log` (on by default), `file`, `http` and a Prometheus textfile ([observability](docs/observability.md)) |
 | Digest | Every flagged group, in as many `part i/n` messages as needed; `not analysed` and minor lines; `notify.days` limits the days |
 | State | Redis (default), any PDO database, or a file (single runner only) |
@@ -441,6 +441,8 @@ the lowest-priority groups and the digest says so.
 
 `watcher check` exits 0 when no check failed, 1 otherwise (an invalid config is a failed `config` check). `watcher status`
 exits 0 when `ok`, 1 when `degraded`, `stale` or `failed`, 3 when `unknown` (no record, expired record or unreadable store). No source sets `degraded` in 0.7.0.
+
+A model provider that cannot be used (no key, rejected key, credit or quota exhausted) is not a failure: the digest goes out without AI, with one warning line, and the run exits 0 ([AI analysis skipped](docs/operations.md#ai-analysis-skipped)).
 
 Failures are never silent: a source, analysis or internal failure posts a short notice to `notify.notice`
 (or the digest destination) and returns 1. If the notice channel itself fails, the host logger (if you pass one to

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — Analysis without the model
+
+- **Behaviour change (spec 019):** when the model provider cannot be used, the run no longer fails. A missing key, a rejected key (401/403) or exhausted credit or quota (OpenAI billing codes, Gemini 402) sends the digest without AI, with the line `⚠️ AI analysis skipped: <provider> <reason>; groups shown without AI summary`, one notice per service, provider, reason and UTC day, and exit 0. Groups shown without AI keep no verdict.
+- **Config:** a provider in use without a key is no longer an `InvalidConfig`; `watcher check` warns `no key for <provider>: AI analysis off`. Unknown provider names and bad model ids still fail at load.
+- **Retries:** an OpenAI billing 429 (`insufficient_quota` and related codes) is sent once, not retried. Plain rate limits, timeouts, 5xx, invalid output and refusals are unchanged.
+- **Second failure:** the second transient analysis failure of the same window (timeout, 5xx, invalid output) sends the digest without AI (reason `provider unavailable`) instead of losing it. The first still fails loudly.
+- **Dedupe:** a group shown without AI gets AI again only when its count reaches the growth factor times the count it was shown with.
+- **Partial runs:** a refused escalation keeps the analysis findings and reports `⚠️ escalation skipped: <provider> <reason>`, with the daily notice; no further escalation in the run.
+- **One refusal per run:** after a skip, later catch-up windows of the same run send no request. The notice goes out after the digest and a notice failure is only logged. Known-issue references are kept in a skipped run.
+- **Run record:** an additive `analysis_skipped` on the internal run record. The public event schema is unchanged for now (see the spec's open items).
+- Provider error codes were checked against the official pages on 2026-11-15 (see `specs/019-analysis-without-model/research.md`). Gemini's `generateContent` error shape and expired-key detection are not verified; those stay transient.
+
 ## 0.18.2 — 2026-11-03 — Repeat run in a finished `every` window no longer fails
 
 - **Fix:** with `schedule.every`, a live run after a successful one in the same window crashed with `Undefined array key 0` (a `TypeError` in `RunLedger::started()`). Once the high-water mark covers every due window, `attempt()` now returns `skipped_not_due`. Dry runs never reached this branch, so they looked fine.
