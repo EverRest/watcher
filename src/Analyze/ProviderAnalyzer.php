@@ -98,7 +98,7 @@ final class ProviderAnalyzer implements Analyzer
             $message = $this->call($kind, $step, $groups, $context, $model, $maxTokens, $dependencyContext, $extras, $endpoints);
             if ($message->stopReason === 'refusal') {
                 // Not retried (a second identical request is refused again), and loud: the window is not re-run.
-                throw new AnalyzerFailed($kind . ': the model refused the request (not retried)', true);
+                throw new AnalyzerFailed($kind . ': the model refused the request (not retried)', true, null, $this->providers->name($step));
             }
 
             try {
@@ -111,7 +111,7 @@ final class ProviderAnalyzer implements Analyzer
             }
         }
 
-        throw new AnalyzerFailed('invalid model output');
+        throw new AnalyzerFailed('invalid model output', false, null, $this->providers->name($step));
     }
 
     /**
@@ -121,14 +121,19 @@ final class ProviderAnalyzer implements Analyzer
      */
     private function call(string $kind, string $step, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): ModelReply
     {
-        return $this->providers->for($step)->create(
-            $model,
-            $maxTokens,
-            Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice, $extras !== null, $endpoints !== []),
-            CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext, $extras, $endpoints), bin2hex(random_bytes(16))),
-            ProviderSchema::for($kind, $this->advice),
-            $kind !== 'triage',
-        );
+        try {
+            return $this->providers->for($step)->create(
+                $model,
+                $maxTokens,
+                Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice, $extras !== null, $endpoints !== []),
+                CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext, $extras, $endpoints), bin2hex(random_bytes(16))),
+                ProviderSchema::for($kind, $this->advice),
+                $kind !== 'triage',
+            );
+        } catch (AnalyzerFailed $e) {
+            // Spec 019: the provider name is added to every failure (a config name, never a secret); the message is the adapter's.
+            throw new AnalyzerFailed($e->getMessage(), $e->refused, $e->skip, $this->providers->name($step));
+        }
     }
 
     /** @return array<mixed> */

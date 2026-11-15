@@ -103,11 +103,7 @@ final class AnalysisSection
                 $apiKeys[$name] = $key;
             }
         }
-        foreach (array_unique(array_values($steps)) as $name) {
-            if (!isset($apiKeys[$name])) {
-                throw new InvalidConfig('analysis.api_keys.' . $name . ' is required for the provider in use');
-            }
-        }
+        // A provider in use without a key is not a config error (spec 019): the run goes on without AI, and `check` warns.
 
         $given = SectionFields::section($a, 'providers_options');
         SectionFields::only($given, self::PROVIDERS, 'analysis.providers_options');

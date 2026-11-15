@@ -131,7 +131,6 @@ final class WatchConfigTest extends TestCase
             'missing run_at' => [$unset(['schedule', 'run_at']), 'schedule.run_at'],
             'missing source driver' => [$unset(['source', 'driver']), 'source.driver'],
             'missing loki url' => [$unset(['source', 'loki', 'url']), 'source.loki.url'],
-            'missing gemini key' => [$unset(['analysis', 'api_keys', 'gemini']), 'analysis.api_keys.gemini'],
             'missing triage model' => [$unset(['analysis', 'models', 'triage']), 'analysis.models.triage'],
             'missing analyze model' => [$unset(['analysis', 'models', 'analyze']), 'analysis.models.analyze'],
             'missing escalate model' => [$unset(['analysis', 'models', 'escalate']), 'analysis.models.escalate'],

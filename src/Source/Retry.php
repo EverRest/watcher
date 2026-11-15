@@ -39,8 +39,9 @@ final class Retry
      * @param Closure(): ResponseInterface $send
      * @param \ArrayObject<string, bool>|null $tripped the response cap's flag ({@see ResponseLimit::options()}): a reply it cut is the
      *        size of the reply, so asking again only downloads it again
+     * @param (Closure(ResponseInterface): bool)|null $keep true for a transient reply that must not be sent again
      */
-    public function send(Closure $send, string $name, bool $retryOn500, ?\ArrayObject $tripped = null): ResponseInterface
+    public function send(Closure $send, string $name, bool $retryOn500, ?\ArrayObject $tripped = null, ?Closure $keep = null): ResponseInterface
     {
         $this->waited = 0; // the budget is per call, so one slow page cannot starve later ones
         for ($attempt = 1;; ++$attempt) {
@@ -57,7 +58,8 @@ final class Retry
             }
             $status = $response->getStatusCode();
             $transient = in_array($status, [429, 502, 503, 504], true) || ($retryOn500 && $status === 500);
-            if (!$transient || $attempt >= $this->attempts || !$this->wait($attempt, $status === 429 ? $response : null)) {
+            // $keep: a reply the caller knows is not recoverable by waiting (spec 019: a billing 429) is returned at once.
+            if (!$transient || $attempt >= $this->attempts || ($keep !== null && $keep($response)) || !$this->wait($attempt, $status === 429 ? $response : null)) {
                 return $response;
             }
         }

@@ -10,6 +10,7 @@ use Watcher\Analyze\GeminiProvider;
 use Watcher\Analyze\ModelProvider;
 use Watcher\Analyze\OpenAiProvider;
 use Watcher\Analyze\ProviderAnalyzer;
+use Watcher\Analyze\NoKeyProvider;
 use Watcher\Analyze\ProviderRegistry;
 use Watcher\Config\Factory;
 use Watcher\Config\WatchConfig;
@@ -32,6 +33,9 @@ final class AnalyzerFactory
     /** The adapter for one provider name, with its key, base URL and retries from configuration (spec 016). */
     private static function modelProvider(string $name, WatchConfig $c, Client $http, int $timeout): ModelProvider
     {
+        if (!isset($c->analysis['api_keys'][$name])) {
+            return new NoKeyProvider();
+        }
         $key = WatchConfig::reveal($c->analysis['api_keys'][$name]);
         $opt = $c->analysis['providers_options'][$name];
 

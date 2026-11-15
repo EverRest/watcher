@@ -38,6 +38,7 @@ final class NoBudgetNamesTest extends TestCase
         'src/Reduce/TemplateMiner.php' => ['budget'], // comparison budget (clustering work cap) and memory budget
         'src/Reduce/MiningStats.php' => ['budget'], // budgetExhausted: clustering cap
         'src/Source/Retry.php' => ['budget'], // the per-call retry wait budget
+        'src/Analyze/GuzzlePost.php' => ['spend'], // provider billing error codes (OpenAI *_spend_limit_exceeded), matched as strings, no money
         'src/Source/GuardedRequest.php' => ['budget'], // the per-call wall-clock budget of one source call
         'src/Source/LokiSource.php' => ['budget'], // page/time budget of one read
         'src/Source/DatadogSource.php' => ['budget'], // page/time budget of one read

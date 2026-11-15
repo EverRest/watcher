@@ -63,11 +63,36 @@ log text).
 
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
-A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries. The exception: a model **refusal** (code `analysis_refused`) and the **second** failed attempt of the same window write a `failed` run record (`no further attempts for this window`), so later triggers report `skipped_done` instead of paying for the window again; the next window starts clean.
+A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries. The exceptions: a model **refusal** (code `analysis_refused`) writes a `failed` run record, so later triggers report `skipped_done` instead of paying for the window again. The **second** transient failure of the same window is delivered without AI (reason `provider unavailable`, see below) and the window is recorded as reported; the next window starts clean.
 If triage had already been paid for, its verdicts (noise / known / interesting; never findings, and never noise/known for
 error-level or watch-rule groups) are kept in `triage:<service>:<window-end>` for 6 hours, so the retry in the same window
 makes no second triage call. The record is cleared once the digest is delivered.
 A failed **digest delivery** is only logged (the channel is the one that broke).
+
+## AI analysis skipped
+
+When the model provider cannot be used, the run does not fail. The digest is sent without the AI part and the run exits 0:
+
+| Reason (closed words) | When |
+|---|---|
+| `no key` | no key is set for a provider a step uses |
+| `authentication failed` | the provider answers 401 or 403 |
+| `provider unavailable` | the provider failed twice for the same window (timeout, 5xx, invalid output) |
+| `quota exhausted` | the provider reports credit or quota exhausted (OpenAI billing codes such as `insufficient_quota`; Gemini `402`). A plain rate limit (429) is not this: it is retried as before |
+
+What you see:
+
+- **In the digest**, one line in every digest of an affected run:
+  `⚠️ AI analysis skipped: <provider> <reason>; groups shown without AI summary`. Every group that was flagged is still listed, under `not analysed`, with its count and log link.
+- **A notice** to `notify.notice` (or the digest destination when it is not set), once per service, provider, reason and UTC day.
+- **`watcher check`** reports the analysis check as a warning: `no key for <provider>: AI analysis off`.
+- A refused **escalation** keeps the analysis findings and adds `⚠️ escalation skipped: <provider> <reason>; findings shown as first analysed`, with the same daily notice. No further escalation is made in the run. The finding is repeated from then on as first analysed; it is escalated again only once its group grows.
+
+Nothing about the key, the URL or the provider's error text is shown: only the words above.
+
+What to do: for `no key`, set `analysis.api_keys.<provider>` (or the `WATCHER_*_KEY` variable). For `authentication failed`, check the key was copied correctly and is still valid. For `quota exhausted`, check the provider's billing or quota page. Until then the digests are complete but have no AI summary.
+
+A group shown without AI gets no stored verdict. When the provider works again it gets AI only when its count reaches `selection.growth_factor` times the count it was shown with; otherwise it is not sent again. Groups below `selection.min_level` are not listed in such a digest and are not marked, so they are judged as usual next time. In one run, once the provider has refused, later catch-up windows make no further request. The notice is sent after the digest: a broken notice channel is logged and never holds the digest back, and `notify.notice.enabled: false` sends none.
 
 ## Deploying
 
