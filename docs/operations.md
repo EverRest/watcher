@@ -69,6 +69,30 @@ error-level or watch-rule groups) are kept in `triage:<service>:<window-end>` fo
 makes no second triage call. The record is cleared once the digest is delivered.
 A failed **digest delivery** is only logged (the channel is the one that broke).
 
+## AI analysis skipped
+
+When the model provider cannot be used, the run does not fail. The digest is sent without the AI part and the run exits 0:
+
+| Reason (closed words) | When |
+|---|---|
+| `no key` | no key is set for a provider a step uses |
+| `authentication failed` | the provider answers 401 or 403 |
+| `quota exhausted` | the provider reports credit or quota exhausted (OpenAI billing codes such as `insufficient_quota`; Gemini `402`). A plain rate limit (429) is not this: it is retried as before |
+
+What you see:
+
+- **In the digest**, one line in every digest of an affected run:
+  `⚠️ AI analysis skipped: <provider> <reason>; groups shown without AI summary`. Every group that was flagged is still listed, under `not analysed`, with its count and log link.
+- **A notice** to `notify.notice` (or the digest destination when it is not set), once per service, provider, reason and UTC day.
+- **`watcher check`** reports the analysis check as a warning: `no key for <provider>: AI analysis off`.
+- A refused **escalation** keeps the analysis findings and adds `⚠️ escalation skipped: <reason>; findings shown as first analysed`. No further escalation goes to that provider in the run.
+
+Nothing about the key, the URL or the provider's error text is shown: only the words above.
+
+What to do: for `no key`, set `analysis.api_keys.<provider>` (or the `WATCHER_*_KEY` variable). For `authentication failed`, check the key was copied correctly and is still valid. For `quota exhausted`, check the provider's billing or quota page. Until then the digests are complete but have no AI summary.
+
+A group shown without AI gets no stored verdict. When the provider works again it gets AI only if it is new or its count grows. An unchanged group already shown without AI is not sent again.
+
 ## Deploying
 
 ### Lumen / Laravel
