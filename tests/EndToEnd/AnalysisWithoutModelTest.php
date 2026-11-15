@@ -150,6 +150,23 @@ final class AnalysisWithoutModelTest extends TestCase
         self::assertCount(2, $notices, 'one notice per UTC day');
     }
 
+    /** Spec 019 FR-001/005: a provider in use without a key sends no request and the digest goes out without AI. */
+    public function testNoKeyRunsWithoutAiAndSendsNothing(): void
+    {
+        $h = new Harness();
+        $baseline = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
+        $h->watcher(new FakeLogSource(Harness::totalsOf($baseline), $baseline))->run();
+        $h->nextWindow();
+        $events = Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
+        $analyzer = new ProviderAnalyzer(ProviderRegistry::single(new \Watcher\Analyze\NoKeyProvider(), 'openai'));
+
+        $result = (new Watcher(WatchConfig::fromArray($h->config()), new FakeLogSource(Harness::totalsOf($events), $events), $h->state, $analyzer, $h->notifier, $h->clock))->run();
+
+        self::assertSame(RunOutcome::Reported, $result->outcome);
+        self::assertSame(0, $result->exitCode());
+        self::assertStringContainsString('⚠️ AI analysis skipped: openai no key; groups shown without AI summary', implode("\n", $h->sentTexts()));
+    }
+
     public function testATransientFailureStillFailsTheRun(): void
     {
         $unavailable = new Response(503, ['Content-Type' => 'application/json'], '{"error":{"message":"busy"}}');
