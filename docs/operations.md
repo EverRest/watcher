@@ -86,13 +86,13 @@ What you see:
   `⚠️ AI analysis skipped: <provider> <reason>; groups shown without AI summary`. Every group that was flagged is still listed, under `not analysed`, with its count and log link.
 - **A notice** to `notify.notice` (or the digest destination when it is not set), once per service, provider, reason and UTC day.
 - **`watcher check`** reports the analysis check as a warning: `no key for <provider>: AI analysis off`.
-- A refused **escalation** keeps the analysis findings and adds `⚠️ escalation skipped: <reason>; findings shown as first analysed`. No further escalation goes to that provider in the run.
+- A refused **escalation** keeps the analysis findings and adds `⚠️ escalation skipped: <provider> <reason>; findings shown as first analysed`, with the same daily notice. No further escalation is made in the run. The finding is repeated from then on as first analysed; it is escalated again only once its group grows.
 
 Nothing about the key, the URL or the provider's error text is shown: only the words above.
 
 What to do: for `no key`, set `analysis.api_keys.<provider>` (or the `WATCHER_*_KEY` variable). For `authentication failed`, check the key was copied correctly and is still valid. For `quota exhausted`, check the provider's billing or quota page. Until then the digests are complete but have no AI summary.
 
-A group shown without AI gets no stored verdict. When the provider works again it gets AI only if it is new or its count grows. An unchanged group already shown without AI is not sent again.
+A group shown without AI gets no stored verdict. When the provider works again it gets AI only when its count reaches `selection.growth_factor` times the count it was shown with; otherwise it is not sent again. Groups below `selection.min_level` are not listed in such a digest and are not marked, so they are judged as usual next time. In one run, once the provider has refused, later catch-up windows make no further request. The notice is sent after the digest: a broken notice channel is logged and never holds the digest back, and `notify.notice.enabled: false` sends none.
 
 ## Deploying
 

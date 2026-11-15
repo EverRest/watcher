@@ -272,7 +272,9 @@ final class ModelRouterTest extends TestCase
         $r = $this->router(analyzer: $analyzer)->route([self::group('a'), self::group('b')]);
 
         self::assertSame(1, $analyzer->escalateCalls, 'the second escalation is not sent to the provider this run');
-        self::assertSame('quota exhausted', $r->escalationSkip);
+        self::assertNotNull($r->escalationSkip);
+        self::assertSame('quota exhausted', $r->escalationSkip->skip);
+        self::assertSame('openai', $r->escalationSkip->provider);
         self::assertCount(2, $r->findings);
         foreach ($r->findings as $f) {
             self::assertFalse($f->escalated);

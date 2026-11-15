@@ -14,6 +14,10 @@
 
 ### Session 2026-11-15 (owner decisions, fixed)
 
+- Q: Should the last transient failure of a window also deliver without AI? → A: Yes (FR-013).
+- Q: How is growth judged for a group shown without AI? → A: The simplest way: against the count it was shown with (FR-014).
+- Q: `analysis_skipped` in the public event? → A: No; internal run record only (option c).
+
 - Q: Which failures switch a run to "without AI"? → A: key not set for a provider a step uses; HTTP 401/403; a key the provider reports as invalid or expired; quota or credit exhausted (billing, not rate limit). Timeout, connect error, 5xx, a plain rate-limit 429, invalid model output and refusal stay transient, exactly as today.
 - Q: Is a missing key a config error? → A: No. Config loads; `watcher check` reports the analysis check as `warn`. An unknown provider name, a bad model id format or any other analysis key error stays `InvalidConfig`.
 - Q: What does the operator see? → A: One line in every digest of an affected run, and one notice per service, per provider, per reason, per UTC day.
@@ -74,25 +78,27 @@ Operators are told once a day why AI is off, not on every run.
 - **FR-001** A key missing for a provider in use MUST NOT stop config loading. (US4.1)
 - **FR-002** `watcher check` MUST report that case as `warn`. (US4.1)
 - **FR-003** Unknown provider names, bad model ids and other key errors MUST stay `InvalidConfig`. (US4.2)
-- **FR-004** The four reasons MUST be a closed set of words; nothing else from a provider reply may reach output, notice, record or summary. (privacy)
+- **FR-004** The reasons MUST be a closed set of five words (`no key`, `authentication failed`, `key expired`, `quota exhausted`, `provider unavailable`); nothing else from a provider reply may reach output, notice or record. `key expired` is reserved: no verified code produces it (research.md). (privacy)
 - **FR-005** An affected run MUST deliver the digest without AI, with exactly one AI-status line in it. (US1)
-- **FR-006** An affected run MUST exit 0 and set an additive `analysis_skipped` field on the run record and summary. (behaviour 6)
+- **FR-006** An affected run MUST exit 0 and set an additive `analysis_skipped` field on the internal run record. The public event and JSON summary stay unchanged: `run` has `unevaluatedProperties: false` (owner decision 2026-11-15, option c). (behaviour 6)
 - **FR-007** Skipped groups MUST be marked reported and MUST NOT get a cached verdict. (US1.4)
 - **FR-008** One notice per service, provider, reason and UTC day, through the existing notice-once mechanism. (US2)
 - **FR-009** The recoverable list stays as in today's code; only the listed failures switch a run to "without AI". (behaviour 1)
 - **FR-010** A non-recoverable 429 is sent once. Body is read only for error-code fields, against a closed allowlist. (behaviour 8)
 - **FR-011** A step failing with a non-recoverable reason stops further requests to that provider in the run. (behaviour 7)
 - **FR-012** A run with a working key MUST stay byte-identical to today (`SameFindingsTest` and golden fixtures). (behaviour, tests)
+- **FR-013** The second transient failure of the same window (`MAX_ANALYSIS_FAILURES`) MUST deliver the digest without AI with the reason `provider unavailable`; the first still fails loudly; refusals are unchanged. (owner decision 2026-11-15)
+- **FR-014** A group shown without AI gets AI again only when its count reaches `selection.growth_factor` times the count it was shown with. Only the groups the digest lists (`selection.min_level` and up) are marked. (owner decision 2026-11-15)
+- **FR-015** The notice is sent after the digest; a failing notice channel is logged, never a failed run; `notify.notice.enabled: false` sends none. Known-issue references written in the run are kept (only verdicts are dropped).
 
 ## Success Criteria
 
 - **SC-001** Each of the four reasons produces a delivered digest, a warning line, exit 0 and zero further provider requests in the run (test per reason).
 - **SC-002** No seeded secret, key, URL, header or body text appears in the digest warning, the notice, the run record or the JSON summary (privacy corpus extended).
-- **SC-003** Existing tests stay green unmodified; the e2e golden stays byte-identical.
+- **SC-003** Existing tests stay green; the e2e golden stays byte-identical. Tests that encoded behaviour the owner replaced were changed: `WatchConfigTest` and `WatchConfigProvidersTest` (missing key loads), `ProviderRunTest` (401 no longer fails), `ModelDistrustTest` (second failure is delivered).
 
 ## Out of scope (v1)
 
-- Delivering the digest without AI on the last transient failure (MAX_ANALYSIS_FAILURES). Open question for the owner; not implemented.
 - Detecting an expired key: no documented code verified (see research.md). Kept transient.
 
 ## Edge cases

@@ -139,7 +139,7 @@ final class ModelRouter
                             throw $e;
                         }
                         // Spec 019 partial run: the analysis finding stands, and the reason is reported.
-                        $escalationSkip = $e->skip;
+                        $escalationSkip = $e;
                         $out[] = [$f, $weak];
                         continue;
                     }

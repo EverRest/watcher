@@ -7,7 +7,8 @@
 - **Retries:** an OpenAI billing 429 (`insufficient_quota` and related codes) is sent once, not retried. Plain rate limits, timeouts, 5xx, invalid output and refusals are unchanged.
 - **Second failure:** the second transient analysis failure of the same window (timeout, 5xx, invalid output) sends the digest without AI (reason `provider unavailable`) instead of losing it. The first still fails loudly.
 - **Dedupe:** a group shown without AI gets AI again only when its count reaches the growth factor times the count it was shown with.
-- **Partial runs:** a refused escalation keeps the analysis findings and reports `⚠️ escalation skipped: <reason>`.
+- **Partial runs:** a refused escalation keeps the analysis findings and reports `⚠️ escalation skipped: <provider> <reason>`, with the daily notice; no further escalation in the run.
+- **One refusal per run:** after a skip, later catch-up windows of the same run send no request. The notice goes out after the digest and a notice failure is only logged. Known-issue references are kept in a skipped run.
 - **Run record:** an additive `analysis_skipped` on the internal run record. The public event schema is unchanged for now (see the spec's open items).
 - Provider error codes were checked against the official pages on 2026-11-15 (see `specs/019-analysis-without-model/research.md`). Gemini's `generateContent` error shape and expired-key detection are not verified; those stay transient.
 

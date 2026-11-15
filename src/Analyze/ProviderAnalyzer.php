@@ -98,7 +98,7 @@ final class ProviderAnalyzer implements Analyzer
             $message = $this->call($kind, $step, $groups, $context, $model, $maxTokens, $dependencyContext, $extras, $endpoints);
             if ($message->stopReason === 'refusal') {
                 // Not retried (a second identical request is refused again), and loud: the window is not re-run.
-                throw new AnalyzerFailed($kind . ': the model refused the request (not retried)', true);
+                throw new AnalyzerFailed($kind . ': the model refused the request (not retried)', true, null, $this->providers->name($step));
             }
 
             try {
@@ -111,7 +111,7 @@ final class ProviderAnalyzer implements Analyzer
             }
         }
 
-        throw new AnalyzerFailed('invalid model output');
+        throw new AnalyzerFailed('invalid model output', false, null, $this->providers->name($step));
     }
 
     /**

@@ -27,8 +27,8 @@ final class RouterResult
         public readonly int $triageCoerced = 0,
         /** @var int new groups left out of top_m by the per-run cap on new groups while older ones took the slots */
         public readonly int $newOverflow = 0,
-        /** @var string|null spec 019: the closed reason word when an escalation was refused (the analysis findings stand) */
-        public readonly ?string $escalationSkip = null,
+        /** @var AnalyzerFailed|null spec 019: a refused escalation (closed reason word, provider name); the analysis findings stand */
+        public readonly ?AnalyzerFailed $escalationSkip = null,
     ) {
     }
 }
