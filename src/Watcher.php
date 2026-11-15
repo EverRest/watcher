@@ -904,12 +904,17 @@ final class Watcher
                 continue; // FR-035: a first run reports Error-or-above groups only, not the top-N by volume
             }
             $reported = $this->state->get($keys->reported($cand->group->fingerprint));
+            if ($reported !== null && ($reported['withoutAi'] ?? false) === true) {
+                // Spec 019 FR-007: shown without AI earlier. AI only when it grew since it was shown (the count it was shown with),
+                // not against the history: no verdict was kept, so there is nothing else to compare with.
+                if ($cand->group->count >= $factor * (int) ($reported['atCount'] ?? 0)) {
+                    $candidates[] = $cand;
+                }
+                continue;
+            }
             if ($reported === null || $cand->group->status === GroupStatus::Grown) {
                 $candidates[] = $cand;
                 continue;
-            }
-            if (($reported['withoutAi'] ?? false) === true) {
-                continue; // spec 019 FR-007: shown without AI earlier and unchanged: not sent again; no verdict was kept for it
             }
             $finding = $this->storedFinding($keys, $cand->group->fingerprint);
             if ($finding === null) {

@@ -116,8 +116,8 @@ final class AnalysisWithoutModelTest extends TestCase
         self::assertStringNotContainsString('Your prepaid credit', $digest);
     }
 
-    /** Two runs on one UTC day with the same provider and reason: one notice, not one per run. */
-    public function testTheNoticeIsSentOncePerDay(): void
+    /** Two runs on one UTC day with the same provider and reason: one notice, and an unchanged group is not sent again. */
+    public function testTheNoticeIsSentOncePerDayAndAnUnchangedGroupIsNotSentAgain(): void
     {
         $h = new Harness();
         $baseline = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
@@ -130,10 +130,40 @@ final class AnalysisWithoutModelTest extends TestCase
 
         $watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
         $h->clock->advance('+2 hours'); // the same UTC day
-        $watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $second = $watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
 
+        self::assertSame(RunOutcome::Quiet, $second->outcome, 'unchanged since it was shown without AI: nothing to send');
         $notices = array_filter($h->sentTexts(), static fn (string $t): bool => str_contains($t, 'AI analysis skipped for'));
         self::assertCount(1, $notices, 'one notice for the day');
+    }
+
+    /** A group shown without AI that has grown to the growth factor times its shown count gets AI again. */
+    public function testAGroupThatGrewSinceItWasShownGetsAiAgain(): void
+    {
+        $h = new Harness();
+        $baseline = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
+        $h->watcher(new FakeLogSource(Harness::totalsOf($baseline), $baseline))->run();
+        $h->nextWindow();
+        $events = Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
+        $unauthorised = (string) file_get_contents(__DIR__ . '/../Fixtures/providers/openai/unauthorised.json');
+        $requests = new \ArrayObject();
+        $stack = HandlerStack::create(new MockHandler([new Response(401, [], $unauthorised), new Response(401, [], $unauthorised)]));
+        $stack->push(static function (callable $next) use ($requests): callable {
+            return static function (RequestInterface $request, array $options) use ($next, $requests) {
+                $requests->append($request);
+
+                return $next($request, $options);
+            };
+        });
+        $adapter = new OpenAiProvider(new Client(['handler' => $stack]), self::SECRET, 'https://openai.example.test', 60, 0);
+        $watcher = fn (FakeLogSource $source): Watcher => new Watcher(WatchConfig::fromArray($h->config()), $source, $h->state, new ProviderAnalyzer(ProviderRegistry::single($adapter, 'openai')), $h->notifier, $h->clock);
+
+        $watcher(new FakeLogSource(Harness::totalsOf($events), $events))->run();
+        $grown = Harness::events(Level::Error, 'Alpha failed in a unique way', 20, 'Alpha');
+        $h->clock->advance('+2 hours');
+        $watcher(new FakeLogSource(Harness::totalsOf($grown), $grown))->run();
+
+        self::assertSame(2, $requests->count(), 'the grown group went to the model again');
     }
 
     /** The notice is sent again on the next UTC day, for the same reason. */
