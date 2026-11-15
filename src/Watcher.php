@@ -1130,13 +1130,18 @@ final class Watcher
                 } catch (Throwable) {
                     // A state fault must not replace the analysis failure the run will report.
                 }
-                if ($e->refused || $failures >= self::MAX_ANALYSIS_FAILURES) {
-                    $this->ledger->runRecord($keys->run(), RunOutcome::Failed, $started, $e->refused ? 'analysis_refused' : 'analysis_failed');
+                if ($e->refused) {
+                    $this->ledger->runRecord($keys->run(), RunOutcome::Failed, $started, 'analysis_refused');
 
-                    throw new AnalyzerFailed($e->getMessage() . ' (no further attempts for this window)', $e->refused);
+                    throw new AnalyzerFailed($e->getMessage() . ' (no further attempts for this window)', true);
                 }
-
-                throw $e;
+                if ($failures < self::MAX_ANALYSIS_FAILURES) {
+                    throw $e;
+                }
+                // Spec 019 (owner decision): the second transient failure of this window is delivered without AI, not lost.
+                $skipped = new AnalyzerFailed('provider unavailable', false, 'provider unavailable', $e->provider);
+                $buffer->discard();
+                $routed = new RouterResult([], 0, 0, 0, 0);
             }
         }
 

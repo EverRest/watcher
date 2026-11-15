@@ -137,17 +137,19 @@ final class ModelDistrustTest extends TestCase
 
         $second = $h->watcher(self::source(self::alpha(9)))->run();
 
-        self::assertSame(RunOutcome::Failed, $second->outcome);
-        self::assertStringContainsString('no further attempts for this window', $h->sentTexts()[count($h->sentTexts()) - 1]);
+        // Spec 019 (owner decision): the second failure of a window is delivered without AI, not lost.
+        self::assertSame(RunOutcome::Reported, $second->outcome);
+        self::assertStringContainsString('provider unavailable; groups shown without AI summary', implode("\n", $h->sentTexts()));
         $record = (fn (): ?array => $h->state->get(self::runKey($h)))();
-        self::assertSame('failed', $record['outcome'] ?? null);
+        self::assertSame('reported', $record['outcome'] ?? null);
         $calls = count($h->analyzer->triageRequests);
         self::assertSame(RunOutcome::SkippedDone, $h->watcher(self::source(self::alpha(9)))->run()->outcome);
         self::assertCount($calls, $h->analyzer->triageRequests);
 
         $h->nextWindow();
         $h->analyzer->failure = null;
-        self::assertSame(RunOutcome::Reported, $h->watcher(self::source(self::alpha(12)))->run()->outcome, 'the next window starts clean');
+        // 9 -> 12 is below the growth factor against the count it was shown with: not sent again, and not a failure.
+        self::assertSame(RunOutcome::Quiet, $h->watcher(self::source(self::alpha(12)))->run()->outcome, 'the next window starts clean');
     }
 }
 

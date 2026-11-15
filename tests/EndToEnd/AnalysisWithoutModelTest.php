@@ -197,6 +197,27 @@ final class AnalysisWithoutModelTest extends TestCase
         self::assertStringContainsString('⚠️ AI analysis skipped: openai no key; groups shown without AI summary', implode("\n", $h->sentTexts()));
     }
 
+    /** Spec 019 (answer 1): a transient failure fails the first attempt of a window; the second delivers the digest without AI. */
+    public function testTheSecondTransientFailureOfAWindowSendsTheDigestWithoutAi(): void
+    {
+        $h = new Harness();
+        $baseline = Harness::events(Level::Warning, 'Alpha failed in a unique way', 5, 'Alpha');
+        $h->watcher(new FakeLogSource(Harness::totalsOf($baseline), $baseline))->run();
+        $h->nextWindow();
+        $events = Harness::events(Level::Error, 'Alpha failed in a unique way', 5, 'Alpha');
+        $unavailable = new Response(503, ['Content-Type' => 'application/json'], '{"error":{"message":"busy"}}');
+        $adapter = new OpenAiProvider(new Client(['handler' => HandlerStack::create(new MockHandler([$unavailable, $unavailable]))]), self::SECRET, 'https://openai.example.test', 60, 0);
+        $watcher = fn (): Watcher => new Watcher(WatchConfig::fromArray($h->config()), new FakeLogSource(Harness::totalsOf($events), $events), $h->state, new ProviderAnalyzer(ProviderRegistry::single($adapter, 'openai')), $h->notifier, $h->clock);
+
+        $first = $watcher()->run();
+        $second = $watcher()->run();
+
+        self::assertSame(RunOutcome::Failed, $first->outcome, 'the first attempt still fails loudly');
+        self::assertSame(RunOutcome::Reported, $second->outcome);
+        self::assertSame(0, $second->exitCode());
+        self::assertStringContainsString('⚠️ AI analysis skipped: openai provider unavailable; groups shown without AI summary', implode("\n", $h->sentTexts()));
+    }
+
     public function testATransientFailureStillFailsTheRun(): void
     {
         $unavailable = new Response(503, ['Content-Type' => 'application/json'], '{"error":{"message":"busy"}}');

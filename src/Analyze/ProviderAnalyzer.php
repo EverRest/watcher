@@ -131,12 +131,8 @@ final class ProviderAnalyzer implements Analyzer
                 $kind !== 'triage',
             );
         } catch (AnalyzerFailed $e) {
-            if ($e->skip === null) {
-                throw $e;
-            }
-
-            // Spec 019: the reason and the provider name only; the message stays what the adapter wrote (no key, URL or body).
-            throw new AnalyzerFailed($e->getMessage(), false, $e->skip, $this->providers->name($step));
+            // Spec 019: the provider name is added to every failure (a config name, never a secret); the message is the adapter's.
+            throw new AnalyzerFailed($e->getMessage(), $e->refused, $e->skip, $this->providers->name($step));
         }
     }
 

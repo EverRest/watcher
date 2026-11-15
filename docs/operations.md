@@ -63,7 +63,7 @@ log text).
 
 `--estimate` without `--dry-run` is a usage error (exit 2).
 
-A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries. The exception: a model **refusal** (code `analysis_refused`) and the **second** failed attempt of the same window write a `failed` run record (`no further attempts for this window`), so later triggers report `skipped_done` instead of paying for the window again; the next window starts clean.
+A failed **analysis** keeps the window snapshot but writes no run record, so the next trigger in the same hour retries. The exceptions: a model **refusal** (code `analysis_refused`) writes a `failed` run record, so later triggers report `skipped_done` instead of paying for the window again. The **second** transient failure of the same window is delivered without AI (reason `provider unavailable`, see below) and the window is recorded as reported; the next window starts clean.
 If triage had already been paid for, its verdicts (noise / known / interesting; never findings, and never noise/known for
 error-level or watch-rule groups) are kept in `triage:<service>:<window-end>` for 6 hours, so the retry in the same window
 makes no second triage call. The record is cleared once the digest is delivered.
@@ -77,6 +77,7 @@ When the model provider cannot be used, the run does not fail. The digest is sen
 |---|---|
 | `no key` | no key is set for a provider a step uses |
 | `authentication failed` | the provider answers 401 or 403 |
+| `provider unavailable` | the provider failed twice for the same window (timeout, 5xx, invalid output) |
 | `quota exhausted` | the provider reports credit or quota exhausted (OpenAI billing codes such as `insufficient_quota`; Gemini `402`). A plain rate limit (429) is not this: it is retried as before |
 
 What you see:
