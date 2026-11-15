@@ -9,6 +9,6 @@ final class NoKeyProvider implements ModelProvider
 {
     public function create(string $model, int $maxTokens, string $system, string $user, array $schema, bool $thinking): ModelReply
     {
-        throw new AnalyzerFailed('no key');
+        throw new AnalyzerFailed('no key', false, 'no key');
     }
 }

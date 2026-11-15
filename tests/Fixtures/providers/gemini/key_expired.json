@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 400,
+    "message": "API key expired. Please renew the API key.",
+    "status": "FAILED_PRECONDITION"
+  }
+}
