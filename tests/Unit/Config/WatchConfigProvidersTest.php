@@ -74,15 +74,13 @@ final class WatchConfigProvidersTest extends TestCase
         WatchConfig::fromArray(self::withAnalysis(['providers' => ['triage' => 'mistral']]));
     }
 
-    public function testUsedProviderWithoutKeyNamesTheKeyPathNotTheValue(): void
+    /** Spec 019 FR-001: a missing key is not a config error; the run runs without AI and `check` says so. */
+    public function testUsedProviderWithoutKeyLoadsWithNoKeyRecorded(): void
     {
-        try {
-            WatchConfig::fromArray(self::withAnalysis(['providers' => ['triage' => 'openai'], 'models' => ['triage' => 'm1']]));
-            self::fail('expected InvalidConfig');
-        } catch (InvalidConfig $e) {
-            self::assertStringContainsString('analysis.api_keys.openai', $e->getMessage());
-            self::assertStringNotContainsString('sk-gemini-secret', $e->getMessage());
-        }
+        $c = WatchConfig::fromArray(self::withAnalysis(['providers' => ['triage' => 'openai'], 'models' => ['triage' => 'm1']]));
+
+        self::assertArrayNotHasKey('openai', $c->analysis['api_keys']);
+        self::assertSame('sk-gemini-secret', WatchConfig::reveal($c->analysis['api_keys']['gemini']));
     }
 
     public function testTheGeminiKeyIsReadFromTheKeysMap(): void

@@ -216,6 +216,11 @@ final class Doctor
     /** @return array{CheckResult, CheckResult} provider_auth, models */
     private function provider(): array
     {
+        // Spec 019 FR-002: a provider in use without a key is a warning, not a failure: the digest goes out without AI.
+        $noKey = array_values(array_filter(array_unique(array_values($this->config->analysis['step_providers'])), fn (string $n): bool => !isset($this->config->analysis['api_keys'][$n])));
+        if ($noKey !== []) {
+            return [CheckResult::warn('provider_auth', 'no key for ' . implode(', ', $noKey) . ': AI analysis off'), CheckResult::skip('models', 'no key')];
+        }
         if ($this->catalog === null) {
             return [CheckResult::skip('provider_auth', 'provider has no model list'), CheckResult::skip('models', 'provider has no model list')];
         }
