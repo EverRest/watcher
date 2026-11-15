@@ -16,6 +16,7 @@ use Watcher\Analyze\Finding;
 use Watcher\Analyze\AnalysisResult;
 use Watcher\Analyze\Analyzer;
 use Watcher\Analyze\AnalyzerFailed;
+use Watcher\Analyze\RouterResult;
 use Watcher\Analyze\Budget;
 use Watcher\Analyze\CompactPayload;
 use Watcher\Analyze\ModelRouter;
@@ -907,6 +908,9 @@ final class Watcher
                 $candidates[] = $cand;
                 continue;
             }
+            if (($reported['withoutAi'] ?? false) === true) {
+                continue; // spec 019 FR-007: shown without AI earlier and unchanged: not sent again; no verdict was kept for it
+            }
             $finding = $this->storedFinding($keys, $cand->group->fingerprint);
             if ($finding === null) {
                 // Reported, but nothing readable to repeat: analyse it again rather than stay silent (FR-008). A verdict without a
@@ -956,7 +960,7 @@ final class Watcher
         $findings = [...$routed->findings, ...$repeatFindings]; // already scrubbed by the decorator, before the router cached them; repeats come from the stored, scrubbed text
         $dropped = $analysis->truncation->droppedCount + $routed->droppedByTopM;
 
-        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->escalationsSkippedSize === 0 && $patternFailures === 0 && $routed->unreported === 0 && $routed->triageCoerced === 0) {
+        if ($findings === [] && $dropped === 0 && $routed->notAnalysed === 0 && $routed->escalationsSkippedSize === 0 && $patternFailures === 0 && $routed->unreported === 0 && $routed->triageCoerced === 0 && $analysis->skipped === null) {
             $analysis->checkpoint->clear();
             $analysis->buffer->flush(); // settled verdicts are real even when there is nothing to say
             $this->ledger->snapshot($window, $allGroups, $totals);
@@ -967,6 +971,9 @@ final class Watcher
             return new RunResult(RunOutcome::Quiet);
         }
 
+        if ($analysis->skipped !== null) {
+            $this->aiSkippedNotice($analysis->skipped);
+        }
         // Spec 018 US2: a new group is announced now, before this run's digest.
         NewGroupAlerts::fromRun($c, $this->state, $this->dayGate, fn (Message $m) => $this->dayGated->send($m, $this->noticeDestination()), fn (DeliveryFailed $e) => $this->hostLog?->warning('new group alert failed: ' . $this->notices()->describe($e), ['service' => $service]), $this->notices(), $this->options->dryRun)
             ->deliver($selection->candidates, $analysis->redacted, $window, $environment, $this->clock->now());
@@ -1003,13 +1010,34 @@ final class Watcher
                 $analysis->buffer->put($keys->finding($fp), $finding->toArray(), $retention); // what a repeat sends (FR-008)
             }
         }
+        if ($analysis->skipped !== null) {
+            foreach ($analysis->redacted as $g) {
+                if (!isset($repeatedFingerprints[$g->fingerprint])) {
+                    $analysis->buffer->put($keys->reported($g->fingerprint), ['lastReportedAt' => $now, 'atCount' => $analysis->byFingerprint[$g->fingerprint]->count ?? 0, 'withoutAi' => true], $retention);
+                }
+            }
+        }
         $analysis->checkpoint->clear();
         $analysis->buffer->flush();
         $this->ledger->snapshot($window, $allGroups, $totals);
-        $this->ledger->runRecord($runKey, RunOutcome::Reported, $started);
+        $this->ledger->runRecord($runKey, RunOutcome::Reported, $started, null, $analysis->skipped?->skip);
         $this->advanceHighWater($window, $keys);
 
         return new RunResult(RunOutcome::Reported);
+    }
+
+    /** Spec 019 FR-005: the one digest line for a run whose model was not used. The words are closed; the provider is a config name. */
+    private static function aiSkippedLine(?AnalyzerFailed $e): ?string
+    {
+        return $e === null ? null : sprintf('⚠️ AI analysis skipped: %s %s; groups shown without AI summary', $e->provider ?? 'provider', $e->skip ?? 'unavailable');
+    }
+
+    /** Spec 019 FR-008: one notice per service, provider, reason and UTC day (the notice-once key carries the day). */
+    private function aiSkippedNotice(AnalyzerFailed $e): void
+    {
+        $day = $this->clock->now()->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d');
+        $key = 'aiskip:' . rawurlencode($this->config->stateKey) . ':' . rawurlencode((string) $e->provider) . ':' . rawurlencode((string) $e->skip) . ':' . $day;
+        $this->noticeOnce($key, self::plainNotice(sprintf('⚠️ AI analysis skipped for %s: %s %s. Groups are shown without AI summary until the provider works again.', $this->config->service, $e->provider ?? 'provider', $e->skip ?? 'unavailable')), $this->noticeDestination());
     }
 
     /** The finding last sent for a group, or null when none is stored or the stored entry cannot be read. */
@@ -1069,27 +1097,36 @@ final class Watcher
         $buffer = $buffer ?? new BufferedStateStore($this->state); // verdicts, reported markers, known refs: kept only once the digest is delivered
         $checkpoint = new TriageCheckpoint($this->state, $key, $keys->end());
         $router = new ModelRouter(self::counted(self::renewing(self::redacting($this->analyzer, $redactor), $this->renewLock(...)), $this->options->estimate ? null : $this->ledger->stats(), $c->analysis['models']), new VerdictCache($buffer, $key, $retention), $this->routerSettings($serviceContext, $metrics), $checkpoint);
+        $skipped = null;
         try {
             $routed = $router->route($redacted, $dependencies, $endpoints->model);
         } catch (AnalyzerFailed $e) {
-            // The window was read: keep it as the next window's comparison base. Normally no RunRecord, so the next trigger retries;
-            // but a refusal, or a second failure of this window, is recorded as failed so hourly triggers do not re-bill it endlessly.
-            $failures = 0;
-            try {
-                $this->ledger->snapshot($window, $allGroups, $totals);
-                $failuresKey = $keys->analysisFailures();
-                $failures = (int) ($this->state->get($failuresKey)['n'] ?? 0) + 1;
-                $this->state->put($failuresKey, ['n' => $failures], $retention);
-            } catch (Throwable) {
-                // A state fault must not replace the analysis failure the run will report.
-            }
-            if ($e->refused || $failures >= self::MAX_ANALYSIS_FAILURES) {
-                $this->ledger->runRecord($keys->run(), RunOutcome::Failed, $started, $e->refused ? 'analysis_refused' : 'analysis_failed');
+            if ($e->skip !== null) {
+                // Spec 019: the model cannot be used for this window (no key, rejected key, billing). Shown without AI: no verdict
+                // of this run is kept (the buffer is discarded), and the window is not counted as a failure.
+                $skipped = $e;
+                $buffer->discard();
+                $routed = new RouterResult([], 0, 0, 0, 0);
+            } else {
+                // The window was read: keep it as the next window's comparison base. Normally no RunRecord, so the next trigger retries;
+                // but a refusal, or a second failure of this window, is recorded as failed so hourly triggers do not re-bill it endlessly.
+                $failures = 0;
+                try {
+                    $this->ledger->snapshot($window, $allGroups, $totals);
+                    $failuresKey = $keys->analysisFailures();
+                    $failures = (int) ($this->state->get($failuresKey)['n'] ?? 0) + 1;
+                    $this->state->put($failuresKey, ['n' => $failures], $retention);
+                } catch (Throwable) {
+                    // A state fault must not replace the analysis failure the run will report.
+                }
+                if ($e->refused || $failures >= self::MAX_ANALYSIS_FAILURES) {
+                    $this->ledger->runRecord($keys->run(), RunOutcome::Failed, $started, $e->refused ? 'analysis_refused' : 'analysis_failed');
 
-                throw new AnalyzerFailed($e->getMessage() . ' (no further attempts for this window)', $e->refused);
-            }
+                    throw new AnalyzerFailed($e->getMessage() . ' (no further attempts for this window)', $e->refused);
+                }
 
-            throw $e;
+                throw $e;
+            }
         }
 
         $this->ledger->stats()->findings = count($routed->findings);
@@ -1101,7 +1138,7 @@ final class Watcher
             $byFingerprint[$g->fingerprint] = $g;
         }
 
-        $analysis = new Analysis(routed: $routed, truncation: $truncation, redacted: $shown, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint, endpoints: $endpoints);
+        $analysis = new Analysis(routed: $routed, truncation: $truncation, redacted: $shown, byFingerprint: $byFingerprint, undeclared: $undeclared, failedDependencies: $failedDependencies, annotations: $annotations, buffer: $buffer, checkpoint: $checkpoint, endpoints: $endpoints, skipped: $skipped);
         $this->ledger->observeAnalysis($analysis);
 
         return $analysis;
@@ -1238,6 +1275,7 @@ final class Watcher
             knownLine: $read->knownLine,
             findingLabels: $read->knownResult !== null ? $read->knownResult->labels : [],
             routedNotice: $routedNotice,
+            aiSkipped: self::aiSkippedLine($analysis->skipped),
             draftsSkipped: $draftsSkipped,
             knownCount: $read->knownResult !== null ? $read->knownResult->knownCount : 0,
             knownGrownCount: $read->knownResult !== null ? $read->knownResult->knownGrownCount : 0,

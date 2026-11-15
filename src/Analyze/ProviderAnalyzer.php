@@ -121,14 +121,23 @@ final class ProviderAnalyzer implements Analyzer
      */
     private function call(string $kind, string $step, array $groups, string $context, string $model, int $maxTokens, array $dependencyContext = [], ?PayloadExtras $extras = null, array $endpoints = []): ModelReply
     {
-        return $this->providers->for($step)->create(
-            $model,
-            $maxTokens,
-            Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice, $extras !== null, $endpoints !== []),
-            CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext, $extras, $endpoints), bin2hex(random_bytes(16))),
-            ProviderSchema::for($kind, $this->advice),
-            $kind !== 'triage',
-        );
+        try {
+            return $this->providers->for($step)->create(
+                $model,
+                $maxTokens,
+                Budget::systemPrompt($kind === 'triage' ? 'triage' : 'analyze', $context, $this->advice, $extras !== null, $endpoints !== []),
+                CompactPayload::userMessage(CompactPayload::encode($groups, $dependencyContext, $extras, $endpoints), bin2hex(random_bytes(16))),
+                ProviderSchema::for($kind, $this->advice),
+                $kind !== 'triage',
+            );
+        } catch (AnalyzerFailed $e) {
+            if ($e->skip === null) {
+                throw $e;
+            }
+
+            // Spec 019: the reason and the provider name only; the message stays what the adapter wrote (no key, URL or body).
+            throw new AnalyzerFailed($e->getMessage(), false, $e->skip, $this->providers->name($step));
+        }
     }
 
     /** @return array<mixed> */

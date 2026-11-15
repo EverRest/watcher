@@ -81,6 +81,8 @@ final class DigestData
         /** @var array<string, string> */
         public readonly array $findingLabels = [],
         public readonly ?string $routedNotice = null,
+        /** @var string|null spec 019: the one line that says the model was not used for this digest (closed reason words only) */
+        public readonly ?string $aiSkipped = null,
         public readonly int $draftsSkipped = 0,
         public readonly int $knownCount = 0,
         public readonly int $knownGrownCount = 0,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Watcher;
 
+use Watcher\Analyze\AnalyzerFailed;
 use Watcher\Analyze\RouterResult;
 use Watcher\Analyze\TriageCheckpoint;
 use Watcher\Analyze\TruncationResult;
@@ -34,6 +35,8 @@ final class Analysis
         public readonly BufferedStateStore $buffer,
         public readonly TriageCheckpoint $checkpoint,
         public readonly ?EndpointContext $endpoints = null,
+        /** spec 019: set when the model could not be used; the groups are shown without AI and no verdict is kept */
+        public readonly ?AnalyzerFailed $skipped = null,
     ) {
     }
 }

@@ -21,6 +21,12 @@ final class ProviderRegistry
         return new self([$name => $provider], ['triage' => $name, 'analyze' => $name, 'escalate' => $name]);
     }
 
+    /** The provider name serving a step (a configured name, never a secret). */
+    public function name(string $step): string
+    {
+        return $this->steps[$step] ?? throw new \LogicException("no provider for step $step");
+    }
+
     public function for(string $step): ModelProvider
     {
         return $this->providers[$this->steps[$step] ?? throw new \LogicException("no provider for step $step")];
